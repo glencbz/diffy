@@ -21,8 +21,9 @@ To start, let's create an entrypoint for our Bun work.
 const server = Bun.serve({
   port: 3000,
   routes: {
-    "/": () => new Response('Bun!'),
-  }
+    "/": () => new Response("Bun!"),
+    "/api/hello": () => Response.json({ message: "Hello, world!" }),
+  },
 });
 
 console.log(`Listening on ${server.url}`);
@@ -35,4 +36,20 @@ And a just recipe to run it.
 # Run the app
 @run:
   bun run src/index.ts
+```
+
+## Linting & formatting
+
+[Biome](https://biomejs.dev/) is our linter/formatter. It's faster and easier than 
+ESLint + Prettier. We used the default `bunx biome init`.
+
+```just
+#| id: just-biome
+# Lint and check formatting/import order
+@lint:
+  bunx biome check .
+
+# Format code in place
+@format:
+  bunx biome format --write .
 ```

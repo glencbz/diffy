@@ -16,4 +16,6 @@ _default:
 <<just-entangled>>
 
 <<just-bun>>
+
+<<just-biome>>
 ```
