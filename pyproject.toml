@@ -1,0 +1,12 @@
+[project]
+name = "diffy"
+version = "0.1.0"
+description = "Virtual env for running entangled and building docs."
+authors = ["glen <glencbz@gmail.com>"]
+# You may still want to add a license here
+# license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "entangled-cli>=2.2.1",
+]
