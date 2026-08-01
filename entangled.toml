@@ -1,7 +1,17 @@
 version = "2.0"
 watch_list = ["docs/**/*.md"]
+hooks=["quarto_attributes"]
+
+[markers]
+open="^(?P<indent>\\s*)```(?P<properties>.*)$"
+close="^(?P<indent>\\s*)```\\s*$"
 
 [[languages]]
 name = "TypeScript"
 identifiers = ["ts", "typescript"]
 comment = { open = "//" }
+
+[[languages]]
+name = "Just"
+identifiers = ["just"]
+comment = { open = "#" }

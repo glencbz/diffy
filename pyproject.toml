@@ -7,6 +7,8 @@ authors = ["glen <glencbz@gmail.com>"]
 # license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "entangled-cli>=2.2.1",
+
+[dependency-groups]
+dev = [
+    "entangled-cli>=2.4.3",
 ]

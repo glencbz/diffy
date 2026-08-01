@@ -95,12 +95,16 @@ wheels = [
 name = "diffy"
 version = "0.1.0"
 source = { virtual = "." }
-dependencies = [
+
+[package.dev-dependencies]
+dev = [
     { name = "entangled-cli" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "entangled-cli", specifier = ">=2.2.1" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "entangled-cli", specifier = ">=2.4.3" }]
 
 [[package]]
 name = "dunamai"
