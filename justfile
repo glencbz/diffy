@@ -25,10 +25,23 @@ _default:
 # Run the app
 @run:
   bun run src/index.ts
+
+# ~/~ end
+
+# ~/~ begin <<docs/tech/bun.md#just-bun-test>>[init]
+# Run tests
+@test:
+  bun test
+# ~/~ end
+
+# ~/~ begin <<docs/tech/bun.md#just-bun-typecheck>>[init]
+# Typecheck without emitting
+@typecheck:
+  bunx tsc --noEmit
 # ~/~ end
 
 # ~/~ begin <<docs/tech/bun.md#just-biome>>[init]
-# Lint (and check formatting/import order), no changes made
+# Lint and check formatting/import order
 @lint:
   bunx biome check .
 

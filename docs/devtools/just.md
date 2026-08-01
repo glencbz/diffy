@@ -17,5 +17,9 @@ _default:
 
 <<just-bun>>
 
+<<just-bun-test>>
+
+<<just-bun-typecheck>>
+
 <<just-biome>>
 ```

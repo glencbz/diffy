@@ -36,9 +36,35 @@ And a just recipe to run it.
 # Run the app
 @run:
   bun run src/index.ts
+
 ```
 
-## Linting & formatting
+## Quality
+
+### Testing
+
+`bun test` is our test runner. Having fewer deps is nice.
+
+```just
+#| id: just-bun-test
+# Run tests
+@test:
+  bun test
+```
+
+### Typechecking
+
+Bun transpiles TS by stripping types, it doesn't check them, so we still
+need `tsc --noEmit` (config in `tsconfig.json`) as a separate check.
+
+```just
+#| id: just-bun-typecheck
+# Typecheck without emitting
+@typecheck:
+  bunx tsc --noEmit
+```
+
+### Linting & formatting
 
 [Biome](https://biomejs.dev/) is our linter/formatter. It's faster and easier than 
 ESLint + Prettier. We used the default `bunx biome init`.
