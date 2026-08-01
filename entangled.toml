@@ -1,2 +1,7 @@
 version = "2.0"
 watch_list = ["docs/**/*.md"]
+
+[[languages]]
+name = "TypeScript"
+identifiers = ["ts", "typescript"]
+comment = { open = "//" }

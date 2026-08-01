@@ -1,5 +1,9 @@
 _default:
   just list
 
-@docs:
-  uv run mkdocs serve
+@install:
+  bun install
+  uv sync
+
+@tangle:
+  uv run entangled tangle
