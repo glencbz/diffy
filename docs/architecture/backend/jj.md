@@ -1,7 +1,8 @@
-# jj
+# jj commit backend
 
-Diffy shells out to the [`jj`](https://jj-vcs.dev/) CLI rather than linking to the 
-library. Per the [tech plan](../tech-plan.md) that's the more stable surface.
+We'll use jj as our primary commit backend. This shells out to the
+[`jj`](https://jj-vcs.dev/) CLI rather than linking to the library. Per the
+[tech plan](../tech-plan.md) that's the more stable surface.
 
 ## Functionality
 
@@ -22,7 +23,7 @@ exactly one commit's output.
 
 ```ts
 //| id: jj-module
-//| file: src/jj.ts
+//| file: src/backend/commit/jj.ts
 import { $ } from "bun";
 import * as z from "zod";
 
@@ -81,7 +82,7 @@ specific commit history: the root commit always exists, always sorts last in
 
 ```ts
 //| id: jj-module-test
-//| file: src/jj.test.ts
+//| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
 import { jjLog } from "./jj";
 

@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/tech/jj.md#jj-module>>[init]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[init]
 import { $ } from "bun";
 import * as z from "zod";
 
