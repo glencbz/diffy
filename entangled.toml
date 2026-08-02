@@ -15,3 +15,8 @@ comment = { open = "//" }
 name = "Just"
 identifiers = ["just"]
 comment = { open = "#" }
+
+[[languages]]
+name = "HTML"
+identifiers = ["html"]
+comment = { open = "<!--", close = "-->" }

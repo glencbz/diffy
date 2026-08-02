@@ -18,10 +18,12 @@ To start, let's create an entrypoint for our Bun work.
 ```ts
 //| id: demo-bun
 //| file: src/index.ts
+import index from "./index.html";
+
 const server = Bun.serve({
   port: 3000,
   routes: {
-    "/": () => new Response("Bun!"),
+    "/": index,
     "/api/hello": () => Response.json({ message: "Hello, world!" }),
   },
 });
