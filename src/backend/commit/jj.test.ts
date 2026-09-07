@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/tech/jj.md#jj-module-test>>[init]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { jjLog } from "./jj";
 

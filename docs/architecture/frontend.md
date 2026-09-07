@@ -1,6 +1,6 @@
-# htmx
+# Frontend
 
-For science, we'll use [htmx](https://htmx.org/) over a JS frontend framework.
+For science, we use [htmx](https://htmx.org/) over a JS frontend framework.
 We'll render all of Diffy's UI via the server and just let the Bun backend
 handle everything.
 
@@ -12,15 +12,15 @@ Bun's bundler scans it for `<script>`/`<link>` tags and bundles them, then
 
 ```html
 <!--| id: landing-page
-<!--| file: src/index.html
+<!--| file: src/frontend/index.html
 <html lang="en">
   <head>
     <title>Diffy</title>
   </head>
   <body>
     <h1>Diffy</h1>
-    <button type="button" hx-get="/api/hello" hx-target="#result" hx-swap="innerHTML">
-      Say hello
+    <button type="button" hx-get="/api/log" hx-target="#result" hx-swap="innerHTML">
+      Log
     </button>
     <div id="result"></div>
     <script type="module" src="./frontend.ts"></script>
@@ -34,6 +34,7 @@ explicit init call needed.
 
 ```ts
 //| id: htmx-frontend
-//| file: src/frontend.ts
+//| file: src/frontend/frontend.ts
 import "htmx.org";
 ```
+

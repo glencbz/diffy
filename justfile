@@ -21,29 +21,33 @@ _default:
   uv run entangled tangle {{args}}
 # ~/~ end
 
-# ~/~ begin <<docs/tech/bun.md#just-bun>>[init]
+# ~/~ begin <<docs/architecture/backend/server.md#just-bun>>[init]
 # Run the app
 @run:
-  bun run src/index.ts
+  bun run src/server.ts
 
 # ~/~ end
 
-# ~/~ begin <<docs/tech/bun.md#just-bun-test>>[init]
+# ~/~ begin <<docs/architecture/backend/server.md#just-bun-test>>[init]
 # Run tests
 @test:
   bun test
 # ~/~ end
 
-# ~/~ begin <<docs/tech/bun.md#just-bun-typecheck>>[init]
+# ~/~ begin <<docs/architecture/backend/server.md#just-bun-typecheck>>[init]
 # Typecheck without emitting
 @typecheck:
   bunx tsc --noEmit
 # ~/~ end
 
-# ~/~ begin <<docs/tech/bun.md#just-biome>>[init]
+# ~/~ begin <<docs/architecture/backend/server.md#just-biome>>[init]
 # Lint and check formatting/import order
 @lint:
   bunx biome check .
+
+# Lint and apply automatic fixes
+@lint-fix:
+  bunx biome check . --fix
 
 # Format code in place
 @format:

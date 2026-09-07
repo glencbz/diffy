@@ -1,12 +1,12 @@
-<!-- ~/~ begin <<docs/tech/htmx.md#landing-page>>[init] -->
+<!-- ~/~ begin <<docs/architecture/frontend.md#landing-page>>[init] -->
 <html lang="en">
   <head>
     <title>Diffy</title>
   </head>
   <body>
     <h1>Diffy</h1>
-    <button type="button" hx-get="/api/hello" hx-target="#result" hx-swap="innerHTML">
-      Say hello
+    <button type="button" hx-get="/api/log" hx-target="#result" hx-swap="innerHTML">
+      Log
     </button>
     <div id="result"></div>
     <script type="module" src="./frontend.ts"></script>
