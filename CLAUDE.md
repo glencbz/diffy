@@ -109,3 +109,14 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## GitHub workflow
+
+- Finish every requested change on a dedicated branch, commit it, push it, and open a GitHub pull request. Do not commit directly to `main`.
+
+## Commit messages
+
+- Prefix commit subjects with the affected subarea (for example, `skills:`), not Conventional Commit types such as `feat:`, `fix:`, or `chore:`.
+- Wrap commit messages at 72 characters.
+- Use the commit body for useful context that is not obvious from the diff, including provenance for vendored material.
+- Write commit bodies as regular prose. Do not invent `Key: value` lines that resemble Git trailers.
