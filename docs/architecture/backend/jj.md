@@ -6,6 +6,54 @@ We'll use jj as our primary commit backend. This shells out to the
 
 ## Functionality
 
+### Running the CLI
+
+Every jj invocation goes through one helper, so the shell call and its error
+contract live in a single place. Bun's `$` throws a `ShellError` when the
+process exits non-zero. The only external input we ever hand jj is a revset,
+so a non-zero exit almost always means the caller passed a bad one, and we
+surface that as a typed `JjError` carrying jj's own stderr message (minus the
+"Done importing changes" progress line jj also writes to stderr). Anything
+that is not a `ShellError`, such as jj missing from `PATH`, is a genuine fault
+and propagates untouched for the caller to turn into a 500.
+
+```ts
+//| id: jj-module
+//| file: src/backend/commit/jj.ts
+import { $ } from "bun";
+import * as z from "zod";
+
+/** The `jj` CLI ran and exited non-zero, usually an unresolvable revset. */
+export class JjError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode: number,
+  ) {
+    super(message);
+    this.name = "JjError";
+  }
+}
+
+/** Keep jj's `Error:` lines; drop the "Done importing changes" preamble. */
+function cleanStderr(stderr: string): string {
+  const errors = stderr.split("\n").filter((line) => line.startsWith("Error:"));
+  return (errors.length > 0 ? errors.join("\n") : stderr).trim();
+}
+
+async function runJj(args: string[]): Promise<string> {
+  try {
+    return await $`jj ${args}`.quiet().text();
+  } catch (error) {
+    if (error instanceof $.ShellError) {
+      const message =
+        cleanStderr(error.stderr.toString()) || `jj exited ${error.exitCode}`;
+      throw new JjError(message, error.exitCode);
+    }
+    throw error;
+  }
+}
+```
+
 ### Reading commit history
 
 `jj log` supports a `-T`/`--template` expression language. The builtin
@@ -23,9 +71,6 @@ exactly one commit's output.
 
 ```ts
 //| id: jj-module
-//| file: src/backend/commit/jj.ts
-import { $ } from "bun";
-import * as z from "zod";
 
 export interface JjLogEntry {
   commitId: string;
@@ -51,7 +96,7 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
 
-  const output = await $`jj ${args}`.quiet().text();
+  const output = await runJj(args);
 
   return Promise.all(
     output
@@ -84,7 +129,7 @@ specific commit history: the root commit always exists, always sorts last in
 //| id: jj-module-test
 //| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
-import { jjLog } from "./jj";
+import { JjError, jjLog } from "./jj";
 
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
@@ -112,6 +157,15 @@ describe("jjLog", () => {
 
     // assert
     expect(entries).toHaveLength(1);
+  });
+
+  test("wraps an unresolvable revset in JjError", async () => {
+    // arrange
+    // act
+    // assert
+    await expect(
+      jjLog({ revset: "no-such-revision-xyz" }),
+    ).rejects.toBeInstanceOf(JjError);
   });
 });
 ```

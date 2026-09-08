@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { jjLog } from "./jj";
+import { JjError, jjLog } from "./jj";
 
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
@@ -28,6 +28,15 @@ describe("jjLog", () => {
 
     // assert
     expect(entries).toHaveLength(1);
+  });
+
+  test("wraps an unresolvable revset in JjError", async () => {
+    // arrange
+    // act
+    // assert
+    await expect(
+      jjLog({ revset: "no-such-revision-xyz" }),
+    ).rejects.toBeInstanceOf(JjError);
   });
 });
 // ~/~ end
