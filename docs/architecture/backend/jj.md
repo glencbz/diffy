@@ -2,7 +2,7 @@
 
 We'll use jj as our primary commit backend. This shells out to the
 [`jj`](https://jj-vcs.dev/) CLI rather than linking to the library. Per the
-[tech plan](../tech-plan.md) that's the more stable surface.
+[tech plan](../../tech-plan.md) that's the more stable surface.
 
 ## Functionality
 
@@ -119,7 +119,7 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 
 `jj diff --git -r <revision>` prints a standard `git`-format unified diff of a
 revision against its parent. That is the "show a commit's diff" operation the
-[tech plan](../tech-plan.md) calls for, and `--color=never` keeps the output
+[tech plan](../../tech-plan.md) calls for, and `--color=never` keeps the output
 free of ANSI escapes.
 
 We don't parse hunks: the raw `--git` patch is the payload a review UI renders.
