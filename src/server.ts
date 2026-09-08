@@ -1,15 +1,34 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[init]
 
-import { jjLog } from "./backend/commit/jj";
+import { JjError, jjDiff, jjLog } from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
-const server = Bun.serve({
-  port: 3000,
-  routes: {
-    "/": index,
-    "/api/log": async () => Response.json(await jjLog()),
-  },
-});
+/**
+ * `GET /api/diff?rev=<revision>` returns one revision's diff, file by file.
+ *
+ * A `JjError` means jj rejected the revision, so it maps to 400 with jj's own
+ * message. Any other error is unexpected and propagates as a 500.
+ */
+export async function handleDiff(req: Request): Promise<Response> {
+  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+  try {
+    return Response.json({ revision, files: await jjDiff({ revision }) });
+  } catch (error) {
+    if (error instanceof JjError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    throw error;
+  }
+}
 
-console.log(`Listening on ${server.url}`);
+export const routes = {
+  "/": index,
+  "/api/log": async () => Response.json(await jjLog()),
+  "/api/diff": handleDiff,
+};
+
+if (import.meta.main) {
+  const server = Bun.serve({ port: 3000, routes });
+  console.log(`Listening on ${server.url}`);
+}
 // ~/~ end
