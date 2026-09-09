@@ -132,7 +132,12 @@ def include_repl_output(reference_map: ReferenceMap, r: ReferenceId) -> list[Con
 
 
 def on_page_markdown(markdown: str, *, page: Page, config: MkDocsConfig, files: Files) -> str:
-    context = Context() | read_config()
+    # Vendored patch. Upstream 0.6.0 calls `read_config()` with no arguments,
+    # which matches entangled-cli 2.4.0/2.4.1. entangled-cli 2.4.2 routed config
+    # reading through a virtual filesystem, so it is now `read_config(fs)`. Pass
+    # the FileCache the Context already builds.
+    context = Context()
+    context |= read_config(context.fs)
     reference_map, content = read_single_markdown(context, markdown)
     filtered_content = iter_bind(content, partial(compose_filters(add_title, include_repl_output), reference_map))
     return document_to_text(reference_map, filtered_content)
