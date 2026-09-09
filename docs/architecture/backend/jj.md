@@ -60,7 +60,9 @@ async function runJj(args: string[]): Promise<string> {
 `json(self)` function serializes a commit to JSON (stable field names:
 `commit_id`, `change_id`, `description`, `parents`, `author`, `committer`),
 so instead of hand-building a delimited/escaped template we emit one JSON
-object per line (JSONL) and let `JSON.parse` do the work:
+object per line (JSONL) and let `JSON.parse` do the work. We keep
+`parents` (the list of parent commit IDs) so the frontend can draw the
+commit graph and mark merges.
 
 ```sh
 jj log --no-graph -T 'json(self) ++ "\n"'
@@ -76,12 +78,15 @@ export interface JjLogEntry {
   commitId: string;
   changeId: string;
   description: string;
+  /** Parent commit IDs, in jj's order. Empty only for the root commit. */
+  parents: string[];
 }
 
 const JjLogEntryWire = z.object({
   commit_id: z.string(),
   change_id: z.string(),
   description: z.string(),
+  parents: z.array(z.string()),
 });
 
 export interface JjLogOptions {
@@ -109,6 +114,7 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
           commitId: commit.commit_id,
           changeId: commit.change_id,
           description: commit.description,
+          parents: commit.parents,
         };
       }),
   );
@@ -278,6 +284,7 @@ describe("jjLog", () => {
       expect(typeof entry.commitId).toBe("string");
       expect(typeof entry.changeId).toBe("string");
       expect(typeof entry.description).toBe("string");
+      expect(Array.isArray(entry.parents)).toBe(true);
     }
 
     const root = entries.at(-1);

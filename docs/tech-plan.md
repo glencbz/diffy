@@ -18,10 +18,11 @@
 
 ### Web frontend
 
-We will try using htmx, since that's new to us. Most of the operations will
-live in the backend anyway, so it makes sense to try to delegate to the backend
-as much as possible (vs something like React, which would put logic in the
-frontend).
+We first tried htmx, but the v0 UI (a commit picker whose selection drives a
+diff panel) has enough client-side state that we switched to React. The
+frontend is now a small React + Zod app, described in
+[architecture/frontend.md](architecture/frontend.md). The backend still runs jj
+and parses the diffs; the frontend only renders.
 
 ### Web backend
 

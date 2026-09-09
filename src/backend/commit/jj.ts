@@ -38,12 +38,15 @@ export interface JjLogEntry {
   commitId: string;
   changeId: string;
   description: string;
+  /** Parent commit IDs, in jj's order. Empty only for the root commit. */
+  parents: string[];
 }
 
 const JjLogEntryWire = z.object({
   commit_id: z.string(),
   change_id: z.string(),
   description: z.string(),
+  parents: z.array(z.string()),
 });
 
 export interface JjLogOptions {
@@ -71,6 +74,7 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
           commitId: commit.commit_id,
           changeId: commit.change_id,
           description: commit.description,
+          parents: commit.parents,
         };
       }),
   );
