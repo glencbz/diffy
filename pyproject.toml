@@ -11,4 +11,13 @@ requires-python = ">=3.13"
 [dependency-groups]
 dev = [
     "entangled-cli>=2.4.3",
+    "mkdocs>=1.6",
+    "mkdocs-entangled-plugin",
+    "mkdocs-material>=9.5",
+    "pymdown-extensions>=10",
 ]
+
+[tool.uv.sources]
+# Vendored + patched: no released mkdocs-entangled-plugin works with
+# entangled-cli 2.4.2+. See vendor/mkdocs-entangled-plugin/README.md.
+mkdocs-entangled-plugin = { path = "vendor/mkdocs-entangled-plugin", editable = true }

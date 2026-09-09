@@ -21,6 +21,16 @@ _default:
   uv run entangled tangle {{args}}
 # ~/~ end
 
+# ~/~ begin <<docs/devtools/entangled.md#just-docs>>[init]
+# Serve the docs site with live reload
+@docs:
+  uv run mkdocs serve
+
+# Build the static docs site into ./site
+@docs-build:
+  uv run mkdocs build --strict
+# ~/~ end
+
 # ~/~ begin <<docs/architecture/backend/server.md#just-bun>>[init]
 # Run the app
 @run:

@@ -1,0 +1,34 @@
+site_name: Diffy
+site_description: Literate source for Diffy, a code-review tool.
+repo_url: https://github.com/glencbz/diffy
+docs_dir: docs
+
+plugins:
+  - search
+  - entangled
+
+markdown_extensions:
+  - attr_list
+  - pymdownx.superfences
+  - pymdownx.extra
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - content.code.copy
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
