@@ -1,0 +1,22 @@
+[project]
+name = "mkdocs-entangled-plugin"
+version = "0.6.0+diffy.1"
+description = "Vendored MkDocs plugin for rendering Entangled literate docs."
+authors = [{ name = "Johan Hidding", email = "j.hidding@esciencecenter.nl" }]
+requires-python = ">=3.12,<4"
+readme = "README.md"
+license = "Apache-2.0"
+dependencies = [
+    "mkdocs>=1.4.2,<2",
+    "entangled-cli>=2.4,<3",
+]
+
+[project.entry-points."mkdocs.plugins"]
+entangled = "mkdocs_entangled:EntangledPlugin"
+
+[tool.hatch.build.targets.wheel]
+include = ["mkdocs_entangled"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
