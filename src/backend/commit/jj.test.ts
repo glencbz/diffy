@@ -14,6 +14,7 @@ describe("jjLog", () => {
       expect(typeof entry.commitId).toBe("string");
       expect(typeof entry.changeId).toBe("string");
       expect(typeof entry.description).toBe("string");
+      expect(Array.isArray(entry.parents)).toBe(true);
     }
 
     const root = entries.at(-1);

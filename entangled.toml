@@ -8,7 +8,7 @@ close="^(?P<indent>\\s*)```\\s*$"
 
 [[languages]]
 name = "TypeScript"
-identifiers = ["ts", "typescript"]
+identifiers = ["ts", "typescript", "tsx"]
 comment = { open = "//" }
 
 [[languages]]

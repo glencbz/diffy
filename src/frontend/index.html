@@ -1,15 +1,13 @@
 <!-- ~/~ begin <<docs/architecture/frontend.md#landing-page>>[init] -->
+<!doctype html>
 <html lang="en">
   <head>
+    <meta charset="utf-8" />
     <title>Diffy</title>
   </head>
   <body>
-    <h1>Diffy</h1>
-    <button type="button" hx-get="/api/log" hx-target="#result" hx-swap="innerHTML">
-      Log
-    </button>
-    <div id="result"></div>
-    <script type="module" src="./frontend.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
   </body>
 </html>
 <!-- ~/~ end -->
