@@ -115,17 +115,24 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 - This repo is jj-backed (colocated jj + Git). Use `jj`, not `git`, for
   everyday work. See the `jj` skill.
 - Never create a `git worktree`. jj cannot see edits made in one, so they are
-  never snapshotted. Two guards in `.claude/settings.json`:
-  - `worktree.bgIsolation: "none"` — background sessions edit the main checkout
-    directly instead of being forced into isolation.
-  - `WorktreeCreate` / `WorktreeRemove` hooks — when isolation *is* requested
-    (`--worktree`, `EnterWorktree`, agent `isolation: "worktree"`), the hooks
-    provision a **jj workspace** under `.claude/worktrees/<name>`, not a git
-    worktree. The `SessionStart` hook warns if one slips through anyway.
+  never snapshotted. `.claude/settings.json` wires up two guards:
+  - `WorktreeCreate` / `WorktreeRemove` hooks — when the harness requests
+    worktree isolation (a background or bridge session, `--worktree`,
+    `EnterWorktree`, agent `isolation: "worktree"`), they provision a **jj
+    workspace** under `.claude/worktrees/<name>` instead of a git worktree.
+  - a `SessionStart` hook — if a git worktree still slips through, it tells the
+    session to provision its own jj workspace and move there.
+- If a session lands in a `.claude/worktrees/<name>` git worktree anyway, the
+  workaround is to provision a jj workspace, not to edit the main checkout:
+  `jj workspace add .claude/worktrees/<name>-ws`, `cd` into it, work there, and
+  `jj workspace forget <name>-ws` when done. Other sessions share the `default`
+  workspace, so working in the main checkout from a trapped session collides
+  with theirs.
 - For an isolated working copy by hand, use
   `jj workspace add .claude/worktrees/<name>` and `cd` into it so edits land in
-  that workspace, not `default`. Otherwise just work in the main checkout on a
-  jj change, adding a Git bookmark at the PR boundary.
+  that workspace, not `default`. A normal foreground session with no such trap
+  just works in the main checkout on a jj change, adding a Git bookmark at the
+  PR boundary.
 
 ## GitHub workflow
 
