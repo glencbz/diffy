@@ -14,7 +14,7 @@ git -C mkdocs-plugin archive 1df90db9199cbfb6e37435d351c1b44c03cedce1 \
 ```
 
 Everything under `mkdocs_entangled/` and `LICENSE` is byte-for-byte from
-that commit, except the one patch listed below. `pyproject.toml` and this
+that commit, except the patches listed below. `pyproject.toml` and this
 `README.md` are local additions so the package can be installed as an
 editable path dependency.
 
@@ -35,5 +35,11 @@ appears, delete this directory and depend on PyPI again.
 
 ## Local changes
 
-- `mkdocs_entangled/on_page_markdown.py`: `read_config()` -> `read_config(fs)`,
-  passing the `FileCache` the `Context` already builds.
+Both in `mkdocs_entangled/on_page_markdown.py`:
+
+- `read_config()` -> `read_config(fs)`, passing the `FileCache` the `Context`
+  already builds (see "Why vendored").
+- `add_title()`: terminate `open_line` with a newline. For a code block with
+  no id, class, or title it was left as a bare `` ``` `` with no newline, so
+  the reconstructed page glued the opening fence onto the first content line
+  and pymdownx stopped rendering it as a code block.

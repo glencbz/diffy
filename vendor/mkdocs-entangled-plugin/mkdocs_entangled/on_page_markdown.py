@@ -94,6 +94,13 @@ def add_title(reference_map: ReferenceMap, r: ReferenceId) -> list[Content]:
 
         open_line += "}\n"
 
+    # Vendored fix: a block with no id, class, or title (e.g. a plain ``` ```
+    # ascii diagram) leaves open_line as a bare fence with no newline, so the
+    # reconstructed markdown glues the opening fence onto the first content
+    # line and pymdownx stops seeing a code block. Always terminate the line.
+    if not open_line.endswith("\n"):
+        open_line += "\n"
+
     codeblock.open_line = open_line
     return [r]
 
