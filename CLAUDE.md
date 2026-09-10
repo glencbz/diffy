@@ -110,6 +110,23 @@ bun --hot ./index.ts
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
 
+## Version control
+
+- This repo is jj-backed (colocated jj + Git). Use `jj`, not `git`, for
+  everyday work. See the `jj` skill.
+- Never create a `git worktree`. jj cannot see edits made in one, so they are
+  never snapshotted. Two guards in `.claude/settings.json`:
+  - `worktree.bgIsolation: "none"` — background sessions edit the main checkout
+    directly instead of being forced into isolation.
+  - `WorktreeCreate` / `WorktreeRemove` hooks — when isolation *is* requested
+    (`--worktree`, `EnterWorktree`, agent `isolation: "worktree"`), the hooks
+    provision a **jj workspace** under `.claude/worktrees/<name>`, not a git
+    worktree. The `SessionStart` hook warns if one slips through anyway.
+- For an isolated working copy by hand, use
+  `jj workspace add .claude/worktrees/<name>` and `cd` into it so edits land in
+  that workspace, not `default`. Otherwise just work in the main checkout on a
+  jj change, adding a Git bookmark at the PR boundary.
+
 ## GitHub workflow
 
 - Finish every requested change on a dedicated branch, commit it, push it, and open a GitHub pull request. Do not commit directly to `main`.
