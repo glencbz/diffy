@@ -11,3 +11,6 @@ wheels/
 
 .entangled
 node_modules/
+
+# MkDocs build output
+site/

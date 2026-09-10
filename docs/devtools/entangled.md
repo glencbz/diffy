@@ -37,3 +37,29 @@ direction most of the time.
 @en-tangle *args:
   uv run entangled tangle {{args}}
 ```
+
+## Docs site
+
+Since the whole project is literate, `docs/` doubles as a website. We render it
+with MkDocs (Entangled's own recommended setup) plus the Material theme. The
+config lives in `mkdocs.yml` at the repo root, kept out of the docs for the
+same reason `entangled.toml` is.
+
+The `mkdocs-entangled-plugin` is what makes rendered code blocks readable: it
+turns the `#| id:` / `#| file:` attribute lines into block titles instead of
+leaving them in the listing. Its latest release predates the `entangled-cli`
+2.4.2 config-reading change and no newer one exists, so a patched copy is
+vendored under `vendor/mkdocs-entangled-plugin/` and pulled in as an editable
+path dependency. See that directory's `README.md` for the one-line diff and
+the drop-the-vendor conditions.
+
+```just
+#| id: just-docs
+# Serve the docs site with live reload
+@docs:
+  uv run mkdocs serve
+
+# Build the static docs site into ./site
+@docs-build:
+  uv run mkdocs build --strict
+```

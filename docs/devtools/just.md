@@ -15,6 +15,8 @@ _default:
 
 <<just-entangled>>
 
+<<just-docs>>
+
 <<just-bun>>
 
 <<just-bun-test>>
