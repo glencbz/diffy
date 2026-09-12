@@ -1,6 +1,20 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { handleDiff } from "./server";
+import { handleDiff, handleLog } from "./server";
+
+describe("handleLog", () => {
+  test("returns the commit log as an array", async () => {
+    // arrange
+    // act
+    const res = await handleLog();
+    const body = (await res.json()) as unknown[];
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+  });
+});
 
 describe("handleDiff", () => {
   test("returns the revision and its file diffs", async () => {

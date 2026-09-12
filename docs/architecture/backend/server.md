@@ -16,6 +16,14 @@ The entrypoint is a single ts file with a web server. Route handlers and the
 route table are exported so tests can call them directly; `Bun.serve` only runs
 when the file is the process entrypoint (`import.meta.main`).
 
+Every jj-backed route shares one failure mode: the caller passed a revset jj
+can't resolve. `jjJson` runs a handler body and turns that (`JjError`) into a
+400 with jj's own message; anything else propagates as a 500. Both routes use
+it:
+
+- `GET /api/log` — the commit log.
+- `GET /api/diff?rev=<revision>` — one revision's diff, file by file.
+
 ```ts
 //| id: backend-server
 //| file: src/server.ts
@@ -23,16 +31,10 @@ when the file is the process entrypoint (`import.meta.main`).
 import { JjError, jjDiff, jjLog } from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
-/**
- * `GET /api/diff?rev=<revision>` returns one revision's diff, file by file.
- *
- * A `JjError` means jj rejected the revision, so it maps to 400 with jj's own
- * message. Any other error is unexpected and propagates as a 500.
- */
-export async function handleDiff(req: Request): Promise<Response> {
-  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+/** Run a jj-backed handler body; a rejected revset becomes a 400. */
+async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   try {
-    return Response.json({ revision, files: await jjDiff({ revision }) });
+    return Response.json(await build());
   } catch (error) {
     if (error instanceof JjError) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -41,9 +43,21 @@ export async function handleDiff(req: Request): Promise<Response> {
   }
 }
 
+export function handleLog(): Promise<Response> {
+  return jjJson(() => jjLog());
+}
+
+export function handleDiff(req: Request): Promise<Response> {
+  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+  return jjJson(async () => ({
+    revision,
+    files: await jjDiff({ revision }),
+  }));
+}
+
 export const routes = {
   "/": index,
-  "/api/log": async () => Response.json(await jjLog()),
+  "/api/log": handleLog,
   "/api/diff": handleDiff,
 };
 
@@ -55,14 +69,28 @@ if (import.meta.main) {
 
 ### Route tests
 
-`handleDiff` is a plain `Request` → `Response` function, so the tests call it
+Each handler is a plain `Request` → `Response` function, so the tests call it
 without binding a port.
 
 ```ts
 //| id: backend-server-test
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
-import { handleDiff } from "./server";
+import { handleDiff, handleLog } from "./server";
+
+describe("handleLog", () => {
+  test("returns the commit log as an array", async () => {
+    // arrange
+    // act
+    const res = await handleLog();
+    const body = (await res.json()) as unknown[];
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+  });
+});
 
 describe("handleDiff", () => {
   test("returns the revision and its file diffs", async () => {
