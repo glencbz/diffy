@@ -141,6 +141,12 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 ## Commit messages
 
 - Prefix commit subjects with the affected subarea (for example, `skills:`), not Conventional Commit types such as `feat:`, `fix:`, or `chore:`.
+- Write the subject in the imperative mood, as an order to the codebase: `make the picker remember its selection`, not `makes`, `made`, or `fixing`. The subject should complete the sentence "if applied, this commit will ___".
+- Do not capitalize the word after the `area:` prefix unless it is a proper term, as in `refs: HEAD is also treated as a ref`. No full stop at the end. Aim for 50 characters and never pass 72.
+- Describe the code as it stands before the change in the present tense: "the log draws every commit in one lane", not "drew" or "used to draw". That code is what the reader has in front of them.
+- Never write "this patch", "this commit", or "I changed X". Give the order and state the problem; the commit is implicit.
 - Wrap commit messages at 72 characters.
+- Say what the change does and why the result is better. Leave how to the diff and the docs. Name alternatives you considered and rejected.
+- Make the message stand on its own. Summarize a linked discussion rather than only pointing at it.
 - Use the commit body for useful context that is not obvious from the diff, including provenance for vendored material.
 - Write commit bodies as regular prose. Do not invent `Key: value` lines that resemble Git trailers.
