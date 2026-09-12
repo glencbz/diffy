@@ -24,7 +24,7 @@ _default:
 # ~/~ begin <<docs/devtools/entangled.md#just-docs>>[init]
 # Serve the docs site with live reload
 @docs:
-  uv run mkdocs serve
+  uv run mkdocs serve --dev-addr 0.0.0.0:8000
 
 # Build the static docs site into ./site
 @docs-build:

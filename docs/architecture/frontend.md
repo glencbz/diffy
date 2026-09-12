@@ -4,6 +4,11 @@ The review UI is a small [React](https://react.dev/) app. The left side is a
 commit picker, drawn as a commit graph. The right side shows a diff. Pick a
 commit and its diff loads.
 
+An operation selector sits above the commit picker. jj records every repo
+mutation as an operation; picking a past one rewinds the log (and the diff for
+whatever is then selected) to how it looked right after that step, via
+`jj ... --at-operation`. Leaving it on "latest" is the normal, live view.
+
 The tech plan first sketched this in htmx. We went with React instead. The
 picker carries client-side state. A selection on the left drives the diff panel
 on the right, and the selection has to survive each of those loads. Component
@@ -16,7 +21,7 @@ The app has four layers plus a root. Imports point one way down this list:
 ```
 index.html + main.tsx   mount point
         |
-      App.tsx            root, owns the shared selection
+      App.tsx            root, owns the shared selections
         |
    controllers/          wire a state hook to a view
       /       \
@@ -31,26 +36,29 @@ A folder called `hooks/` would say nothing, because any hook can do anything.
 
 ### transport
 
-`api.ts` does all the talking to the backend. It knows the two URLs and the two
+`api.ts` does all the talking to the backend. It knows the three URLs and their
 wire formats. It knows nothing about React. Each fetch wrapper runs its
 response through a [Zod](https://zod.dev/) schema before returning it. A drift
 in a backend shape then fails at the fetch, with a named parse error, before
-any view sees `undefined`. `fetchLog()` and `fetchDiff(revision)` return typed
-promises. Those two functions are all of it.
+any view sees `undefined`. `fetchOperations()`, `fetchLog(atOperation?)`, and
+`fetchDiff(revision, atOperation?)` return typed promises. The optional
+`atOperation` on the last two is the operation id to view history at; omitted,
+the backend uses the live repo.
 
 ### state
 
 Each `state/` module owns one slice of the app's data and keeps it current with
-the backend. `useCommitLog` owns the commit list. `useRevisionDiff` owns the
-diff for the selected revision. Ownership is the point. One module loads its
-slice and reloads it when the input changes. The same module holds the loading
-and error state around it.
+the backend. `useOperations` owns the operation list. `useCommitLog` owns the
+commit list for the selected operation. `useRevisionDiff` owns the diff for the
+selected revision. Ownership is the point. One module loads its slice and
+reloads it when the input changes. The same module holds the loading and error
+state around it.
 
 `useEffect` plus fetch plus cancel-on-change is fiddly, and it runs the same
-way for both slices. It lives here once. A fetching `useEffect` appears nowhere
+way for every slice. It lives here once. A fetching `useEffect` appears nowhere
 else.
 
-Both hooks return an `AsyncState<T>`, the union `loading | error | ready`. A
+Every hook returns an `AsyncState<T>`, the union `loading | error | ready`. A
 caller switches on `status`, and the union forces it to cover every case. No
 gap opens up where the load has finished but the data is still missing.
 `useRevisionDiff` returns `null` while nothing is selected. Its caller shows a
@@ -79,16 +87,19 @@ has no markup of its own.
 
 When there is no diff to show yet, the controller decides what goes on screen.
 `DiffView` never sees that case. It stays at "render these files", with no null
-checks. One panel's branching sits in one file. `CommitLog` drives
-`CommitGraph`. `RevisionDiff` drives `DiffView`.
+checks. One panel's branching sits in one file. `OperationLog` drives
+`OperationPicker`. `CommitLog` drives `CommitGraph`. `RevisionDiff` drives
+`DiffView`.
 
 ### root
 
-`App.tsx` holds the selected change ID. Both controllers read it, and `App` is
-their common parent, so `App` is where it lives. `App` passes the value to both
-controllers and the setter to the left one. No context and no store until
-something else needs the selection. `SplitPane` handles the layout. `App` is
-then just two panels and the ID they share.
+`App.tsx` holds two IDs: the selected change and the selected operation. Each
+is read by more than one controller, and `App` is their common parent, so
+`App` is where they live. Picking an operation also clears the selected
+change, since a change from the live log may not exist in a past one; the
+`RevisionDiff` panel falls back to its "select a commit" prompt. `SplitPane`
+handles the layout, with the operation picker and the graph stacked in its
+left half.
 
 ### Keeping the boundary honest
 
@@ -163,6 +174,16 @@ export type LogEntry = z.infer<typeof LogEntry>;
 
 const LogResponse = z.array(LogEntry);
 
+export const OpLogEntry = z.object({
+  id: z.string(),
+  description: z.string(),
+  time: z.string(),
+  args: z.string(),
+});
+export type OpLogEntry = z.infer<typeof OpLogEntry>;
+
+const OpLogResponse = z.array(OpLogEntry);
+
 const fileDiffFields = {
   binary: z.boolean(),
   patch: z.string(),
@@ -203,26 +224,41 @@ export type DiffResponse = z.infer<typeof DiffResponse>;
 
 const ErrorResponse = z.object({ error: z.string() });
 
-export async function fetchLog(): Promise<LogEntry[]> {
-  const res = await fetch("/api/log");
-  if (!res.ok) throw new Error(`GET /api/log failed (${res.status})`);
-  return LogResponse.parse(await res.json());
-}
-
-export async function fetchDiff(revision: string): Promise<DiffResponse> {
-  const res = await fetch(`/api/diff?rev=${encodeURIComponent(revision)}`);
+/** GET a jj-backed endpoint, turning a 400 into its `error` message. */
+async function getJson(url: string, label: string): Promise<unknown> {
+  const res = await fetch(url);
   const body: unknown = await res.json();
 
   if (!res.ok) {
     const parsed = ErrorResponse.safeParse(body);
     throw new Error(
-      parsed.success
-        ? parsed.data.error
-        : `GET /api/diff failed (${res.status})`,
+      parsed.success ? parsed.data.error : `${label} failed (${res.status})`,
     );
   }
 
-  return DiffResponse.parse(body);
+  return body;
+}
+
+export async function fetchOperations(): Promise<OpLogEntry[]> {
+  return OpLogResponse.parse(
+    await getJson("/api/operations", "GET /api/operations"),
+  );
+}
+
+export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
+  const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
+  return LogResponse.parse(await getJson(`/api/log${query}`, "GET /api/log"));
+}
+
+export async function fetchDiff(
+  revision: string,
+  atOperation?: string,
+): Promise<DiffResponse> {
+  const params = new URLSearchParams({ rev: revision });
+  if (atOperation) params.set("op", atOperation);
+  return DiffResponse.parse(
+    await getJson(`/api/diff?${params}`, "GET /api/diff"),
+  );
 }
 ```
 
@@ -239,23 +275,23 @@ export type AsyncState<T> =
   | { status: "ready"; data: T };
 ```
 
-`useCommitLog` loads the log once, on mount.
+`useOperations` loads the operation list once, on mount.
 
 ```tsx
-//| id: frontend-state-commit-log
-//| file: src/frontend/state/commitLog.ts
+//| id: frontend-state-operations
+//| file: src/frontend/state/operations.ts
 import { useEffect, useState } from "react";
-import { fetchLog, type LogEntry } from "../api";
+import { fetchOperations, type OpLogEntry } from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useCommitLog(): AsyncState<LogEntry[]> {
-  const [state, setState] = useState<AsyncState<LogEntry[]>>({
+export function useOperations(): AsyncState<OpLogEntry[]> {
+  const [state, setState] = useState<AsyncState<OpLogEntry[]>>({
     status: "loading",
   });
 
   useEffect(() => {
     let live = true;
-    fetchLog()
+    fetchOperations()
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -271,8 +307,45 @@ export function useCommitLog(): AsyncState<LogEntry[]> {
 }
 ```
 
-`useRevisionDiff` reloads whenever `revision` changes. If a response comes back
-after the selection has already moved, the hook drops it.
+`useCommitLog` takes the selected operation (or `null` for the live repo) and
+reloads the log whenever it changes, dropping a response that lands after the
+operation has moved on again.
+
+```tsx
+//| id: frontend-state-commit-log
+//| file: src/frontend/state/commitLog.ts
+import { useEffect, useState } from "react";
+import { fetchLog, type LogEntry } from "../api";
+import type { AsyncState } from "./asyncState";
+
+export function useCommitLog(
+  atOperation: string | null,
+): AsyncState<LogEntry[]> {
+  const [state, setState] = useState<AsyncState<LogEntry[]>>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let live = true;
+    setState({ status: "loading" });
+    fetchLog(atOperation ?? undefined)
+      .then((data) => {
+        if (live) setState({ status: "ready", data });
+      })
+      .catch((err: unknown) => {
+        if (live) setState({ status: "error", message: String(err) });
+      });
+    return () => {
+      live = false;
+    };
+  }, [atOperation]);
+
+  return state;
+}
+```
+
+`useRevisionDiff` reloads whenever `revision` or `atOperation` changes. If a
+response comes back after either has already moved, the hook drops it.
 
 ```tsx
 //| id: frontend-state-revision-diff
@@ -283,6 +356,7 @@ import type { AsyncState } from "./asyncState";
 
 export function useRevisionDiff(
   revision: string | null,
+  atOperation: string | null,
 ): AsyncState<DiffResponse> | null {
   const [state, setState] = useState<AsyncState<DiffResponse> | null>(null);
 
@@ -294,7 +368,7 @@ export function useRevisionDiff(
 
     let live = true;
     setState({ status: "loading" });
-    fetchDiff(revision)
+    fetchDiff(revision, atOperation ?? undefined)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -304,7 +378,7 @@ export function useRevisionDiff(
     return () => {
       live = false;
     };
-  }, [revision]);
+  }, [revision, atOperation]);
 
   return state;
 }
@@ -372,6 +446,62 @@ export function Message({
       {children}
     </p>
   );
+}
+```
+
+### Operation picker
+
+A single `<select>` above the graph. The first option is "latest (current)",
+value `""`, which maps back to `null` (the live repo). The rest are operations
+newest first, each labelled with its short id, its description or the command
+that caused it, and when it finished. `onSelect` gets the operation id, or
+`null` for latest.
+
+```tsx
+//| id: frontend-view-operation-picker
+//| file: src/frontend/views/OperationPicker.tsx
+import type { OpLogEntry } from "../api";
+
+export function OperationPicker({
+  operations,
+  selected,
+  onSelect,
+}: {
+  operations: OpLogEntry[];
+  selected: string | null;
+  onSelect: (operationId: string | null) => void;
+}) {
+  return (
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: 8,
+        borderBottom: "1px solid #ccc",
+      }}
+    >
+      <span style={{ color: "#888" }}>operation</span>
+      <select
+        value={selected ?? ""}
+        onChange={(event) => onSelect(event.target.value || null)}
+        style={{ flex: 1, font: "inherit" }}
+      >
+        <option value="">latest (current)</option>
+        {operations.map((operation) => (
+          <option key={operation.id} value={operation.id}>
+            {optionLabel(operation)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function optionLabel(operation: OpLogEntry): string {
+  const when = operation.time.slice(0, 19).replace("T", " ");
+  const what = operation.description || operation.args;
+  return `${operation.id.slice(0, 8)}  ${what}  ${when}`;
 }
 ```
 
@@ -559,6 +689,41 @@ function lineColor(line: string): string | undefined {
 
 ## Controllers
 
+### Operation log
+
+```tsx
+//| id: frontend-controller-operation-log
+//| file: src/frontend/controllers/OperationLog.tsx
+import { useOperations } from "../state/operations";
+import { Message } from "../views/Message";
+import { OperationPicker } from "../views/OperationPicker";
+
+export function OperationLog({
+  selected,
+  onSelect,
+}: {
+  selected: string | null;
+  onSelect: (operationId: string | null) => void;
+}) {
+  const operations = useOperations();
+
+  if (operations.status === "loading") {
+    return <Message>Loading operations...</Message>;
+  }
+  if (operations.status === "error") {
+    return <Message tone="error">{operations.message}</Message>;
+  }
+
+  return (
+    <OperationPicker
+      operations={operations.data}
+      selected={selected}
+      onSelect={onSelect}
+    />
+  );
+}
+```
+
 ### Commit log
 
 ```tsx
@@ -569,13 +734,15 @@ import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";
 
 export function CommitLog({
+  atOperation,
   selected,
   onSelect,
 }: {
+  atOperation: string | null;
   selected: string | null;
   onSelect: (changeId: string) => void;
 }) {
-  const log = useCommitLog();
+  const log = useCommitLog(atOperation);
 
   if (log.status === "loading") return <Message>Loading commits...</Message>;
   if (log.status === "error") {
@@ -597,8 +764,14 @@ import { useRevisionDiff } from "../state/revisionDiff";
 import { DiffView } from "../views/DiffView";
 import { Message } from "../views/Message";
 
-export function RevisionDiff({ revision }: { revision: string | null }) {
-  const diff = useRevisionDiff(revision);
+export function RevisionDiff({
+  revision,
+  atOperation,
+}: {
+  revision: string | null;
+  atOperation: string | null;
+}) {
+  const diff = useRevisionDiff(revision, atOperation);
 
   if (diff === null) {
     return <Message>Select a commit to see its diff.</Message>;
@@ -622,16 +795,32 @@ export function RevisionDiff({ revision }: { revision: string | null }) {
 //| file: src/frontend/App.tsx
 import { useState } from "react";
 import { CommitLog } from "./controllers/CommitLog";
+import { OperationLog } from "./controllers/OperationLog";
 import { RevisionDiff } from "./controllers/RevisionDiff";
 import { SplitPane } from "./views/SplitPane";
 
 export function App() {
   const [selected, setSelected] = useState<string | null>(null);
+  const [operation, setOperation] = useState<string | null>(null);
+
+  function selectOperation(operationId: string | null) {
+    setOperation(operationId);
+    setSelected(null);
+  }
 
   return (
     <SplitPane
-      left={<CommitLog selected={selected} onSelect={setSelected} />}
-      right={<RevisionDiff revision={selected} />}
+      left={
+        <>
+          <OperationLog selected={operation} onSelect={selectOperation} />
+          <CommitLog
+            atOperation={operation}
+            selected={selected}
+            onSelect={setSelected}
+          />
+        </>
+      }
+      right={<RevisionDiff revision={selected} atOperation={operation} />}
     />
   );
 }

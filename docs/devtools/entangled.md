@@ -57,7 +57,7 @@ the drop-the-vendor conditions.
 #| id: just-docs
 # Serve the docs site with live reload
 @docs:
-  uv run mkdocs serve
+  uv run mkdocs serve --dev-addr 0.0.0.0:8000
 
 # Build the static docs site into ./site
 @docs-build:

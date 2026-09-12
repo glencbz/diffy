@@ -1,19 +1,16 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-commit-log>>[init]
+// ~/~ begin <<docs/architecture/frontend.md#frontend-state-operations>>[init]
 import { useEffect, useState } from "react";
-import { fetchLog, type LogEntry } from "../api";
+import { fetchOperations, type OpLogEntry } from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useCommitLog(
-  atOperation: string | null,
-): AsyncState<LogEntry[]> {
-  const [state, setState] = useState<AsyncState<LogEntry[]>>({
+export function useOperations(): AsyncState<OpLogEntry[]> {
+  const [state, setState] = useState<AsyncState<OpLogEntry[]>>({
     status: "loading",
   });
 
   useEffect(() => {
     let live = true;
-    setState({ status: "loading" });
-    fetchLog(atOperation ?? undefined)
+    fetchOperations()
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -23,7 +20,7 @@ export function useCommitLog(
     return () => {
       live = false;
     };
-  }, [atOperation]);
+  }, []);
 
   return state;
 }
