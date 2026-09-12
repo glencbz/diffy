@@ -3,8 +3,14 @@ import { useRevisionDiff } from "../state/revisionDiff";
 import { DiffView } from "../views/DiffView";
 import { Message } from "../views/Message";
 
-export function RevisionDiff({ revision }: { revision: string | null }) {
-  const diff = useRevisionDiff(revision);
+export function RevisionDiff({
+  revision,
+  atOperation,
+}: {
+  revision: string | null;
+  atOperation: string | null;
+}) {
+  const diff = useRevisionDiff(revision, atOperation);
 
   if (diff === null) {
     return <Message>Select a commit to see its diff.</Message>;

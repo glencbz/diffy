@@ -52,6 +52,8 @@ const JjLogEntryWire = z.object({
 export interface JjLogOptions {
   revset?: string;
   limit?: number;
+  /** Repo operation id to view the log at, via `jj log --at-operation`. */
+  atOperation?: string;
 }
 
 const LOG_TEMPLATE = 'json(self) ++ "\n"';
@@ -60,6 +62,9 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
   const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
+  if (options.atOperation !== undefined) {
+    args.push("--at-operation", options.atOperation);
+  }
 
   const output = await runJj(args);
 
@@ -82,6 +87,53 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[2]
 
+/** One entry from `jj op log`: a recorded mutation of the repo. */
+export interface JjOpLogEntry {
+  id: string;
+  description: string;
+  /** ISO 8601 time the operation finished. */
+  time: string;
+  /** The `jj` command line that produced the operation. */
+  args: string;
+}
+
+const JjOpLogEntryWire = z.object({
+  id: z.string(),
+  description: z.string(),
+  time: z.object({ end: z.string() }),
+  attributes: z.object({ args: z.string().optional() }).optional(),
+});
+
+export interface JjOpLogOptions {
+  limit?: number;
+}
+
+const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
+
+export async function jjOpLog(
+  options: JjOpLogOptions = {},
+): Promise<JjOpLogEntry[]> {
+  const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
+  if (options.limit !== undefined) args.push("-n", String(options.limit));
+
+  const output = await runJj(args);
+
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const op = JjOpLogEntryWire.parse(JSON.parse(line));
+      return {
+        id: op.id,
+        description: op.description,
+        time: op.time.end,
+        args: op.attributes?.args ?? "",
+      };
+    });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[3]
+
 /** How one file changed between a revision and its parent. */
 export type JjFileDiff = (
   | { status: "added" | "deleted" | "modified"; path: string }
@@ -96,19 +148,19 @@ export type JjFileDiff = (
 export interface JjDiffOptions {
   /** Revision to diff against its parent(s). Defaults to `@`. */
   revision?: string;
+  /** Repo operation id to resolve the revision at, via `--at-operation`. */
+  atOperation?: string;
 }
 
 export async function jjDiff(
   options: JjDiffOptions = {},
 ): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
-  const output = await runJj([
-    "diff",
-    "--git",
-    "--color=never",
-    "-r",
-    revision,
-  ]);
+  const args = ["diff", "--git", "--color=never", "-r", revision];
+  if (options.atOperation !== undefined) {
+    args.push("--at-operation", options.atOperation);
+  }
+  const output = await runJj(args);
 
   return splitFileDiffs(output).map(parseFileDiff);
 }
@@ -123,7 +175,7 @@ function splitFileDiffs(diff: string): string[] {
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[3]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[4]
 
 /** `a/foo` / `b/foo` -> `foo`; `/dev/null` -> `null`. */
 function stripPrefix(raw: string): string | null {
