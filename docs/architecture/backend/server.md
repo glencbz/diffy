@@ -16,19 +16,19 @@ The entrypoint is a single ts file with a web server. Route handlers and the
 route table are exported so tests can call them directly; `Bun.serve` only runs
 when the file is the process entrypoint (`import.meta.main`).
 
-`jjJson` runs a handler body and turns a rejected revset (`JjError`) into a
-400 carrying jj's own message; anything else is a genuine fault and
-propagates as a 500. Every jj-backed route goes through it, so that mapping
-exists in one place instead of being repeated per handler.
+`jjJson` runs a handler body and turns a rejected revset or operation id
+(`JjError`) into a 400 carrying jj's own message; anything else is a genuine
+fault and propagates as a 500. Every jj-backed route goes through it, so that
+mapping exists in one place instead of being repeated per handler.
 
 ```ts
 //| id: backend-server
 //| file: src/server.ts
 
-import { JjError, jjDiff, jjLog } from "./backend/commit/jj";
+import { JjError, jjDiff, jjLog, jjOpLog } from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
-/** Run a jj-backed handler body; a rejected revset becomes a 400. */
+/** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   try {
     return Response.json(await build());
@@ -40,21 +40,29 @@ async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export function handleLog(): Promise<Response> {
-  return jjJson(() => jjLog());
+export function handleLog(req: Request): Promise<Response> {
+  const atOperation = new URL(req.url).searchParams.get("op") ?? undefined;
+  return jjJson(() => jjLog({ atOperation }));
+}
+
+export function handleOperations(): Promise<Response> {
+  return jjJson(() => jjOpLog({ limit: 200 }));
 }
 
 export function handleDiff(req: Request): Promise<Response> {
-  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+  const params = new URL(req.url).searchParams;
+  const revision = params.get("rev") ?? "@";
+  const atOperation = params.get("op") ?? undefined;
   return jjJson(async () => ({
     revision,
-    files: await jjDiff({ revision }),
+    files: await jjDiff({ revision, atOperation }),
   }));
 }
 
 export const routes = {
   "/": index,
   "/api/log": handleLog,
+  "/api/operations": handleOperations,
   "/api/diff": handleDiff,
 };
 
@@ -73,13 +81,40 @@ without binding a port.
 //| id: backend-server-test
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
-import { handleDiff, handleLog } from "./server";
+import { handleDiff, handleLog, handleOperations } from "./server";
 
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
     // arrange
     // act
-    const res = await handleLog();
+    const res = await handleLog(new Request("http://test/api/log"));
+    const body = (await res.json()) as unknown[];
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+  });
+
+  test("reports an unknown operation as 400 with jj's message", async () => {
+    // arrange
+    // act
+    const res = await handleLog(
+      new Request("http://test/api/log?op=no-such-op-xyz"),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(typeof body.error).toBe("string");
+  });
+});
+
+describe("handleOperations", () => {
+  test("returns the operation log as a non-empty array", async () => {
+    // arrange
+    // act
+    const res = await handleOperations();
     const body = (await res.json()) as unknown[];
 
     // assert

@@ -1,9 +1,9 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[init]
 
-import { JjError, jjDiff, jjLog } from "./backend/commit/jj";
+import { JjError, jjDiff, jjLog, jjOpLog } from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
-/** Run a jj-backed handler body; a rejected revset becomes a 400. */
+/** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   try {
     return Response.json(await build());
@@ -15,21 +15,29 @@ async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export function handleLog(): Promise<Response> {
-  return jjJson(() => jjLog());
+export function handleLog(req: Request): Promise<Response> {
+  const atOperation = new URL(req.url).searchParams.get("op") ?? undefined;
+  return jjJson(() => jjLog({ atOperation }));
+}
+
+export function handleOperations(): Promise<Response> {
+  return jjJson(() => jjOpLog({ limit: 200 }));
 }
 
 export function handleDiff(req: Request): Promise<Response> {
-  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+  const params = new URL(req.url).searchParams;
+  const revision = params.get("rev") ?? "@";
+  const atOperation = params.get("op") ?? undefined;
   return jjJson(async () => ({
     revision,
-    files: await jjDiff({ revision }),
+    files: await jjDiff({ revision, atOperation }),
   }));
 }
 
 export const routes = {
   "/": index,
   "/api/log": handleLog,
+  "/api/operations": handleOperations,
   "/api/diff": handleDiff,
 };
 

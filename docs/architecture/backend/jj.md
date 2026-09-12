@@ -71,6 +71,10 @@ jj log --no-graph -T 'json(self) ++ "\n"'
 `--no-graph` drops the ASCII-art graph column so each line of stdout is
 exactly one commit's output.
 
+`atOperation` maps to `jj log --at-operation <id>`, which rebuilds the repo
+view as it stood just after that operation. It is how the UI shows a
+historical version of the log (see [reading past operations](#reading-past-operations)).
+
 ```ts
 //| id: jj-module
 
@@ -92,6 +96,8 @@ const JjLogEntryWire = z.object({
 export interface JjLogOptions {
   revset?: string;
   limit?: number;
+  /** Repo operation id to view the log at, via `jj log --at-operation`. */
+  atOperation?: string;
 }
 
 const LOG_TEMPLATE = 'json(self) ++ "\n"';
@@ -100,6 +106,9 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
   const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
+  if (options.atOperation !== undefined) {
+    args.push("--at-operation", options.atOperation);
+  }
 
   const output = await runJj(args);
 
@@ -121,6 +130,70 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 }
 ```
 
+### Reading past operations
+
+jj records every repo mutation as an *operation*. `jj op log` lists them,
+newest first, and any operation's id can be fed back to `--at-operation` to
+view the repo as it was right after that step. `jjOpLog` is the picker's data
+source: the same `json(self)` JSONL trick as `jjLog`, reading an `Operation`
+rather than a `Commit`, so the keywords differ (`id`, `time`, `description`,
+and `attributes.args`, the command line that caused it). The one operation
+without a command line is the repo's first, `initialize repo`, so `args` is
+optional and reported as `""` there.
+
+```sh
+jj op log --no-graph -T 'json(self) ++ "\n"'
+```
+
+```ts
+//| id: jj-module
+
+/** One entry from `jj op log`: a recorded mutation of the repo. */
+export interface JjOpLogEntry {
+  id: string;
+  description: string;
+  /** ISO 8601 time the operation finished. */
+  time: string;
+  /** The `jj` command line that produced the operation. */
+  args: string;
+}
+
+const JjOpLogEntryWire = z.object({
+  id: z.string(),
+  description: z.string(),
+  time: z.object({ end: z.string() }),
+  attributes: z.object({ args: z.string().optional() }).optional(),
+});
+
+export interface JjOpLogOptions {
+  limit?: number;
+}
+
+const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
+
+export async function jjOpLog(
+  options: JjOpLogOptions = {},
+): Promise<JjOpLogEntry[]> {
+  const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
+  if (options.limit !== undefined) args.push("-n", String(options.limit));
+
+  const output = await runJj(args);
+
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const op = JjOpLogEntryWire.parse(JSON.parse(line));
+      return {
+        id: op.id,
+        description: op.description,
+        time: op.time.end,
+        args: op.attributes?.args ?? "",
+      };
+    });
+}
+```
+
 ### Reading a commit's diff
 
 `jj diff --git -r <revision>` prints a standard `git`-format unified diff of a
@@ -132,6 +205,10 @@ We don't parse hunks: the raw `--git` patch is the payload a review UI renders.
 We only split the combined output into one entry per file and read the
 metadata the UI needs off each file's header, namely the change kind and the
 affected path(s).
+
+`atOperation` carries through to `--at-operation` here too, so a diff opened
+from a historical log resolves its revision in that same past view rather
+than failing when the change no longer exists.
 
 ```ts
 //| id: jj-module
@@ -150,19 +227,19 @@ export type JjFileDiff = (
 export interface JjDiffOptions {
   /** Revision to diff against its parent(s). Defaults to `@`. */
   revision?: string;
+  /** Repo operation id to resolve the revision at, via `--at-operation`. */
+  atOperation?: string;
 }
 
 export async function jjDiff(
   options: JjDiffOptions = {},
 ): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
-  const output = await runJj([
-    "diff",
-    "--git",
-    "--color=never",
-    "-r",
-    revision,
-  ]);
+  const args = ["diff", "--git", "--color=never", "-r", revision];
+  if (options.atOperation !== undefined) {
+    args.push("--at-operation", options.atOperation);
+  }
+  const output = await runJj(args);
 
   return splitFileDiffs(output).map(parseFileDiff);
 }
@@ -258,9 +335,9 @@ export function parseFileDiff(patch: string): JjFileDiff {
 
 #### Test
 
-`jjLog` is has a hard dependency on `jj`, so the test exercises the real CLI
-(rather than mocking it), since what we really care about is that we got the jj
-invocation right.
+`jjLog` and `jjOpLog` have a hard dependency on `jj`, so the tests exercise the
+real CLI (rather than mocking it), since what we really care about is that we
+got the jj invocation right.
 
 It asserts on structural invariants that hold regardless of this repo's
 specific commit history: the root commit always exists, always sorts last in
@@ -270,7 +347,7 @@ specific commit history: the root commit always exists, always sorts last in
 //| id: jj-module-test
 //| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
-import { JjError, jjDiff, jjLog, parseFileDiff } from "./jj";
+import { JjError, jjDiff, jjLog, jjOpLog, parseFileDiff } from "./jj";
 
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
@@ -308,6 +385,60 @@ describe("jjLog", () => {
     await expect(
       jjLog({ revset: "no-such-revision-xyz" }),
     ).rejects.toBeInstanceOf(JjError);
+  });
+
+  test("reads the log at a past operation", async () => {
+    // arrange
+    const operations = await jjOpLog();
+    const earlier = operations.at(-1);
+
+    // act
+    const entries = await jjLog({
+      revset: "all()",
+      atOperation: earlier?.id,
+    });
+
+    // assert
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  test("wraps an unknown operation id in JjError", async () => {
+    // arrange
+    // act
+    // assert
+    await expect(
+      jjLog({ atOperation: "no-such-operation-xyz" }),
+    ).rejects.toBeInstanceOf(JjError);
+  });
+});
+
+describe("jjOpLog", () => {
+  test("lists operations newest first", async () => {
+    // arrange
+    // act
+    const operations = await jjOpLog();
+
+    // assert
+    expect(operations.length).toBeGreaterThan(0);
+    for (const op of operations) {
+      expect(typeof op.id).toBe("string");
+      expect(typeof op.description).toBe("string");
+      expect(typeof op.args).toBe("string");
+      expect(Number.isNaN(Date.parse(op.time))).toBe(false);
+    }
+
+    const times = operations.map((op) => Date.parse(op.time));
+    const sorted = [...times].sort((a, b) => b - a);
+    expect(times).toEqual(sorted);
+  });
+
+  test("respects the limit option", async () => {
+    // arrange
+    // act
+    const operations = await jjOpLog({ limit: 1 });
+
+    // assert
+    expect(operations).toHaveLength(1);
   });
 });
 ```

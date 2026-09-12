@@ -4,13 +4,15 @@ import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";
 
 export function CommitLog({
+  atOperation,
   selected,
   onSelect,
 }: {
+  atOperation: string | null;
   selected: string | null;
   onSelect: (changeId: string) => void;
 }) {
-  const log = useCommitLog();
+  const log = useCommitLog(atOperation);
 
   if (log.status === "loading") return <Message>Loading commits...</Message>;
   if (log.status === "error") {

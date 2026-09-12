@@ -5,6 +5,7 @@ import type { AsyncState } from "./asyncState";
 
 export function useRevisionDiff(
   revision: string | null,
+  atOperation: string | null,
 ): AsyncState<DiffResponse> | null {
   const [state, setState] = useState<AsyncState<DiffResponse> | null>(null);
 
@@ -16,7 +17,7 @@ export function useRevisionDiff(
 
     let live = true;
     setState({ status: "loading" });
-    fetchDiff(revision)
+    fetchDiff(revision, atOperation ?? undefined)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -26,7 +27,7 @@ export function useRevisionDiff(
     return () => {
       live = false;
     };
-  }, [revision]);
+  }, [revision, atOperation]);
 
   return state;
 }

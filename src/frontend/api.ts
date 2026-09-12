@@ -11,6 +11,16 @@ export type LogEntry = z.infer<typeof LogEntry>;
 
 const LogResponse = z.array(LogEntry);
 
+export const OpLogEntry = z.object({
+  id: z.string(),
+  description: z.string(),
+  time: z.string(),
+  args: z.string(),
+});
+export type OpLogEntry = z.infer<typeof OpLogEntry>;
+
+const OpLogResponse = z.array(OpLogEntry);
+
 const fileDiffFields = {
   binary: z.boolean(),
   patch: z.string(),
@@ -66,16 +76,25 @@ async function getJson(url: string, label: string): Promise<unknown> {
   return body;
 }
 
-export async function fetchLog(): Promise<LogEntry[]> {
-  return LogResponse.parse(await getJson("/api/log", "GET /api/log"));
+export async function fetchOperations(): Promise<OpLogEntry[]> {
+  return OpLogResponse.parse(
+    await getJson("/api/operations", "GET /api/operations"),
+  );
 }
 
-export async function fetchDiff(revision: string): Promise<DiffResponse> {
+export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
+  const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
+  return LogResponse.parse(await getJson(`/api/log${query}`, "GET /api/log"));
+}
+
+export async function fetchDiff(
+  revision: string,
+  atOperation?: string,
+): Promise<DiffResponse> {
+  const params = new URLSearchParams({ rev: revision });
+  if (atOperation) params.set("op", atOperation);
   return DiffResponse.parse(
-    await getJson(
-      `/api/diff?rev=${encodeURIComponent(revision)}`,
-      "GET /api/diff",
-    ),
+    await getJson(`/api/diff?${params}`, "GET /api/diff"),
   );
 }
 // ~/~ end
