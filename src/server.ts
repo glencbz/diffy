@@ -3,16 +3,10 @@
 import { JjError, jjDiff, jjLog } from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
-/**
- * `GET /api/diff?rev=<revision>` returns one revision's diff, file by file.
- *
- * A `JjError` means jj rejected the revision, so it maps to 400 with jj's own
- * message. Any other error is unexpected and propagates as a 500.
- */
-export async function handleDiff(req: Request): Promise<Response> {
-  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+/** Run a jj-backed handler body; a rejected revset becomes a 400. */
+async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   try {
-    return Response.json({ revision, files: await jjDiff({ revision }) });
+    return Response.json(await build());
   } catch (error) {
     if (error instanceof JjError) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -21,9 +15,21 @@ export async function handleDiff(req: Request): Promise<Response> {
   }
 }
 
+export function handleLog(): Promise<Response> {
+  return jjJson(() => jjLog());
+}
+
+export function handleDiff(req: Request): Promise<Response> {
+  const revision = new URL(req.url).searchParams.get("rev") ?? "@";
+  return jjJson(async () => ({
+    revision,
+    files: await jjDiff({ revision }),
+  }));
+}
+
 export const routes = {
   "/": index,
-  "/api/log": async () => Response.json(await jjLog()),
+  "/api/log": handleLog,
   "/api/diff": handleDiff,
 };
 
