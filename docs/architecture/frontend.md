@@ -93,11 +93,11 @@ checks. One panel's branching sits in one file. `OperationLog` drives
 
 ### root
 
-`App.tsx` holds two IDs: the selected change and the selected operation. Each
+`App.tsx` holds two IDs: the selected commit and the selected operation. Each
 is read by more than one controller, and `App` is their common parent, so
 `App` is where they live. Picking an operation also clears the selected
-change, since a change from the live log may not exist in a past one; the
-`RevisionDiff` panel falls back to its "select a commit" prompt. `SplitPane`
+commit, since a commit listed in the live log need not appear in a past one;
+the `RevisionDiff` panel falls back to its "select a commit" prompt. `SplitPane`
 handles the layout, with the operation picker and the graph stacked in its
 left half.
 
@@ -510,7 +510,13 @@ function optionLabel(operation: OpLogEntry): string {
 One lane. One node per commit, top to bottom in the order the backend sent
 them. A commit with more than one parent is a merge and shows as a hollow node.
 Side-by-side branch lanes are not built yet. The history is mostly linear, so
-the one lane matches `jj log` for now. Clicking a row selects that change.
+the one lane matches `jj log` for now.
+
+Clicking a row selects that commit by commit id, while the row goes on showing
+a change id, which is shorter and is what `jj log` prints. The two are not
+interchangeable as identifiers. A change id names whichever version of a commit
+the current view holds, so it says something different in each operation's log,
+and a selection has to keep meaning the one commit the reader clicked.
 
 ```tsx
 //| id: frontend-view-commit-graph
@@ -527,17 +533,17 @@ export function CommitGraph({
 }: {
   commits: LogEntry[];
   selected: string | null;
-  onSelect: (changeId: string) => void;
+  onSelect: (commitId: string) => void;
 }) {
   return (
     <div>
       {commits.map((commit, index) => {
-        const isSelected = commit.changeId === selected;
+        const isSelected = commit.commitId === selected;
         return (
           <button
             type="button"
-            key={commit.changeId}
-            onClick={() => onSelect(commit.changeId)}
+            key={commit.commitId}
+            onClick={() => onSelect(commit.commitId)}
             style={{
               display: "flex",
               alignItems: "center",

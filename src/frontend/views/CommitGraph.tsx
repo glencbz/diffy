@@ -11,17 +11,17 @@ export function CommitGraph({
 }: {
   commits: LogEntry[];
   selected: string | null;
-  onSelect: (changeId: string) => void;
+  onSelect: (commitId: string) => void;
 }) {
   return (
     <div>
       {commits.map((commit, index) => {
-        const isSelected = commit.changeId === selected;
+        const isSelected = commit.commitId === selected;
         return (
           <button
             type="button"
-            key={commit.changeId}
-            onClick={() => onSelect(commit.changeId)}
+            key={commit.commitId}
+            onClick={() => onSelect(commit.commitId)}
             style={{
               display: "flex",
               alignItems: "center",
