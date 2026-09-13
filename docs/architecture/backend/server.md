@@ -38,12 +38,15 @@ mapping exists in one place instead of being repeated per handler.
 
 import {
   JjError,
+  type JjFileDiff,
+  type JjLogEntry,
   jjCommits,
   jjDiff,
   jjInterdiff,
   jjLog,
   jjOpLog,
 } from "./backend/commit/jj";
+import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -78,46 +81,69 @@ export function handleDiff(req: Request): Promise<Response> {
 }
 ```
 
-`/api/interdiff` takes a `from` and a `to` commit id and answers with the two
-commits plus the files their changes differ in. Both are commit ids, not
-change ids or revsets, because the two sides are routinely picked out of
+`/api/interdiff` takes any number of `from` and `to` commit ids, each side in
+`jj log` order, and answers with one row per lined-up pair. Commit ids rather
+than change ids or revsets, because the two sides are routinely picked out of
 different operations and only a commit id means the same thing in both.
 
-Either side may be left out. A commit with nothing opposite it has nothing to
-be compared against, so the honest answer is its own diff, and that is what
-the handler returns. The v0 behaviour, pick a commit and read its diff, is
-then just this endpoint with an empty `from`, instead of a separate screen the
-UI has to switch between. Leaving out both sides is the one case with no
-answer at all, and it is a 400.
+The two sides need not be the same length, and neither has to be a single
+commit. [`alignSeries`](series.md) decides which commit faces which; this
+handler only turns each of its rows into a diff. A row with both sides is an
+interdiff. A row with one side is a commit that was added to or dropped from
+the series, and its own diff is the only honest thing to show for it. That
+last rule is also what makes `from` empty, `to` a single commit reduce to
+"pick a commit, read its diff", the v0 behaviour, with no separate endpoint.
+
+Rows are built concurrently. Each one is a separate `jj` process, and jj
+serialises nothing that matters for a read, so a ten-commit series costs about
+what one commit costs.
+
+Asking for no commits at all is the one case with no answer, and it is a 400.
 
 ```ts
 //| id: backend-server
 
 export async function handleInterdiff(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
-  const from = params.get("from");
-  const to = params.get("to");
+  const from = params.getAll("from");
+  const to = params.getAll("to");
 
-  if (from === null && to === null) {
+  if (from.length === 0 && to.length === 0) {
     return Response.json(
-      { error: "interdiff needs a from or a to commit" },
+      { error: "interdiff needs at least one commit" },
       { status: 400 },
     );
   }
 
   return jjJson(async () => {
-    const commits = await jjCommits([from, to].filter((id) => id !== null));
-    const files =
-      from !== null && to !== null
-        ? await jjInterdiff({ from, to })
-        : await jjDiff({ revision: from ?? to ?? "" });
+    const commits = await jjCommits([...from, ...to]);
+    const series = (ids: string[]): JjLogEntry[] =>
+      ids.flatMap((id) => {
+        const commit = commits.get(id);
+        return commit === undefined ? [] : [commit];
+      });
 
     return {
-      from: from === null ? null : (commits.get(from) ?? null),
-      to: to === null ? null : (commits.get(to) ?? null),
-      files,
+      rows: await Promise.all(
+        alignSeries(series(from), series(to)).map(async (pair) => ({
+          ...pair,
+          files: await pairFiles(pair),
+        })),
+      ),
     };
   });
+}
+
+/** A paired row is an interdiff; a lone commit is just its own diff. */
+function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
+  if (pair.from !== null && pair.to !== null) {
+    return jjInterdiff({ from: pair.from.commitId, to: pair.to.commitId });
+  }
+
+  const lone = pair.from ?? pair.to;
+  return lone === null
+    ? Promise.resolve([])
+    : jjDiff({ revision: lone.commitId });
 }
 ```
 
@@ -246,67 +272,99 @@ describe("handleDiff", () => {
 });
 
 describe("handleInterdiff", () => {
-  function request(params: Record<string, string>): Request {
+  function request(params: [string, string][]): Request {
     return new Request(
       `http://test/api/interdiff?${new URLSearchParams(params)}`,
     );
   }
 
-  test("echoes both commits and the files they differ in", async () => {
+  async function rowsFor(params: [string, string][]) {
+    const res = await handleInterdiff(request(params));
+    const body = (await res.json()) as {
+      rows: {
+        from: { commitId: string } | null;
+        to: { commitId: string } | null;
+        files: { status: string }[];
+      }[];
+    };
+    expect(res.status).toBe(200);
+    return body.rows;
+  }
+
+  test("pairs one commit against another", async () => {
     // arrange
     const from = await commitId("root()+");
     const to = await commitId("root()++");
 
     // act
-    const res = await handleInterdiff(request({ from, to }));
-    const body = (await res.json()) as {
-      from: { commitId: string };
-      to: { commitId: string };
-      files: unknown[];
-    };
+    const rows = await rowsFor([
+      ["from", from],
+      ["to", to],
+    ]);
 
     // assert
-    expect(res.status).toBe(200);
-    expect(body.from.commitId).toBe(from);
-    expect(body.to.commitId).toBe(to);
-    expect(body.files.length).toBeGreaterThan(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.from?.commitId).toBe(from);
+    expect(rows[0]?.to?.commitId).toBe(to);
+    expect(rows[0]?.files.length).toBeGreaterThan(0);
   });
 
-  test("falls back to a commit's own diff when one side is missing", async () => {
+  test("lines up a series against itself, one row per commit", async () => {
+    // arrange
+    const ids = (await jjLog({ revset: "root()+::", limit: 3 })).map(
+      (entry) => entry.commitId,
+    );
+    const params: [string, string][] = [
+      ...ids.map((id): [string, string] => ["from", id]),
+      ...ids.map((id): [string, string] => ["to", id]),
+    ];
+
+    // act
+    const rows = await rowsFor(params);
+
+    // assert
+    expect(rows).toHaveLength(ids.length);
+    for (const row of rows) {
+      expect(row.from?.commitId).toBe(row.to?.commitId as string);
+      expect(row.files).toEqual([]);
+    }
+  });
+
+  test("gives a commit with no opposite number its own diff", async () => {
     // arrange
     const to = await commitId("root()+");
 
     // act
-    const res = await handleInterdiff(request({ to }));
-    const body = (await res.json()) as {
-      from: null;
-      to: { commitId: string };
-      files: { status: string }[];
-    };
+    const rows = await rowsFor([["to", to]]);
 
     // assert
-    expect(res.status).toBe(200);
-    expect(body.from).toBeNull();
-    expect(body.to.commitId).toBe(to);
-    for (const file of body.files) expect(file.status).toBe("added");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.from).toBeNull();
+    expect(rows[0]?.to?.commitId).toBe(to);
+    for (const file of rows[0]?.files ?? []) {
+      expect(file.status).toBe("added");
+    }
   });
 
-  test("reports an empty request as 400", async () => {
+  test("reports a request with no commits as 400", async () => {
     // arrange
     // act
-    const res = await handleInterdiff(request({}));
+    const res = await handleInterdiff(request([]));
     const body = (await res.json()) as { error: string };
 
     // assert
     expect(res.status).toBe(400);
-    expect(body.error).toMatch(/from or a to/);
+    expect(body.error).toMatch(/at least one commit/);
   });
 
   test("reports an unresolvable commit as 400 with jj's message", async () => {
     // arrange
     // act
     const res = await handleInterdiff(
-      request({ from: "no-such-xyz", to: "@" }),
+      request([
+        ["from", "no-such-xyz"],
+        ["to", "@"],
+      ]),
     );
     const body = (await res.json()) as { error: string };
 

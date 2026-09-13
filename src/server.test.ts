@@ -97,67 +97,99 @@ describe("handleDiff", () => {
 });
 
 describe("handleInterdiff", () => {
-  function request(params: Record<string, string>): Request {
+  function request(params: [string, string][]): Request {
     return new Request(
       `http://test/api/interdiff?${new URLSearchParams(params)}`,
     );
   }
 
-  test("echoes both commits and the files they differ in", async () => {
+  async function rowsFor(params: [string, string][]) {
+    const res = await handleInterdiff(request(params));
+    const body = (await res.json()) as {
+      rows: {
+        from: { commitId: string } | null;
+        to: { commitId: string } | null;
+        files: { status: string }[];
+      }[];
+    };
+    expect(res.status).toBe(200);
+    return body.rows;
+  }
+
+  test("pairs one commit against another", async () => {
     // arrange
     const from = await commitId("root()+");
     const to = await commitId("root()++");
 
     // act
-    const res = await handleInterdiff(request({ from, to }));
-    const body = (await res.json()) as {
-      from: { commitId: string };
-      to: { commitId: string };
-      files: unknown[];
-    };
+    const rows = await rowsFor([
+      ["from", from],
+      ["to", to],
+    ]);
 
     // assert
-    expect(res.status).toBe(200);
-    expect(body.from.commitId).toBe(from);
-    expect(body.to.commitId).toBe(to);
-    expect(body.files.length).toBeGreaterThan(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.from?.commitId).toBe(from);
+    expect(rows[0]?.to?.commitId).toBe(to);
+    expect(rows[0]?.files.length).toBeGreaterThan(0);
   });
 
-  test("falls back to a commit's own diff when one side is missing", async () => {
+  test("lines up a series against itself, one row per commit", async () => {
+    // arrange
+    const ids = (await jjLog({ revset: "root()+::", limit: 3 })).map(
+      (entry) => entry.commitId,
+    );
+    const params: [string, string][] = [
+      ...ids.map((id): [string, string] => ["from", id]),
+      ...ids.map((id): [string, string] => ["to", id]),
+    ];
+
+    // act
+    const rows = await rowsFor(params);
+
+    // assert
+    expect(rows).toHaveLength(ids.length);
+    for (const row of rows) {
+      expect(row.from?.commitId).toBe(row.to?.commitId as string);
+      expect(row.files).toEqual([]);
+    }
+  });
+
+  test("gives a commit with no opposite number its own diff", async () => {
     // arrange
     const to = await commitId("root()+");
 
     // act
-    const res = await handleInterdiff(request({ to }));
-    const body = (await res.json()) as {
-      from: null;
-      to: { commitId: string };
-      files: { status: string }[];
-    };
+    const rows = await rowsFor([["to", to]]);
 
     // assert
-    expect(res.status).toBe(200);
-    expect(body.from).toBeNull();
-    expect(body.to.commitId).toBe(to);
-    for (const file of body.files) expect(file.status).toBe("added");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.from).toBeNull();
+    expect(rows[0]?.to?.commitId).toBe(to);
+    for (const file of rows[0]?.files ?? []) {
+      expect(file.status).toBe("added");
+    }
   });
 
-  test("reports an empty request as 400", async () => {
+  test("reports a request with no commits as 400", async () => {
     // arrange
     // act
-    const res = await handleInterdiff(request({}));
+    const res = await handleInterdiff(request([]));
     const body = (await res.json()) as { error: string };
 
     // assert
     expect(res.status).toBe(400);
-    expect(body.error).toMatch(/from or a to/);
+    expect(body.error).toMatch(/at least one commit/);
   });
 
   test("reports an unresolvable commit as 400 with jj's message", async () => {
     // arrange
     // act
     const res = await handleInterdiff(
-      request({ from: "no-such-xyz", to: "@" }),
+      request([
+        ["from", "no-such-xyz"],
+        ["to", "@"],
+      ]),
     );
     const body = (await res.json()) as { error: string };
 

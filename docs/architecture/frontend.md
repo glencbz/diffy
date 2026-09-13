@@ -5,6 +5,12 @@ pickers, *before* and *after*, each drawn as a commit graph, and one diff panel.
 Pick a commit on each side and the panel shows their interdiff: how the after
 commit's change differs from the before commit's.
 
+Either side takes any number of commits. Pick a whole branch on the left and
+the branch it became on the right, and the panel shows one row per commit,
+lined up by [`alignSeries`](backend/series.md) and scrolled like a branch.
+Reviewing a re-pushed series is the case the tool is for, and it is not a
+commit-at-a-time job.
+
 An operation selector sits above each picker. jj records every repo mutation as
 an operation; picking a past one rewinds that side's log to how it looked right
 after that step, via `jj ... --at-operation`. The two sides choose
@@ -12,9 +18,10 @@ independently, and that is the whole point. A commit as it stood ten operations
 ago and the same commit now are exactly the pair worth comparing, and no single
 view of the repo holds both.
 
-Selecting on only one side is allowed, and shows that commit's own diff. "Pick
-a commit, read its diff" is then this same screen with one side left empty,
-rather than a second mode to switch into.
+A commit with nothing opposite it shows its own diff, whether that is because
+the reader picked one side only or because the commit was added to or dropped
+from the series. "Pick a commit, read its diff" is then this same screen with
+an empty before side, rather than a second mode to switch into.
 
 The tech plan first sketched this in htmx. We went with React instead. The
 pickers carry client-side state. Two selections drive the diff panel, and both
@@ -235,11 +242,14 @@ const DiffResponse = z.object({
 });
 export type DiffResponse = z.infer<typeof DiffResponse>;
 
-const InterdiffResponse = z.object({
+export const InterdiffRow = z.object({
   from: LogEntry.nullable(),
   to: LogEntry.nullable(),
   files: z.array(FileDiff),
 });
+export type InterdiffRow = z.infer<typeof InterdiffRow>;
+
+const InterdiffResponse = z.object({ rows: z.array(InterdiffRow) });
 export type InterdiffResponse = z.infer<typeof InterdiffResponse>;
 
 const ErrorResponse = z.object({ error: z.string() });
@@ -282,12 +292,12 @@ export async function fetchDiff(
 }
 
 export async function fetchInterdiff(
-  from: string | null,
-  to: string | null,
+  from: string[],
+  to: string[],
 ): Promise<InterdiffResponse> {
   const params = new URLSearchParams();
-  if (from !== null) params.set("from", from);
-  if (to !== null) params.set("to", to);
+  for (const commitId of from) params.append("from", commitId);
+  for (const commitId of to) params.append("to", commitId);
   return InterdiffResponse.parse(
     await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
   );
@@ -376,9 +386,14 @@ export function useCommitLog(
 }
 ```
 
-`useInterdiff` reloads whenever either commit changes. If a response comes back
-after either has already moved, the hook drops it. Both sides empty means
+`useInterdiff` reloads whenever either selection changes. If a response comes
+back after either has already moved, the hook drops it. Both sides empty means
 nothing to ask the backend, so the hook reports `null` without a request.
+
+The selections are arrays, and a fresh array every render would restart the
+effect every render. The effect therefore depends on the joined ids, which two
+equal selections share, and unpacks them again on the way in. Nothing else in
+the hook reads the array props, so there is no second copy to fall out of date.
 
 ```tsx
 //| id: frontend-state-interdiff
@@ -388,22 +403,26 @@ import { fetchInterdiff, type InterdiffResponse } from "../api";
 import type { AsyncState } from "./asyncState";
 
 export function useInterdiff(
-  from: string | null,
-  to: string | null,
+  from: string[],
+  to: string[],
 ): AsyncState<InterdiffResponse> | null {
   const [state, setState] = useState<AsyncState<InterdiffResponse> | null>(
     null,
   );
+  const fromKey = from.join(" ");
+  const toKey = to.join(" ");
 
   useEffect(() => {
-    if (from === null && to === null) {
+    const fromIds = fromKey.split(" ").filter(Boolean);
+    const toIds = toKey.split(" ").filter(Boolean);
+    if (fromIds.length === 0 && toIds.length === 0) {
       setState(null);
       return;
     }
 
     let live = true;
     setState({ status: "loading" });
-    fetchInterdiff(from, to)
+    fetchInterdiff(fromIds, toIds)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -413,7 +432,7 @@ export function useInterdiff(
     return () => {
       live = false;
     };
-  }, [from, to]);
+  }, [fromKey, toKey]);
 
   return state;
 }
@@ -601,10 +620,11 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
 
 ### Comparison header
 
-The diff panel says what it is showing before it shows it: which commit is the
+Every row says what it is showing before it shows it: which commit is the
 before side, which is the after side, and when one of them is missing. Without
-it the panel is an unlabelled patch, and with two independent operation
-pickers on screen there is no way to work back to what was compared.
+it a row is an unlabelled patch, and with two independent operation pickers on
+screen and several rows stacked up, there is no way to work back to what was
+compared.
 
 ```tsx
 //| id: frontend-view-comparison-header
@@ -650,7 +670,7 @@ function Row({
     >
       <span style={{ color: "#888", width: 56, flex: "none" }}>{caption}</span>
       {commit === null ? (
-        <em style={{ color: "#999" }}>nothing selected</em>
+        <em style={{ color: "#999" }}>not in this series</em>
       ) : (
         <CommitLabel commit={commit} />
       )}
@@ -666,11 +686,18 @@ them. A commit with more than one parent is a merge and shows as a hollow node.
 Side-by-side branch lanes are not built yet. The history is mostly linear, so
 the one lane matches `jj log` for now.
 
-Clicking a row selects that commit by commit id, while the row goes on showing
+Clicking a row toggles that commit by commit id, while the row goes on showing
 a change id, which is shorter and is what `jj log` prints. The two are not
 interchangeable as identifiers. A change id names whichever version of a commit
 the current view holds, so it says something different in each operation's log,
 and a selection has to keep meaning the one commit the reader clicked.
+
+Any number of rows can be selected, and the graph hands back the whole
+selection rather than the row that was clicked. It orders that selection the
+way the log is ordered, because it is the only piece of the app that knows
+what the order is. Click order would mean a series lines up against the other
+side in whatever sequence the reader happened to click, which is not an order
+at all.
 
 ```tsx
 //| id: frontend-view-commit-graph
@@ -687,18 +714,32 @@ export function CommitGraph({
   onSelect,
 }: {
   commits: LogEntry[];
-  selected: string | null;
-  onSelect: (commitId: string) => void;
+  selected: string[];
+  onSelect: (commitIds: string[]) => void;
 }) {
+  const chosen = new Set(selected);
+
+  function toggle(commitId: string) {
+    const next = new Set(chosen);
+    if (next.has(commitId)) next.delete(commitId);
+    else next.add(commitId);
+
+    onSelect(
+      commits
+        .filter((commit) => next.has(commit.commitId))
+        .map((commit) => commit.commitId),
+    );
+  }
+
   return (
     <div>
       {commits.map((commit, index) => {
-        const isSelected = commit.commitId === selected;
+        const isSelected = chosen.has(commit.commitId);
         return (
           <button
             type="button"
             key={commit.commitId}
-            onClick={() => onSelect(commit.commitId)}
+            onClick={() => toggle(commit.commitId)}
             style={{
               display: "flex",
               alignItems: "center",
@@ -765,6 +806,51 @@ function Lane({
       />
     </svg>
   );
+}
+```
+
+### Interdiff rows
+
+One section per lined-up pair, in the order the backend sent them, which is the
+order of the graphs that fed it. Each section is its own header and its own
+patch, so a reader scrolls the comparison the way they scroll a branch.
+
+A row with no files still renders, and says which kind of nothing it is. Two
+commits that make the same change is the answer someone checking a rebase is
+looking for; an empty commit on its own is not the same statement. That
+branch lives here rather than in the controller, because it is per row and the
+controller sees the list.
+
+```tsx
+//| id: frontend-view-interdiff-rows
+//| file: src/frontend/views/InterdiffRows.tsx
+import type { InterdiffRow } from "../api";
+import { ComparisonHeader } from "./ComparisonHeader";
+import { DiffView } from "./DiffView";
+
+export function InterdiffRows({ rows }: { rows: InterdiffRow[] }) {
+  return (
+    <div>
+      {rows.map((row) => (
+        <section key={rowKey(row)}>
+          <ComparisonHeader from={row.from} to={row.to} />
+          {row.files.length === 0 ? (
+            <p style={{ padding: 12, fontStyle: "italic", color: "#666" }}>
+              {row.from !== null && row.to !== null
+                ? "Both commits make the same change."
+                : "No changes in this commit."}
+            </p>
+          ) : (
+            <DiffView files={row.files} />
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function rowKey(row: InterdiffRow): string {
+  return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
 }
 ```
 
@@ -889,8 +975,8 @@ export function CommitLog({
   onSelect,
 }: {
   atOperation: string | null;
-  selected: string | null;
-  onSelect: (changeId: string) => void;
+  selected: string[];
+  onSelect: (commitIds: string[]) => void;
 }) {
   const log = useCommitLog(atOperation);
 
@@ -907,52 +993,25 @@ export function CommitLog({
 
 ### Interdiff
 
-The panel's two empty cases read differently, so they say different things.
-Two commits whose changes match exactly is the answer a reviewer of a rebase
-wants to see. One lone commit with nothing in it is just an empty commit.
-
 ```tsx
 //| id: frontend-controller-interdiff
 //| file: src/frontend/controllers/Interdiff.tsx
 import { useInterdiff } from "../state/interdiff";
-import { ComparisonHeader } from "../views/ComparisonHeader";
-import { DiffView } from "../views/DiffView";
+import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
-export function Interdiff({
-  from,
-  to,
-}: {
-  from: string | null;
-  to: string | null;
-}) {
+export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
   const interdiff = useInterdiff(from, to);
 
   if (interdiff === null) {
-    return <Message>Select a commit on either side to see a diff.</Message>;
+    return <Message>Select commits on either side to compare them.</Message>;
   }
   if (interdiff.status === "loading") return <Message>Loading diff...</Message>;
   if (interdiff.status === "error") {
     return <Message tone="error">{interdiff.message}</Message>;
   }
 
-  const { from: before, to: after, files } = interdiff.data;
-  const paired = before !== null && after !== null;
-
-  return (
-    <>
-      <ComparisonHeader from={before} to={after} />
-      {files.length === 0 ? (
-        <Message>
-          {paired
-            ? "These two commits make the same change."
-            : "No changes in this commit."}
-        </Message>
-      ) : (
-        <DiffView files={files} />
-      )}
-    </>
-  );
+  return <InterdiffRows rows={interdiff.data.rows} />;
 }
 ```
 
@@ -975,7 +1034,7 @@ export function App() {
     <ReviewPanes
       before={<SidePicker side={before} />}
       after={<SidePicker side={after} />}
-      diff={<Interdiff from={before.commit} to={after.commit} />}
+      diff={<Interdiff from={before.commits} to={after.commits} />}
     />
   );
 }
@@ -983,24 +1042,24 @@ export function App() {
 interface Side {
   /** Operation to read this side's log at, or null for the live repo. */
   operation: string | null;
-  /** Commit id selected on this side, or null for nothing selected. */
-  commit: string | null;
+  /** Commit ids selected on this side, in log order. */
+  commits: string[];
   selectOperation: (operationId: string | null) => void;
-  selectCommit: (commitId: string) => void;
+  selectCommits: (commitIds: string[]) => void;
 }
 
 function useSide(): Side {
   const [operation, setOperation] = useState<string | null>(null);
-  const [commit, setCommit] = useState<string | null>(null);
+  const [commits, setCommits] = useState<string[]>([]);
 
   return {
     operation,
-    commit,
+    commits,
     selectOperation(operationId) {
       setOperation(operationId);
-      setCommit(null);
+      setCommits([]);
     },
-    selectCommit: setCommit,
+    selectCommits: setCommits,
   };
 }
 
@@ -1010,8 +1069,8 @@ function SidePicker({ side }: { side: Side }) {
       <OperationLog selected={side.operation} onSelect={side.selectOperation} />
       <CommitLog
         atOperation={side.operation}
-        selected={side.commit}
-        onSelect={side.selectCommit}
+        selected={side.commits}
+        onSelect={side.selectCommits}
       />
     </>
   );

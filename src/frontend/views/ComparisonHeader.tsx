@@ -40,7 +40,7 @@ function Row({
     >
       <span style={{ color: "#888", width: 56, flex: "none" }}>{caption}</span>
       {commit === null ? (
-        <em style={{ color: "#999" }}>nothing selected</em>
+        <em style={{ color: "#999" }}>not in this series</em>
       ) : (
         <CommitLabel commit={commit} />
       )}

@@ -13,7 +13,7 @@ export function App() {
     <ReviewPanes
       before={<SidePicker side={before} />}
       after={<SidePicker side={after} />}
-      diff={<Interdiff from={before.commit} to={after.commit} />}
+      diff={<Interdiff from={before.commits} to={after.commits} />}
     />
   );
 }
@@ -21,24 +21,24 @@ export function App() {
 interface Side {
   /** Operation to read this side's log at, or null for the live repo. */
   operation: string | null;
-  /** Commit id selected on this side, or null for nothing selected. */
-  commit: string | null;
+  /** Commit ids selected on this side, in log order. */
+  commits: string[];
   selectOperation: (operationId: string | null) => void;
-  selectCommit: (commitId: string) => void;
+  selectCommits: (commitIds: string[]) => void;
 }
 
 function useSide(): Side {
   const [operation, setOperation] = useState<string | null>(null);
-  const [commit, setCommit] = useState<string | null>(null);
+  const [commits, setCommits] = useState<string[]>([]);
 
   return {
     operation,
-    commit,
+    commits,
     selectOperation(operationId) {
       setOperation(operationId);
-      setCommit(null);
+      setCommits([]);
     },
-    selectCommit: setCommit,
+    selectCommits: setCommits,
   };
 }
 
@@ -48,8 +48,8 @@ function SidePicker({ side }: { side: Side }) {
       <OperationLog selected={side.operation} onSelect={side.selectOperation} />
       <CommitLog
         atOperation={side.operation}
-        selected={side.commit}
-        onSelect={side.selectCommit}
+        selected={side.commits}
+        onSelect={side.selectCommits}
       />
     </>
   );

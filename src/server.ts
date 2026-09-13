@@ -2,12 +2,15 @@
 
 import {
   JjError,
+  type JjFileDiff,
+  type JjLogEntry,
   jjCommits,
   jjDiff,
   jjInterdiff,
   jjLog,
   jjOpLog,
 } from "./backend/commit/jj";
+import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -45,29 +48,45 @@ export function handleDiff(req: Request): Promise<Response> {
 
 export async function handleInterdiff(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
-  const from = params.get("from");
-  const to = params.get("to");
+  const from = params.getAll("from");
+  const to = params.getAll("to");
 
-  if (from === null && to === null) {
+  if (from.length === 0 && to.length === 0) {
     return Response.json(
-      { error: "interdiff needs a from or a to commit" },
+      { error: "interdiff needs at least one commit" },
       { status: 400 },
     );
   }
 
   return jjJson(async () => {
-    const commits = await jjCommits([from, to].filter((id) => id !== null));
-    const files =
-      from !== null && to !== null
-        ? await jjInterdiff({ from, to })
-        : await jjDiff({ revision: from ?? to ?? "" });
+    const commits = await jjCommits([...from, ...to]);
+    const series = (ids: string[]): JjLogEntry[] =>
+      ids.flatMap((id) => {
+        const commit = commits.get(id);
+        return commit === undefined ? [] : [commit];
+      });
 
     return {
-      from: from === null ? null : (commits.get(from) ?? null),
-      to: to === null ? null : (commits.get(to) ?? null),
-      files,
+      rows: await Promise.all(
+        alignSeries(series(from), series(to)).map(async (pair) => ({
+          ...pair,
+          files: await pairFiles(pair),
+        })),
+      ),
     };
   });
+}
+
+/** A paired row is an interdiff; a lone commit is just its own diff. */
+function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
+  if (pair.from !== null && pair.to !== null) {
+    return jjInterdiff({ from: pair.from.commitId, to: pair.to.commitId });
+  }
+
+  const lone = pair.from ?? pair.to;
+  return lone === null
+    ? Promise.resolve([])
+    : jjDiff({ revision: lone.commitId });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[2]

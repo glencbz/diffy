@@ -13,6 +13,12 @@
 
 * Show a before and after list of commits
 * Pick a commit on the before side and interdiff it with the after side.
+* Pick whole series on both sides and interdiff them commit by commit.
+
+The two sides pick their commits independently, each at whatever repo
+operation it is looking at, so a commit can be compared against its own
+earlier self. Lining up two series is its own problem and has its own module,
+[architecture/backend/series.md](architecture/backend/series.md).
 
 ## Architecture
 

@@ -9,8 +9,8 @@ export function CommitLog({
   onSelect,
 }: {
   atOperation: string | null;
-  selected: string | null;
-  onSelect: (changeId: string) => void;
+  selected: string[];
+  onSelect: (commitIds: string[]) => void;
 }) {
   const log = useCommitLog(atOperation);
 

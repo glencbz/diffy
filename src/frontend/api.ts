@@ -59,11 +59,14 @@ const DiffResponse = z.object({
 });
 export type DiffResponse = z.infer<typeof DiffResponse>;
 
-const InterdiffResponse = z.object({
+export const InterdiffRow = z.object({
   from: LogEntry.nullable(),
   to: LogEntry.nullable(),
   files: z.array(FileDiff),
 });
+export type InterdiffRow = z.infer<typeof InterdiffRow>;
+
+const InterdiffResponse = z.object({ rows: z.array(InterdiffRow) });
 export type InterdiffResponse = z.infer<typeof InterdiffResponse>;
 
 const ErrorResponse = z.object({ error: z.string() });
@@ -106,12 +109,12 @@ export async function fetchDiff(
 }
 
 export async function fetchInterdiff(
-  from: string | null,
-  to: string | null,
+  from: string[],
+  to: string[],
 ): Promise<InterdiffResponse> {
   const params = new URLSearchParams();
-  if (from !== null) params.set("from", from);
-  if (to !== null) params.set("to", to);
+  for (const commitId of from) params.append("from", commitId);
+  for (const commitId of to) params.append("to", commitId);
   return InterdiffResponse.parse(
     await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
   );

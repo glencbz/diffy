@@ -11,18 +11,32 @@ export function CommitGraph({
   onSelect,
 }: {
   commits: LogEntry[];
-  selected: string | null;
-  onSelect: (commitId: string) => void;
+  selected: string[];
+  onSelect: (commitIds: string[]) => void;
 }) {
+  const chosen = new Set(selected);
+
+  function toggle(commitId: string) {
+    const next = new Set(chosen);
+    if (next.has(commitId)) next.delete(commitId);
+    else next.add(commitId);
+
+    onSelect(
+      commits
+        .filter((commit) => next.has(commit.commitId))
+        .map((commit) => commit.commitId),
+    );
+  }
+
   return (
     <div>
       {commits.map((commit, index) => {
-        const isSelected = commit.commitId === selected;
+        const isSelected = chosen.has(commit.commitId);
         return (
           <button
             type="button"
             key={commit.commitId}
-            onClick={() => onSelect(commit.commitId)}
+            onClick={() => toggle(commit.commitId)}
             style={{
               display: "flex",
               alignItems: "center",
