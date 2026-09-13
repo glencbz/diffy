@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": [
+        "@playwright/mcp@0.0.80",
+        "--browser",
+        "chromium",
+        "--headless",
+        "--isolated",
+        "--output-dir",
+        ".claude/verify-artifacts"
+      ],
+      "env": {}
+    }
+  }
+}
