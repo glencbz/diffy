@@ -59,6 +59,13 @@ const DiffResponse = z.object({
 });
 export type DiffResponse = z.infer<typeof DiffResponse>;
 
+const InterdiffResponse = z.object({
+  from: LogEntry.nullable(),
+  to: LogEntry.nullable(),
+  files: z.array(FileDiff),
+});
+export type InterdiffResponse = z.infer<typeof InterdiffResponse>;
+
 const ErrorResponse = z.object({ error: z.string() });
 
 /** GET a jj-backed endpoint, turning a 400 into its `error` message. */
@@ -95,6 +102,18 @@ export async function fetchDiff(
   if (atOperation) params.set("op", atOperation);
   return DiffResponse.parse(
     await getJson(`/api/diff?${params}`, "GET /api/diff"),
+  );
+}
+
+export async function fetchInterdiff(
+  from: string | null,
+  to: string | null,
+): Promise<InterdiffResponse> {
+  const params = new URLSearchParams();
+  if (from !== null) params.set("from", from);
+  if (to !== null) params.set("to", to);
+  return InterdiffResponse.parse(
+    await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
   );
 }
 // ~/~ end

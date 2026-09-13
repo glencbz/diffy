@@ -1,6 +1,14 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { JjError, jjDiff, jjLog, jjOpLog, parseFileDiff } from "./jj";
+import {
+  JjError,
+  jjCommits,
+  jjDiff,
+  jjInterdiff,
+  jjLog,
+  jjOpLog,
+  parseFileDiff,
+} from "./jj";
 
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
@@ -252,6 +260,103 @@ describe("jjDiff", () => {
   test("wraps an unresolvable revision in JjError", async () => {
     // arrange
     const attempt = () => jjDiff({ revision: "no-such-revision-xyz" });
+
+    // act
+    // assert
+    await expect(attempt()).rejects.toBeInstanceOf(JjError);
+    await expect(attempt()).rejects.toThrow(/doesn't exist/);
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[2]
+
+/** The commit id of the single commit `revset` names. */
+async function commitId(revset: string): Promise<string> {
+  const [entry] = await jjLog({ revset, limit: 1 });
+  if (entry === undefined) throw new Error(`no commit matches ${revset}`);
+  return entry.commitId;
+}
+
+describe("jjCommits", () => {
+  test("keys the requested commits by commit id", async () => {
+    // arrange
+    const entries = await jjLog({ revset: "all()", limit: 3 });
+    const ids = entries.map((entry) => entry.commitId);
+
+    // act
+    const found = await jjCommits(ids);
+
+    // assert
+    expect([...found.keys()].sort()).toEqual([...ids].sort());
+    for (const id of ids) expect(found.get(id)?.commitId).toBe(id);
+  });
+
+  test("asks jj nothing when given no ids", async () => {
+    // arrange
+    // act
+    // assert
+    expect(await jjCommits([])).toEqual(new Map());
+  });
+
+  test("wraps an unresolvable id in JjError", async () => {
+    // arrange
+    // act
+    // assert
+    await expect(jjCommits(["no-such-commit-xyz"])).rejects.toBeInstanceOf(
+      JjError,
+    );
+  });
+});
+
+describe("jjInterdiff", () => {
+  test("reports no difference between a commit and itself", async () => {
+    // arrange
+    const id = await commitId("root()+");
+
+    // act
+    // assert
+    expect(await jjInterdiff({ from: id, to: id })).toEqual([]);
+  });
+
+  test("reports the difference between two unrelated changes", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const files = await jjInterdiff({ from, to });
+
+    // assert
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      expect(file.patch.startsWith("diff --git ")).toBe(true);
+    }
+  });
+
+  test("compares a commit from an old operation without --at-operation", async () => {
+    // arrange
+    const operations = await jjOpLog();
+    const oldest = operations.at(-1);
+    const [before] = await jjLog({
+      revset: "all()",
+      limit: 1,
+      atOperation: oldest?.id,
+    });
+    if (before === undefined) throw new Error("no commit at the oldest op");
+
+    // act
+    const files = await jjInterdiff({
+      from: before.commitId,
+      to: await commitId("@"),
+    });
+
+    // assert
+    expect(Array.isArray(files)).toBe(true);
+  });
+
+  test("wraps an unresolvable commit in JjError", async () => {
+    // arrange
+    const attempt = () => jjInterdiff({ from: "no-such-commit-xyz", to: "@" });
 
     // act
     // assert

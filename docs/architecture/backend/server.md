@@ -36,7 +36,14 @@ mapping exists in one place instead of being repeated per handler.
 //| id: backend-server
 //| file: src/server.ts
 
-import { JjError, jjDiff, jjLog, jjOpLog } from "./backend/commit/jj";
+import {
+  JjError,
+  jjCommits,
+  jjDiff,
+  jjInterdiff,
+  jjLog,
+  jjOpLog,
+} from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -69,12 +76,62 @@ export function handleDiff(req: Request): Promise<Response> {
     files: await jjDiff({ revision, atOperation }),
   }));
 }
+```
+
+`/api/interdiff` takes a `from` and a `to` commit id and answers with the two
+commits plus the files their changes differ in. Both are commit ids, not
+change ids or revsets, because the two sides are routinely picked out of
+different operations and only a commit id means the same thing in both.
+
+Either side may be left out. A commit with nothing opposite it has nothing to
+be compared against, so the honest answer is its own diff, and that is what
+the handler returns. The v0 behaviour, pick a commit and read its diff, is
+then just this endpoint with an empty `from`, instead of a separate screen the
+UI has to switch between. Leaving out both sides is the one case with no
+answer at all, and it is a 400.
+
+```ts
+//| id: backend-server
+
+export async function handleInterdiff(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  const from = params.get("from");
+  const to = params.get("to");
+
+  if (from === null && to === null) {
+    return Response.json(
+      { error: "interdiff needs a from or a to commit" },
+      { status: 400 },
+    );
+  }
+
+  return jjJson(async () => {
+    const commits = await jjCommits([from, to].filter((id) => id !== null));
+    const files =
+      from !== null && to !== null
+        ? await jjInterdiff({ from, to })
+        : await jjDiff({ revision: from ?? to ?? "" });
+
+    return {
+      from: from === null ? null : (commits.get(from) ?? null),
+      to: to === null ? null : (commits.get(to) ?? null),
+      files,
+    };
+  });
+}
+```
+
+The route table is the list of handlers the server exposes.
+
+```ts
+//| id: backend-server
 
 export const routes = {
   "/": index,
   "/api/log": handleLog,
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
+  "/api/interdiff": handleInterdiff,
 };
 
 if (import.meta.main) {
@@ -92,7 +149,20 @@ without binding a port.
 //| id: backend-server-test
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
-import { handleDiff, handleLog, handleOperations } from "./server";
+import { jjLog } from "./backend/commit/jj";
+import {
+  handleDiff,
+  handleInterdiff,
+  handleLog,
+  handleOperations,
+} from "./server";
+
+/** The commit id of the single commit `revset` names. */
+async function commitId(revset: string): Promise<string> {
+  const [entry] = await jjLog({ revset, limit: 1 });
+  if (entry === undefined) throw new Error(`no commit matches ${revset}`);
+  return entry.commitId;
+}
 
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
@@ -166,6 +236,77 @@ describe("handleDiff", () => {
     // act
     const res = await handleDiff(
       new Request("http://test/api/diff?rev=no-such-xyz"),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/doesn't exist/);
+  });
+});
+
+describe("handleInterdiff", () => {
+  function request(params: Record<string, string>): Request {
+    return new Request(
+      `http://test/api/interdiff?${new URLSearchParams(params)}`,
+    );
+  }
+
+  test("echoes both commits and the files they differ in", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const res = await handleInterdiff(request({ from, to }));
+    const body = (await res.json()) as {
+      from: { commitId: string };
+      to: { commitId: string };
+      files: unknown[];
+    };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.from.commitId).toBe(from);
+    expect(body.to.commitId).toBe(to);
+    expect(body.files.length).toBeGreaterThan(0);
+  });
+
+  test("falls back to a commit's own diff when one side is missing", async () => {
+    // arrange
+    const to = await commitId("root()+");
+
+    // act
+    const res = await handleInterdiff(request({ to }));
+    const body = (await res.json()) as {
+      from: null;
+      to: { commitId: string };
+      files: { status: string }[];
+    };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.from).toBeNull();
+    expect(body.to.commitId).toBe(to);
+    for (const file of body.files) expect(file.status).toBe("added");
+  });
+
+  test("reports an empty request as 400", async () => {
+    // arrange
+    // act
+    const res = await handleInterdiff(request({}));
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/from or a to/);
+  });
+
+  test("reports an unresolvable commit as 400 with jj's message", async () => {
+    // arrange
+    // act
+    const res = await handleInterdiff(
+      request({ from: "no-such-xyz", to: "@" }),
     );
     const body = (await res.json()) as { error: string };
 

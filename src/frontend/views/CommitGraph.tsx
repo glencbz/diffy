@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-view-commit-graph>>[init]
 import type { LogEntry } from "../api";
+import { CommitLabel } from "./CommitLabel";
 
 const ROW_HEIGHT = 28;
 const LANE_WIDTH = 24;
@@ -41,14 +42,7 @@ export function CommitGraph({
               hasBelow={index < commits.length - 1}
               isMerge={commit.parents.length > 1}
             />
-            <span style={{ color: "#888", marginRight: 8 }}>
-              {commit.changeId.slice(0, 8)}
-            </span>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-              {firstLine(commit.description) || (
-                <em style={{ color: "#999" }}>(no description)</em>
-              )}
-            </span>
+            <CommitLabel commit={commit} />
           </button>
         );
       })}
@@ -95,9 +89,5 @@ function Lane({
       />
     </svg>
   );
-}
-
-function firstLine(text: string): string {
-  return text.split("\n")[0] ?? "";
 }
 // ~/~ end

@@ -1,6 +1,13 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[init]
 
-import { JjError, jjDiff, jjLog, jjOpLog } from "./backend/commit/jj";
+import {
+  JjError,
+  jjCommits,
+  jjDiff,
+  jjInterdiff,
+  jjLog,
+  jjOpLog,
+} from "./backend/commit/jj";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -33,12 +40,44 @@ export function handleDiff(req: Request): Promise<Response> {
     files: await jjDiff({ revision, atOperation }),
   }));
 }
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[1]
+
+export async function handleInterdiff(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  const from = params.get("from");
+  const to = params.get("to");
+
+  if (from === null && to === null) {
+    return Response.json(
+      { error: "interdiff needs a from or a to commit" },
+      { status: 400 },
+    );
+  }
+
+  return jjJson(async () => {
+    const commits = await jjCommits([from, to].filter((id) => id !== null));
+    const files =
+      from !== null && to !== null
+        ? await jjInterdiff({ from, to })
+        : await jjDiff({ revision: from ?? to ?? "" });
+
+    return {
+      from: from === null ? null : (commits.get(from) ?? null),
+      to: to === null ? null : (commits.get(to) ?? null),
+      files,
+    };
+  });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[2]
 
 export const routes = {
   "/": index,
   "/api/log": handleLog,
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
+  "/api/interdiff": handleInterdiff,
 };
 
 if (import.meta.main) {

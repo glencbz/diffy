@@ -1,23 +1,25 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-revision-diff>>[init]
+// ~/~ begin <<docs/architecture/frontend.md#frontend-state-interdiff>>[init]
 import { useEffect, useState } from "react";
-import { type DiffResponse, fetchDiff } from "../api";
+import { fetchInterdiff, type InterdiffResponse } from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useRevisionDiff(
-  revision: string | null,
-  atOperation: string | null,
-): AsyncState<DiffResponse> | null {
-  const [state, setState] = useState<AsyncState<DiffResponse> | null>(null);
+export function useInterdiff(
+  from: string | null,
+  to: string | null,
+): AsyncState<InterdiffResponse> | null {
+  const [state, setState] = useState<AsyncState<InterdiffResponse> | null>(
+    null,
+  );
 
   useEffect(() => {
-    if (revision === null) {
+    if (from === null && to === null) {
       setState(null);
       return;
     }
 
     let live = true;
     setState({ status: "loading" });
-    fetchDiff(revision, atOperation ?? undefined)
+    fetchInterdiff(from, to)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -27,7 +29,7 @@ export function useRevisionDiff(
     return () => {
       live = false;
     };
-  }, [revision, atOperation]);
+  }, [from, to]);
 
   return state;
 }
