@@ -11,6 +11,16 @@ export type LogEntry = z.infer<typeof LogEntry>;
 
 const LogResponse = z.array(LogEntry);
 
+export const OpLogEntry = z.object({
+  id: z.string(),
+  description: z.string(),
+  time: z.string(),
+  args: z.string(),
+});
+export type OpLogEntry = z.infer<typeof OpLogEntry>;
+
+const OpLogResponse = z.array(OpLogEntry);
+
 const fileDiffFields = {
   binary: z.boolean(),
   patch: z.string(),
@@ -51,25 +61,40 @@ export type DiffResponse = z.infer<typeof DiffResponse>;
 
 const ErrorResponse = z.object({ error: z.string() });
 
-export async function fetchLog(): Promise<LogEntry[]> {
-  const res = await fetch("/api/log");
-  if (!res.ok) throw new Error(`GET /api/log failed (${res.status})`);
-  return LogResponse.parse(await res.json());
-}
-
-export async function fetchDiff(revision: string): Promise<DiffResponse> {
-  const res = await fetch(`/api/diff?rev=${encodeURIComponent(revision)}`);
+/** GET a jj-backed endpoint, turning a 400 into its `error` message. */
+async function getJson(url: string, label: string): Promise<unknown> {
+  const res = await fetch(url);
   const body: unknown = await res.json();
 
   if (!res.ok) {
     const parsed = ErrorResponse.safeParse(body);
     throw new Error(
-      parsed.success
-        ? parsed.data.error
-        : `GET /api/diff failed (${res.status})`,
+      parsed.success ? parsed.data.error : `${label} failed (${res.status})`,
     );
   }
 
-  return DiffResponse.parse(body);
+  return body;
+}
+
+export async function fetchOperations(): Promise<OpLogEntry[]> {
+  return OpLogResponse.parse(
+    await getJson("/api/operations", "GET /api/operations"),
+  );
+}
+
+export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
+  const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
+  return LogResponse.parse(await getJson(`/api/log${query}`, "GET /api/log"));
+}
+
+export async function fetchDiff(
+  revision: string,
+  atOperation?: string,
+): Promise<DiffResponse> {
+  const params = new URLSearchParams({ rev: revision });
+  if (atOperation) params.set("op", atOperation);
+  return DiffResponse.parse(
+    await getJson(`/api/diff?${params}`, "GET /api/diff"),
+  );
 }
 // ~/~ end

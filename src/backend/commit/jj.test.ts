@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { JjError, jjDiff, jjLog, parseFileDiff } from "./jj";
+import { JjError, jjDiff, jjLog, jjOpLog, parseFileDiff } from "./jj";
 
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
@@ -38,6 +38,60 @@ describe("jjLog", () => {
     await expect(
       jjLog({ revset: "no-such-revision-xyz" }),
     ).rejects.toBeInstanceOf(JjError);
+  });
+
+  test("reads the log at a past operation", async () => {
+    // arrange
+    const operations = await jjOpLog();
+    const earlier = operations.at(-1);
+
+    // act
+    const entries = await jjLog({
+      revset: "all()",
+      atOperation: earlier?.id,
+    });
+
+    // assert
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  test("wraps an unknown operation id in JjError", async () => {
+    // arrange
+    // act
+    // assert
+    await expect(
+      jjLog({ atOperation: "no-such-operation-xyz" }),
+    ).rejects.toBeInstanceOf(JjError);
+  });
+});
+
+describe("jjOpLog", () => {
+  test("lists operations newest first", async () => {
+    // arrange
+    // act
+    const operations = await jjOpLog();
+
+    // assert
+    expect(operations.length).toBeGreaterThan(0);
+    for (const op of operations) {
+      expect(typeof op.id).toBe("string");
+      expect(typeof op.description).toBe("string");
+      expect(typeof op.args).toBe("string");
+      expect(Number.isNaN(Date.parse(op.time))).toBe(false);
+    }
+
+    const times = operations.map((op) => Date.parse(op.time));
+    const sorted = [...times].sort((a, b) => b - a);
+    expect(times).toEqual(sorted);
+  });
+
+  test("respects the limit option", async () => {
+    // arrange
+    // act
+    const operations = await jjOpLog({ limit: 1 });
+
+    // assert
+    expect(operations).toHaveLength(1);
   });
 });
 // ~/~ end
