@@ -19,6 +19,10 @@ _default:
 
 <<just-bun>>
 
+<<just-serve>>
+
+<<just-serve-helpers>>
+
 <<just-bun-test>>
 
 <<just-bun-typecheck>>

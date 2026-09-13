@@ -7,14 +7,25 @@ As with all our components, we add a just rule to run the backend:
 ```just
 #| id: just-bun
 # Run the app
-@run:
-  bun run src/server.ts
+@run port="3000":
+  PORT={{port}} bun run src/server.ts
 
 ```
 
 The entrypoint is a single ts file with a web server. Route handlers and the
 route table are exported so tests can call them directly; `Bun.serve` only runs
 when the file is the process entrypoint (`import.meta.main`).
+
+`Bun.serve` is given no port, which makes it read `$PORT` and fall back to 3000.
+Every workspace serves the repo it sits in, so several of them run side by side
+during review, each on a port of its own.
+
+`just run` leaves `NODE_ENV` alone, so Bun serves in dev mode with hot reload,
+which is what a frontend change wants locally. Dev mode also checks the `Host`
+header against the address it is listening on, so it cannot be read through a
+proxy; serving a workspace for review therefore sets `NODE_ENV=production`. Both
+modes are worth having, so the choice sits with whoever starts the server rather
+than being fixed here. See [serving](../../devtools/serving.md).
 
 `jjJson` runs a handler body and turns a rejected revset or operation id
 (`JjError`) into a 400 carrying jj's own message; anything else is a genuine
@@ -67,7 +78,7 @@ export const routes = {
 };
 
 if (import.meta.main) {
-  const server = Bun.serve({ port: 3000, routes });
+  const server = Bun.serve({ routes });
   console.log(`Listening on ${server.url}`);
 }
 ```

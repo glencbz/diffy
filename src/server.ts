@@ -42,7 +42,7 @@ export const routes = {
 };
 
 if (import.meta.main) {
-  const server = Bun.serve({ port: 3000, routes });
+  const server = Bun.serve({ routes });
   console.log(`Listening on ${server.url}`);
 }
 // ~/~ end
