@@ -50,3 +50,27 @@ A commit backend must support the following operations:
 #### jj backend
 
 We'll use jj via CLI because that's more stable than the library.
+
+#### GitHub backend
+
+The second source of commits is a GitHub pull request, and it is deliberately
+a separate backend rather than a second implementation of the jj one. Two
+implementations is not enough to know what the shared interface should be, and
+an interface guessed from one of them would only describe jj again. They stay
+apart until a third case, or a real need to swap them, says what they have in
+common.
+
+A pull request's history axis is its chain of force pushes. Every force push
+records the head before it and the head after it, so the heads a branch has
+had, oldest first, are recoverable, and that ordered list plays the part the
+operation log plays for jj: it is the list of versions a reviewer can compare.
+The head the pull request was opened with only exists in the GraphQL timeline,
+so that is the API we use.
+
+GitHub is a metadata oracle and nothing more. It answers which pull requests
+exist and which object ids their heads have been, and no type crossing that
+boundary carries a commit message, an author or a patch. Content comes from
+the local git object store, which fetches a force-pushed commit by id, pins it
+under a ref of our own so garbage collection cannot take it, and reads it back
+with `git log`. See [architecture/backend/github.md](architecture/backend/github.md)
+and [architecture/backend/git.md](architecture/backend/git.md).
