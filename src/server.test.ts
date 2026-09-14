@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
+  handleGithubPullCommits,
+  handleGithubPullHistory,
+  handleGithubPulls,
   handleInterdiff,
   handleLog,
   handleOperations,
@@ -196,6 +199,50 @@ describe("handleInterdiff", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[1]
+
+describe("the GitHub routes", () => {
+  test("reports a repo that is not owner/name as 400", async () => {
+    // arrange
+    // act
+    const res = await handleGithubPulls(
+      new Request("http://test/api/github/pulls?repo=diffy"),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/owner\/name/);
+  });
+
+  test("reports a missing pull request number as 400", async () => {
+    // arrange
+    // act
+    const res = await handleGithubPullHistory(
+      new Request("http://test/api/github/pull/history?repo=glencbz/diffy"),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(typeof body.error).toBe("string");
+  });
+
+  test("reports a head that is not a 40-hex oid as 400", async () => {
+    // arrange
+    const url =
+      "http://test/api/github/pull/commits?repo=glencbz/diffy&number=9&head=nope";
+
+    // act
+    const res = await handleGithubPullCommits(new Request(url));
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/40-character/);
   });
 });
 // ~/~ end
