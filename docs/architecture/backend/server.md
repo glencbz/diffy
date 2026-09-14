@@ -36,6 +36,15 @@ mapping exists in one place instead of being repeated per handler.
 //| id: backend-server
 //| file: src/server.ts
 
+import * as z from "zod";
+import { GitError, GitOid, gitLog, gitMaterialize } from "./backend/commit/git";
+import {
+  GitHubError,
+  githubPullRequestHistory,
+  githubPullRequests,
+  parsePullNumber,
+  parseRepoRef,
+} from "./backend/commit/github";
 import {
   JjError,
   type JjFileDiff,
@@ -147,6 +156,134 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 }
 ```
 
+### Reading a pull request from GitHub
+
+The [GitHub backend](github.md) fails in more ways than jj does, and they are
+not all the caller's fault, so `githubJson` sorts them rather than flattening
+everything into a 400 the way `jjJson` can. A `GitHubError` of kind
+`not-found` is a 404, because the repository or the pull request the URL names
+does not exist. Kind `upstream` is a 502: GitHub was asked and did not answer.
+A `GitError` is also a 502, which is the least obvious of the four. It means
+GitHub named a commit, we asked the remote for it and the remote would not hand
+it over, so the request was well-formed and the upstream is inconsistent. A
+`ZodError` is the only 400 left, and it carries `z.prettifyError`'s rendering,
+which names the offending field instead of making the caller guess.
+
+```ts
+//| id: backend-server
+
+/** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
+async function githubJson(build: () => Promise<unknown>): Promise<Response> {
+  try {
+    return Response.json(await build());
+  } catch (error) {
+    if (error instanceof GitHubError) {
+      return Response.json(
+        { error: error.message },
+        { status: error.kind === "not-found" ? 404 : 502 },
+      );
+    }
+    if (error instanceof GitError) {
+      return Response.json({ error: error.message }, { status: 502 });
+    }
+    if (error instanceof z.ZodError) {
+      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
+    }
+    throw error;
+  }
+}
+```
+
+`/api/github/pulls` is the picker's list and `/api/github/pull/history` is one
+pull request's chain of heads. Both are thin: every parameter is parsed at the
+top of the handler, so a bad one costs a 400 and no API call.
+
+```ts
+//| id: backend-server
+
+const PullsQuery = z.object({
+  state: z.enum(["open", "closed", "merged", "all"]).optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
+export function handleGithubPulls(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+
+  return githubJson(() => {
+    const repo = parseRepoRef(params.get("repo") ?? "");
+    const options = PullsQuery.parse({
+      state: params.get("state") ?? undefined,
+      limit: params.get("limit") ?? undefined,
+    });
+    return githubPullRequests(repo, options);
+  });
+}
+
+export function handleGithubPullHistory(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+
+  return githubJson(() =>
+    githubPullRequestHistory(
+      parseRepoRef(params.get("repo") ?? ""),
+      parsePullNumber(params.get("number")),
+    ),
+  );
+}
+```
+
+`/api/github/pull/commits` is where the two backends meet: GitHub says which
+heads the pull request has had, and the local object store says what the
+commits under a given head are. The order of the four steps is the whole
+design.
+
+The head is checked against the pull request's own chain **before** anything is
+fetched. That is a security property, not a nicety. `gitMaterialize` asks a
+remote for an object id by name, and an id that reaches it unchecked means any
+URL can make this server fetch any object out of `origin`, including one that
+belongs to a branch the reader was never shown. Validating first means the only
+ids we will ever fetch are ids GitHub already published as heads of the pull
+request being read.
+
+The base is the pull request's base branch tip now, not what it was then, which
+is all GitHub keeps. `git log <base>..<head>` is therefore "the commits this
+head has that the base does not", which is the right answer for a pull request
+that has been rebased and the only available answer for one that has not.
+
+`gitMaterialize` returns one witness per oid asked, so the destructuring is
+exhaustive by construction; the undefined check is there because
+`noUncheckedIndexedAccess` cannot know that, and a mismatch would be our bug
+and a 500.
+
+```ts
+//| id: backend-server
+
+export function handleGithubPullCommits(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+
+  return githubJson(async () => {
+    const repo = parseRepoRef(params.get("repo") ?? "");
+    const number = parsePullNumber(params.get("number"));
+    const head = GitOid.parse(params.get("head"));
+
+    const history = await githubPullRequestHistory(repo, number);
+    if (!history.states.some((state) => state.head === head)) {
+      throw new GitHubError(`#${number} never had head ${head}`, "not-found");
+    }
+
+    const [base, tip] = await gitMaterialize([history.baseRefOid, head]);
+    if (base === undefined || tip === undefined) {
+      throw new Error("gitMaterialize returned fewer oids than asked");
+    }
+
+    return {
+      head,
+      base: history.baseRefOid,
+      commits: await gitLog({ from: base, to: tip, limit: 200 }),
+    };
+  });
+}
+```
+
 The route table is the list of handlers the server exposes.
 
 ```ts
@@ -158,6 +295,9 @@ export const routes = {
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
+  "/api/github/pulls": handleGithubPulls,
+  "/api/github/pull/history": handleGithubPullHistory,
+  "/api/github/pull/commits": handleGithubPullCommits,
 };
 
 if (import.meta.main) {
@@ -178,6 +318,9 @@ import { describe, expect, test } from "bun:test";
 import { jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
+  handleGithubPullCommits,
+  handleGithubPullHistory,
+  handleGithubPulls,
   handleInterdiff,
   handleLog,
   handleOperations,
@@ -371,6 +514,59 @@ describe("handleInterdiff", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
+  });
+});
+```
+
+
+The GitHub routes are only tested for what they refuse. Every other case talks
+to GitHub, and a test suite that needs a token and a network is a test suite
+that fails for reasons unrelated to the code. What matters here is that a
+malformed parameter is a 400 and that it costs no API call, which is the same
+thing as saying the parse happens first.
+
+```ts
+//| id: backend-server-test
+
+describe("the GitHub routes", () => {
+  test("reports a repo that is not owner/name as 400", async () => {
+    // arrange
+    // act
+    const res = await handleGithubPulls(
+      new Request("http://test/api/github/pulls?repo=diffy"),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/owner\/name/);
+  });
+
+  test("reports a missing pull request number as 400", async () => {
+    // arrange
+    // act
+    const res = await handleGithubPullHistory(
+      new Request("http://test/api/github/pull/history?repo=glencbz/diffy"),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(typeof body.error).toBe("string");
+  });
+
+  test("reports a head that is not a 40-hex oid as 400", async () => {
+    // arrange
+    const url =
+      "http://test/api/github/pull/commits?repo=glencbz/diffy&number=9&head=nope";
+
+    // act
+    const res = await handleGithubPullCommits(new Request(url));
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/40-character/);
   });
 });
 ```
