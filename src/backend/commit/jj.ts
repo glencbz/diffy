@@ -87,6 +87,18 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[2]
 
+/** Look up specific commits by id, keyed by commit id. */
+export async function jjCommits(
+  commitIds: string[],
+): Promise<Map<string, JjLogEntry>> {
+  if (commitIds.length === 0) return new Map();
+
+  const entries = await jjLog({ revset: commitIds.join("|") });
+  return new Map(entries.map((entry) => [entry.commitId, entry]));
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[3]
+
 /** One entry from `jj op log`: a recorded mutation of the repo. */
 export interface JjOpLogEntry {
   id: string;
@@ -132,7 +144,7 @@ export async function jjOpLog(
     });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[3]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[4]
 
 /** How one file changed between a revision and its parent. */
 export type JjFileDiff = (
@@ -152,17 +164,14 @@ export interface JjDiffOptions {
   atOperation?: string;
 }
 
-export async function jjDiff(
-  options: JjDiffOptions = {},
-): Promise<JjFileDiff[]> {
+export function jjDiff(options: JjDiffOptions = {}): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
   const args = ["diff", "--git", "--color=never", "-r", revision];
   if (options.atOperation !== undefined) {
     args.push("--at-operation", options.atOperation);
   }
-  const output = await runJj(args);
 
-  return splitFileDiffs(output).map(parseFileDiff);
+  return diffFiles(args);
 }
 
 const DIFF_HEADER = /^diff --git .*$/gm;
@@ -174,8 +183,13 @@ function splitFileDiffs(diff: string): string[] {
     diff.slice(start, starts[i + 1] ?? diff.length),
   );
 }
+
+/** Run a jj command that prints a `git`-format diff, parsed one file at a time. */
+async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
+  return splitFileDiffs(await runJj(args)).map(parseFileDiff);
+}
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[4]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[5]
 
 /** `a/foo` / `b/foo` -> `foo`; `/dev/null` -> `null`. */
 function stripPrefix(raw: string): string | null {
@@ -241,5 +255,28 @@ export function parseFileDiff(patch: string): JjFileDiff {
     throw new Error(`jjDiff: can't parse a path from: ${lines[0]}`);
   }
   return { status: kind, path, binary, patch };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[6]
+
+export interface JjInterdiffOptions {
+  /** Commit id whose change is the "before" side. */
+  from: string;
+  /** Commit id whose change is the "after" side. */
+  to: string;
+}
+
+export function jjInterdiff(
+  options: JjInterdiffOptions,
+): Promise<JjFileDiff[]> {
+  return diffFiles([
+    "interdiff",
+    "--git",
+    "--color=never",
+    "--from",
+    options.from,
+    "--to",
+    options.to,
+  ]);
 }
 // ~/~ end

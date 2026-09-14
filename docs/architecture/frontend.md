@@ -1,18 +1,32 @@
 # Frontend
 
-The review UI is a small [React](https://react.dev/) app. The left side is a
-commit picker, drawn as a commit graph. The right side shows a diff. Pick a
-commit and its diff loads.
+The review UI is a small [React](https://react.dev/) app. It has two commit
+pickers, *before* and *after*, each drawn as a commit graph, and one diff panel.
+Pick a commit on each side and the panel shows their interdiff: how the after
+commit's change differs from the before commit's.
 
-An operation selector sits above the commit picker. jj records every repo
-mutation as an operation; picking a past one rewinds the log (and the diff for
-whatever is then selected) to how it looked right after that step, via
-`jj ... --at-operation`. Leaving it on "latest" is the normal, live view.
+Either side takes any number of commits. Pick a whole branch on the left and
+the branch it became on the right, and the panel shows one row per commit,
+lined up by [`alignSeries`](backend/series.md) and scrolled like a branch.
+Reviewing a re-pushed series is the case the tool is for, and it is not a
+commit-at-a-time job.
+
+An operation selector sits above each picker. jj records every repo mutation as
+an operation; picking a past one rewinds that side's log to how it looked right
+after that step, via `jj ... --at-operation`. The two sides choose
+independently, and that is the whole point. A commit as it stood ten operations
+ago and the same commit now are exactly the pair worth comparing, and no single
+view of the repo holds both.
+
+A commit with nothing opposite it shows its own diff, whether that is because
+the reader picked one side only or because the commit was added to or dropped
+from the series. "Pick a commit, read its diff" is then this same screen with
+an empty before side, rather than a second mode to switch into.
 
 The tech plan first sketched this in htmx. We went with React instead. The
-picker carries client-side state. A selection on the left drives the diff panel
-on the right, and the selection has to survive each of those loads. Component
-state does that cleanly. htmx would need a stack of out-of-band swaps.
+pickers carry client-side state. Two selections drive the diff panel, and both
+have to survive each of those loads. Component state does that cleanly. htmx
+would need a stack of out-of-band swaps.
 
 ## Architecture
 
@@ -40,17 +54,18 @@ A folder called `hooks/` would say nothing, because any hook can do anything.
 their wire formats. It knows nothing about React. Each fetch wrapper runs its
 response through a [Zod](https://zod.dev/) schema before returning it. A drift
 in a backend shape then fails at the fetch, with a named parse error, before
-any view sees `undefined`. `fetchOperations()`, `fetchLog(atOperation?)`, and
-`fetchDiff(revision, atOperation?)` return typed promises. The optional
-`atOperation` on the last two is the operation id to view history at; omitted,
-the backend uses the live repo.
+any view sees `undefined`. `fetchOperations()`, `fetchLog(atOperation?)`,
+`fetchDiff(revision, atOperation?)`, and `fetchInterdiff(from, to)` return
+typed promises. The optional `atOperation` is the operation id to view history
+at; omitted, the backend uses the live repo. `fetchInterdiff` needs no such
+argument: it names its two commits by commit id, which resolves in any view.
 
 ### state
 
 Each `state/` module owns one slice of the app's data and keeps it current with
 the backend. `useOperations` owns the operation list. `useCommitLog` owns the
-commit list for the selected operation. `useRevisionDiff` owns the diff for the
-selected revision. Ownership is the point. One module loads its slice and
+commit list for one side's selected operation, so there is one instance of it
+per side. `useInterdiff` owns the diff between the two selected commits. Ownership is the point. One module loads its slice and
 reloads it when the input changes. The same module holds the loading and error
 state around it.
 
@@ -61,7 +76,7 @@ else.
 Every hook returns an `AsyncState<T>`, the union `loading | error | ready`. A
 caller switches on `status`, and the union forces it to cover every case. No
 gap opens up where the load has finished but the data is still missing.
-`useRevisionDiff` returns `null` while nothing is selected. Its caller shows a
+`useInterdiff` returns `null` while both sides are empty. Its caller shows a
 prompt in that state.
 
 ### views
@@ -88,18 +103,23 @@ has no markup of its own.
 When there is no diff to show yet, the controller decides what goes on screen.
 `DiffView` never sees that case. It stays at "render these files", with no null
 checks. One panel's branching sits in one file. `OperationLog` drives
-`OperationPicker`. `CommitLog` drives `CommitGraph`. `RevisionDiff` drives
-`DiffView`.
+`OperationPicker`. `CommitLog` drives `CommitGraph`. `Interdiff` drives
+`ComparisonHeader` and `DiffView`.
 
 ### root
 
-`App.tsx` holds two IDs: the selected change and the selected operation. Each
-is read by more than one controller, and `App` is their common parent, so
-`App` is where they live. Picking an operation also clears the selected
-change, since a change from the live log may not exist in a past one; the
-`RevisionDiff` panel falls back to its "select a commit" prompt. `SplitPane`
-handles the layout, with the operation picker and the graph stacked in its
-left half.
+`App.tsx` holds one pair of IDs per side: the selected operation and the
+selected commit. Each pair is read by more than one controller, and `App` is
+their common parent, so `App` is where they live. `useSide` is that pair and
+the two setters, written once and called twice, because the two sides differ
+in nothing but which half of the comparison they feed. It stays in `App.tsx`
+rather than `state/`, which is for slices backed by the server; this one never
+touches the network.
+
+Picking an operation also clears that side's selected commit, since a commit
+listed in one operation's log need not appear in another's. `ReviewPanes`
+handles the layout: the two pickers as narrow columns, the diff taking the
+rest.
 
 ### Keeping the boundary honest
 
@@ -222,6 +242,16 @@ const DiffResponse = z.object({
 });
 export type DiffResponse = z.infer<typeof DiffResponse>;
 
+export const InterdiffRow = z.object({
+  from: LogEntry.nullable(),
+  to: LogEntry.nullable(),
+  files: z.array(FileDiff),
+});
+export type InterdiffRow = z.infer<typeof InterdiffRow>;
+
+const InterdiffResponse = z.object({ rows: z.array(InterdiffRow) });
+export type InterdiffResponse = z.infer<typeof InterdiffResponse>;
+
 const ErrorResponse = z.object({ error: z.string() });
 
 /** GET a jj-backed endpoint, turning a 400 into its `error` message. */
@@ -258,6 +288,18 @@ export async function fetchDiff(
   if (atOperation) params.set("op", atOperation);
   return DiffResponse.parse(
     await getJson(`/api/diff?${params}`, "GET /api/diff"),
+  );
+}
+
+export async function fetchInterdiff(
+  from: string[],
+  to: string[],
+): Promise<InterdiffResponse> {
+  const params = new URLSearchParams();
+  for (const commitId of from) params.append("from", commitId);
+  for (const commitId of to) params.append("to", commitId);
+  return InterdiffResponse.parse(
+    await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
   );
 }
 ```
@@ -344,31 +386,43 @@ export function useCommitLog(
 }
 ```
 
-`useRevisionDiff` reloads whenever `revision` or `atOperation` changes. If a
-response comes back after either has already moved, the hook drops it.
+`useInterdiff` reloads whenever either selection changes. If a response comes
+back after either has already moved, the hook drops it. Both sides empty means
+nothing to ask the backend, so the hook reports `null` without a request.
+
+The selections are arrays, and a fresh array every render would restart the
+effect every render. The effect therefore depends on the joined ids, which two
+equal selections share, and unpacks them again on the way in. Nothing else in
+the hook reads the array props, so there is no second copy to fall out of date.
 
 ```tsx
-//| id: frontend-state-revision-diff
-//| file: src/frontend/state/revisionDiff.ts
+//| id: frontend-state-interdiff
+//| file: src/frontend/state/interdiff.ts
 import { useEffect, useState } from "react";
-import { type DiffResponse, fetchDiff } from "../api";
+import { fetchInterdiff, type InterdiffResponse } from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useRevisionDiff(
-  revision: string | null,
-  atOperation: string | null,
-): AsyncState<DiffResponse> | null {
-  const [state, setState] = useState<AsyncState<DiffResponse> | null>(null);
+export function useInterdiff(
+  from: string[],
+  to: string[],
+): AsyncState<InterdiffResponse> | null {
+  const [state, setState] = useState<AsyncState<InterdiffResponse> | null>(
+    null,
+  );
+  const fromKey = from.join(" ");
+  const toKey = to.join(" ");
 
   useEffect(() => {
-    if (revision === null) {
+    const fromIds = fromKey.split(" ").filter(Boolean);
+    const toIds = toKey.split(" ").filter(Boolean);
+    if (fromIds.length === 0 && toIds.length === 0) {
       setState(null);
       return;
     }
 
     let live = true;
     setState({ status: "loading" });
-    fetchDiff(revision, atOperation ?? undefined)
+    fetchInterdiff(fromIds, toIds)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -378,7 +432,7 @@ export function useRevisionDiff(
     return () => {
       live = false;
     };
-  }, [revision, atOperation]);
+  }, [fromKey, toKey]);
 
   return state;
 }
@@ -386,19 +440,26 @@ export function useRevisionDiff(
 
 ## Views
 
-### SplitPane
+### ReviewPanes
+
+Three columns: the two pickers, then the diff. The pickers are narrow and
+fixed; the diff takes what is left, because it is the thing being read. Each
+picker column carries its own caption, since "before" and "after" are the only
+labels that say which direction the interdiff runs.
 
 ```tsx
-//| id: frontend-view-split-pane
-//| file: src/frontend/views/SplitPane.tsx
+//| id: frontend-view-review-panes
+//| file: src/frontend/views/ReviewPanes.tsx
 import type { ReactNode } from "react";
 
-export function SplitPane({
-  left,
-  right,
+export function ReviewPanes({
+  before,
+  after,
+  diff,
 }: {
-  left: ReactNode;
-  right: ReactNode;
+  before: ReactNode;
+  after: ReactNode;
+  diff: ReactNode;
 }) {
   return (
     <div
@@ -409,17 +470,43 @@ export function SplitPane({
         fontSize: 13,
       }}
     >
-      <div
+      <PickerColumn caption="before">{before}</PickerColumn>
+      <PickerColumn caption="after">{after}</PickerColumn>
+      <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+    </div>
+  );
+}
+
+function PickerColumn({
+  caption,
+  children,
+}: {
+  caption: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        width: "25%",
+        minWidth: 240,
+        borderRight: "1px solid #ccc",
+      }}
+    >
+      <h2
         style={{
-          width: "38%",
-          minWidth: 260,
-          overflow: "auto",
-          borderRight: "1px solid #ccc",
+          margin: 0,
+          padding: "6px 8px",
+          font: "inherit",
+          fontWeight: "bold",
+          background: "#f0f0f0",
+          borderBottom: "1px solid #ccc",
         }}
       >
-        {left}
-      </div>
-      <div style={{ flex: 1, overflow: "auto" }}>{right}</div>
+        {caption}
+      </h2>
+      <div style={{ overflow: "auto" }}>{children}</div>
     </div>
   );
 }
@@ -505,17 +592,118 @@ function optionLabel(operation: OpLogEntry): string {
 }
 ```
 
+### Commit label
+
+The graph rows and the diff panel's header both name a commit the same way: its
+short change id, then the first line of its description. One component, so the
+two never drift apart.
+
+```tsx
+//| id: frontend-view-commit-label
+//| file: src/frontend/views/CommitLabel.tsx
+import type { LogEntry } from "../api";
+
+export function CommitLabel({ commit }: { commit: LogEntry }) {
+  const summary = commit.description.split("\n")[0] ?? "";
+  return (
+    <>
+      <span style={{ color: "#888", marginRight: 8 }}>
+        {commit.changeId.slice(0, 8)}
+      </span>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+        {summary || <em style={{ color: "#999" }}>(no description)</em>}
+      </span>
+    </>
+  );
+}
+```
+
+### Comparison header
+
+Every row says what it is showing before it shows it: which commit is the
+before side, which is the after side, and when one of them is missing. Without
+it a row is an unlabelled patch, and with two independent operation pickers on
+screen and several rows stacked up, there is no way to work back to what was
+compared.
+
+```tsx
+//| id: frontend-view-comparison-header
+//| file: src/frontend/views/ComparisonHeader.tsx
+import type { LogEntry } from "../api";
+import { CommitLabel } from "./CommitLabel";
+
+export function ComparisonHeader({
+  from,
+  to,
+}: {
+  from: LogEntry | null;
+  to: LogEntry | null;
+}) {
+  return (
+    <header
+      style={{
+        padding: "8px 12px",
+        background: "#fafafa",
+        borderBottom: "1px solid #ccc",
+      }}
+    >
+      <Row caption="before" commit={from} />
+      <Row caption="after" commit={to} />
+    </header>
+  );
+}
+
+function Row({
+  caption,
+  commit,
+}: {
+  caption: string;
+  commit: LogEntry | null;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+      }}
+    >
+      <span style={{ color: "#888", width: 56, flex: "none" }}>{caption}</span>
+      {commit === null ? (
+        <em style={{ color: "#999" }}>not in this series</em>
+      ) : (
+        <CommitLabel commit={commit} />
+      )}
+    </div>
+  );
+}
+```
+
 ### Commit graph
 
 One lane. One node per commit, top to bottom in the order the backend sent
 them. A commit with more than one parent is a merge and shows as a hollow node.
 Side-by-side branch lanes are not built yet. The history is mostly linear, so
-the one lane matches `jj log` for now. Clicking a row selects that change.
+the one lane matches `jj log` for now.
+
+Clicking a row toggles that commit by commit id, while the row goes on showing
+a change id, which is shorter and is what `jj log` prints. The two are not
+interchangeable as identifiers. A change id names whichever version of a commit
+the current view holds, so it says something different in each operation's log,
+and a selection has to keep meaning the one commit the reader clicked.
+
+Any number of rows can be selected, and the graph hands back the whole
+selection rather than the row that was clicked. It orders that selection the
+way the log is ordered, because it is the only piece of the app that knows
+what the order is. Click order would mean a series lines up against the other
+side in whatever sequence the reader happened to click, which is not an order
+at all.
 
 ```tsx
 //| id: frontend-view-commit-graph
 //| file: src/frontend/views/CommitGraph.tsx
 import type { LogEntry } from "../api";
+import { CommitLabel } from "./CommitLabel";
 
 const ROW_HEIGHT = 28;
 const LANE_WIDTH = 24;
@@ -526,18 +714,32 @@ export function CommitGraph({
   onSelect,
 }: {
   commits: LogEntry[];
-  selected: string | null;
-  onSelect: (changeId: string) => void;
+  selected: string[];
+  onSelect: (commitIds: string[]) => void;
 }) {
+  const chosen = new Set(selected);
+
+  function toggle(commitId: string) {
+    const next = new Set(chosen);
+    if (next.has(commitId)) next.delete(commitId);
+    else next.add(commitId);
+
+    onSelect(
+      commits
+        .filter((commit) => next.has(commit.commitId))
+        .map((commit) => commit.commitId),
+    );
+  }
+
   return (
     <div>
       {commits.map((commit, index) => {
-        const isSelected = commit.changeId === selected;
+        const isSelected = chosen.has(commit.commitId);
         return (
           <button
             type="button"
-            key={commit.changeId}
-            onClick={() => onSelect(commit.changeId)}
+            key={commit.commitId}
+            onClick={() => toggle(commit.commitId)}
             style={{
               display: "flex",
               alignItems: "center",
@@ -557,14 +759,7 @@ export function CommitGraph({
               hasBelow={index < commits.length - 1}
               isMerge={commit.parents.length > 1}
             />
-            <span style={{ color: "#888", marginRight: 8 }}>
-              {commit.changeId.slice(0, 8)}
-            </span>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-              {firstLine(commit.description) || (
-                <em style={{ color: "#999" }}>(no description)</em>
-              )}
-            </span>
+            <CommitLabel commit={commit} />
           </button>
         );
       })}
@@ -612,9 +807,50 @@ function Lane({
     </svg>
   );
 }
+```
 
-function firstLine(text: string): string {
-  return text.split("\n")[0] ?? "";
+### Interdiff rows
+
+One section per lined-up pair, in the order the backend sent them, which is the
+order of the graphs that fed it. Each section is its own header and its own
+patch, so a reader scrolls the comparison the way they scroll a branch.
+
+A row with no files still renders, and says which kind of nothing it is. Two
+commits that make the same change is the answer someone checking a rebase is
+looking for; an empty commit on its own is not the same statement. That
+branch lives here rather than in the controller, because it is per row and the
+controller sees the list.
+
+```tsx
+//| id: frontend-view-interdiff-rows
+//| file: src/frontend/views/InterdiffRows.tsx
+import type { InterdiffRow } from "../api";
+import { ComparisonHeader } from "./ComparisonHeader";
+import { DiffView } from "./DiffView";
+
+export function InterdiffRows({ rows }: { rows: InterdiffRow[] }) {
+  return (
+    <div>
+      {rows.map((row) => (
+        <section key={rowKey(row)}>
+          <ComparisonHeader from={row.from} to={row.to} />
+          {row.files.length === 0 ? (
+            <p style={{ padding: 12, fontStyle: "italic", color: "#666" }}>
+              {row.from !== null && row.to !== null
+                ? "Both commits make the same change."
+                : "No changes in this commit."}
+            </p>
+          ) : (
+            <DiffView files={row.files} />
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function rowKey(row: InterdiffRow): string {
+  return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
 }
 ```
 
@@ -739,8 +975,8 @@ export function CommitLog({
   onSelect,
 }: {
   atOperation: string | null;
-  selected: string | null;
-  onSelect: (changeId: string) => void;
+  selected: string[];
+  onSelect: (commitIds: string[]) => void;
 }) {
   const log = useCommitLog(atOperation);
 
@@ -755,36 +991,27 @@ export function CommitLog({
 }
 ```
 
-### Revision diff
+### Interdiff
 
 ```tsx
-//| id: frontend-controller-revision-diff
-//| file: src/frontend/controllers/RevisionDiff.tsx
-import { useRevisionDiff } from "../state/revisionDiff";
-import { DiffView } from "../views/DiffView";
+//| id: frontend-controller-interdiff
+//| file: src/frontend/controllers/Interdiff.tsx
+import { useInterdiff } from "../state/interdiff";
+import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
-export function RevisionDiff({
-  revision,
-  atOperation,
-}: {
-  revision: string | null;
-  atOperation: string | null;
-}) {
-  const diff = useRevisionDiff(revision, atOperation);
+export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
+  const interdiff = useInterdiff(from, to);
 
-  if (diff === null) {
-    return <Message>Select a commit to see its diff.</Message>;
+  if (interdiff === null) {
+    return <Message>Select commits on either side to compare them.</Message>;
   }
-  if (diff.status === "loading") return <Message>Loading diff...</Message>;
-  if (diff.status === "error") {
-    return <Message tone="error">{diff.message}</Message>;
-  }
-  if (diff.data.files.length === 0) {
-    return <Message>No changes in this commit.</Message>;
+  if (interdiff.status === "loading") return <Message>Loading diff...</Message>;
+  if (interdiff.status === "error") {
+    return <Message tone="error">{interdiff.message}</Message>;
   }
 
-  return <DiffView files={diff.data.files} />;
+  return <InterdiffRows rows={interdiff.data.rows} />;
 }
 ```
 
@@ -795,33 +1022,57 @@ export function RevisionDiff({
 //| file: src/frontend/App.tsx
 import { useState } from "react";
 import { CommitLog } from "./controllers/CommitLog";
+import { Interdiff } from "./controllers/Interdiff";
 import { OperationLog } from "./controllers/OperationLog";
-import { RevisionDiff } from "./controllers/RevisionDiff";
-import { SplitPane } from "./views/SplitPane";
+import { ReviewPanes } from "./views/ReviewPanes";
 
 export function App() {
-  const [selected, setSelected] = useState<string | null>(null);
-  const [operation, setOperation] = useState<string | null>(null);
-
-  function selectOperation(operationId: string | null) {
-    setOperation(operationId);
-    setSelected(null);
-  }
+  const before = useSide();
+  const after = useSide();
 
   return (
-    <SplitPane
-      left={
-        <>
-          <OperationLog selected={operation} onSelect={selectOperation} />
-          <CommitLog
-            atOperation={operation}
-            selected={selected}
-            onSelect={setSelected}
-          />
-        </>
-      }
-      right={<RevisionDiff revision={selected} atOperation={operation} />}
+    <ReviewPanes
+      before={<SidePicker side={before} />}
+      after={<SidePicker side={after} />}
+      diff={<Interdiff from={before.commits} to={after.commits} />}
     />
+  );
+}
+
+interface Side {
+  /** Operation to read this side's log at, or null for the live repo. */
+  operation: string | null;
+  /** Commit ids selected on this side, in log order. */
+  commits: string[];
+  selectOperation: (operationId: string | null) => void;
+  selectCommits: (commitIds: string[]) => void;
+}
+
+function useSide(): Side {
+  const [operation, setOperation] = useState<string | null>(null);
+  const [commits, setCommits] = useState<string[]>([]);
+
+  return {
+    operation,
+    commits,
+    selectOperation(operationId) {
+      setOperation(operationId);
+      setCommits([]);
+    },
+    selectCommits: setCommits,
+  };
+}
+
+function SidePicker({ side }: { side: Side }) {
+  return (
+    <>
+      <OperationLog selected={side.operation} onSelect={side.selectOperation} />
+      <CommitLog
+        atOperation={side.operation}
+        selected={side.commits}
+        onSelect={side.selectCommits}
+      />
+    </>
   );
 }
 ```

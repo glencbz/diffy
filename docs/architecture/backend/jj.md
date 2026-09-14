@@ -130,6 +130,29 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 }
 ```
 
+### Looking commits up by id
+
+Picking a commit out of the graph gives us its commit id; captioning it later
+needs the rest of its metadata back. `jjCommits` resolves a batch of ids in
+one `jj log` call by joining them into a `|` revset. It keys the result by
+commit id rather than returning a list, because jj answers a revset in
+topological order, not in the order it was asked. An id jj can't resolve
+fails the whole call, which is the right answer for a caller that made one up.
+
+```ts
+//| id: jj-module
+
+/** Look up specific commits by id, keyed by commit id. */
+export async function jjCommits(
+  commitIds: string[],
+): Promise<Map<string, JjLogEntry>> {
+  if (commitIds.length === 0) return new Map();
+
+  const entries = await jjLog({ revset: commitIds.join("|") });
+  return new Map(entries.map((entry) => [entry.commitId, entry]));
+}
+```
+
 ### Reading past operations
 
 jj records every repo mutation as an *operation*. `jj op log` lists them,
@@ -204,7 +227,9 @@ free of ANSI escapes.
 We don't parse hunks: the raw `--git` patch is the payload a review UI renders.
 We only split the combined output into one entry per file and read the
 metadata the UI needs off each file's header, namely the change kind and the
-affected path(s).
+affected path(s). Every jj command that prints a `git`-format diff gets the
+same treatment, so the run-and-parse step is `diffFiles`, taking the argument
+list that decides which diff we are looking at.
 
 `atOperation` carries through to `--at-operation` here too, so a diff opened
 from a historical log resolves its revision in that same past view rather
@@ -231,17 +256,14 @@ export interface JjDiffOptions {
   atOperation?: string;
 }
 
-export async function jjDiff(
-  options: JjDiffOptions = {},
-): Promise<JjFileDiff[]> {
+export function jjDiff(options: JjDiffOptions = {}): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
   const args = ["diff", "--git", "--color=never", "-r", revision];
   if (options.atOperation !== undefined) {
     args.push("--at-operation", options.atOperation);
   }
-  const output = await runJj(args);
 
-  return splitFileDiffs(output).map(parseFileDiff);
+  return diffFiles(args);
 }
 
 const DIFF_HEADER = /^diff --git .*$/gm;
@@ -252,6 +274,11 @@ function splitFileDiffs(diff: string): string[] {
   return starts.map((start, i) =>
     diff.slice(start, starts[i + 1] ?? diff.length),
   );
+}
+
+/** Run a jj command that prints a `git`-format diff, parsed one file at a time. */
+async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
+  return splitFileDiffs(await runJj(args)).map(parseFileDiff);
 }
 ```
 
@@ -347,7 +374,15 @@ specific commit history: the root commit always exists, always sorts last in
 //| id: jj-module-test
 //| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
-import { JjError, jjDiff, jjLog, jjOpLog, parseFileDiff } from "./jj";
+import {
+  JjError,
+  jjCommits,
+  jjDiff,
+  jjInterdiff,
+  jjLog,
+  jjOpLog,
+  parseFileDiff,
+} from "./jj";
 
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
@@ -606,6 +641,169 @@ describe("jjDiff", () => {
   test("wraps an unresolvable revision in JjError", async () => {
     // arrange
     const attempt = () => jjDiff({ revision: "no-such-revision-xyz" });
+
+    // act
+    // assert
+    await expect(attempt()).rejects.toBeInstanceOf(JjError);
+    await expect(attempt()).rejects.toThrow(/doesn't exist/);
+  });
+});
+```
+
+### Comparing two commits
+
+The [tech plan](../../tech-plan.md)'s v1 feature is the interdiff: not what a
+commit changes, but how one commit's change differs from another's.
+`jj interdiff --from A --to B` answers that directly. It rebases A onto B's
+parents before comparing, so a change that was only rebased reads as no
+difference at all. That is the point of using it over `jj diff --from A --to B`,
+which would also report everything that moved underneath the two commits.
+
+The two sides need not be visible in the same view of the repo. A commit that
+has since been amended away still sits in the store, and jj resolves it from a
+full commit id even though no current view lists it. So the two ends of a
+comparison can be picked out of two different operations and still meet in a
+single `jj interdiff` call, with no `--at-operation` involved. Addressing
+commits by commit id rather than change id is what buys that: a change id
+names whichever version of a commit the current view holds, which is the one
+thing a before-and-after comparison must not do.
+
+`jj interdiff` also emits a synthetic `JJ-COMMIT-DESCRIPTION` file whenever the
+two descriptions differ. It reaches the UI as an ordinary file diff, which is
+where we want it. How a commit message was reworded is part of how the change
+evolved, and it is the first thing a reviewer of a re-pushed branch looks for.
+
+```ts
+//| id: jj-module
+
+export interface JjInterdiffOptions {
+  /** Commit id whose change is the "before" side. */
+  from: string;
+  /** Commit id whose change is the "after" side. */
+  to: string;
+}
+
+export function jjInterdiff(
+  options: JjInterdiffOptions,
+): Promise<JjFileDiff[]> {
+  return diffFiles([
+    "interdiff",
+    "--git",
+    "--color=never",
+    "--from",
+    options.from,
+    "--to",
+    options.to,
+  ]);
+}
+```
+
+
+#### Test
+
+An interdiff needs two real commits, so these drive the CLI. The pair in the
+first test is `root()+` and its child: two adjacent commits that every clone of
+this repo has, and whose changes have nothing in common, so the interdiff
+between them is never empty.
+
+The cross-operation test is the one that matters. It takes a commit id out of
+the repo's oldest operation and compares it against a commit in the current
+view, passing no operation to `jjInterdiff` at all. In a repo whose history has
+been rewritten, that old id names a commit no current view lists, which is
+exactly the case the feature exists for. It passes either way, because
+resolving a commit by full id does not depend on the commit still being
+visible.
+
+```ts
+//| id: jj-module-test
+
+/** The commit id of the single commit `revset` names. */
+async function commitId(revset: string): Promise<string> {
+  const [entry] = await jjLog({ revset, limit: 1 });
+  if (entry === undefined) throw new Error(`no commit matches ${revset}`);
+  return entry.commitId;
+}
+
+describe("jjCommits", () => {
+  test("keys the requested commits by commit id", async () => {
+    // arrange
+    const entries = await jjLog({ revset: "all()", limit: 3 });
+    const ids = entries.map((entry) => entry.commitId);
+
+    // act
+    const found = await jjCommits(ids);
+
+    // assert
+    expect([...found.keys()].sort()).toEqual([...ids].sort());
+    for (const id of ids) expect(found.get(id)?.commitId).toBe(id);
+  });
+
+  test("asks jj nothing when given no ids", async () => {
+    // arrange
+    // act
+    // assert
+    expect(await jjCommits([])).toEqual(new Map());
+  });
+
+  test("wraps an unresolvable id in JjError", async () => {
+    // arrange
+    // act
+    // assert
+    await expect(jjCommits(["no-such-commit-xyz"])).rejects.toBeInstanceOf(
+      JjError,
+    );
+  });
+});
+
+describe("jjInterdiff", () => {
+  test("reports no difference between a commit and itself", async () => {
+    // arrange
+    const id = await commitId("root()+");
+
+    // act
+    // assert
+    expect(await jjInterdiff({ from: id, to: id })).toEqual([]);
+  });
+
+  test("reports the difference between two unrelated changes", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const files = await jjInterdiff({ from, to });
+
+    // assert
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      expect(file.patch.startsWith("diff --git ")).toBe(true);
+    }
+  });
+
+  test("compares a commit from an old operation without --at-operation", async () => {
+    // arrange
+    const operations = await jjOpLog();
+    const oldest = operations.at(-1);
+    const [before] = await jjLog({
+      revset: "all()",
+      limit: 1,
+      atOperation: oldest?.id,
+    });
+    if (before === undefined) throw new Error("no commit at the oldest op");
+
+    // act
+    const files = await jjInterdiff({
+      from: before.commitId,
+      to: await commitId("@"),
+    });
+
+    // assert
+    expect(Array.isArray(files)).toBe(true);
+  });
+
+  test("wraps an unresolvable commit in JjError", async () => {
+    // arrange
+    const attempt = () => jjInterdiff({ from: "no-such-commit-xyz", to: "@" });
 
     // act
     // assert
