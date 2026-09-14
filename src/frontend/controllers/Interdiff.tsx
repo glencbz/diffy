@@ -1,9 +1,19 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-controller-interdiff>>[init]
 import { useInterdiff } from "../state/interdiff";
+import { reviewRows } from "../state/review";
+import type { Session } from "../state/session";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
-export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
+export function Interdiff({
+  from,
+  to,
+  session,
+}: {
+  from: string[];
+  to: string[];
+  session: Session;
+}) {
   const interdiff = useInterdiff(from, to);
 
   if (interdiff === null) {
@@ -14,6 +24,19 @@ export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
     return <Message tone="error">{interdiff.message}</Message>;
   }
 
-  return <InterdiffRows rows={interdiff.data.rows} />;
+  return (
+    <>
+      {session.error !== null && (
+        <Message tone="error">{session.error}</Message>
+      )}
+      <InterdiffRows
+        rows={reviewRows(interdiff.data.rows, session.document)}
+        onMarkSeen={session.markSeen}
+        onAddComment={session.addComment}
+        onResolveComment={session.resolveComment}
+        onDropComment={session.dropComment}
+      />
+    </>
+  );
 }
 // ~/~ end

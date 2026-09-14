@@ -3,17 +3,21 @@ import { useState } from "react";
 import { CommitLog } from "./controllers/CommitLog";
 import { Interdiff } from "./controllers/Interdiff";
 import { OperationLog } from "./controllers/OperationLog";
+import { useSession } from "./state/session";
 import { ReviewPanes } from "./views/ReviewPanes";
 
 export function App() {
   const before = useSide();
   const after = useSide();
+  const session = useSession();
 
   return (
     <ReviewPanes
       before={<SidePicker side={before} />}
       after={<SidePicker side={after} />}
-      diff={<Interdiff from={before.commits} to={after.commits} />}
+      diff={
+        <Interdiff from={before.commits} to={after.commits} session={session} />
+      }
     />
   );
 }

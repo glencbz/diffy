@@ -133,7 +133,13 @@ Allowed import edges:
 
 - `api.ts` imports Zod only.
 - `state/` imports React and `api.ts`.
-- `views/` imports React, other `views/`, and `api.ts` *types*.
+- `views/` imports React, other `views/`, and *types* from `api.ts` and
+  `state/`. A view is written against a view model — `ReviewedRow`,
+  `RowReview` — as often as it is written against a wire type, and a
+  type-only import erases at compile time, so pulling one in from `state/`
+  adds no runtime coupling to fetch or React state. Importing a *function*
+  from `state/` would be the real boundary violation; the line is drawn at
+  values, not at where a name is declared.
 - `controllers/` import `state/` and `views/`.
 - `App.tsx` imports `controllers/` and `views/`.
 
@@ -304,6 +310,81 @@ export async function fetchInterdiff(
 }
 ```
 
+`/api/session` mirrors the backend's own schemas exactly — [`Mark`, `Comment`, and the discriminated `SessionEdit`](backend/review.md) all come straight from `review.md`, so a shape change there is a compile error here rather than a mismatch discovered at runtime. `postJson` is `getJson`'s write-side counterpart: same non-ok handling, same `ErrorResponse` parse, but nothing to return, since the caller already knows what it sent and `handleSessionEdit` answers with an empty 204 either way.
+
+```ts
+//| id: frontend-api
+
+const Comparison = z.object({
+  changeId: z.string(),
+  fromCommitId: z.string().nullable(),
+  toCommitId: z.string().nullable(),
+});
+
+export const Mark = Comparison.extend({ seenAt: z.string() });
+export type Mark = z.infer<typeof Mark>;
+
+export const Comment = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  path: z.string(),
+  line: z.number().int(),
+  commitId: z.string(),
+  body: z.string(),
+  resolved: z.boolean(),
+  createdAt: z.string(),
+});
+export type Comment = z.infer<typeof Comment>;
+
+export const SessionDocument = z.object({
+  marks: z.array(Mark),
+  comments: z.array(Comment),
+});
+export type SessionDocument = z.infer<typeof SessionDocument>;
+
+export const SessionEdit = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("mark"), ...Mark.shape }),
+  z.object({ kind: z.literal("unmark"), ...Comparison.shape }),
+  z.object({ kind: z.literal("comment"), comment: Comment }),
+  z.object({
+    kind: z.literal("resolveComment"),
+    id: z.string(),
+    resolved: z.boolean(),
+  }),
+  z.object({ kind: z.literal("dropComment"), id: z.string() }),
+]);
+export type SessionEdit = z.infer<typeof SessionEdit>;
+
+/** POST a JSON body, turning a non-ok response into its `error` message. */
+async function postJson(
+  url: string,
+  body: unknown,
+  label: string,
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return;
+
+  const parsed = ErrorResponse.safeParse(await res.json());
+  throw new Error(
+    parsed.success ? parsed.data.error : `${label} failed (${res.status})`,
+  );
+}
+
+export async function fetchSession(): Promise<SessionDocument> {
+  return SessionDocument.parse(
+    await getJson("/api/session", "GET /api/session"),
+  );
+}
+
+export async function postSessionEdit(edit: SessionEdit): Promise<void> {
+  return postJson("/api/session", edit, "POST /api/session");
+}
+```
+
 ## State
 
 Every slice reports its status as an `AsyncState<T>`.
@@ -435,6 +516,637 @@ export function useInterdiff(
   }, [fromKey, toKey]);
 
   return state;
+}
+```
+
+### Review state
+
+`/api/interdiff` must never learn that review state exists. Every row it
+returns costs a `jj` process, so a mark that triggered a refetch would spawn a
+subprocess to record a click. Instead the session document loads once and the
+interdiff loads on its own schedule; whichever row a mark or comment belongs
+to is worked out here, client-side, from ids both responses already carry.
+This is the same design already argued for [on the backend](backend/review.md)
+— the module just moves.
+
+`rowChangeId` picks `row.to?.changeId ?? row.from?.changeId`: the after side
+is the version being approved, so when a row has a real after side that is the
+identity that counts. `alignSeries` guarantees at least one side is present,
+so this is total.
+
+The obvious way to ask "has this row been reviewed" is "is there a mark with
+this row's change id", and it is wrong. `alignSeries` can put one change id on
+two different rows in the same series — a reorder is a drop and an insert of
+the same change — and a mark on one must not paint the other as reviewed or
+even as changed, because they are different comparisons that only share an
+identity by coincidence of the algorithm. The exact check the backend already
+made this argument for — key on the full `(changeId, fromCommitId,
+toCommitId)` triple, not the change id alone — has to be repeated on read, not
+just on write: `reviewed` needs an exact triple match, and `changed` needs
+more than a shared change id, or the same bug just resurfaces one layer up. A
+mark counts toward `changed` when it fills the same sides as the row, or when
+it literally shares one: the same `fromCommitId` because an amend moved the
+after side, or the same `toCommitId` because a rebase moved the before side.
+Sharing a side alone is not enough, because a rebase that rewrites both sides
+at once shares neither, and reporting a change the reader has already looked
+at as `unseen` loses the very memory the session exists to keep. Filling the
+same sides alone is not enough either, because a change that was a
+modification and is now a drop fills different slots while plainly being the
+same thing the reader reviewed. The two together leave exactly one pair
+unrelated, which is the pair that must be: the drop half of a reorder
+(`from: A, to: null`) and its insert half (`from: null, to: A`) neither share
+a side nor fill the same slots, so a mark on one leaves the other `unseen`,
+which is what a reader actually wants, since the insert is a comparison they
+have never looked at.
+
+A comment's `stale` flag answers a narrower question than a mark's `changed`
+state: not "has this row moved on" but "does this specific line still mean
+what it meant when the note was written". A comment's `commitId` names the
+version its line number was read against; it is stale when neither of the
+row's current sides is that commit.
+
+```ts
+//| id: frontend-state-review
+//| file: src/frontend/state/review.ts
+import type {
+  Comment,
+  InterdiffRow,
+  Mark,
+  SessionDocument,
+  SessionEdit,
+} from "../api";
+
+export type RowReview =
+  | { state: "unseen" }
+  | { state: "reviewed"; seenAt: string }
+  | {
+      state: "changed";
+      seenAt: string;
+      seenFrom: string | null;
+      seenTo: string | null;
+    };
+
+export interface RowComment extends Comment {
+  stale: boolean;
+}
+
+export interface ReviewedRow extends InterdiffRow {
+  changeId: string;
+  review: RowReview;
+  comments: RowComment[];
+}
+
+export function rowChangeId(row: InterdiffRow): string {
+  const changeId = row.to?.changeId ?? row.from?.changeId;
+  if (changeId === undefined) {
+    throw new Error("interdiff row has no commit on either side");
+  }
+  return changeId;
+}
+
+function latestMark(marks: Mark[]): Mark | null {
+  return marks.reduce<Mark | null>(
+    (latest, mark) =>
+      latest === null || mark.seenAt > latest.seenAt ? mark : latest,
+    null,
+  );
+}
+
+/** Whether a mark describes the same comparison slot: both sides, or which
+ * single side, the row fills. A reorder's drop and insert halves fill
+ * opposite slots, so neither can speak for the other. */
+function fillsSameSides(
+  mark: Mark,
+  fromCommitId: string | null,
+  toCommitId: string | null,
+): boolean {
+  return (
+    (mark.fromCommitId === null) === (fromCommitId === null) &&
+    (mark.toCommitId === null) === (toCommitId === null)
+  );
+}
+
+function reviewFor(
+  marksForChange: Mark[],
+  fromCommitId: string | null,
+  toCommitId: string | null,
+): RowReview {
+  const exact = marksForChange.find(
+    (mark) =>
+      mark.fromCommitId === fromCommitId && mark.toCommitId === toCommitId,
+  );
+  if (exact !== undefined) return { state: "reviewed", seenAt: exact.seenAt };
+
+  const related = marksForChange.filter(
+    (mark) =>
+      fillsSameSides(mark, fromCommitId, toCommitId) ||
+      mark.fromCommitId === fromCommitId ||
+      mark.toCommitId === toCommitId,
+  );
+  const latest = latestMark(related);
+  if (latest === null) return { state: "unseen" };
+  return {
+    state: "changed",
+    seenAt: latest.seenAt,
+    seenFrom: latest.fromCommitId,
+    seenTo: latest.toCommitId,
+  };
+}
+
+export function reviewRows(
+  rows: InterdiffRow[],
+  document: SessionDocument,
+): ReviewedRow[] {
+  return rows.map((row) => {
+    const changeId = rowChangeId(row);
+    const fromCommitId = row.from?.commitId ?? null;
+    const toCommitId = row.to?.commitId ?? null;
+    const marksForChange = document.marks.filter(
+      (mark) => mark.changeId === changeId,
+    );
+
+    const comments = document.comments
+      .filter((comment) => comment.changeId === changeId)
+      .map((comment) => ({
+        ...comment,
+        stale:
+          comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
+      }))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    return {
+      ...row,
+      changeId,
+      review: reviewFor(marksForChange, fromCommitId, toCommitId),
+      comments,
+    };
+  });
+}
+
+function sameComparison(
+  a: {
+    changeId: string;
+    fromCommitId: string | null;
+    toCommitId: string | null;
+  },
+  b: {
+    changeId: string;
+    fromCommitId: string | null;
+    toCommitId: string | null;
+  },
+): boolean {
+  return (
+    a.changeId === b.changeId &&
+    a.fromCommitId === b.fromCommitId &&
+    a.toCommitId === b.toCommitId
+  );
+}
+
+/**
+ * The client's half of a mutation: apply an edit to a local copy of the
+ * document the same way the backend's SQL would, so the optimistic update
+ * and the eventual server state never need reconciling.
+ */
+export function applyEdit(
+  document: SessionDocument,
+  edit: SessionEdit,
+): SessionDocument {
+  switch (edit.kind) {
+    case "mark": {
+      const mark: Mark = {
+        changeId: edit.changeId,
+        fromCommitId: edit.fromCommitId,
+        toCommitId: edit.toCommitId,
+        seenAt: edit.seenAt,
+      };
+      return {
+        ...document,
+        marks: [
+          ...document.marks.filter((m) => !sameComparison(m, mark)),
+          mark,
+        ],
+      };
+    }
+
+    case "unmark":
+      return {
+        ...document,
+        marks: document.marks.filter((m) => !sameComparison(m, edit)),
+      };
+
+    case "comment":
+      return {
+        ...document,
+        comments: [
+          ...document.comments.filter((c) => c.id !== edit.comment.id),
+          edit.comment,
+        ],
+      };
+
+    case "resolveComment":
+      return {
+        ...document,
+        comments: document.comments.map((c) =>
+          c.id === edit.id ? { ...c, resolved: edit.resolved } : c,
+        ),
+      };
+
+    case "dropComment":
+      return {
+        ...document,
+        comments: document.comments.filter((c) => c.id !== edit.id),
+      };
+  }
+}
+```
+
+The reorder case is the one worth a real fixture rather than a hand-rolled
+one: it runs `alignSeries` for real, because the bug this schema guards
+against is specifically in how `alignSeries`'s output gets turned into review
+state, and a fixture written by hand could accidentally encode the same wrong
+assumption the code is being tested against. The last test applies one edit
+through this module's `applyEdit` and through the backend's `applyEdit` +
+`readSession`, and asserts the two documents agree — the whole point of
+generating `id` and every timestamp client-side is that there is exactly one
+correct answer for what the document should contain, and both sides are
+expected to reach it independently.
+
+```ts
+//| id: frontend-state-review-test
+//| file: src/frontend/state/review.test.ts
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { alignSeries } from "../../backend/commit/series";
+import {
+  applyEdit as applyServerEdit,
+  readSession,
+} from "../../backend/review/session";
+import type {
+  InterdiffRow,
+  LogEntry,
+  SessionDocument,
+  SessionEdit,
+} from "../api";
+import { applyEdit, reviewRows } from "./review";
+
+function logEntry(changeId: string, commitId: string): LogEntry {
+  return { changeId, commitId, description: "", parents: [] };
+}
+
+function pairRow(
+  changeId: string,
+  fromCommitId: string,
+  toCommitId: string,
+): InterdiffRow {
+  return {
+    from: logEntry(changeId, fromCommitId),
+    to: logEntry(changeId, toCommitId),
+    files: [],
+  };
+}
+
+describe("reviewRows", () => {
+  test("leaves a row unseen against an empty document", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: SessionDocument = { marks: [], comments: [] };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.review).toEqual({ state: "unseen" });
+  });
+
+  test("marks a row reviewed on an exact triple match", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: SessionDocument = {
+      marks: [
+        {
+          changeId: "a",
+          fromCommitId: "a1",
+          toCommitId: "a2",
+          seenAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      comments: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.review).toEqual({
+      state: "reviewed",
+      seenAt: "2026-09-14T09:00:00.000Z",
+    });
+  });
+
+  test("marks a row changed when the after side has moved on", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a3");
+    const document: SessionDocument = {
+      marks: [
+        {
+          changeId: "a",
+          fromCommitId: "a1",
+          toCommitId: "a2",
+          seenAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      comments: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.review).toEqual({
+      state: "changed",
+      seenAt: "2026-09-14T09:00:00.000Z",
+      seenFrom: "a1",
+      seenTo: "a2",
+    });
+  });
+
+  test("marks a row changed when the before side has moved on", () => {
+    // arrange
+    const row = pairRow("a", "a0", "a2");
+    const document: SessionDocument = {
+      marks: [
+        {
+          changeId: "a",
+          fromCommitId: "a1",
+          toCommitId: "a2",
+          seenAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      comments: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.review).toEqual({
+      state: "changed",
+      seenAt: "2026-09-14T09:00:00.000Z",
+      seenFrom: "a1",
+      seenTo: "a2",
+    });
+  });
+
+  test("marks a row changed when a rebase moved both sides at once", () => {
+    // arrange
+    const row = pairRow("a", "a3", "a4");
+    const document: SessionDocument = {
+      marks: [
+        {
+          changeId: "a",
+          fromCommitId: "a1",
+          toCommitId: "a2",
+          seenAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      comments: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.review).toEqual({
+      state: "changed",
+      seenAt: "2026-09-14T09:00:00.000Z",
+      seenFrom: "a1",
+      seenTo: "a2",
+    });
+  });
+
+  test("leaves the other half of a reorder unseen, not changed", () => {
+    // arrange
+    const A = logEntry("aaaa", "a1");
+    const B = logEntry("bbbb", "b1");
+    const rows = alignSeries([A, B], [B, A]).map((pair) => ({
+      ...pair,
+      files: [],
+    }));
+    const changeARows = reviewRows(rows, { marks: [], comments: [] }).filter(
+      (row) => row.changeId === "aaaa",
+    );
+    const dropped = changeARows.find((row) => row.to === null);
+    if (dropped === undefined) {
+      throw new Error("expected a dropped row for change aaaa");
+    }
+    const document: SessionDocument = {
+      marks: [
+        {
+          changeId: "aaaa",
+          fromCommitId: dropped.from?.commitId ?? null,
+          toCommitId: dropped.to?.commitId ?? null,
+          seenAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      comments: [],
+    };
+
+    // act
+    const inserted = reviewRows(rows, document).find(
+      (row) => row.changeId === "aaaa" && row.from === null,
+    );
+
+    // assert
+    expect(rows).toHaveLength(3);
+    expect(changeARows).toHaveLength(2);
+    expect(inserted?.review).toEqual({ state: "unseen" });
+  });
+
+  test("flags a comment stale when its commit is on neither side of the row", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: SessionDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          changeId: "a",
+          path: "f.ts",
+          line: 3,
+          commitId: "a0",
+          body: "old",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(true);
+  });
+});
+
+describe("applyEdit", () => {
+  test("matches the document the backend would produce for the same edit", () => {
+    // arrange
+    process.env.DIFFY_SESSION_DB = join(
+      mkdtempSync(join(tmpdir(), "diffy-review-state-")),
+      "session.sqlite",
+    );
+    const edit: SessionEdit = {
+      kind: "mark",
+      changeId: "a",
+      fromCommitId: "a1",
+      toCommitId: "a2",
+      seenAt: "2026-09-14T09:00:00.000Z",
+    };
+
+    // act
+    const client = applyEdit({ marks: [], comments: [] }, edit);
+    applyServerEdit(edit);
+
+    // assert
+    expect(client).toEqual(readSession());
+  });
+});
+```
+
+### Session
+
+`useSession` loads the document once and hands back four mutators plus the
+document and an error string. It deliberately does not return an
+`AsyncState<SessionDocument>`: "not loaded yet" and "nothing reviewed yet" are
+both an empty document and render identically, so a status union would only
+force a branch with no distinct output on either arm. `document` starts as the
+empty document rather than `null` for the same reason — an empty session is a
+valid session, not a pending one.
+
+Each mutator builds the `SessionEdit` itself — it mints `id` with
+`crypto.randomUUID()` and every timestamp with `new Date().toISOString()`, the
+same way the backend would have generated them had the round trip gone the
+other way. That is what makes the optimistic update exact rather than
+provisional: `applyEdit` runs against the local document immediately, the same
+edit value goes out over `postSessionEdit`, and there is nothing to
+reconcile when the response comes back, because there is no separate
+server-generated value to reconcile against. `markSeen` decides `mark` versus
+`unmark` from the row's own `review.state`, so callers never construct the
+edit by hand.
+
+A failed POST leaves the optimistic update in place, sets `error`, and
+re-fetches the document to snap back to server truth — simpler than trying to
+undo one edit out of a sequence that may already have more edits queued behind
+it. Every mutator is wrapped in `useCallback` so that passing `markSeen`
+straight through two layers of props does not retrigger effects that depend on
+it.
+
+```tsx
+//| id: frontend-state-session
+//| file: src/frontend/state/session.ts
+import { useCallback, useEffect, useState } from "react";
+import {
+  fetchSession,
+  postSessionEdit,
+  type SessionDocument,
+  type SessionEdit,
+} from "../api";
+import { applyEdit, type ReviewedRow } from "./review";
+
+const EMPTY_DOCUMENT: SessionDocument = { marks: [], comments: [] };
+
+export interface Session {
+  document: SessionDocument;
+  error: string | null;
+  markSeen: (row: ReviewedRow) => void;
+  addComment: (
+    row: ReviewedRow,
+    path: string,
+    line: number,
+    body: string,
+  ) => void;
+  resolveComment: (id: string, resolved: boolean) => void;
+  dropComment: (id: string) => void;
+}
+
+export function useSession(): Session {
+  const [document, setDocument] = useState<SessionDocument>(EMPTY_DOCUMENT);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchSession()
+      .then((data) => {
+        if (live) setDocument(data);
+      })
+      .catch((err: unknown) => {
+        if (live) setError(String(err));
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const submit = useCallback((edit: SessionEdit) => {
+    setDocument((current) => applyEdit(current, edit));
+    postSessionEdit(edit).catch((err: unknown) => {
+      setError(String(err));
+      fetchSession()
+        .then((data) => setDocument(data))
+        .catch((refetchErr: unknown) => setError(String(refetchErr)));
+    });
+  }, []);
+
+  const markSeen = useCallback(
+    (row: ReviewedRow) => {
+      const comparison = {
+        changeId: row.changeId,
+        fromCommitId: row.from?.commitId ?? null,
+        toCommitId: row.to?.commitId ?? null,
+      };
+      submit(
+        row.review.state === "reviewed"
+          ? { kind: "unmark", ...comparison }
+          : { kind: "mark", ...comparison, seenAt: new Date().toISOString() },
+      );
+    },
+    [submit],
+  );
+
+  const addComment = useCallback(
+    (row: ReviewedRow, path: string, line: number, body: string) => {
+      submit({
+        kind: "comment",
+        comment: {
+          id: crypto.randomUUID(),
+          changeId: row.changeId,
+          path,
+          line,
+          commitId: row.to?.commitId ?? row.from?.commitId ?? "",
+          body,
+          resolved: false,
+          createdAt: new Date().toISOString(),
+        },
+      });
+    },
+    [submit],
+  );
+
+  const resolveComment = useCallback(
+    (id: string, resolved: boolean) =>
+      submit({ kind: "resolveComment", id, resolved }),
+    [submit],
+  );
+
+  const dropComment = useCallback(
+    (id: string) => submit({ kind: "dropComment", id }),
+    [submit],
+  );
+
+  return { document, error, markSeen, addComment, resolveComment, dropComment };
 }
 ```
 
@@ -626,19 +1338,31 @@ it a row is an unlabelled patch, and with two independent operation pickers on
 screen and several rows stacked up, there is no way to work back to what was
 compared.
 
+A third line adds review state to that same job: whether the row has been
+looked at, whether it moved since, and how many open comments sit on it. The
+`mark seen` / `mark unseen` button reads its own label off
+`row.review.state`, so the caller never has to compute which action is
+current — it just wires the click through.
+
 ```tsx
 //| id: frontend-view-comparison-header
 //| file: src/frontend/views/ComparisonHeader.tsx
+import type { CSSProperties, ReactNode } from "react";
 import type { LogEntry } from "../api";
+import type { ReviewedRow, RowReview } from "../state/review";
 import { CommitLabel } from "./CommitLabel";
 
 export function ComparisonHeader({
-  from,
-  to,
+  row,
+  onMarkSeen,
 }: {
-  from: LogEntry | null;
-  to: LogEntry | null;
+  row: ReviewedRow;
+  onMarkSeen: () => void;
 }) {
+  const openComments = row.comments.filter(
+    (comment) => !comment.resolved,
+  ).length;
+
   return (
     <header
       style={{
@@ -647,8 +1371,17 @@ export function ComparisonHeader({
         borderBottom: "1px solid #ccc",
       }}
     >
-      <Row caption="before" commit={from} />
-      <Row caption="after" commit={to} />
+      <Row caption="before" commit={row.from} />
+      <Row caption="after" commit={row.to} />
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}
+      >
+        <ReviewChip review={row.review} />
+        {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
+        <button type="button" onClick={onMarkSeen} style={{ font: "inherit" }}>
+          {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+        </button>
+      </div>
     </header>
   );
 }
@@ -675,6 +1408,54 @@ function Row({
         <CommitLabel commit={commit} />
       )}
     </div>
+  );
+}
+
+function ReviewChip({ review }: { review: RowReview }) {
+  if (review.state === "unseen") return null;
+  return review.state === "reviewed" ? (
+    <Chip tone="reviewed">reviewed</Chip>
+  ) : (
+    <Chip tone="changed">changed since you looked</Chip>
+  );
+}
+
+function Chip({
+  tone,
+  children,
+}: {
+  tone: "reviewed" | "changed" | "open";
+  children: ReactNode;
+}) {
+  const toneStyle: Record<typeof tone, CSSProperties> = {
+    reviewed: {
+      background: "#edf7ed",
+      color: "#2b6a2b",
+      border: "1px solid #a8d5a8",
+    },
+    changed: {
+      background: "#fdf5e3",
+      color: "#8a5a00",
+      border: "1px solid #e6c98a",
+    },
+    open: {
+      background: "#fdecec",
+      color: "#a01b1b",
+      border: "1px solid #e6a8a8",
+    },
+  };
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        padding: "0 5px",
+        borderRadius: 8,
+        lineHeight: "15px",
+        ...toneStyle[tone],
+      }}
+    >
+      {children}
+    </span>
   );
 }
 ```
@@ -933,19 +1714,42 @@ looking for; an empty commit on its own is not the same statement. That
 branch lives here rather than in the controller, because it is per row and the
 controller sees the list.
 
+Rows take `ReviewedRow` now, not the bare wire `InterdiffRow`, and thread the
+four session callbacks down to `ComparisonHeader` and `DiffView`. `rowKey`
+stays keyed on commit ids exactly as before: [a reordered series can put the
+same change id on two rows](#review-state), so the change id is not a unique
+React key even though it is now sitting right there on the row.
+
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
-import type { InterdiffRow } from "../api";
+import type { ReviewedRow } from "../state/review";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
 
-export function InterdiffRows({ rows }: { rows: InterdiffRow[] }) {
+export function InterdiffRows({
+  rows,
+  onMarkSeen,
+  onAddComment,
+  onResolveComment,
+  onDropComment,
+}: {
+  rows: ReviewedRow[];
+  onMarkSeen: (row: ReviewedRow) => void;
+  onAddComment: (
+    row: ReviewedRow,
+    path: string,
+    line: number,
+    body: string,
+  ) => void;
+  onResolveComment: (id: string, resolved: boolean) => void;
+  onDropComment: (id: string) => void;
+}) {
   return (
     <div>
       {rows.map((row) => (
         <section key={rowKey(row)}>
-          <ComparisonHeader from={row.from} to={row.to} />
+          <ComparisonHeader row={row} onMarkSeen={() => onMarkSeen(row)} />
           {row.files.length === 0 ? (
             <p style={{ padding: 12, fontStyle: "italic", color: "#666" }}>
               {row.from !== null && row.to !== null
@@ -953,7 +1757,15 @@ export function InterdiffRows({ rows }: { rows: InterdiffRow[] }) {
                 : "No changes in this commit."}
             </p>
           ) : (
-            <DiffView files={row.files} />
+            <DiffView
+              files={row.files}
+              comments={row.comments}
+              onAddComment={(path, line, body) =>
+                onAddComment(row, path, line, body)
+              }
+              onResolveComment={onResolveComment}
+              onDropComment={onDropComment}
+            />
           )}
         </section>
       ))}
@@ -961,7 +1773,7 @@ export function InterdiffRows({ rows }: { rows: InterdiffRow[] }) {
   );
 }
 
-function rowKey(row: InterdiffRow): string {
+function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
 }
 ```
@@ -1021,22 +1833,96 @@ grey. A binary file gets a placeholder in place of a patch body. The caller
 always hands it a real `files` array. The controller deals with anything that
 is not a rendered diff.
 
+A left gutter adds the after-side line number to each rendered line, because
+that is what a comment's `line` field means: the line as it reads in the
+version being approved, not an offset into the raw patch text. `gutterLines`
+walks the patch once and carries a running counter, seeded by each `@@
+-a,b +c,d @@` header's `c`. `diff --git`, `index `, `---`, `+++`, and hunk
+header lines never had an after-side line to begin with; a `-` line was
+removed, so it has no line in the after side either. Both of those show a
+blank gutter and are not clickable — there is nothing on that line in the
+version a comment would be anchored to.
+
+Clicking a commentable line opens a composer for it — a plain `<form>`, one
+`useState<{path, line} | null>` for which line's composer is open, closed
+again on submit or cancel. Comment threads render under the file's `<pre>`,
+not in the gutter: a gutter-anchored thread would have to reflow around
+variable-height content on every keystroke, and the patch is already the
+thing being read top to bottom, so a comment reads as the next thing under the
+line it is about rather than squeezed beside it. A stale thread — its
+`commitId` matching neither side of the row — says so in place, because the
+line number next to it may no longer be the line the comment was written
+about.
+
 ```tsx
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
+import { type CSSProperties, useState } from "react";
 import type { FileDiff } from "../api";
+import type { RowComment } from "../state/review";
 
-export function DiffView({ files }: { files: FileDiff[] }) {
+export function DiffView({
+  files,
+  comments,
+  onAddComment,
+  onResolveComment,
+  onDropComment,
+}: {
+  files: FileDiff[];
+  comments: RowComment[];
+  onAddComment: (path: string, line: number, body: string) => void;
+  onResolveComment: (id: string, resolved: boolean) => void;
+  onDropComment: (id: string) => void;
+}) {
+  const [composer, setComposer] = useState<{
+    path: string;
+    line: number;
+  } | null>(null);
+
   return (
     <div style={{ padding: 12 }}>
-      {files.map((file) => (
-        <FileRow key={pathOf(file)} file={file} />
-      ))}
+      {files.map((file) => {
+        const path = pathOf(file);
+        return (
+          <FileRow
+            key={path}
+            file={file}
+            comments={comments.filter((comment) => comment.path === path)}
+            composerLine={composer?.path === path ? composer.line : null}
+            onOpenComposer={(line) => setComposer({ path, line })}
+            onCancelComposer={() => setComposer(null)}
+            onSubmitComposer={(line, body) => {
+              onAddComment(path, line, body);
+              setComposer(null);
+            }}
+            onResolveComment={onResolveComment}
+            onDropComment={onDropComment}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function FileRow({ file }: { file: FileDiff }) {
+function FileRow({
+  file,
+  comments,
+  composerLine,
+  onOpenComposer,
+  onCancelComposer,
+  onSubmitComposer,
+  onResolveComment,
+  onDropComment,
+}: {
+  file: FileDiff;
+  comments: RowComment[];
+  composerLine: number | null;
+  onOpenComposer: (line: number) => void;
+  onCancelComposer: () => void;
+  onSubmitComposer: (line: number, body: string) => void;
+  onResolveComment: (id: string, resolved: boolean) => void;
+  onDropComment: (id: string) => void;
+}) {
   return (
     <section style={{ marginBottom: 16, border: "1px solid #ccc" }}>
       <header
@@ -1055,15 +1941,167 @@ function FileRow({ file }: { file: FileDiff }) {
         </p>
       ) : (
         <pre style={{ margin: 0, padding: 8, overflowX: "auto" }}>
-          {file.patch.split("\n").map((line, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-            <div key={index} style={{ color: lineColor(line) }}>
-              {line === "" ? " " : line}
-            </div>
+          {gutterLines(file.patch).map(({ text, afterLine }, index) => (
+            <PatchLine
+              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
+              key={index}
+              text={text}
+              afterLine={afterLine}
+              onOpenComposer={onOpenComposer}
+            />
           ))}
         </pre>
       )}
+      {composerLine !== null && (
+        <CommentComposer
+          line={composerLine}
+          onCancel={onCancelComposer}
+          onSubmit={onSubmitComposer}
+        />
+      )}
+      {comments.length > 0 && (
+        <div>
+          {comments.map((comment) => (
+            <CommentThread
+              key={comment.id}
+              comment={comment}
+              onResolve={(resolved) => onResolveComment(comment.id, resolved)}
+              onDrop={() => onDropComment(comment.id)}
+            />
+          ))}
+        </div>
+      )}
     </section>
+  );
+}
+
+function CommentComposer({
+  line,
+  onCancel,
+  onSubmit,
+}: {
+  line: number;
+  onCancel: () => void;
+  onSubmit: (line: number, body: string) => void;
+}) {
+  const [body, setBody] = useState("");
+
+  return (
+    <form
+      style={{ padding: 8, borderTop: "1px solid #ccc", background: "#fafafa" }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (body.trim() === "") return;
+        onSubmit(line, body);
+      }}
+    >
+      <div style={{ color: "#888", marginBottom: 4 }}>line {line}</div>
+      <textarea
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        rows={3}
+        style={{ width: "100%", font: "inherit" }}
+      />
+      <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+        <button type="submit">comment</button>
+        <button type="button" onClick={onCancel}>
+          cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function CommentThread({
+  comment,
+  onResolve,
+  onDrop,
+}: {
+  comment: RowComment;
+  onResolve: (resolved: boolean) => void;
+  onDrop: () => void;
+}) {
+  return (
+    <div
+      style={{
+        borderLeft: `3px solid ${comment.resolved ? "#63b363" : "#a01b1b"}`,
+        padding: "6px 8px",
+        margin: "4px 8px",
+        opacity: comment.resolved ? 0.72 : 1,
+      }}
+    >
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 8, color: "#888" }}
+      >
+        <span>
+          {comment.path}:{comment.line} ·{" "}
+          {comment.resolved ? "resolved" : "open"}
+        </span>
+        <button type="button" onClick={() => onResolve(!comment.resolved)}>
+          {comment.resolved ? "reopen" : "resolve"}
+        </button>
+        <button type="button" onClick={onDrop}>
+          delete
+        </button>
+      </div>
+      <div>{comment.body}</div>
+      {comment.stale && (
+        <div style={{ color: "#8a5a00" }}>
+          written against {comment.commitId.slice(0, 8)} — that line has since
+          been rewritten
+        </div>
+      )}
+    </div>
+  );
+}
+
+const gutterStyle: CSSProperties = {
+  width: 40,
+  flex: "none",
+  textAlign: "right",
+  marginRight: 8,
+  color: "#999",
+  userSelect: "none",
+};
+
+const lineRowStyle: CSSProperties = {
+  display: "flex",
+  width: "100%",
+  margin: 0,
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  font: "inherit",
+  textAlign: "left",
+};
+
+/** A `<button>` when the line has an after-side line to comment on, a `<div>` otherwise — a static line is not interactive, so it is not a button. */
+function PatchLine({
+  text,
+  afterLine,
+  onOpenComposer,
+}: {
+  text: string;
+  afterLine: number | null;
+  onOpenComposer: (line: number) => void;
+}) {
+  const body = (
+    <>
+      <span style={gutterStyle}>{afterLine ?? ""}</span>
+      <span style={{ color: lineColor(text) }}>{text === "" ? " " : text}</span>
+    </>
+  );
+
+  if (afterLine === null) return <div style={lineRowStyle}>{body}</div>;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenComposer(afterLine)}
+      style={{ ...lineRowStyle, cursor: "pointer" }}
+    >
+      {body}
+    </button>
   );
 }
 
@@ -1079,6 +2117,41 @@ function lineColor(line: string): string | undefined {
   if (line.startsWith("+")) return "#1a7f37";
   if (line.startsWith("-")) return "#cf222e";
   return undefined;
+}
+
+interface GutterLine {
+  text: string;
+  afterLine: number | null;
+}
+
+/** After-side line number per rendered patch line, or null where none applies. */
+function gutterLines(patch: string): GutterLine[] {
+  let afterLine: number | null = null;
+
+  return patch.split("\n").map((text) => {
+    if (
+      text === "" ||
+      text.startsWith("diff --git ") ||
+      text.startsWith("index ") ||
+      text.startsWith("--- ") ||
+      text.startsWith("+++ ")
+    ) {
+      return { text, afterLine: null };
+    }
+
+    const hunk = text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk !== null) {
+      afterLine = Number(hunk[1]);
+      return { text, afterLine: null };
+    }
+
+    if (text.startsWith("-")) return { text, afterLine: null };
+
+    if (afterLine === null) return { text, afterLine: null };
+    const line = afterLine;
+    afterLine += 1;
+    return { text, afterLine: line };
+  });
 }
 ```
 
@@ -1152,14 +2225,33 @@ export function CommitLog({
 
 ### Interdiff
 
+Takes a `session` prop rather than calling `useSession` itself, since `App`
+owns the one session for the whole page and this controller is not the only
+thing that will eventually read it. The existing null/loading/error branches
+on the interdiff fetch are untouched; `session.error` is a second, independent
+error that can appear on top of a perfectly good diff, so it renders above the
+rows rather than replacing them. `reviewRows` runs below those early returns
+as a plain function call — it is a pure derivation of props already in hand,
+not a fetch, so it earns no hook of its own.
+
 ```tsx
 //| id: frontend-controller-interdiff
 //| file: src/frontend/controllers/Interdiff.tsx
 import { useInterdiff } from "../state/interdiff";
+import { reviewRows } from "../state/review";
+import type { Session } from "../state/session";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
-export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
+export function Interdiff({
+  from,
+  to,
+  session,
+}: {
+  from: string[];
+  to: string[];
+  session: Session;
+}) {
   const interdiff = useInterdiff(from, to);
 
   if (interdiff === null) {
@@ -1170,11 +2262,32 @@ export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
     return <Message tone="error">{interdiff.message}</Message>;
   }
 
-  return <InterdiffRows rows={interdiff.data.rows} />;
+  return (
+    <>
+      {session.error !== null && (
+        <Message tone="error">{session.error}</Message>
+      )}
+      <InterdiffRows
+        rows={reviewRows(interdiff.data.rows, session.document)}
+        onMarkSeen={session.markSeen}
+        onAddComment={session.addComment}
+        onResolveComment={session.resolveComment}
+        onDropComment={session.dropComment}
+      />
+    </>
+  );
 }
 ```
 
 ## App
+
+`App` calls `useSession()` once, alongside the two `useSide()` calls it
+already owns, and passes it straight through to `Interdiff`. `useSide` and
+`SidePicker` are untouched: wiring review state into the commit pickers would
+mean threading it through `CommitLog` and `CommitGraph` as well, for a graph
+that does not currently show anything about review state and has no requested
+feature that would use it. That stays out of scope on purpose rather than
+speculatively wired up.
 
 ```tsx
 //| id: frontend-app
@@ -1183,17 +2296,21 @@ import { useState } from "react";
 import { CommitLog } from "./controllers/CommitLog";
 import { Interdiff } from "./controllers/Interdiff";
 import { OperationLog } from "./controllers/OperationLog";
+import { useSession } from "./state/session";
 import { ReviewPanes } from "./views/ReviewPanes";
 
 export function App() {
   const before = useSide();
   const after = useSide();
+  const session = useSession();
 
   return (
     <ReviewPanes
       before={<SidePicker side={before} />}
       after={<SidePicker side={after} />}
-      diff={<Interdiff from={before.commits} to={after.commits} />}
+      diff={
+        <Interdiff from={before.commits} to={after.commits} session={session} />
+      }
     />
   );
 }

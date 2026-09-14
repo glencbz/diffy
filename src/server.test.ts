@@ -1,11 +1,16 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleInterdiff,
   handleLog,
   handleOperations,
+  handleSession,
+  handleSessionEdit,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -14,6 +19,13 @@ async function commitId(revset: string): Promise<string> {
   if (entry === undefined) throw new Error(`no commit matches ${revset}`);
   return entry.commitId;
 }
+
+beforeEach(() => {
+  process.env.DIFFY_SESSION_DB = join(
+    mkdtempSync(join(tmpdir(), "diffy-server-session-")),
+    "session.sqlite",
+  );
+});
 
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
@@ -196,6 +208,71 @@ describe("handleInterdiff", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
+  });
+
+  test("keeps interdiff rows free of review fields", async () => {
+    // arrange
+    const to = await commitId("root()+");
+
+    // act
+    const rows = await rowsFor([["to", to]]);
+
+    // assert
+    expect(Object.keys(rows[0] ?? {}).sort()).toEqual(["files", "from", "to"]);
+  });
+});
+
+describe("handleSession", () => {
+  test("starts empty", async () => {
+    // arrange
+    // act
+    const res = handleSession();
+    const body = await res.json();
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ marks: [], comments: [] });
+  });
+});
+
+describe("handleSessionEdit", () => {
+  test("stores a mark and hands it back on the next GET", async () => {
+    // arrange
+    const mark = {
+      changeId: "a",
+      fromCommitId: "a1",
+      toCommitId: "a2",
+      seenAt: "2026-09-14T09:00:00.000Z",
+    };
+
+    // act
+    const res = await handleSessionEdit(
+      new Request("http://test/api/session", {
+        method: "POST",
+        body: JSON.stringify({ kind: "mark", ...mark }),
+      }),
+    );
+    const body = await handleSession().json();
+
+    // assert
+    expect(res.status).toBe(204);
+    expect(body).toEqual({ marks: [mark], comments: [] });
+  });
+
+  test("reports a malformed body as 400 with a string error", async () => {
+    // arrange
+    // act
+    const res = await handleSessionEdit(
+      new Request("http://test/api/session", {
+        method: "POST",
+        body: JSON.stringify({ kind: "no-such-kind" }),
+      }),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(typeof body.error).toBe("string");
   });
 });
 // ~/~ end

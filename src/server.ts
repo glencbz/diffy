@@ -11,6 +11,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { applyEdit, readSession, SessionEdit } from "./backend/review/session";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -91,12 +92,29 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[2]
 
+export function handleSession(): Response {
+  return Response.json(readSession());
+}
+
+export async function handleSessionEdit(req: Request): Promise<Response> {
+  const parsed = SessionEdit.safeParse(await req.json());
+  if (!parsed.success) {
+    return Response.json({ error: parsed.error.message }, { status: 400 });
+  }
+
+  applyEdit(parsed.data);
+  return new Response(null, { status: 204 });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[3]
+
 export const routes = {
   "/": index,
   "/api/log": handleLog,
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
+  "/api/session": { GET: handleSession, POST: handleSessionEdit },
 };
 
 if (import.meta.main) {

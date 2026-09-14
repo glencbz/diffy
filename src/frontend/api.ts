@@ -120,3 +120,74 @@ export async function fetchInterdiff(
   );
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/frontend.md#frontend-api>>[1]
+
+const Comparison = z.object({
+  changeId: z.string(),
+  fromCommitId: z.string().nullable(),
+  toCommitId: z.string().nullable(),
+});
+
+export const Mark = Comparison.extend({ seenAt: z.string() });
+export type Mark = z.infer<typeof Mark>;
+
+export const Comment = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  path: z.string(),
+  line: z.number().int(),
+  commitId: z.string(),
+  body: z.string(),
+  resolved: z.boolean(),
+  createdAt: z.string(),
+});
+export type Comment = z.infer<typeof Comment>;
+
+export const SessionDocument = z.object({
+  marks: z.array(Mark),
+  comments: z.array(Comment),
+});
+export type SessionDocument = z.infer<typeof SessionDocument>;
+
+export const SessionEdit = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("mark"), ...Mark.shape }),
+  z.object({ kind: z.literal("unmark"), ...Comparison.shape }),
+  z.object({ kind: z.literal("comment"), comment: Comment }),
+  z.object({
+    kind: z.literal("resolveComment"),
+    id: z.string(),
+    resolved: z.boolean(),
+  }),
+  z.object({ kind: z.literal("dropComment"), id: z.string() }),
+]);
+export type SessionEdit = z.infer<typeof SessionEdit>;
+
+/** POST a JSON body, turning a non-ok response into its `error` message. */
+async function postJson(
+  url: string,
+  body: unknown,
+  label: string,
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return;
+
+  const parsed = ErrorResponse.safeParse(await res.json());
+  throw new Error(
+    parsed.success ? parsed.data.error : `${label} failed (${res.status})`,
+  );
+}
+
+export async function fetchSession(): Promise<SessionDocument> {
+  return SessionDocument.parse(
+    await getJson("/api/session", "GET /api/session"),
+  );
+}
+
+export async function postSessionEdit(edit: SessionEdit): Promise<void> {
+  return postJson("/api/session", edit, "POST /api/session");
+}
+// ~/~ end

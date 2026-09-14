@@ -47,6 +47,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { applyEdit, readSession, SessionEdit } from "./backend/review/session";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -147,6 +148,41 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 }
 ```
 
+## Session routes
+
+[`/api/session`](review.md) sits next to `/api/interdiff` but answers from
+SQLite, not `jj`. `jjJson` exists to turn a rejected revset or operation id
+into a 400; these two handlers never run a jj process, so there is no
+`JjError` for it to catch, and going through it would just be a `try` with
+nothing to catch. They parse and answer for themselves instead, in the same
+shape.
+
+`handleSession` can return a bare `Response` rather than a `Promise`, because
+`readSession` is synchronous — `bun:sqlite` is synchronous — and `Bun.serve`
+takes either. `handleSessionEdit` reads the body against `SessionEdit` and
+reports a bad shape exactly the way `jjJson` reports a bad revset: 400, an
+`error` string, nothing more specific. The client already knows what it sent;
+it does not need field-by-field detail to recover, only to know the send
+failed.
+
+```ts
+//| id: backend-server
+
+export function handleSession(): Response {
+  return Response.json(readSession());
+}
+
+export async function handleSessionEdit(req: Request): Promise<Response> {
+  const parsed = SessionEdit.safeParse(await req.json());
+  if (!parsed.success) {
+    return Response.json({ error: parsed.error.message }, { status: 400 });
+  }
+
+  applyEdit(parsed.data);
+  return new Response(null, { status: 204 });
+}
+```
+
 The route table is the list of handlers the server exposes.
 
 ```ts
@@ -158,6 +194,7 @@ export const routes = {
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
+  "/api/session": { GET: handleSession, POST: handleSessionEdit },
 };
 
 if (import.meta.main) {
@@ -174,13 +211,18 @@ without binding a port.
 ```ts
 //| id: backend-server-test
 //| file: src/server.test.ts
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleInterdiff,
   handleLog,
   handleOperations,
+  handleSession,
+  handleSessionEdit,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -189,6 +231,13 @@ async function commitId(revset: string): Promise<string> {
   if (entry === undefined) throw new Error(`no commit matches ${revset}`);
   return entry.commitId;
 }
+
+beforeEach(() => {
+  process.env.DIFFY_SESSION_DB = join(
+    mkdtempSync(join(tmpdir(), "diffy-server-session-")),
+    "session.sqlite",
+  );
+});
 
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
@@ -371,6 +420,71 @@ describe("handleInterdiff", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
+  });
+
+  test("keeps interdiff rows free of review fields", async () => {
+    // arrange
+    const to = await commitId("root()+");
+
+    // act
+    const rows = await rowsFor([["to", to]]);
+
+    // assert
+    expect(Object.keys(rows[0] ?? {}).sort()).toEqual(["files", "from", "to"]);
+  });
+});
+
+describe("handleSession", () => {
+  test("starts empty", async () => {
+    // arrange
+    // act
+    const res = handleSession();
+    const body = await res.json();
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ marks: [], comments: [] });
+  });
+});
+
+describe("handleSessionEdit", () => {
+  test("stores a mark and hands it back on the next GET", async () => {
+    // arrange
+    const mark = {
+      changeId: "a",
+      fromCommitId: "a1",
+      toCommitId: "a2",
+      seenAt: "2026-09-14T09:00:00.000Z",
+    };
+
+    // act
+    const res = await handleSessionEdit(
+      new Request("http://test/api/session", {
+        method: "POST",
+        body: JSON.stringify({ kind: "mark", ...mark }),
+      }),
+    );
+    const body = await handleSession().json();
+
+    // assert
+    expect(res.status).toBe(204);
+    expect(body).toEqual({ marks: [mark], comments: [] });
+  });
+
+  test("reports a malformed body as 400 with a string error", async () => {
+    // arrange
+    // act
+    const res = await handleSessionEdit(
+      new Request("http://test/api/session", {
+        method: "POST",
+        body: JSON.stringify({ kind: "no-such-kind" }),
+      }),
+    );
+    const body = (await res.json()) as { error: string };
+
+    // assert
+    expect(res.status).toBe(400);
+    expect(typeof body.error).toBe("string");
   });
 });
 ```
