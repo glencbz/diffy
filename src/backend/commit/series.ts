@@ -1,9 +1,10 @@
 // ~/~ begin <<docs/architecture/backend/series.md#series-module>>[init]
 
-/** The identity a commit needs to be lined up against another. */
+/** The identity a commit needs to be lined up against another. A backend
+ * with no change ids sends null, never a stand-in. */
 export interface SeriesCommit {
   commitId: string;
-  changeId: string;
+  changeId: string | null;
 }
 
 /** One row of a lined-up comparison. At least one side is always present. */
@@ -31,7 +32,7 @@ export function alignSeries<T extends SeriesCommit>(
     const right = olderFirstAfter[j];
     if (left === undefined || right === undefined) break;
 
-    if (left.changeId === right.changeId) {
+    if (left.changeId != null && left.changeId === right.changeId) {
       rows.push({ from: left, to: right });
       i += 1;
       j += 1;
@@ -71,12 +72,14 @@ export function alignSeries<T extends SeriesCommit>(
   return rows.reverse();
 }
 
-/** Distance from `start` to the next commit with `changeId`, or null. */
+/** Distance from `start` to the next commit with `changeId`, or null. A null
+ * `changeId` matches nothing. */
 function indexOfChange(
   commits: SeriesCommit[],
   start: number,
-  changeId: string,
+  changeId: string | null,
 ): number | null {
+  if (changeId == null) return null;
   for (let at = start; at < commits.length; at += 1) {
     if (commits[at]?.changeId === changeId) return at - start;
   }

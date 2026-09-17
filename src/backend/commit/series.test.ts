@@ -17,6 +17,23 @@ function shape(rows: { from: SeriesCommit | null; to: SeriesCommit | null }[]) {
     .join(" ");
 }
 
+/** `"a b c"` -> that series, newest first, no change ids: a git series. */
+function noIdSeries(commitIds: string): SeriesCommit[] {
+  return commitIds
+    .split(" ")
+    .reverse()
+    .map((commitId) => ({ changeId: null, commitId }));
+}
+
+/** `shape`, keyed on commit id, for rows whose change id is always null. */
+function shapeByCommit(
+  rows: { from: SeriesCommit | null; to: SeriesCommit | null }[],
+) {
+  return rows
+    .map((row) => `${row.from?.commitId ?? "-"}>${row.to?.commitId ?? "-"}`)
+    .join(" ");
+}
+
 describe("alignSeries", () => {
   test("pairs an unchanged series commit for commit", () => {
     // arrange
@@ -91,6 +108,33 @@ describe("alignSeries", () => {
     expect(shape(alignSeries([], series("a b")))).toBe("->b ->a");
     expect(shape(alignSeries(series("a b"), []))).toBe("b>- a>-");
     expect(alignSeries([], [])).toEqual([]);
+  });
+
+  test("pairs positionally when no commit carries a change id", () => {
+    // arrange
+    // act
+    const rows = alignSeries(
+      noIdSeries("first second"),
+      noIdSeries("first2 second2"),
+    );
+
+    // assert
+    expect(shapeByCommit(rows)).toBe("second>second2 first>first2");
+  });
+
+  test("mis-pairs when a series without change ids gains a commit at its oldest end", () => {
+    // arrange
+    // act
+    const rows = alignSeries(
+      noIdSeries("first second"),
+      noIdSeries("zero2 first2 second2"),
+    );
+
+    // assert
+    // Pinned, not wanted. `zero2` should read as an insert on its own row.
+    // If this fails, alignSeries learned to align change-id-less commits;
+    // update the test and the prose at the top of this doc.
+    expect(shapeByCommit(rows)).toBe("->second2 second>first2 first>zero2");
   });
 });
 // ~/~ end
