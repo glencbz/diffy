@@ -1,10 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-controller-diff-pane>>[init]
 import { type Comparison, useComparison } from "../state/comparison";
+import { reviewRows } from "../state/review";
+import type { Session } from "../state/session";
 import { DiffView } from "../views/DiffView";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
-export function DiffPane({ comparison }: { comparison: Comparison }) {
+export function DiffPane({
+  comparison,
+  session,
+}: {
+  comparison: Comparison;
+  session: Session;
+}) {
   const answer = useComparison(comparison);
 
   if (answer === null) {
@@ -15,7 +23,15 @@ export function DiffPane({ comparison }: { comparison: Comparison }) {
     return <Message tone="error">{answer.message}</Message>;
   }
   if (answer.data.kind === "jj") {
-    return <InterdiffRows rows={answer.data.rows} />;
+    return (
+      <InterdiffRows
+        rows={reviewRows(answer.data.rows, session.document)}
+        onMarkSeen={session.markSeen}
+        onAddComment={session.addComment}
+        onResolveComment={session.resolveComment}
+        onDropComment={session.dropComment}
+      />
+    );
   }
   if (answer.data.files.length === 0) {
     return <Message>These two versions make the same change.</Message>;
