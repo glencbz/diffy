@@ -68,10 +68,22 @@
   --review-changed-surface: var(--amber-100);
   --review-changed-border: var(--amber-200);
   --review-unseen-surface: var(--blue-100);
+  --review-open-surface: var(--red-100);
+  --review-open-border: var(--red-200);
 
   --state-open: var(--green-600);
   --state-merged: var(--purple-600);
   --state-closed: var(--red-600);
+
+  --endpoint-before: var(--amber-600);
+
+  --graph-lane-0: var(--grey-900);
+  --graph-lane-1: var(--blue-600);
+  --graph-lane-2: var(--green-600);
+  --graph-lane-3: var(--purple-600);
+  --graph-lane-4: var(--amber-600);
+  --graph-lane-5: var(--teal-600);
+  --graph-lane-6: var(--red-600);
 }
 /* ~/~ end */
 
@@ -90,6 +102,7 @@
   --text-size-small: 11px;
 
   --radius: 3px;
+  --radius-large: 8px;
 
   --pane-picker-width: 25%;
   --pane-picker-min: 240px;
@@ -97,6 +110,8 @@
   --pane-list-min: 220px;
   --pane-commits-width: 260px;
   --gutter-width: 40px;
+  --label-width: 56px;
+  --border-width-accent: 3px;
 }
 /* ~/~ end */
 
@@ -197,6 +212,457 @@
   min-width: 0;
   overflow: auto;
   border-right: none;
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-message>>[init] */
+.message {
+  padding: var(--space-5);
+  color: var(--text);
+}
+
+.message--error {
+  color: var(--danger);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-operation-picker>>[init] */
+.operation-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.operation-picker__label {
+  color: var(--text-faint);
+}
+
+.operation-picker__select {
+  flex: 1;
+  font: inherit;
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-commit-label>>[init] */
+.commit-label__id {
+  margin-right: var(--space-4);
+  color: var(--text-faint);
+}
+
+.commit-label__id--synthetic {
+  font-style: italic;
+}
+
+.commit-label__summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__placeholder {
+  color: var(--text-ghost);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-comparison-header>>[init] */
+.comparison-header {
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-header__row {
+  display: flex;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.comparison-header__caption {
+  width: var(--label-width);
+  flex: none;
+  color: var(--text-faint);
+}
+
+.comparison-header__unavailable {
+  font-style: italic;
+  color: var(--text-ghost);
+}
+
+.comparison-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.comparison-header__mark-seen {
+  font: inherit;
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-review-state>>[init] */
+.review-chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-large);
+  font-size: var(--text-size-small);
+}
+
+.review-chip--resolved {
+  background: var(--review-seen-surface);
+  color: var(--review-resolved);
+  border: 1px solid var(--review-seen-border);
+}
+
+.review-chip--stale {
+  background: var(--review-changed-surface);
+  color: var(--review-stale);
+  border: 1px solid var(--review-changed-border);
+}
+
+.review-chip--open {
+  background: var(--review-open-surface);
+  color: var(--review-open);
+  border: 1px solid var(--review-open-border);
+}
+
+.comment-thread {
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) var(--space-4);
+  border-left: var(--border-width-accent) solid var(--review-open);
+}
+
+.comment-thread--resolved {
+  border-left-color: var(--review-resolved);
+  opacity: 0.72;
+}
+
+.comment-thread__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-faint);
+}
+
+.comment-thread__stale {
+  color: var(--review-stale);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-commit-graph>>[init] */
+.commit-graph__row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: none;
+  white-space: nowrap;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.commit-graph__row--selected {
+  background: var(--surface-selected);
+}
+
+.commit-graph__row--interactive {
+  cursor: pointer;
+}
+
+.commit-graph__gutter {
+  flex: none;
+}
+
+.commit-graph__edge {
+  stroke: currentColor;
+}
+
+.commit-graph__node {
+  stroke: currentColor;
+  fill: currentColor;
+}
+
+.commit-graph__node--merge {
+  fill: var(--surface);
+}
+
+.commit-graph__lane--0 {
+  color: var(--graph-lane-0);
+}
+
+.commit-graph__lane--1 {
+  color: var(--graph-lane-1);
+}
+
+.commit-graph__lane--2 {
+  color: var(--graph-lane-2);
+}
+
+.commit-graph__lane--3 {
+  color: var(--graph-lane-3);
+}
+
+.commit-graph__lane--4 {
+  color: var(--graph-lane-4);
+}
+
+.commit-graph__lane--5 {
+  color: var(--graph-lane-5);
+}
+
+.commit-graph__lane--6 {
+  color: var(--graph-lane-6);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-interdiff-rows>>[init] */
+.interdiff-empty {
+  padding: var(--space-5);
+  font-style: italic;
+  color: var(--text-muted);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-diff-view>>[init] */
+.diff-view {
+  padding: var(--space-5);
+}
+
+.diff-file {
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+}
+
+.diff-file__header {
+  padding: var(--space-2) var(--space-4);
+  font-weight: bold;
+  background: var(--surface-raised);
+}
+
+.diff-file__status {
+  margin-right: var(--space-4);
+  color: var(--text-muted);
+}
+
+.diff-file__binary {
+  padding: var(--space-4);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.diff-file__patch {
+  margin: 0;
+  padding: var(--space-4);
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.diff-line--interactive {
+  cursor: pointer;
+}
+
+.diff-line__gutter {
+  width: var(--gutter-width);
+  flex: none;
+  margin-right: var(--space-4);
+  text-align: right;
+  color: var(--text-ghost);
+  user-select: none;
+}
+
+.diff-line__text--meta {
+  color: var(--diff-meta);
+}
+
+.diff-line__text--hunk {
+  color: var(--diff-hunk);
+}
+
+.diff-line__text--added {
+  color: var(--diff-added);
+}
+
+.diff-line__text--removed {
+  color: var(--diff-removed);
+}
+
+.comment-composer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.comment-composer__line {
+  margin-bottom: var(--space-2);
+  color: var(--text-faint);
+}
+
+.comment-composer__input {
+  width: 100%;
+  font: inherit;
+}
+
+.comment-composer__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-pull-state-chip>>[init] */
+.chip {
+  flex: none;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius);
+  color: var(--text-inverse);
+  font-size: var(--text-size-small);
+}
+
+.chip--open {
+  background: var(--state-open);
+}
+
+.chip--merged {
+  background: var(--state-merged);
+}
+
+.chip--closed {
+  background: var(--state-closed);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-pull-list>>[init] */
+.pull-list__item {
+  display: block;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.pull-list__item--selected {
+  background: var(--surface-selected);
+}
+
+.pull-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pull-list__number {
+  color: var(--text-faint);
+}
+
+.pull-list__title {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pull-list__base {
+  color: var(--text-faint);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-pull-header>>[init] */
+.pull-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pull-header__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pull-header__meta {
+  color: var(--text-faint);
+}
+
+.pull-header__link {
+  color: var(--accent);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-pull-timeline>>[init] */
+.pull-timeline {
+  flex: none;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.pull-timeline__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  overflow-x: auto;
+}
+
+.pull-timeline__caption {
+  margin: var(--space-3) 0 0;
+  color: var(--text-faint);
+}
+
+.pull-chip {
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--surface);
+}
+
+.pull-chip--before {
+  border-color: var(--endpoint-before);
+  color: var(--endpoint-before);
+  background: var(--review-unseen-surface);
+}
+
+.pull-chip--after {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--review-unseen-surface);
+}
+
+.pull-chip__caption {
+  display: block;
+  font-weight: bold;
+}
+
+.pull-chip__detail {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--text-size-small);
 }
 /* ~/~ end */
 /* ~/~ end */

@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-view-diff>>[init]
-import { type CSSProperties, useState } from "react";
+import { useState } from "react";
 import type { FileDiff } from "../api";
 import type { RowComment } from "../state/review";
 
@@ -25,7 +25,7 @@ export function DiffView({
   } | null>(null);
 
   return (
-    <div style={{ padding: 12 }}>
+    <div className="diff-view">
       {files.map((file) => {
         const path = pathOf(file);
         return (
@@ -71,23 +71,15 @@ interface FileReview {
 
 function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
   return (
-    <section style={{ marginBottom: 16, border: "1px solid #ccc" }}>
-      <header
-        style={{
-          background: "#f0f0f0",
-          padding: "4px 8px",
-          fontWeight: "bold",
-        }}
-      >
-        <span style={{ color: "#666", marginRight: 8 }}>{file.status}</span>
+    <section className="diff-file">
+      <header className="diff-file__header">
+        <span className="diff-file__status">{file.status}</span>
         {pathOf(file)}
       </header>
       {file.binary ? (
-        <p style={{ padding: 8, fontStyle: "italic", color: "#666" }}>
-          Binary file, no textual diff.
-        </p>
+        <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
-        <pre style={{ margin: 0, padding: 8, overflowX: "auto" }}>
+        <pre className="diff-file__patch">
           {gutterLines(file.patch).map(({ text, afterLine }, index) => (
             <PatchLine
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
@@ -137,21 +129,21 @@ function CommentComposer({
 
   return (
     <form
-      style={{ padding: 8, borderTop: "1px solid #ccc", background: "#fafafa" }}
+      className="comment-composer"
       onSubmit={(event) => {
         event.preventDefault();
         if (body.trim() === "") return;
         onSubmit(line, body);
       }}
     >
-      <div style={{ color: "#888", marginBottom: 4 }}>line {line}</div>
+      <div className="comment-composer__line">line {line}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
         rows={3}
-        style={{ width: "100%", font: "inherit" }}
+        className="comment-composer__input"
       />
-      <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+      <div className="comment-composer__actions">
         <button type="submit">comment</button>
         <button type="button" onClick={onCancel}>
           cancel
@@ -172,16 +164,13 @@ function CommentThread({
 }) {
   return (
     <div
-      style={{
-        borderLeft: `3px solid ${comment.resolved ? "#63b363" : "#a01b1b"}`,
-        padding: "6px 8px",
-        margin: "4px 8px",
-        opacity: comment.resolved ? 0.72 : 1,
-      }}
+      className={
+        comment.resolved
+          ? "comment-thread comment-thread--resolved"
+          : "comment-thread"
+      }
     >
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 8, color: "#888" }}
-      >
+      <div className="comment-thread__meta">
         <span>
           {comment.path}:{comment.line} ·{" "}
           {comment.resolved ? "resolved" : "open"}
@@ -195,7 +184,7 @@ function CommentThread({
       </div>
       <div>{comment.body}</div>
       {comment.stale && (
-        <div style={{ color: "#8a5a00" }}>
+        <div className="comment-thread__stale">
           written against {comment.commitId.slice(0, 8)}. That line has since
           been rewritten.
         </div>
@@ -203,26 +192,6 @@ function CommentThread({
     </div>
   );
 }
-
-const gutterStyle: CSSProperties = {
-  width: 40,
-  flex: "none",
-  textAlign: "right",
-  marginRight: 8,
-  color: "#999",
-  userSelect: "none",
-};
-
-const lineRowStyle: CSSProperties = {
-  display: "flex",
-  width: "100%",
-  margin: 0,
-  padding: 0,
-  border: "none",
-  background: "transparent",
-  font: "inherit",
-  textAlign: "left",
-};
 
 /** A `<button>` when the line has an after-side line to comment on, a `<div>`
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
@@ -236,22 +205,25 @@ function PatchLine({
   afterLine: number | null;
   onOpenComposer?: (line: number) => void;
 }) {
+  const kind = lineKind(text);
   const body = (
     <>
-      <span style={gutterStyle}>{afterLine ?? ""}</span>
-      <span style={{ color: lineColor(text) }}>{text === "" ? " " : text}</span>
+      <span className="diff-line__gutter">{afterLine ?? ""}</span>
+      <span className={kind === null ? undefined : `diff-line__text--${kind}`}>
+        {text === "" ? " " : text}
+      </span>
     </>
   );
 
   if (afterLine === null || onOpenComposer === undefined) {
-    return <div style={lineRowStyle}>{body}</div>;
+    return <div className="diff-line">{body}</div>;
   }
 
   return (
     <button
       type="button"
       onClick={() => onOpenComposer(afterLine)}
-      style={{ ...lineRowStyle, cursor: "pointer" }}
+      className="diff-line diff-line--interactive"
     >
       {body}
     </button>
@@ -262,14 +234,16 @@ function pathOf(file: FileDiff): string {
   return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
 }
 
-function lineColor(line: string): string | undefined {
-  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "#666";
+type DiffLineKind = "meta" | "hunk" | "added" | "removed";
+
+function lineKind(line: string): DiffLineKind | null {
+  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "meta";
   if (line.startsWith("diff --git ") || line.startsWith("index "))
-    return "#666";
-  if (line.startsWith("@@")) return "#0969da";
-  if (line.startsWith("+")) return "#1a7f37";
-  if (line.startsWith("-")) return "#cf222e";
-  return undefined;
+    return "meta";
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("+")) return "added";
+  if (line.startsWith("-")) return "removed";
+  return null;
 }
 
 interface GutterLine {

@@ -4,31 +4,17 @@ import { PullStateChip } from "./PullStateChip";
 
 export function PullHeader({ pull }: { pull: PullSummary }) {
   return (
-    <header
-      style={{
-        display: "flex",
-        flex: "none",
-        alignItems: "center",
-        gap: 10,
-        padding: "6px 10px",
-        background: "#f0f0f0",
-        borderBottom: "1px solid #ccc",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-      }}
-    >
-      <span style={{ color: "#888" }}>#{pull.number}</span>
-      <strong style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {pull.title}
-      </strong>
+    <header className="pull-header">
+      <span className="pull-header__meta">#{pull.number}</span>
+      <strong className="pull-header__title">{pull.title}</strong>
       <PullStateChip state={pull.state} />
-      <span style={{ color: "#888" }}>base: {pull.baseRefName}</span>
-      <span style={{ color: "#888" }}>{pull.author}</span>
+      <span className="pull-header__meta">base: {pull.baseRefName}</span>
+      <span className="pull-header__meta">{pull.author}</span>
       <a
         href={pull.url}
         target="_blank"
         rel="noreferrer"
-        style={{ color: "#0969da" }}
+        className="pull-header__link"
       >
         github
       </a>

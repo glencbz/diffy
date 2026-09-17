@@ -57,6 +57,30 @@ by a rule from a layer below it and the cascade agrees with the layering.
 <<design-shell>>
 
 <<design-panes>>
+
+<<design-message>>
+
+<<design-operation-picker>>
+
+<<design-commit-label>>
+
+<<design-comparison-header>>
+
+<<design-review-state>>
+
+<<design-commit-graph>>
+
+<<design-interdiff-rows>>
+
+<<design-diff-view>>
+
+<<design-pull-state-chip>>
+
+<<design-pull-list>>
+
+<<design-pull-header>>
+
+<<design-pull-timeline>>
 ```
 
 ## Primitives
@@ -148,10 +172,22 @@ patch to read the way a patch reads everywhere else.
   --review-changed-surface: var(--amber-100);
   --review-changed-border: var(--amber-200);
   --review-unseen-surface: var(--blue-100);
+  --review-open-surface: var(--red-100);
+  --review-open-border: var(--red-200);
 
   --state-open: var(--green-600);
   --state-merged: var(--purple-600);
   --state-closed: var(--red-600);
+
+  --endpoint-before: var(--amber-600);
+
+  --graph-lane-0: var(--grey-900);
+  --graph-lane-1: var(--blue-600);
+  --graph-lane-2: var(--green-600);
+  --graph-lane-3: var(--purple-600);
+  --graph-lane-4: var(--amber-600);
+  --graph-lane-5: var(--teal-600);
+  --graph-lane-6: var(--red-600);
 }
 ```
 
@@ -182,6 +218,7 @@ component, and that is what makes the breakpoints below a two-line change.
   --text-size-small: 11px;
 
   --radius: 3px;
+  --radius-large: 8px;
 
   --pane-picker-width: 25%;
   --pane-picker-min: 240px;
@@ -189,6 +226,8 @@ component, and that is what makes the breakpoints below a two-line change.
   --pane-list-min: 220px;
   --pane-commits-width: 260px;
   --gutter-width: 40px;
+  --label-width: 56px;
+  --border-width-accent: 3px;
 }
 ```
 
@@ -307,5 +346,558 @@ that renders it.
   min-width: 0;
   overflow: auto;
   border-right: none;
+}
+```
+
+## Message
+
+Message is the app's one place for a status line, and the only variable in
+it is whether the news is bad. `.message--error` is the single modifier that
+recolours it, leaving the ordinary case as plain body text.
+
+```css
+/*| id: design-message
+.message {
+  padding: var(--space-5);
+  color: var(--text);
+}
+
+.message--error {
+  color: var(--danger);
+}
+```
+
+## Operation picker
+
+OperationPicker is a label wrapping a native `<select>`, so there is little
+to style beyond lining the caption up with the control and letting the
+select itself take the rest of the row.
+
+```css
+/*| id: design-operation-picker
+.operation-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.operation-picker__label {
+  color: var(--text-faint);
+}
+
+.operation-picker__select {
+  flex: 1;
+  font: inherit;
+}
+```
+
+## Commit label
+
+A commit with no change id falls back to its short commit id rendered in
+italic, so `.commit-label__id--synthetic` is the one modifier this label
+needs; everything else about a commit's line is the same shape whether the
+id is a change id or a stand-in for one.
+
+```css
+/*| id: design-commit-label
+.commit-label__id {
+  margin-right: var(--space-4);
+  color: var(--text-faint);
+}
+
+.commit-label__id--synthetic {
+  font-style: italic;
+}
+
+.commit-label__summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__placeholder {
+  color: var(--text-ghost);
+}
+```
+
+## Comparison header
+
+ComparisonHeader stacks the before and after rows over a strip of review
+actions, and the caption column is a fixed width so "before" and "after"
+line up with each other no matter how long the commit summary next to them
+runs.
+
+```css
+/*| id: design-comparison-header
+.comparison-header {
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-header__row {
+  display: flex;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.comparison-header__caption {
+  width: var(--label-width);
+  flex: none;
+  color: var(--text-faint);
+}
+
+.comparison-header__unavailable {
+  font-style: italic;
+  color: var(--text-ghost);
+}
+
+.comparison-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.comparison-header__mark-seen {
+  font: inherit;
+}
+```
+
+## Review state
+
+A comment or a comparison row is always in one of the same three states —
+still open, resolved, or stale against a rewrite since it was written — and
+`--review-open`, `--review-resolved`, and `--review-stale` are the one set
+of roles that both the tone chip on a comparison header and the accent on a
+comment thread read from. A resolved comment and a resolved row share a
+colour without either file naming it.
+
+```css
+/*| id: design-review-state
+.review-chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-large);
+  font-size: var(--text-size-small);
+}
+
+.review-chip--resolved {
+  background: var(--review-seen-surface);
+  color: var(--review-resolved);
+  border: 1px solid var(--review-seen-border);
+}
+
+.review-chip--stale {
+  background: var(--review-changed-surface);
+  color: var(--review-stale);
+  border: 1px solid var(--review-changed-border);
+}
+
+.review-chip--open {
+  background: var(--review-open-surface);
+  color: var(--review-open);
+  border: 1px solid var(--review-open-border);
+}
+
+.comment-thread {
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) var(--space-4);
+  border-left: var(--border-width-accent) solid var(--review-open);
+}
+
+.comment-thread--resolved {
+  border-left-color: var(--review-resolved);
+  opacity: 0.72;
+}
+
+.comment-thread__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-faint);
+}
+
+.comment-thread__stale {
+  color: var(--review-stale);
+}
+```
+
+## Commit graph
+
+CommitGraph reads its edge and node colours off a seven-step lane ramp
+instead of picking one by hand: a lane's index selects one of the
+`--graph-lane-N` roles as `color`, and the line and circle underneath both
+draw in `currentColor`, so an edge always agrees with the node it meets.
+
+The gutter is the one width this file does not set. It depends on how many
+lanes a history happens to use, and the `<svg>` already carries that number
+in its own `width` attribute, so a rule here would be a second copy of a
+figure the markup has. The row height is the same story in reverse: the
+graphic is drawn against a row height the component computes its geometry
+from, and the row takes its height from the graphic rather than from a
+length declared here that could drift away from the arithmetic.
+
+```css
+/*| id: design-commit-graph
+.commit-graph__row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: none;
+  white-space: nowrap;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.commit-graph__row--selected {
+  background: var(--surface-selected);
+}
+
+.commit-graph__row--interactive {
+  cursor: pointer;
+}
+
+.commit-graph__gutter {
+  flex: none;
+}
+
+.commit-graph__edge {
+  stroke: currentColor;
+}
+
+.commit-graph__node {
+  stroke: currentColor;
+  fill: currentColor;
+}
+
+.commit-graph__node--merge {
+  fill: var(--surface);
+}
+
+.commit-graph__lane--0 {
+  color: var(--graph-lane-0);
+}
+
+.commit-graph__lane--1 {
+  color: var(--graph-lane-1);
+}
+
+.commit-graph__lane--2 {
+  color: var(--graph-lane-2);
+}
+
+.commit-graph__lane--3 {
+  color: var(--graph-lane-3);
+}
+
+.commit-graph__lane--4 {
+  color: var(--graph-lane-4);
+}
+
+.commit-graph__lane--5 {
+  color: var(--graph-lane-5);
+}
+
+.commit-graph__lane--6 {
+  color: var(--graph-lane-6);
+}
+```
+
+## Interdiff rows
+
+A comparison with no files still renders, and the placeholder saying so
+gets the same muted italic treatment every empty state in the app uses.
+
+```css
+/*| id: design-interdiff-rows
+.interdiff-empty {
+  padding: var(--space-5);
+  font-style: italic;
+  color: var(--text-muted);
+}
+```
+
+## Diff view
+
+A patch line's colour is chosen from the same fixed set a unified diff
+always has — added, removed, a hunk header, or file-level meta — so DiffView
+maps a line's text to one of four modifier classes instead of a lookup
+table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
+`--diff-meta` are the only place those colours live.
+
+```css
+/*| id: design-diff-view
+.diff-view {
+  padding: var(--space-5);
+}
+
+.diff-file {
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+}
+
+.diff-file__header {
+  padding: var(--space-2) var(--space-4);
+  font-weight: bold;
+  background: var(--surface-raised);
+}
+
+.diff-file__status {
+  margin-right: var(--space-4);
+  color: var(--text-muted);
+}
+
+.diff-file__binary {
+  padding: var(--space-4);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.diff-file__patch {
+  margin: 0;
+  padding: var(--space-4);
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.diff-line--interactive {
+  cursor: pointer;
+}
+
+.diff-line__gutter {
+  width: var(--gutter-width);
+  flex: none;
+  margin-right: var(--space-4);
+  text-align: right;
+  color: var(--text-ghost);
+  user-select: none;
+}
+
+.diff-line__text--meta {
+  color: var(--diff-meta);
+}
+
+.diff-line__text--hunk {
+  color: var(--diff-hunk);
+}
+
+.diff-line__text--added {
+  color: var(--diff-added);
+}
+
+.diff-line__text--removed {
+  color: var(--diff-removed);
+}
+
+.comment-composer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.comment-composer__line {
+  margin-bottom: var(--space-2);
+  color: var(--text-faint);
+}
+
+.comment-composer__input {
+  width: 100%;
+  font: inherit;
+}
+
+.comment-composer__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+```
+
+## Pull request state chip
+
+A pull request is open, merged, or closed and nothing else, so
+PullStateChip is `.chip` plus one modifier per state rather than a colour
+keyed by string. `--state-open`, `--state-merged`, and `--state-closed` are
+the only place those three colours are written down.
+
+```css
+/*| id: design-pull-state-chip
+.chip {
+  flex: none;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius);
+  color: var(--text-inverse);
+  font-size: var(--text-size-small);
+}
+
+.chip--open {
+  background: var(--state-open);
+}
+
+.chip--merged {
+  background: var(--state-merged);
+}
+
+.chip--closed {
+  background: var(--state-closed);
+}
+```
+
+## Pull request list
+
+PullList renders each pull request as a full-width button standing in for
+a row, and the selected one takes the same selection colour a picked commit
+gets in the graph.
+
+```css
+/*| id: design-pull-list
+.pull-list__item {
+  display: block;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.pull-list__item--selected {
+  background: var(--surface-selected);
+}
+
+.pull-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pull-list__number {
+  color: var(--text-faint);
+}
+
+.pull-list__title {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pull-list__base {
+  color: var(--text-faint);
+}
+```
+
+## Pull request header
+
+PullHeader is a strip of small facts about a pull request, and the number,
+the base branch, and the author share one muted style since none of them
+outranks the others.
+
+```css
+/*| id: design-pull-header
+.pull-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pull-header__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pull-header__meta {
+  color: var(--text-faint);
+}
+
+.pull-header__link {
+  color: var(--accent);
+}
+```
+
+## Pull request timeline
+
+A version chip on the timeline is picked as the before end, the after end,
+or neither, which is a fixed set of three and becomes a modifier rather
+than a colour computed in the component. `--endpoint-before` is the one new
+role this adds; the after end reuses `--accent`, the same blue used for the
+current selection everywhere else in the app.
+
+```css
+/*| id: design-pull-timeline
+.pull-timeline {
+  flex: none;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.pull-timeline__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  overflow-x: auto;
+}
+
+.pull-timeline__caption {
+  margin: var(--space-3) 0 0;
+  color: var(--text-faint);
+}
+
+.pull-chip {
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--surface);
+}
+
+.pull-chip--before {
+  border-color: var(--endpoint-before);
+  color: var(--endpoint-before);
+  background: var(--review-unseen-surface);
+}
+
+.pull-chip--after {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--review-unseen-surface);
+}
+
+.pull-chip__caption {
+  display: block;
+  font-weight: bold;
+}
+
+.pull-chip__detail {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--text-size-small);
 }
 ```

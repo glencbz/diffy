@@ -18,34 +18,18 @@ export function PullList({
           type="button"
           key={pull.number}
           onClick={() => onSelect(pull.number)}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "6px 8px",
-            border: "none",
-            borderBottom: "1px solid #eee",
-            cursor: "pointer",
-            font: "inherit",
-            color: "inherit",
-            textAlign: "left",
-            background: pull.number === selected ? "#d0e4ff" : "transparent",
-          }}
+          className={
+            pull.number === selected
+              ? "pull-list__item pull-list__item--selected"
+              : "pull-list__item"
+          }
         >
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "#888" }}>#{pull.number}</span>
+          <span className="pull-list__row">
+            <span className="pull-list__number">#{pull.number}</span>
             <PullStateChip state={pull.state} />
           </span>
-          <span
-            style={{
-              display: "block",
-              overflow: "hidden",
-              whiteSpace: "nowrap",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {pull.title}
-          </span>
-          <span style={{ color: "#888" }}>← {pull.baseRefName}</span>
+          <span className="pull-list__title">{pull.title}</span>
+          <span className="pull-list__base">← {pull.baseRefName}</span>
         </button>
       ))}
     </div>

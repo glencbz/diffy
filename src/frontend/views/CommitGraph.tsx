@@ -1,24 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-view-commit-graph>>[init]
-import type { CSSProperties } from "react";
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
 const ROW_HEIGHT = 28;
 const LANE_WIDTH = 24;
+const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
-const LANE_COLORS = [
-  "#333",
-  "#0969da",
-  "#1a7f37",
-  "#8250df",
-  "#bf8700",
-  "#1b7c83",
-  "#cf222e",
-];
-
-function laneColor(lane: number): string {
-  return LANE_COLORS[lane % LANE_COLORS.length] as string;
+function laneClass(lane: number): string {
+  return `commit-graph__lane--${lane % LANE_CLASS_COUNT}`;
 }
 
 export type GraphEdge = { from: number; to: number };
@@ -139,19 +129,9 @@ export function CommitGraph({
     <div>
       {commits.map((commit, index) => {
         const row = rows[index] as GraphRow;
-        const style: CSSProperties = {
-          display: "flex",
-          alignItems: "center",
-          width: "100%",
-          height: ROW_HEIGHT,
-          padding: 0,
-          border: "none",
-          whiteSpace: "nowrap",
-          font: "inherit",
-          color: "inherit",
-          textAlign: "left",
-          background: chosen.has(commit.commitId) ? "#d0e4ff" : "transparent",
-        };
+        const className = `commit-graph__row${
+          chosen.has(commit.commitId) ? " commit-graph__row--selected" : ""
+        }`;
         const content = (
           <>
             <RowGraphic row={row} width={gutterWidth} />
@@ -160,7 +140,7 @@ export function CommitGraph({
         );
 
         return onSelect === undefined ? (
-          <div key={commit.commitId} style={style}>
+          <div key={commit.commitId} className={className}>
             {content}
           </div>
         ) : (
@@ -168,7 +148,7 @@ export function CommitGraph({
             type="button"
             key={commit.commitId}
             onClick={() => toggle(commit.commitId, onSelect)}
-            style={{ ...style, cursor: "pointer" }}
+            className={`${className} commit-graph__row--interactive`}
           >
             {content}
           </button>
@@ -186,7 +166,7 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
     <svg
       width={width}
       height={ROW_HEIGHT}
-      style={{ flex: "none" }}
+      className="commit-graph__gutter"
       aria-hidden="true"
     >
       {row.incoming.map((edge) => (
@@ -196,7 +176,7 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
           y1={0}
           x2={x(edge.to)}
           y2={middle}
-          stroke={laneColor(edge.to)}
+          className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
       {row.outgoing.map((edge) => (
@@ -206,15 +186,16 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
           y1={middle}
           x2={x(edge.to)}
           y2={ROW_HEIGHT}
-          stroke={laneColor(edge.to)}
+          className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
       <circle
         cx={x(row.lane)}
         cy={middle}
         r={4}
-        fill={row.isMerge ? "#fff" : laneColor(row.lane)}
-        stroke={laneColor(row.lane)}
+        className={`commit-graph__node ${laneClass(row.lane)}${
+          row.isMerge ? " commit-graph__node--merge" : ""
+        }`}
       />
     </svg>
   );

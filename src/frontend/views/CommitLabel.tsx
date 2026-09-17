@@ -10,16 +10,18 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
   return (
     <>
       <span
-        style={{
-          color: "#888",
-          marginRight: 8,
-          fontStyle: commit.changeId !== null ? "normal" : "italic",
-        }}
+        className={
+          commit.changeId !== null
+            ? "commit-label__id"
+            : "commit-label__id commit-label__id--synthetic"
+        }
       >
         {shortId}
       </span>
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {summary || <em style={{ color: "#999" }}>(no description)</em>}
+      <span className="commit-label__summary">
+        {summary || (
+          <em className="commit-label__placeholder">(no description)</em>
+        )}
       </span>
     </>
   );

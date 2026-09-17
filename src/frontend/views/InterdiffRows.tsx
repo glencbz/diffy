@@ -27,7 +27,7 @@ export function InterdiffRows({
         <section key={rowKey(row)}>
           <ComparisonHeader row={row} onMarkSeen={() => onMarkSeen(row)} />
           {row.files.length === 0 ? (
-            <p style={{ padding: 12, fontStyle: "italic", color: "#666" }}>
+            <p className="interdiff-empty">
               {row.from !== null && row.to !== null
                 ? "Both commits make the same change."
                 : "No changes in this commit."}
