@@ -14,7 +14,8 @@ export function ReviewPanes({
     <div
       style={{
         display: "flex",
-        height: "100vh",
+        flex: 1,
+        minHeight: 0,
         fontFamily: "ui-monospace, monospace",
         fontSize: 13,
       }}

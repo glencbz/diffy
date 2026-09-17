@@ -2,20 +2,49 @@
 import { useState } from "react";
 import type { JjSource, Source } from "./api";
 import { CommitLog } from "./controllers/CommitLog";
-import { Interdiff } from "./controllers/Interdiff";
+import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
+import { PullRequests } from "./controllers/PullRequests";
+import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { ReviewPanes } from "./views/ReviewPanes";
 
+/** The repository the pull request screen reads. Next up for configuring. */
+const REPO = "glencbz/diffy";
+
 export function App() {
+  const [mode, setMode] = useState<Mode>("local");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
 
   return (
-    <ReviewPanes
-      before={<SidePicker side={before} />}
-      after={<SidePicker side={after} />}
-      diff={<Interdiff from={before.commits} to={after.commits} />}
-    />
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        fontFamily: "ui-monospace, monospace",
+        fontSize: 13,
+      }}
+    >
+      <ModeTabs mode={mode} onSelect={setMode} />
+      {mode === "local" ? (
+        <ReviewPanes
+          before={<SidePicker side={before} />}
+          after={<SidePicker side={after} />}
+          diff={
+            <DiffPane
+              comparison={{
+                kind: "jj",
+                from: before.commits,
+                to: after.commits,
+              }}
+            />
+          }
+        />
+      ) : (
+        <PullRequests repo={REPO} />
+      )}
+    </div>
   );
 }
 

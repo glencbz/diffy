@@ -1,4 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-view-commit-graph>>[init]
+import type { CSSProperties } from "react";
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
@@ -114,16 +115,17 @@ export function CommitGraph({
 }: {
   commits: LogEntry[];
   selected: string[];
-  onSelect: (commitIds: string[]) => void;
+  /** Omit to draw a graph that is read but not picked from. */
+  onSelect?: ((commitIds: string[]) => void) | undefined;
 }) {
   const chosen = new Set(selected);
 
-  function toggle(commitId: string) {
+  function toggle(commitId: string, select: (commitIds: string[]) => void) {
     const next = new Set(chosen);
     if (next.has(commitId)) next.delete(commitId);
     else next.add(commitId);
 
-    onSelect(
+    select(
       commits
         .filter((commit) => next.has(commit.commitId))
         .map((commit) => commit.commitId),
@@ -137,28 +139,38 @@ export function CommitGraph({
     <div>
       {commits.map((commit, index) => {
         const row = rows[index] as GraphRow;
-        const isSelected = chosen.has(commit.commitId);
-        return (
+        const style: CSSProperties = {
+          display: "flex",
+          alignItems: "center",
+          width: "100%",
+          height: ROW_HEIGHT,
+          padding: 0,
+          border: "none",
+          whiteSpace: "nowrap",
+          font: "inherit",
+          color: "inherit",
+          textAlign: "left",
+          background: chosen.has(commit.commitId) ? "#d0e4ff" : "transparent",
+        };
+        const content = (
+          <>
+            <RowGraphic row={row} width={gutterWidth} />
+            <CommitLabel commit={commit} />
+          </>
+        );
+
+        return onSelect === undefined ? (
+          <div key={commit.commitId} style={style}>
+            {content}
+          </div>
+        ) : (
           <button
             type="button"
             key={commit.commitId}
-            onClick={() => toggle(commit.commitId)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              width: "100%",
-              height: ROW_HEIGHT,
-              padding: 0,
-              border: "none",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              font: "inherit",
-              textAlign: "left",
-              background: isSelected ? "#d0e4ff" : "transparent",
-            }}
+            onClick={() => toggle(commit.commitId, onSelect)}
+            style={{ ...style, cursor: "pointer" }}
           >
-            <RowGraphic row={row} width={gutterWidth} />
-            <CommitLabel commit={commit} />
+            {content}
           </button>
         );
       })}

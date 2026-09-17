@@ -174,3 +174,98 @@ export async function fetchPullCommits(
   );
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/frontend.md#frontend-api>>[2]
+
+export const PullState = z.enum(["OPEN", "CLOSED", "MERGED"]);
+export type PullState = z.infer<typeof PullState>;
+
+export const PullSummary = z.object({
+  number: z.number(),
+  title: z.string(),
+  state: PullState,
+  author: z.string(),
+  updatedAt: z.string(),
+  headRefOid: GitOid,
+  baseRefName: z.string(),
+  url: z.string(),
+});
+export type PullSummary = z.infer<typeof PullSummary>;
+
+const PullsResponse = z.array(PullSummary);
+
+/** How a head became the head. Only a force push has a time to show. */
+export const PullHeadOrigin = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("opened") }),
+  z.object({ kind: z.literal("force-pushed"), at: z.string() }),
+  z.object({ kind: z.literal("current") }),
+]);
+export type PullHeadOrigin = z.infer<typeof PullHeadOrigin>;
+
+export const PullVersion = z.object({
+  /** Position in the chain. A label to show, never a way to ask for a state. */
+  version: z.number(),
+  head: GitOid,
+  origin: PullHeadOrigin,
+});
+export type PullVersion = z.infer<typeof PullVersion>;
+
+export const PullHistory = z.object({
+  number: z.number(),
+  baseRefName: z.string(),
+  baseRefOid: GitOid,
+  /** Oldest first. The last one is the head the branch has now. */
+  states: z.array(PullVersion),
+  truncated: z.boolean(),
+});
+export type PullHistory = z.infer<typeof PullHistory>;
+
+const PullDiffResponse = z.object({
+  from: GitOid,
+  to: GitOid,
+  files: z.array(FileDiff),
+});
+export type PullDiffResponse = z.infer<typeof PullDiffResponse>;
+
+export async function fetchPulls(
+  repo: string,
+  state: "open" | "closed" | "merged" | "all",
+): Promise<PullSummary[]> {
+  const params = new URLSearchParams({ repo, state });
+  return PullsResponse.parse(
+    await getJson(`/api/github/pulls?${params}`, "GET /api/github/pulls"),
+  );
+}
+
+export async function fetchPullHistory(
+  repo: string,
+  number: number,
+): Promise<PullHistory> {
+  const params = new URLSearchParams({ repo, number: String(number) });
+  return PullHistory.parse(
+    await getJson(
+      `/api/github/pull/history?${params}`,
+      "GET /api/github/pull/history",
+    ),
+  );
+}
+
+export async function fetchPullDiff(
+  repo: string,
+  number: number,
+  to: GitOid,
+  from: GitOid,
+): Promise<PullDiffResponse> {
+  const params = new URLSearchParams({
+    repo,
+    number: String(number),
+    to,
+    from,
+  });
+  return PullDiffResponse.parse(
+    await getJson(
+      `/api/github/pull/diff?${params}`,
+      "GET /api/github/pull/diff",
+    ),
+  );
+}
+// ~/~ end

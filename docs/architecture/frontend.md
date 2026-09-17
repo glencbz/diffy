@@ -23,6 +23,19 @@ the reader picked one side only or because the commit was added to or dropped
 from the series. "Pick a commit, read its diff" is then this same screen with
 an empty before side, rather than a second mode to switch into.
 
+A pull request is the same comparison over a history nobody has locally. Every
+force push replaces the branch's head, so one that has been pushed six times
+has had seven heads, and its first head against its latest is exactly the
+interdiff this tool is for. A switch at the top of the window chooses between
+the two screens, `Local history` and `Pull requests`. Everything below that
+switch is shared: the same commit graph, the same diff panel, and one `Source`
+type saying where a side's commits come from.
+
+The two screens differ because the two histories do. A jj operation log is deep
+and arbitrary, so picking a point in it wants a dropdown. A pull request has
+had a handful of heads in a known order, so they fit on one line as a timeline
+of chips with both ends of the comparison marked on it at once.
+
 The tech plan first sketched this in htmx. We went with React instead. The
 pickers carry client-side state. Two selections drive the diff panel, and both
 have to survive every reload of either side. Component state does that cleanly. htmx
@@ -69,8 +82,9 @@ head follows the same rule in git's spelling, as a `GitOid`.
 Each `state/` module owns one slice of the app's data and keeps it current with
 the backend. `useOperations` owns the operation list. `useCommits` owns the
 commit list for one side's `Source`, so there is one instance of it per side,
-and it is the only place a source becomes a request. `useInterdiff` owns the
-diff between the two selected commits. One module loads its slice, reloads it
+and it is the only place a source becomes a request. `useComparison` owns what
+the diff panel shows. `usePulls` and `usePullHistory` own the pull request list
+and one pull request's chain of heads. One module loads its slice, reloads it
 when the input changes, and holds the loading and error state around it.
 
 `useEffect` plus fetch plus cancel-on-change is fiddly, and it runs the same
@@ -80,8 +94,8 @@ else.
 Every hook returns an `AsyncState<T>`, the union `loading | error | ready`. A
 caller switches on `status`, and the union forces it to cover every case. No
 gap opens up where the load has finished but the data is still missing.
-`useInterdiff` returns `null` while both sides are empty. Its caller shows a
-prompt in that state.
+`useComparison` returns `null` when there is nothing to ask the backend for.
+Its caller shows a prompt in that state.
 
 ### views
 
@@ -106,9 +120,15 @@ has no markup of its own.
 
 When there is no diff to show yet, the controller decides what goes on screen,
 so `DiffView` stays at "render these files" with no null checks and one panel's
-branching sits in one file. `OperationLog` drives `OperationPicker`.
-`CommitLog` drives `CommitGraph`. `Interdiff` drives `ComparisonHeader` and
-`DiffView`.
+branching sits in one file. `OperationLog` drives `OperationPicker`. `CommitLog`
+drives `CommitGraph`. `DiffPane` drives whichever of `InterdiffRows` and
+`DiffView` the answer it got calls for.
+
+`PullReview` bends the one-hook-one-view rule and is the only thing that does.
+It mounts the commit list and the diff panel itself, because neither can be
+asked for until the pull request's history has come back and said which head is
+the latest. Hoisting the head into `App` would mean `App` holding a value it
+cannot compute, and an effect to fill it in later.
 
 ### root
 
@@ -125,6 +145,14 @@ for slices backed by the server; this one never touches the network.
 Changing a side's source also clears its selected commits, since a commit
 listed under one source need not appear under another. `ReviewPanes` handles
 the layout: the two pickers as narrow columns, the diff taking the rest.
+
+`App` also holds the mode switch, and the repository the pull request screen
+reads. The repository is one named constant and is the next thing here worth
+making configurable; a view never sees it except as a prop.
+
+Which head of a pull request is being read is *not* in `App`. Nothing outside
+the pull request pane needs it, and the pane already remounts when the selected
+pull request changes, which resets the two ends of the comparison for free.
 
 ### Keeping the boundary honest
 
@@ -394,6 +422,114 @@ export async function fetchPullCommits(
 }
 ```
 
+### Reading a pull request
+
+The pull request screen calls its endpoints in the order the reader moves
+through them: the repository's pull requests, then one pull request's chain of
+heads, then the diff at or between those heads.
+
+`fetchPullDiff` takes `from` and `to` as two required heads, because the
+route answers one comparison and it needs both ends. The
+[route's own doc](backend/server.md) says why that comparison is an
+interdiff and not a tree diff against the base branch.
+
+```ts
+//| id: frontend-api
+
+export const PullState = z.enum(["OPEN", "CLOSED", "MERGED"]);
+export type PullState = z.infer<typeof PullState>;
+
+export const PullSummary = z.object({
+  number: z.number(),
+  title: z.string(),
+  state: PullState,
+  author: z.string(),
+  updatedAt: z.string(),
+  headRefOid: GitOid,
+  baseRefName: z.string(),
+  url: z.string(),
+});
+export type PullSummary = z.infer<typeof PullSummary>;
+
+const PullsResponse = z.array(PullSummary);
+
+/** How a head became the head. Only a force push has a time to show. */
+export const PullHeadOrigin = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("opened") }),
+  z.object({ kind: z.literal("force-pushed"), at: z.string() }),
+  z.object({ kind: z.literal("current") }),
+]);
+export type PullHeadOrigin = z.infer<typeof PullHeadOrigin>;
+
+export const PullVersion = z.object({
+  /** Position in the chain. A label to show, never a way to ask for a state. */
+  version: z.number(),
+  head: GitOid,
+  origin: PullHeadOrigin,
+});
+export type PullVersion = z.infer<typeof PullVersion>;
+
+export const PullHistory = z.object({
+  number: z.number(),
+  baseRefName: z.string(),
+  baseRefOid: GitOid,
+  /** Oldest first. The last one is the head the branch has now. */
+  states: z.array(PullVersion),
+  truncated: z.boolean(),
+});
+export type PullHistory = z.infer<typeof PullHistory>;
+
+const PullDiffResponse = z.object({
+  from: GitOid,
+  to: GitOid,
+  files: z.array(FileDiff),
+});
+export type PullDiffResponse = z.infer<typeof PullDiffResponse>;
+
+export async function fetchPulls(
+  repo: string,
+  state: "open" | "closed" | "merged" | "all",
+): Promise<PullSummary[]> {
+  const params = new URLSearchParams({ repo, state });
+  return PullsResponse.parse(
+    await getJson(`/api/github/pulls?${params}`, "GET /api/github/pulls"),
+  );
+}
+
+export async function fetchPullHistory(
+  repo: string,
+  number: number,
+): Promise<PullHistory> {
+  const params = new URLSearchParams({ repo, number: String(number) });
+  return PullHistory.parse(
+    await getJson(
+      `/api/github/pull/history?${params}`,
+      "GET /api/github/pull/history",
+    ),
+  );
+}
+
+export async function fetchPullDiff(
+  repo: string,
+  number: number,
+  to: GitOid,
+  from: GitOid,
+): Promise<PullDiffResponse> {
+  const params = new URLSearchParams({
+    repo,
+    number: String(number),
+    to,
+    from,
+  });
+  return PullDiffResponse.parse(
+    await getJson(
+      `/api/github/pull/diff?${params}`,
+      "GET /api/github/pull/diff",
+    ),
+  );
+}
+```
+
 ## State
 
 Every slice reports its status as an `AsyncState<T>`.
@@ -518,7 +654,7 @@ export function useCommits(source: Source): AsyncState<LogEntry[]> {
 
 The dispatch is tested through `commitsFrom`, which is a plain async function,
 so the test needs no renderer. It serves one canned response and checks both
-the commits that come back and the URL that was asked for: the values alone
+the commits that come back and the URL that was asked for. The values alone
 would not catch a source reaching the wrong endpoint and being parsed anyway.
 
 ```ts
@@ -615,43 +751,89 @@ describe("commitsFrom", () => {
 });
 ```
 
-`useInterdiff` reloads whenever either selection changes. If a response comes
-back after either has already moved, the hook drops it. Both sides empty means
-nothing to ask the backend, so the hook reports `null` without a request.
+`useComparison` owns the diff panel's contents. A `Comparison` is the question,
+and it has one arm per screen: a pair of commit selections out of the local
+repo, or a pair of heads of one pull request.
 
-The selections are arrays, and a fresh array every render would restart the
-effect every render. The effect therefore depends on the joined ids, which two
-equal selections share, and unpacks them again on the way in. Nothing else in
-the hook reads the array props, so there is no second copy to fall out of date.
+Only the jj arm has a "nothing picked yet" state, an empty `from` array,
+which the backend already answers by showing the after side's own diff. The
+pull arm has no such state. Both its ends are required heads, and the
+controller always has one to fall back on, the pull request's first head.
+
+The hook reloads whenever the question changes and drops a response that lands
+after it has changed again. Both jj selections empty is the one question with
+no answer, so the hook reports `null` without a request. A comparison is a
+fresh object every render, so the effect depends on its JSON the same way
+`useCommits` depends on a source's.
 
 ```tsx
-//| id: frontend-state-interdiff
-//| file: src/frontend/state/interdiff.ts
+//| id: frontend-state-comparison
+//| file: src/frontend/state/comparison.ts
 import { useEffect, useState } from "react";
-import { fetchInterdiff, type InterdiffResponse } from "../api";
+import {
+  type FileDiff,
+  fetchInterdiff,
+  fetchPullDiff,
+  type GitOid,
+  type InterdiffRow,
+} from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useInterdiff(
-  from: string[],
-  to: string[],
-): AsyncState<InterdiffResponse> | null {
-  const [state, setState] = useState<AsyncState<InterdiffResponse> | null>(
-    null,
+/** What the diff panel is being asked for. */
+export type Comparison =
+  | { kind: "jj"; from: string[]; to: string[] }
+  | {
+      kind: "pull";
+      repo: string;
+      number: number;
+      /** The earlier head. */
+      from: GitOid;
+      to: GitOid;
+    };
+
+/** The answer, shaped by what was asked. */
+export type ComparisonFiles =
+  | { kind: "jj"; rows: InterdiffRow[] }
+  | { kind: "pull"; files: FileDiff[] };
+
+async function compare(question: Comparison): Promise<ComparisonFiles> {
+  if (question.kind === "jj") {
+    const { rows } = await fetchInterdiff(question.from, question.to);
+    return { kind: "jj", rows };
+  }
+
+  const { files } = await fetchPullDiff(
+    question.repo,
+    question.number,
+    question.to,
+    question.from,
   );
-  const fromKey = from.join(" ");
-  const toKey = to.join(" ");
+  return { kind: "pull", files };
+}
+
+function hasNothingToAsk(question: Comparison): boolean {
+  return (
+    question.kind === "jj" &&
+    question.from.length === 0 &&
+    question.to.length === 0
+  );
+}
+
+export function useComparison(
+  question: Comparison,
+): AsyncState<ComparisonFiles> | null {
+  const [state, setState] = useState<AsyncState<ComparisonFiles> | null>(null);
+  const key = hasNothingToAsk(question) ? "" : JSON.stringify(question);
 
   useEffect(() => {
-    const fromIds = fromKey.split(" ").filter(Boolean);
-    const toIds = toKey.split(" ").filter(Boolean);
-    if (fromIds.length === 0 && toIds.length === 0) {
+    if (key === "") {
       setState(null);
       return;
     }
 
     let live = true;
     setState({ status: "loading" });
-    fetchInterdiff(fromIds, toIds)
+    compare(JSON.parse(key) as Comparison)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -661,7 +843,80 @@ export function useInterdiff(
     return () => {
       live = false;
     };
-  }, [fromKey, toKey]);
+  }, [key]);
+
+  return state;
+}
+```
+
+`usePulls` loads the repository's pull requests in every state. A merged pull
+request that was force-pushed on the way is exactly the history worth reading
+back, and a list of open ones would never reach it.
+
+```tsx
+//| id: frontend-state-pulls
+//| file: src/frontend/state/pulls.ts
+import { useEffect, useState } from "react";
+import { fetchPulls, type PullSummary } from "../api";
+import type { AsyncState } from "./asyncState";
+
+export function usePulls(repo: string): AsyncState<PullSummary[]> {
+  const [state, setState] = useState<AsyncState<PullSummary[]>>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let live = true;
+    setState({ status: "loading" });
+    fetchPulls(repo, "all")
+      .then((data) => {
+        if (live) setState({ status: "ready", data });
+      })
+      .catch((err: unknown) => {
+        if (live) setState({ status: "error", message: String(err) });
+      });
+    return () => {
+      live = false;
+    };
+  }, [repo]);
+
+  return state;
+}
+```
+
+`usePullHistory` loads one pull request's chain of heads. Everything the review
+pane shows below the header depends on it, down to which head counts as the
+latest, so it loads first and on its own.
+
+```tsx
+//| id: frontend-state-pull-history
+//| file: src/frontend/state/pullHistory.ts
+import { useEffect, useState } from "react";
+import { fetchPullHistory, type PullHistory } from "../api";
+import type { AsyncState } from "./asyncState";
+
+export function usePullHistory(
+  repo: string,
+  number: number,
+): AsyncState<PullHistory> {
+  const [state, setState] = useState<AsyncState<PullHistory>>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let live = true;
+    setState({ status: "loading" });
+    fetchPullHistory(repo, number)
+      .then((data) => {
+        if (live) setState({ status: "ready", data });
+      })
+      .catch((err: unknown) => {
+        if (live) setState({ status: "error", message: String(err) });
+      });
+    return () => {
+      live = false;
+    };
+  }, [repo, number]);
 
   return state;
 }
@@ -675,6 +930,9 @@ Three columns: the two pickers, then the diff. The pickers are narrow and
 fixed; the diff takes what is left, because it is the thing being read. Each
 picker column carries its own caption, since "before" and "after" are the only
 labels that say which direction the interdiff runs.
+
+The panes fill whatever `App` gives them rather than claiming the viewport,
+because the mode switch sits above them and takes a strip of it.
 
 ```tsx
 //| id: frontend-view-review-panes
@@ -694,7 +952,8 @@ export function ReviewPanes({
     <div
       style={{
         display: "flex",
-        height: "100vh",
+        flex: 1,
+        minHeight: 0,
         fontFamily: "ui-monospace, monospace",
         fontSize: 13,
       }}
@@ -953,9 +1212,15 @@ way the log is ordered, because it is the only piece of the app that knows what
 the order is. Click order would line a series up against the other side in
 whatever sequence the reader happened to click.
 
+`onSelect` is optional. Without it the same graph draws a history that is read
+rather than picked from, which is what the pull request screen needs. Its two
+ends are chosen on the timeline, so a clickable row would be a control that
+changes nothing.
+
 ```tsx
 //| id: frontend-view-commit-graph
 //| file: src/frontend/views/CommitGraph.tsx
+import type { CSSProperties } from "react";
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
@@ -1071,16 +1336,17 @@ export function CommitGraph({
 }: {
   commits: LogEntry[];
   selected: string[];
-  onSelect: (commitIds: string[]) => void;
+  /** Omit to draw a graph that is read but not picked from. */
+  onSelect?: ((commitIds: string[]) => void) | undefined;
 }) {
   const chosen = new Set(selected);
 
-  function toggle(commitId: string) {
+  function toggle(commitId: string, select: (commitIds: string[]) => void) {
     const next = new Set(chosen);
     if (next.has(commitId)) next.delete(commitId);
     else next.add(commitId);
 
-    onSelect(
+    select(
       commits
         .filter((commit) => next.has(commit.commitId))
         .map((commit) => commit.commitId),
@@ -1094,28 +1360,38 @@ export function CommitGraph({
     <div>
       {commits.map((commit, index) => {
         const row = rows[index] as GraphRow;
-        const isSelected = chosen.has(commit.commitId);
-        return (
+        const style: CSSProperties = {
+          display: "flex",
+          alignItems: "center",
+          width: "100%",
+          height: ROW_HEIGHT,
+          padding: 0,
+          border: "none",
+          whiteSpace: "nowrap",
+          font: "inherit",
+          color: "inherit",
+          textAlign: "left",
+          background: chosen.has(commit.commitId) ? "#d0e4ff" : "transparent",
+        };
+        const content = (
+          <>
+            <RowGraphic row={row} width={gutterWidth} />
+            <CommitLabel commit={commit} />
+          </>
+        );
+
+        return onSelect === undefined ? (
+          <div key={commit.commitId} style={style}>
+            {content}
+          </div>
+        ) : (
           <button
             type="button"
             key={commit.commitId}
-            onClick={() => toggle(commit.commitId)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              width: "100%",
-              height: ROW_HEIGHT,
-              padding: 0,
-              border: "none",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              font: "inherit",
-              textAlign: "left",
-              background: isSelected ? "#d0e4ff" : "transparent",
-            }}
+            onClick={() => toggle(commit.commitId, onSelect)}
+            style={{ ...style, cursor: "pointer" }}
           >
-            <RowGraphic row={row} width={gutterWidth} />
-            <CommitLabel commit={commit} />
+            {content}
           </button>
         );
       })}
@@ -1327,6 +1603,425 @@ function lineColor(line: string): string | undefined {
 }
 ```
 
+### Mode tabs
+
+Two screens, one strip. The tabs sit above everything, because the choice they
+make is which history is being read, and that governs the whole window.
+
+```tsx
+//| id: frontend-view-mode-tabs
+//| file: src/frontend/views/ModeTabs.tsx
+export type Mode = "local" | "pulls";
+
+const CAPTIONS: Record<Mode, string> = {
+  local: "Local history",
+  pulls: "Pull requests",
+};
+
+export function ModeTabs({
+  mode,
+  onSelect,
+}: {
+  mode: Mode;
+  onSelect: (mode: Mode) => void;
+}) {
+  return (
+    <nav
+      style={{
+        display: "flex",
+        flex: "none",
+        background: "#f0f0f0",
+        borderBottom: "1px solid #ccc",
+      }}
+    >
+      {(Object.keys(CAPTIONS) as Mode[]).map((candidate) => (
+        <button
+          type="button"
+          key={candidate}
+          onClick={() => onSelect(candidate)}
+          style={{
+            padding: "6px 14px",
+            font: "inherit",
+            fontWeight: candidate === mode ? "bold" : "normal",
+            color: candidate === mode ? "#0969da" : "#333",
+            cursor: "pointer",
+            border: "none",
+            borderBottom:
+              candidate === mode
+                ? "2px solid #0969da"
+                : "2px solid transparent",
+            background: "transparent",
+          }}
+        >
+          {CAPTIONS[candidate]}
+        </button>
+      ))}
+    </nav>
+  );
+}
+```
+
+### Pull request state chip
+
+A pull request is open, merged or closed, and a reader scanning a list should
+tell which at a glance rather than by reading the word. One component, so the
+list and the header colour them the same.
+
+```tsx
+//| id: frontend-view-pull-state-chip
+//| file: src/frontend/views/PullStateChip.tsx
+import type { PullState } from "../api";
+
+const CHIP_COLORS: Record<PullState, string> = {
+  OPEN: "#1a7f37",
+  MERGED: "#8250df",
+  CLOSED: "#cf222e",
+};
+
+export function PullStateChip({ state }: { state: PullState }) {
+  return (
+    <span
+      style={{
+        flex: "none",
+        padding: "0 6px",
+        borderRadius: 3,
+        background: CHIP_COLORS[state],
+        color: "#fff",
+        fontSize: 11,
+      }}
+    >
+      {state.toLowerCase()}
+    </span>
+  );
+}
+```
+
+### Pull request list
+
+One row per pull request: its number, its state, its title, and the branch it
+targets. The base branch is there because a pull request against a release
+branch and one against `main` read differently, and the number alone does not
+say which this is.
+
+```tsx
+//| id: frontend-view-pull-list
+//| file: src/frontend/views/PullList.tsx
+import type { PullSummary } from "../api";
+import { PullStateChip } from "./PullStateChip";
+
+export function PullList({
+  pulls,
+  selected,
+  onSelect,
+}: {
+  pulls: PullSummary[];
+  selected: number | null;
+  onSelect: (number: number) => void;
+}) {
+  return (
+    <div>
+      {pulls.map((pull) => (
+        <button
+          type="button"
+          key={pull.number}
+          onClick={() => onSelect(pull.number)}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "6px 8px",
+            border: "none",
+            borderBottom: "1px solid #eee",
+            cursor: "pointer",
+            font: "inherit",
+            color: "inherit",
+            textAlign: "left",
+            background: pull.number === selected ? "#d0e4ff" : "transparent",
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: "#888" }}>#{pull.number}</span>
+            <PullStateChip state={pull.state} />
+          </span>
+          <span
+            style={{
+              display: "block",
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {pull.title}
+          </span>
+          <span style={{ color: "#888" }}>← {pull.baseRefName}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+### Pull request header
+
+What is being read, on one line, including a link out to GitHub. The link is
+there because half of reviewing a pull request is the conversation on it, and
+this tool does not show conversations.
+
+```tsx
+//| id: frontend-view-pull-header
+//| file: src/frontend/views/PullHeader.tsx
+import type { PullSummary } from "../api";
+import { PullStateChip } from "./PullStateChip";
+
+export function PullHeader({ pull }: { pull: PullSummary }) {
+  return (
+    <header
+      style={{
+        display: "flex",
+        flex: "none",
+        alignItems: "center",
+        gap: 10,
+        padding: "6px 10px",
+        background: "#f0f0f0",
+        borderBottom: "1px solid #ccc",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+      }}
+    >
+      <span style={{ color: "#888" }}>#{pull.number}</span>
+      <strong style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+        {pull.title}
+      </strong>
+      <PullStateChip state={pull.state} />
+      <span style={{ color: "#888" }}>base: {pull.baseRefName}</span>
+      <span style={{ color: "#888" }}>{pull.author}</span>
+      <a
+        href={pull.url}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: "#0969da" }}
+      >
+        github
+      </a>
+    </header>
+  );
+}
+```
+
+### Pull request timeline
+
+Every head the branch has had, oldest first, on one line. Both ends of the
+comparison are marked on that line at the same time: the after end in blue, the
+before end in amber. A dropdown per end would show one choice each and neither
+in the context of the other.
+
+A click moves the after end and a shift-click moves the before end. Shift-click
+is not discoverable, so the hint next to the chips says so in words rather than
+leaving a reader to find it.
+
+A chip shows its version label, the short oid, and when the force push that
+made it happened. The label is for the reader, and everything that asks the
+backend for a state passes the oid.
+
+Both ends can land on the same head, and the caption names which way it
+happened rather than reading like a typo, "comparing v1 → v1". A pull
+request nobody has force-pushed has one head and nothing yet to compare. A
+reviewer who picks one chip twice on a longer timeline has asked a question
+with an empty answer, which is a different thing to be told.
+
+```tsx
+//| id: frontend-view-pull-timeline
+//| file: src/frontend/views/PullTimeline.tsx
+import type { GitOid, PullHeadOrigin, PullVersion } from "../api";
+
+const AFTER = "#0969da";
+const BEFORE = "#bf8700";
+
+export function PullTimeline({
+  states,
+  before,
+  after,
+  onPick,
+}: {
+  states: PullVersion[];
+  before: GitOid;
+  after: GitOid;
+  onPick: (head: GitOid, end: "before" | "after") => void;
+}) {
+  return (
+    <div
+      style={{
+        flex: "none",
+        padding: "6px 10px",
+        borderBottom: "1px solid #ccc",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          gap: 6,
+          overflowX: "auto",
+        }}
+      >
+        {states.map((state) => (
+          <Chip
+            key={state.head}
+            caption={`v${state.version}`}
+            detail={`${state.head.slice(0, 7)}  ${when(state.origin)}`}
+            accent={accentFor(state.head, before, after)}
+            onClick={(shift) => onPick(state.head, shift ? "before" : "after")}
+          />
+        ))}
+      </div>
+      <p style={{ margin: "6px 0 0", color: "#888" }}>
+        {caption(states, before, after)} · click sets the after end, shift-click
+        sets the before end
+      </p>
+    </div>
+  );
+}
+
+/** The after end wins when one chip is both, since it is the one being read. */
+function accentFor(head: GitOid, before: GitOid, after: GitOid): string | null {
+  if (head === after) return AFTER;
+  if (head === before) return BEFORE;
+  return null;
+}
+
+function when(origin: PullHeadOrigin): string {
+  if (origin.kind === "force-pushed") return origin.at.slice(0, 10);
+  return origin.kind;
+}
+
+function label(states: PullVersion[], head: GitOid): string {
+  const state = states.find((candidate) => candidate.head === head);
+  return state === undefined ? head.slice(0, 7) : `v${state.version}`;
+}
+
+function caption(states: PullVersion[], before: GitOid, after: GitOid): string {
+  if (before !== after) {
+    return `comparing ${label(states, before)} → ${label(states, after)}`;
+  }
+  return states.length === 1
+    ? `${label(states, after)} is the only version so far`
+    : `${label(states, after)} against itself`;
+}
+
+function Chip({
+  caption,
+  detail,
+  accent,
+  onClick,
+}: {
+  caption: string;
+  detail: string;
+  accent: string | null;
+  onClick: (shiftKey: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => onClick(event.shiftKey)}
+      style={{
+        flex: "none",
+        padding: "3px 8px",
+        border: `1px solid ${accent ?? "#ccc"}`,
+        borderRadius: 3,
+        cursor: "pointer",
+        font: "inherit",
+        textAlign: "left",
+        color: accent ?? "inherit",
+        background: accent === null ? "#fff" : "#f4f8ff",
+      }}
+    >
+      <span style={{ display: "block", fontWeight: "bold" }}>{caption}</span>
+      <span style={{ display: "block", color: "#888", fontSize: 11 }}>
+        {detail}
+      </span>
+    </button>
+  );
+}
+```
+
+### Pull request panes
+
+Two layouts, because the pull request screen nests. The outer one is the list
+against everything else. The inner one stacks the header and the timeline over
+a narrow commit strip and the diff, which is the part being read and so gets
+the room.
+
+```tsx
+//| id: frontend-view-pull-panes
+//| file: src/frontend/views/PullPanes.tsx
+import type { ReactNode } from "react";
+
+export function PullPanes({
+  list,
+  review,
+}: {
+  list: ReactNode;
+  review: ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+      <div
+        style={{
+          width: "22%",
+          minWidth: 220,
+          flex: "none",
+          overflow: "auto",
+          borderRight: "1px solid #ccc",
+        }}
+      >
+        {list}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        {review}
+      </div>
+    </div>
+  );
+}
+
+export function PullReviewPanes({
+  header,
+  timeline,
+  commits,
+  diff,
+}: {
+  header: ReactNode;
+  timeline: ReactNode;
+  commits: ReactNode;
+  diff: ReactNode;
+}) {
+  return (
+    <>
+      {header}
+      {timeline}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <div
+          style={{
+            width: 260,
+            flex: "none",
+            overflow: "auto",
+            borderRight: "1px solid #ccc",
+          }}
+        >
+          {commits}
+        </div>
+        <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      </div>
+    </>
+  );
+}
+```
+
 ## Controllers
 
 ### Operation log
@@ -1381,7 +2076,7 @@ export function CommitLog({
 }: {
   source: Source;
   selected: string[];
-  onSelect: (commitIds: string[]) => void;
+  onSelect?: ((commitIds: string[]) => void) | undefined;
 }) {
   const log = useCommits(source);
 
@@ -1396,27 +2091,173 @@ export function CommitLog({
 }
 ```
 
-### Interdiff
+### Diff pane
+
+The diff panel's contents follow from what was asked. A comparison of local
+commits comes back as one row per lined-up pair, and each row needs its own
+header saying which commit faced which. A comparison of pull request heads
+comes back as one patch, and the two versions it compares are already named on
+the timeline above it, so a second header there would be a repetition.
+
+Choosing between the two shapes happens here and nowhere else, which is what
+keeps `DiffView` at "render these files".
 
 ```tsx
-//| id: frontend-controller-interdiff
-//| file: src/frontend/controllers/Interdiff.tsx
-import { useInterdiff } from "../state/interdiff";
+//| id: frontend-controller-diff-pane
+//| file: src/frontend/controllers/DiffPane.tsx
+import { type Comparison, useComparison } from "../state/comparison";
+import { DiffView } from "../views/DiffView";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
-export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
-  const interdiff = useInterdiff(from, to);
+export function DiffPane({ comparison }: { comparison: Comparison }) {
+  const answer = useComparison(comparison);
 
-  if (interdiff === null) {
+  if (answer === null) {
     return <Message>Select commits on either side to compare them.</Message>;
   }
-  if (interdiff.status === "loading") return <Message>Loading diff...</Message>;
-  if (interdiff.status === "error") {
-    return <Message tone="error">{interdiff.message}</Message>;
+  if (answer.status === "loading") return <Message>Loading diff...</Message>;
+  if (answer.status === "error") {
+    return <Message tone="error">{answer.message}</Message>;
+  }
+  if (answer.data.kind === "jj") {
+    return <InterdiffRows rows={answer.data.rows} />;
+  }
+  if (answer.data.files.length === 0) {
+    return <Message>These two versions make the same change.</Message>;
   }
 
-  return <InterdiffRows rows={interdiff.data.rows} />;
+  return <DiffView files={answer.data.files} />;
+}
+```
+
+### Pull requests
+
+The list, and whichever pull request is picked out of it. The selected number
+lives here rather than in `App` because the list is the only other thing that
+reads it, and the summary it selects is what the header needs.
+
+`PullReview` is keyed by the pull request number, so picking a different one
+remounts it and the two ends of the comparison start again at "the first head
+against the latest". Clearing them by hand would be the same behaviour written
+out, with a way to forget a field.
+
+```tsx
+//| id: frontend-controller-pull-requests
+//| file: src/frontend/controllers/PullRequests.tsx
+import { useState } from "react";
+import { usePulls } from "../state/pulls";
+import { Message } from "../views/Message";
+import { PullList } from "../views/PullList";
+import { PullPanes } from "../views/PullPanes";
+import { PullReview } from "./PullReview";
+
+export function PullRequests({ repo }: { repo: string }) {
+  const pulls = usePulls(repo);
+  const [selected, setSelected] = useState<number | null>(null);
+
+  if (pulls.status === "loading") {
+    return <Message>Loading pull requests...</Message>;
+  }
+  if (pulls.status === "error") {
+    return <Message tone="error">{pulls.message}</Message>;
+  }
+
+  const pull = pulls.data.find((candidate) => candidate.number === selected);
+
+  return (
+    <PullPanes
+      list={
+        <PullList
+          pulls={pulls.data}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      }
+      review={
+        pull === undefined ? (
+          <Message>Select a pull request to review it.</Message>
+        ) : (
+          <PullReview key={pull.number} repo={repo} pull={pull} />
+        )
+      }
+    />
+  );
+}
+```
+
+### Pull review
+
+One pull request, head by head. The two ends of the comparison live here: the
+after end defaults to the latest head and the before end to the first, so a
+pull request opens on the interdiff across its whole force-push history, v1
+to latest, and a shift-click narrows it to what changed since one particular
+head.
+
+```tsx
+//| id: frontend-controller-pull-review
+//| file: src/frontend/controllers/PullReview.tsx
+import { useState } from "react";
+import type { GitOid, PullSummary } from "../api";
+import { usePullHistory } from "../state/pullHistory";
+import { Message } from "../views/Message";
+import { PullHeader } from "../views/PullHeader";
+import { PullReviewPanes } from "../views/PullPanes";
+import { PullTimeline } from "../views/PullTimeline";
+import { CommitLog } from "./CommitLog";
+import { DiffPane } from "./DiffPane";
+
+export function PullReview({
+  repo,
+  pull,
+}: {
+  repo: string;
+  pull: PullSummary;
+}) {
+  const history = usePullHistory(repo, pull.number);
+  const [before, setBefore] = useState<GitOid | null>(null);
+  const [after, setAfter] = useState<GitOid | null>(null);
+
+  if (history.status === "loading") {
+    return <Message>Loading versions...</Message>;
+  }
+  if (history.status === "error") {
+    return <Message tone="error">{history.message}</Message>;
+  }
+
+  const states = history.data.states;
+  const first = states[0];
+  const latest = states.at(-1);
+  if (first === undefined || latest === undefined) {
+    return <Message tone="error">This pull request has had no head.</Message>;
+  }
+
+  const from = before ?? first.head;
+  const to = after ?? latest.head;
+  const number = pull.number;
+
+  return (
+    <PullReviewPanes
+      header={<PullHeader pull={pull} />}
+      timeline={
+        <PullTimeline
+          states={states}
+          before={from}
+          after={to}
+          onPick={(head, end) =>
+            (end === "before" ? setBefore : setAfter)(head)
+          }
+        />
+      }
+      commits={
+        <CommitLog
+          source={{ kind: "pull", repo, number, head: to }}
+          selected={[]}
+        />
+      }
+      diff={<DiffPane comparison={{ kind: "pull", repo, number, from, to }} />}
+    />
+  );
 }
 ```
 
@@ -1428,20 +2269,49 @@ export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
 import { useState } from "react";
 import type { JjSource, Source } from "./api";
 import { CommitLog } from "./controllers/CommitLog";
-import { Interdiff } from "./controllers/Interdiff";
+import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
+import { PullRequests } from "./controllers/PullRequests";
+import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { ReviewPanes } from "./views/ReviewPanes";
 
+/** The repository the pull request screen reads. Next up for configuring. */
+const REPO = "glencbz/diffy";
+
 export function App() {
+  const [mode, setMode] = useState<Mode>("local");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
 
   return (
-    <ReviewPanes
-      before={<SidePicker side={before} />}
-      after={<SidePicker side={after} />}
-      diff={<Interdiff from={before.commits} to={after.commits} />}
-    />
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        fontFamily: "ui-monospace, monospace",
+        fontSize: 13,
+      }}
+    >
+      <ModeTabs mode={mode} onSelect={setMode} />
+      {mode === "local" ? (
+        <ReviewPanes
+          before={<SidePicker side={before} />}
+          after={<SidePicker side={after} />}
+          diff={
+            <DiffPane
+              comparison={{
+                kind: "jj",
+                from: before.commits,
+                to: after.commits,
+              }}
+            />
+          }
+        />
+      ) : (
+        <PullRequests repo={REPO} />
+      )}
+    </div>
   );
 }
 

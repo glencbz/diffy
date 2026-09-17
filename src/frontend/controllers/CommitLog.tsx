@@ -11,7 +11,7 @@ export function CommitLog({
 }: {
   source: Source;
   selected: string[];
-  onSelect: (commitIds: string[]) => void;
+  onSelect?: ((commitIds: string[]) => void) | undefined;
 }) {
   const log = useCommits(source);
 
