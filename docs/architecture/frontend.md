@@ -51,23 +51,27 @@ A folder called `hooks/` would say nothing, because any hook can do anything.
 ### transport
 
 `api.ts` does all the talking to the backend. It knows the backend's URLs and
-their wire formats. It knows nothing about React. Each fetch wrapper runs its
-response through a [Zod](https://zod.dev/) schema before returning it. A drift
-in a backend shape then fails at the fetch, with a named parse error, before
-any view sees `undefined`. `fetchOperations()`, `fetchLog(atOperation?)`,
-`fetchDiff(revision, atOperation?)`, and `fetchInterdiff(from, to)` return
-typed promises. The optional `atOperation` is the operation id to view history
-at; omitted, the backend uses the live repo. `fetchInterdiff` needs no such
-argument: it names its two commits by commit id, which resolves in any view.
+their wire formats. It knows nothing about React. It holds one schema and one
+wrapper per endpoint, and every wrapper parses its response through that
+[Zod](https://zod.dev/) schema before returning it, so a drift in a backend
+shape fails at the fetch with a named parse error instead of reaching a view as
+`undefined`. The code block below is the inventory. Adding an endpoint means
+adding a schema and a wrapper beside it and nothing else.
+
+Two conventions run through the arguments. An optional `atOperation` is the jj
+operation to read history at, and leaving it out reads the live repo. Anything
+that names a commit names it by id rather than by a revset or a change id,
+because an id means the same commit in every view of the repo. A pull request
+head follows the same rule in git's spelling, as a `GitOid`.
 
 ### state
 
 Each `state/` module owns one slice of the app's data and keeps it current with
-the backend. `useOperations` owns the operation list. `useCommitLog` owns the commit list
-for one side's selected operation, so there is one instance of it per side.
-`useInterdiff` owns the diff between the two selected commits. One module loads
-its slice, reloads it when the input changes, and holds the loading and error
-state around it.
+the backend. `useOperations` owns the operation list. `useCommits` owns the
+commit list for one side's `Source`, so there is one instance of it per side,
+and it is the only place a source becomes a request. `useInterdiff` owns the
+diff between the two selected commits. One module loads its slice, reloads it
+when the input changes, and holds the loading and error state around it.
 
 `useEffect` plus fetch plus cancel-on-change is fiddly, and it runs the same
 way for every slice. It lives here once. A fetching `useEffect` appears nowhere
@@ -108,18 +112,19 @@ branching sits in one file. `OperationLog` drives `OperationPicker`.
 
 ### root
 
-`App.tsx` holds one pair of IDs per side: the selected operation and the
-selected commit. Each pair is read by more than one controller, and `App` is
-their common parent, so `App` is where they live. `useSide` is that pair and
-the two setters, written once and called twice, because the two sides differ
-in nothing but which half of the comparison they feed. It stays in `App.tsx`
-rather than `state/`, which is for slices backed by the server; this one never
-touches the network.
+`App.tsx` holds two things per side: the `Source` its commits come from, and
+which of those commits are selected. Each is read by more than one controller,
+and `App` is their common parent, so `App` is where they live. `useSide` is
+that pair and its two setters, written once and called twice, because the two
+sides differ in nothing but which half of the comparison they feed. It is
+generic over the kind of source, so a screen that only ever shows jj operations
+holds a side whose source is known to be one and reaches the operation id
+without a runtime check. It stays in `App.tsx` rather than `state/`, which is
+for slices backed by the server; this one never touches the network.
 
-Picking an operation also clears that side's selected commit, since a commit
-listed in one operation's log need not appear in another's. `ReviewPanes`
-handles the layout: the two pickers as narrow columns, the diff taking the
-rest.
+Changing a side's source also clears its selected commits, since a commit
+listed under one source need not appear under another. `ReviewPanes` handles
+the layout: the two pickers as narrow columns, the diff taking the rest.
 
 ### Keeping the boundary honest
 
@@ -134,8 +139,8 @@ Allowed import edges:
 - `api.ts` imports Zod only.
 - `state/` imports React and `api.ts`.
 - `views/` imports React, other `views/`, and `api.ts` *types*.
-- `controllers/` import `state/` and `views/`.
-- `App.tsx` imports `controllers/` and `views/`.
+- `controllers/` import `state/`, `views/`, and `api.ts` *types*.
+- `App.tsx` imports `controllers/`, `views/`, and `api.ts` *types*.
 
 ## Landing page
 
@@ -189,10 +194,21 @@ with nothing raised to say why. A missing field is a backend nobody taught
 about this one, and it should fail at the boundary.
 [`alignSeries`](backend/series.md) has what pairing does without an id.
 
+`GitOid` is branded, so the only way to hold one is to have parsed it out of a
+backend response. A head oid cannot be typed into the app by hand, which is
+what makes the guarantee in the next section hold at compile time.
+
 ```ts
 //| id: frontend-api
 //| file: src/frontend/api.ts
 import * as z from "zod";
+
+/** A full 40-hex git object id. Branded: only a parsed response mints one. */
+export const GitOid = z
+  .string()
+  .regex(/^[0-9a-f]{40}$/, "expected a full 40-character git object id")
+  .brand("GitOid");
+export type GitOid = z.infer<typeof GitOid>;
 
 export const LogEntry = z.object({
   commitId: z.string(),
@@ -314,6 +330,70 @@ export async function fetchInterdiff(
 }
 ```
 
+### Where a side's commits come from
+
+A side of the comparison is a list of commits, and there is more than one place
+those commits can come from. A jj operation gives the local repo as it stood
+after that step. A head of a pull request gives a branch on GitHub as it stood
+before somebody force-pushed over it. `Source` is that choice, a tagged union
+rather than an operation with a pull request hanging off it, so a side is
+always exactly one of the two and no view has to ask which.
+
+A pull request head is named by its object id and never by the version number
+the timeline shows. A version is a position in a chain that shifts, so `v7` can
+come to mean a different commit while the page is open; the backend's
+`pullStateAt` has the full account. Holding the oid makes "show me version 7 of
+a pull request that now has three versions" a request nobody can express.
+
+```ts
+//| id: frontend-api
+
+/** A view of the local repo: the jj operation to read its log at. */
+export type JjSource = { kind: "jj"; operation: string | null };
+
+/** One head a pull request has had, named by oid because versions shift. */
+export type PullSource = {
+  kind: "pull";
+  repo: string;
+  number: number;
+  head: GitOid;
+};
+
+/** Where one side's commits come from. */
+export type Source = JjSource | PullSource;
+
+export const GitCommit = z.object({
+  commitId: GitOid,
+  parents: z.array(GitOid),
+  description: z.string(),
+  author: z.string(),
+  authoredAt: z.string(),
+});
+export type GitCommit = z.infer<typeof GitCommit>;
+
+const PullCommitsResponse = z.object({
+  head: GitOid,
+  version: z.number(),
+  base: GitOid,
+  commits: z.array(GitCommit),
+});
+export type PullCommitsResponse = z.infer<typeof PullCommitsResponse>;
+
+export async function fetchPullCommits(
+  repo: string,
+  number: number,
+  head: GitOid,
+): Promise<PullCommitsResponse> {
+  const params = new URLSearchParams({ repo, number: String(number), head });
+  return PullCommitsResponse.parse(
+    await getJson(
+      `/api/github/pull/commits?${params}`,
+      "GET /api/github/pull/commits",
+    ),
+  );
+}
+```
+
 ## State
 
 Every slice reports its status as an `AsyncState<T>`.
@@ -359,28 +439,68 @@ export function useOperations(): AsyncState<OpLogEntry[]> {
 }
 ```
 
-`useCommitLog` takes the selected operation (or `null` for the live repo) and
-reloads the log whenever it changes, dropping a response that lands after the
-operation has moved on again.
+`useCommits` takes a side's `Source` and reloads whenever it changes, dropping
+a response that lands after the source has moved on again. `commitsFrom` is the
+one place in the app that dispatches on `source.kind`, so adding a third kind
+of source is one branch here and nothing anywhere else.
+
+A git commit has no change id. `commitsFrom` puts its commit id in that field,
+because the graph rows abbreviate the change id and the abbreviation of a
+commit id is the short oid, which is how GitHub names the same commit on the
+same screen.
+
+A source is an object, freshly built every render, so the effect cannot depend
+on it directly without restarting on every render. It depends on the source's
+JSON instead and reads the source back out of that JSON, which keeps one source
+of truth rather than a dependency list that has to be kept in step with the
+body by hand.
 
 ```tsx
-//| id: frontend-state-commit-log
-//| file: src/frontend/state/commitLog.ts
+//| id: frontend-state-commits
+//| file: src/frontend/state/commits.ts
 import { useEffect, useState } from "react";
-import { fetchLog, type LogEntry } from "../api";
+import {
+  fetchLog,
+  fetchPullCommits,
+  type GitCommit,
+  type LogEntry,
+  type Source,
+} from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useCommitLog(
-  atOperation: string | null,
-): AsyncState<LogEntry[]> {
+function asLogEntry(commit: GitCommit): LogEntry {
+  return {
+    commitId: commit.commitId,
+    changeId: commit.commitId,
+    description: commit.description,
+    parents: commit.parents,
+  };
+}
+
+/** The commits a source names. The one place a `Source` decides anything. */
+export async function commitsFrom(source: Source): Promise<LogEntry[]> {
+  if (source.kind === "jj") {
+    return fetchLog(source.operation ?? undefined);
+  }
+
+  const { commits } = await fetchPullCommits(
+    source.repo,
+    source.number,
+    source.head,
+  );
+  return commits.map(asLogEntry);
+}
+
+export function useCommits(source: Source): AsyncState<LogEntry[]> {
   const [state, setState] = useState<AsyncState<LogEntry[]>>({
     status: "loading",
   });
+  const key = JSON.stringify(source);
 
   useEffect(() => {
     let live = true;
     setState({ status: "loading" });
-    fetchLog(atOperation ?? undefined)
+    commitsFrom(JSON.parse(key) as Source)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -390,10 +510,109 @@ export function useCommitLog(
     return () => {
       live = false;
     };
-  }, [atOperation]);
+  }, [key]);
 
   return state;
 }
+```
+
+The dispatch is tested through `commitsFrom`, which is a plain async function,
+so the test needs no renderer. It serves one canned response and checks both
+the commits that come back and the URL that was asked for: the values alone
+would not catch a source reaching the wrong endpoint and being parsed anyway.
+
+```ts
+//| id: frontend-state-commits-test
+//| file: src/frontend/state/commits.test.ts
+import { afterEach, describe, expect, test } from "bun:test";
+import { GitOid } from "../api";
+import { commitsFrom } from "./commits";
+
+const liveFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = liveFetch;
+});
+
+/** Answer every request with one canned body, recording what was asked for. */
+function serve(body: unknown): string[] {
+  const asked: string[] = [];
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    asked.push(String(input));
+    return Promise.resolve(Response.json(body));
+  }) as typeof fetch;
+  return asked;
+}
+
+const HEAD = GitOid.parse("6f24fa3fd3438f5ebe25018b5d6ba471bf119b45");
+const BASE = GitOid.parse("e28c33e61b920728d79d099a9963ff23a865ef98");
+
+describe("commitsFrom", () => {
+  test("reads a jj source out of the live commit log", async () => {
+    // arrange
+    const entries = [
+      { commitId: "c1", changeId: "k1", description: "one", parents: [] },
+    ];
+    const asked = serve(entries);
+
+    // act
+    const commits = await commitsFrom({ kind: "jj", operation: null });
+
+    // assert
+    expect(commits).toEqual(entries);
+    expect(asked).toEqual(["/api/log"]);
+  });
+
+  test("reads a jj source at the operation it names", async () => {
+    // arrange
+    const asked = serve([]);
+
+    // act
+    await commitsFrom({ kind: "jj", operation: "0a1b2c" });
+
+    // assert
+    expect(asked).toEqual(["/api/log?op=0a1b2c"]);
+  });
+
+  test("reads a pull source out of that head's commits", async () => {
+    // arrange
+    const asked = serve({
+      head: HEAD,
+      version: 7,
+      base: BASE,
+      commits: [
+        {
+          commitId: HEAD,
+          parents: [BASE],
+          description: "frontend: give the graph side-by-side branch lanes",
+          author: "glencbz",
+          authoredAt: "2026-09-10T09:00:00Z",
+        },
+      ],
+    });
+
+    // act
+    const commits = await commitsFrom({
+      kind: "pull",
+      repo: "glencbz/diffy",
+      number: 9,
+      head: HEAD,
+    });
+
+    // assert
+    expect(commits).toEqual([
+      {
+        commitId: HEAD,
+        changeId: HEAD,
+        description: "frontend: give the graph side-by-side branch lanes",
+        parents: [BASE],
+      },
+    ]);
+    expect(asked[0]).toBe(
+      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}`,
+    );
+  });
+});
 ```
 
 `useInterdiff` reloads whenever either selection changes. If a response comes
@@ -1150,20 +1369,21 @@ export function OperationLog({
 ```tsx
 //| id: frontend-controller-commit-log
 //| file: src/frontend/controllers/CommitLog.tsx
-import { useCommitLog } from "../state/commitLog";
+import type { Source } from "../api";
+import { useCommits } from "../state/commits";
 import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";
 
 export function CommitLog({
-  atOperation,
+  source,
   selected,
   onSelect,
 }: {
-  atOperation: string | null;
+  source: Source;
   selected: string[];
   onSelect: (commitIds: string[]) => void;
 }) {
-  const log = useCommitLog(atOperation);
+  const log = useCommits(source);
 
   if (log.status === "loading") return <Message>Loading commits...</Message>;
   if (log.status === "error") {
@@ -1206,14 +1426,15 @@ export function Interdiff({ from, to }: { from: string[]; to: string[] }) {
 //| id: frontend-app
 //| file: src/frontend/App.tsx
 import { useState } from "react";
+import type { JjSource, Source } from "./api";
 import { CommitLog } from "./controllers/CommitLog";
 import { Interdiff } from "./controllers/Interdiff";
 import { OperationLog } from "./controllers/OperationLog";
 import { ReviewPanes } from "./views/ReviewPanes";
 
 export function App() {
-  const before = useSide();
-  const after = useSide();
+  const before = useSide<JjSource>({ kind: "jj", operation: null });
+  const after = useSide<JjSource>({ kind: "jj", operation: null });
 
   return (
     <ReviewPanes
@@ -1224,36 +1445,39 @@ export function App() {
   );
 }
 
-interface Side {
-  /** Operation to read this side's log at, or null for the live repo. */
-  operation: string | null;
+interface Side<S extends Source> {
+  /** Where this side's commits come from. */
+  source: S;
   /** Commit ids selected on this side, in log order. */
   commits: string[];
-  selectOperation: (operationId: string | null) => void;
+  selectSource: (source: S) => void;
   selectCommits: (commitIds: string[]) => void;
 }
 
-function useSide(): Side {
-  const [operation, setOperation] = useState<string | null>(null);
+function useSide<S extends Source>(initial: S): Side<S> {
+  const [source, setSource] = useState<S>(initial);
   const [commits, setCommits] = useState<string[]>([]);
 
   return {
-    operation,
+    source,
     commits,
-    selectOperation(operationId) {
-      setOperation(operationId);
+    selectSource(next) {
+      setSource(next);
       setCommits([]);
     },
     selectCommits: setCommits,
   };
 }
 
-function SidePicker({ side }: { side: Side }) {
+function SidePicker({ side }: { side: Side<JjSource> }) {
   return (
     <>
-      <OperationLog selected={side.operation} onSelect={side.selectOperation} />
+      <OperationLog
+        selected={side.source.operation}
+        onSelect={(operation) => side.selectSource({ kind: "jj", operation })}
+      />
       <CommitLog
-        atOperation={side.operation}
+        source={side.source}
         selected={side.commits}
         onSelect={side.selectCommits}
       />
