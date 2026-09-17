@@ -1,5 +1,15 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[init]
 
+import * as z from "zod";
+import { GitError, GitOid, gitLog, gitMaterialize } from "./backend/commit/git";
+import {
+  GitHubError,
+  githubPullRequestHistory,
+  githubPullRequests,
+  parsePullNumber,
+  parseRepoRef,
+  pullPins,
+} from "./backend/commit/github";
 import {
   JjError,
   type JjFileDiff,
@@ -91,12 +101,99 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[2]
 
+/** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
+async function githubJson(build: () => Promise<unknown>): Promise<Response> {
+  try {
+    return Response.json(await build());
+  } catch (error) {
+    if (error instanceof GitHubError) {
+      return Response.json(
+        { error: error.message },
+        { status: error.kind === "not-found" ? 404 : 502 },
+      );
+    }
+    if (error instanceof GitError) {
+      return Response.json({ error: error.message }, { status: 502 });
+    }
+    if (error instanceof z.ZodError) {
+      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
+    }
+    throw error;
+  }
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[3]
+
+const PullsQuery = z.object({
+  state: z.enum(["open", "closed", "merged", "all"]).optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
+export function handleGithubPulls(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+
+  return githubJson(() => {
+    const repo = parseRepoRef(params.get("repo") ?? "");
+    const options = PullsQuery.parse({
+      state: params.get("state") ?? undefined,
+      limit: params.get("limit") ?? undefined,
+    });
+    return githubPullRequests(repo, options);
+  });
+}
+
+export function handleGithubPullHistory(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+
+  return githubJson(() =>
+    githubPullRequestHistory(
+      parseRepoRef(params.get("repo") ?? ""),
+      parsePullNumber(params.get("number")),
+    ),
+  );
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
+
+export function handleGithubPullCommits(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+
+  return githubJson(async () => {
+    const repo = parseRepoRef(params.get("repo") ?? "");
+    const number = parsePullNumber(params.get("number"));
+    const head = GitOid.parse(params.get("head"));
+
+    const history = await githubPullRequestHistory(repo, number);
+    const state = history.states.find((candidate) => candidate.head === head);
+    if (state === undefined) {
+      throw new GitHubError(`#${number} never had head ${head}`, "not-found");
+    }
+
+    const [base, tip] = await gitMaterialize(pullPins(history, state));
+    if (base === undefined || tip === undefined) {
+      throw new Error("gitMaterialize returned fewer oids than asked");
+    }
+
+    return {
+      head,
+      version: state.version,
+      base: history.baseRefOid,
+      commits: await gitLog({ from: base, to: tip, limit: 200 }),
+    };
+  });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+
 export const routes = {
   "/": index,
   "/api/log": handleLog,
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
+  "/api/github/pulls": handleGithubPulls,
+  "/api/github/pull/history": handleGithubPullHistory,
+  "/api/github/pull/commits": handleGithubPullCommits,
 };
 
 if (import.meta.main) {

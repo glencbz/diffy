@@ -17,6 +17,11 @@ identifiers = ["just"]
 comment = { open = "#" }
 
 [[languages]]
+name = "GraphQL"
+identifiers = ["graphql"]
+comment = { open = "#" }
+
+[[languages]]
 name = "HTML"
 identifiers = ["html"]
 comment = { open = "<!--", close = "-->" }
