@@ -3,7 +3,7 @@ import * as z from "zod";
 
 export const LogEntry = z.object({
   commitId: z.string(),
-  changeId: z.string(),
+  changeId: z.string().nullable(),
   description: z.string(),
   parents: z.array(z.string()),
 });

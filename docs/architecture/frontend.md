@@ -179,6 +179,16 @@ createRoot(container).render(<App />);
 is a discriminated union on `status`. `added`, `deleted`, and `modified` carry
 a single `path`. `renamed` and `copied` carry `oldPath` and `newPath`.
 
+`LogEntry.changeId` is nullable because a GitHub pull request's commits are
+plain git commits, and a git commit has no change id. The field stays
+required, so a backend without one has to say `changeId: null`. Defaulting a
+missing key to null reads as more forgiving and costs more than it gives. A
+jj backend that stopped emitting `change_id` through a bug of its own would
+parse cleanly, and every row would quietly lose its rewrite-stable identity
+with nothing raised to say why. A missing field is a backend nobody taught
+about this one, and it should fail at the boundary.
+[`alignSeries`](backend/series.md) has what pairing does without an id.
+
 ```ts
 //| id: frontend-api
 //| file: src/frontend/api.ts
@@ -186,7 +196,7 @@ import * as z from "zod";
 
 export const LogEntry = z.object({
   commitId: z.string(),
-  changeId: z.string(),
+  changeId: z.string().nullable(),
   description: z.string(),
   parents: z.array(z.string()),
 });
@@ -598,6 +608,13 @@ The graph rows and the diff panel's header both name a commit the same way: its
 short change id, then the first line of its description. One component, so the
 two never drift apart.
 
+A commit with no change id falls back to its short commit id, in italic. The
+two are not the same promise. A change id is the commit's identity across a
+rewrite; a commit id names one revision and does not survive an amend.
+Rendering them identically would invite a reader to trust the wrong one. The
+cue stays small and stays in the same dim `#888`, because on a git-backed row
+this is ordinary, not an error.
+
 ```tsx
 //| id: frontend-view-commit-label
 //| file: src/frontend/views/CommitLabel.tsx
@@ -605,10 +622,20 @@ import type { LogEntry } from "../api";
 
 export function CommitLabel({ commit }: { commit: LogEntry }) {
   const summary = commit.description.split("\n")[0] ?? "";
+  const shortId =
+    commit.changeId !== null
+      ? commit.changeId.slice(0, 8)
+      : commit.commitId.slice(0, 8);
   return (
     <>
-      <span style={{ color: "#888", marginRight: 8 }}>
-        {commit.changeId.slice(0, 8)}
+      <span
+        style={{
+          color: "#888",
+          marginRight: 8,
+          fontStyle: commit.changeId !== null ? "normal" : "italic",
+        }}
+      >
+        {shortId}
       </span>
       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
         {summary || <em style={{ color: "#999" }}>(no description)</em>}

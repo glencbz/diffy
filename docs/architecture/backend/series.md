@@ -10,34 +10,47 @@ inserted or dropped. Everything after the gap shifts by one and every row
 below it becomes a comparison between two unrelated changes, which is worse
 than showing nothing.
 
-jj already keeps the identity we need. A change id survives an amend, a
-reword, and a rebase, so the same change id on both sides means the same
-logical commit at two points in its life. `alignSeries` walks both series
-oldest first and pairs on change id, and falls back to position only where
-change ids give no answer at all. Its three outcomes:
+A change id rules that out. It survives an amend, a reword, and a rebase, so
+the same id on both sides names the same logical commit at two points in its
+life. `alignSeries` walks both series oldest first and pairs on it. Its three
+outcomes:
 
 * both sides present: the commit exists in both series, so the row is an
   interdiff.
 * after side only: the commit was added to the series.
 * before side only: the commit was dropped from it.
 
+jj supplies a change id. Git does not, so `changeId` is nullable and a git
+commit sends `null` rather than borrowing its oid. An oid names one revision
+and is replaced on every rewrite, the opposite of what the field promises.
+Two nulls do not match either, or every unidentified commit would look like
+the same change as every other.
+
+That leaves position as the only pairing a git series gets, oldest against
+oldest. It holds while both versions agree on their oldest commit, which
+covers commits pushed onto the newest end. It breaks as soon as they disagree
+there. A rebase onto a new base shifts every pair by one and reinstates the
+failure above. `series.test.ts` pins that wrong output under a name saying so,
+so giving git an identity of its own, a `Change-Id` trailer or a patch id,
+fails that test first. Which one is the GitHub backend's call, not this
+module's.
+
 Ordering is the caller's convention, kept intact: both arguments arrive in
 `jj log` order, newest first, and the rows come back in that order too, so
 the panel reads top to bottom alongside the graphs that fed it.
 
 The function is generic over the commit type and asks only for `commitId` and
-`changeId`. It is the one piece of this feature with no jj in it, and the tech
-plan wants a GitHub backend later, whose commits will need lining up the same
-way.
+`changeId`. It is the one piece of this feature with no jj in it.
 
 ```ts
 //| id: series-module
 //| file: src/backend/commit/series.ts
 
-/** The identity a commit needs to be lined up against another. */
+/** The identity a commit needs to be lined up against another. A backend
+ * with no change ids sends null, never a stand-in. */
 export interface SeriesCommit {
   commitId: string;
-  changeId: string;
+  changeId: string | null;
 }
 
 /** One row of a lined-up comparison. At least one side is always present. */
@@ -65,7 +78,7 @@ export function alignSeries<T extends SeriesCommit>(
     const right = olderFirstAfter[j];
     if (left === undefined || right === undefined) break;
 
-    if (left.changeId === right.changeId) {
+    if (left.changeId != null && left.changeId === right.changeId) {
       rows.push({ from: left, to: right });
       i += 1;
       j += 1;
@@ -105,12 +118,14 @@ export function alignSeries<T extends SeriesCommit>(
   return rows.reverse();
 }
 
-/** Distance from `start` to the next commit with `changeId`, or null. */
+/** Distance from `start` to the next commit with `changeId`, or null. A null
+ * `changeId` matches nothing. */
 function indexOfChange(
   commits: SeriesCommit[],
   start: number,
-  changeId: string,
+  changeId: string | null,
 ): number | null {
+  if (changeId == null) return null;
   for (let at = start; at < commits.length; at += 1) {
     if (commits[at]?.changeId === changeId) return at - start;
   }
@@ -122,8 +137,10 @@ function indexOfChange(
 
 `alignSeries` is a pure function over two lists, so the tests are fixtures.
 Each commit is written as a change id and a commit id, which is all the
-function reads. The cases are the ones that made positional pairing untenable:
-a commit dropped from the middle, one inserted, and the two sides reordered.
+function reads. The cases are the ones that made positional pairing
+untenable: a commit dropped from the middle, one inserted, and the two sides
+reordered. The last two run a series with no change ids at all, including the
+mis-pairing that has no fix at this layer.
 
 ```ts
 //| id: series-module-test
@@ -143,6 +160,23 @@ function series(changes: string, version = "1"): SeriesCommit[] {
 function shape(rows: { from: SeriesCommit | null; to: SeriesCommit | null }[]) {
   return rows
     .map((row) => `${row.from?.changeId ?? "-"}>${row.to?.changeId ?? "-"}`)
+    .join(" ");
+}
+
+/** `"a b c"` -> that series, newest first, no change ids: a git series. */
+function noIdSeries(commitIds: string): SeriesCommit[] {
+  return commitIds
+    .split(" ")
+    .reverse()
+    .map((commitId) => ({ changeId: null, commitId }));
+}
+
+/** `shape`, keyed on commit id, for rows whose change id is always null. */
+function shapeByCommit(
+  rows: { from: SeriesCommit | null; to: SeriesCommit | null }[],
+) {
+  return rows
+    .map((row) => `${row.from?.commitId ?? "-"}>${row.to?.commitId ?? "-"}`)
     .join(" ");
 }
 
@@ -220,6 +254,33 @@ describe("alignSeries", () => {
     expect(shape(alignSeries([], series("a b")))).toBe("->b ->a");
     expect(shape(alignSeries(series("a b"), []))).toBe("b>- a>-");
     expect(alignSeries([], [])).toEqual([]);
+  });
+
+  test("pairs positionally when no commit carries a change id", () => {
+    // arrange
+    // act
+    const rows = alignSeries(
+      noIdSeries("first second"),
+      noIdSeries("first2 second2"),
+    );
+
+    // assert
+    expect(shapeByCommit(rows)).toBe("second>second2 first>first2");
+  });
+
+  test("mis-pairs when a series without change ids gains a commit at its oldest end", () => {
+    // arrange
+    // act
+    const rows = alignSeries(
+      noIdSeries("first second"),
+      noIdSeries("zero2 first2 second2"),
+    );
+
+    // assert
+    // Pinned, not wanted. `zero2` should read as an insert on its own row.
+    // If this fails, alignSeries learned to align change-id-less commits;
+    // update the test and the prose at the top of this doc.
+    expect(shapeByCommit(rows)).toBe("->second2 second>first2 first>zero2");
   });
 });
 ```
