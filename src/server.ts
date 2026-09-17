@@ -4,6 +4,8 @@ import * as z from "zod";
 import { GitError, GitOid, gitLog, gitMaterialize } from "./backend/commit/git";
 import {
   GitHubError,
+  type GitHubGraphQL,
+  ghCliGraphQL,
   githubPullRequestHistory,
   githubPullRequests,
   parsePullNumber,
@@ -183,6 +185,39 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
 
+export function handleGithubPullDiff(req: Request): Promise<Response> {
+  return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
+}
+
+/** Exported for tests: the pull request diff route, with its transport given. */
+export function pullDiffResponse(
+  params: URLSearchParams,
+  gh: GitHubGraphQL,
+): Promise<Response> {
+  return githubJson(async () => {
+    const repo = parseRepoRef(params.get("repo") ?? "");
+    const number = parsePullNumber(params.get("number"));
+    const to = GitOid.parse(params.get("to"));
+    const from = GitOid.parse(params.get("from"));
+
+    const history = await githubPullRequestHistory(repo, number, gh);
+    const toState = pullStateAt(history, to);
+    const fromState = pullStateAt(history, from);
+
+    await gitMaterialize(
+      [fromState, toState].flatMap((state) => pullPins(history, state)),
+    );
+
+    return {
+      from,
+      to,
+      files: await jjInterdiff({ from: fromState.head, to: toState.head }),
+    };
+  });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
+
 export const routes = {
   "/": index,
   "/api/log": handleLog,
@@ -192,6 +227,7 @@ export const routes = {
   "/api/github/pulls": handleGithubPulls,
   "/api/github/pull/history": handleGithubPullHistory,
   "/api/github/pull/commits": handleGithubPullCommits,
+  "/api/github/pull/diff": handleGithubPullDiff,
 };
 
 if (import.meta.main) {

@@ -40,6 +40,8 @@ import * as z from "zod";
 import { GitError, GitOid, gitLog, gitMaterialize } from "./backend/commit/git";
 import {
   GitHubError,
+  type GitHubGraphQL,
+  ghCliGraphQL,
   githubPullRequestHistory,
   githubPullRequests,
   parsePullNumber,
@@ -282,6 +284,70 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
 }
 ```
 
+`/api/github/pull/diff` is the review itself. `to` and `from` each name a
+head of the same pull request. Both are head oids rather than version
+numbers, for the reason [`pullStateAt`](github.md) gives. That also makes
+"version 7 of a pull request that now has three versions" a request nobody
+can write, rather than one more thing to reject.
+
+The comparison is always [`jjInterdiff`](jj.md) between the two heads. The
+later head is usually the earlier one rebased, and interdiff drops what the
+rebase carried along; for pull request #9 of this repository, first head
+against last, that is the difference between three files and forty-seven. A
+tree diff against the base branch reports the rebase itself as a change, and
+it is the comparison GitHub already shows on the pull request page. Offering
+it here as a second mode would leave every reader working out which of two
+answers is on screen.
+
+This handler drops `gitMaterialize`'s return value where the commits route
+above keeps it. The call hands back a `LocalOid` per oid asked, a witness that
+the object is in the store, and `gitLog` takes nothing else. jj takes a plain
+commit id, so all this handler needs from the call is that it returned, since
+`gitMaterialize` throws unless every object landed.
+
+The body is exported separately from the handler so the tests can hand it a
+GitHub transport. Its three siblings are pass-throughs, and everything they do
+past parsing is already covered against a stubbed transport in the [GitHub
+backend](github.md)'s own tests. This one chooses a diff and chooses what to
+fetch, which is behaviour worth pinning at the route. The seam sits beside the
+handler rather than in its signature, because `Bun.serve` calls a route handler
+with a second argument of its own.
+
+```ts
+//| id: backend-server
+
+export function handleGithubPullDiff(req: Request): Promise<Response> {
+  return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
+}
+
+/** Exported for tests: the pull request diff route, with its transport given. */
+export function pullDiffResponse(
+  params: URLSearchParams,
+  gh: GitHubGraphQL,
+): Promise<Response> {
+  return githubJson(async () => {
+    const repo = parseRepoRef(params.get("repo") ?? "");
+    const number = parsePullNumber(params.get("number"));
+    const to = GitOid.parse(params.get("to"));
+    const from = GitOid.parse(params.get("from"));
+
+    const history = await githubPullRequestHistory(repo, number, gh);
+    const toState = pullStateAt(history, to);
+    const fromState = pullStateAt(history, from);
+
+    await gitMaterialize(
+      [fromState, toState].flatMap((state) => pullPins(history, state)),
+    );
+
+    return {
+      from,
+      to,
+      files: await jjInterdiff({ from: fromState.head, to: toState.head }),
+    };
+  });
+}
+```
+
 The route table is the list of handlers the server exposes.
 
 ```ts
@@ -296,6 +362,7 @@ export const routes = {
   "/api/github/pulls": handleGithubPulls,
   "/api/github/pull/history": handleGithubPullHistory,
   "/api/github/pull/commits": handleGithubPullCommits,
+  "/api/github/pull/diff": handleGithubPullDiff,
 };
 
 if (import.meta.main) {
@@ -313,7 +380,8 @@ without binding a port.
 //| id: backend-server-test
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
-import { jjLog } from "./backend/commit/jj";
+import type { GitHubGraphQL } from "./backend/commit/github";
+import { jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -322,6 +390,7 @@ import {
   handleInterdiff,
   handleLog,
   handleOperations,
+  pullDiffResponse,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -611,4 +680,152 @@ ESLint + Prettier. We used the default `bunx biome init`.
 # Format code in place
 @format:
   bunx biome format --write .
+```
+
+The diff route is the one GitHub route tested for more than what it refuses,
+and it gets there without a token or a network. Its transport is a stub
+returning a pull request whose base and heads are three commits from the root
+of this repository's own history. Those commits are already in the object
+store, so `gitMaterialize` finds them and fetches nothing. What is left under
+test is the route's own decisions, and each answer is checked against the jj
+call it should have made rather than against a file count, because a file count
+would still pass if the two diffs were swapped.
+
+```ts
+//| id: backend-server-test
+
+describe("pullDiffResponse", () => {
+  /** A pull request whose base and heads are commits every clone of this repo has. */
+  async function localPull(): Promise<{ base: string; heads: string[] }> {
+    return {
+      base: await commitId("root()+"),
+      heads: [await commitId("root()++"), await commitId("root()+++")],
+    };
+  }
+
+  /** A transport that answers the history query for that pull request. */
+  function stubHistory(base: string, heads: string[]): GitHubGraphQL {
+    return () =>
+      Promise.resolve({
+        data: {
+          repository: {
+            pullRequest: {
+              number: 9,
+              headRefOid: heads.at(-1),
+              baseRefName: "main",
+              baseRefOid: base,
+              timelineItems: {
+                pageInfo: { hasNextPage: false },
+                nodes: heads.slice(1).map((after, index) => ({
+                  createdAt: "2026-09-01T10:00:00Z",
+                  beforeCommit: { oid: heads[index] },
+                  afterCommit: { oid: after },
+                })),
+              },
+            },
+          },
+        },
+      });
+  }
+
+  const unreachable: GitHubGraphQL = () =>
+    Promise.reject(new Error("the transport should not have been reached"));
+
+  function query(extra: Record<string, string>): URLSearchParams {
+    return new URLSearchParams({
+      repo: "glencbz/diffy",
+      number: "9",
+      ...extra,
+    });
+  }
+
+  async function body(res: Response) {
+    return (await res.json()) as {
+      from: string;
+      to: string;
+      files: { status: string; path?: string; newPath?: string }[];
+      error?: string;
+    };
+  }
+
+  function paths(files: { path?: string; newPath?: string }[]): string[] {
+    return files.map((file) => file.path ?? file.newPath ?? "");
+  }
+
+  test("interdiffs two heads of the same pull request", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const [earlier, later] = heads as [string, string];
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: earlier, to: later }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.from).toBe(earlier);
+    expect(answer.to).toBe(later);
+    expect(answer.files).toEqual(
+      await jjInterdiff({ from: earlier, to: later }),
+    );
+    expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
+  });
+
+  test("reports a head that is not a 40-hex oid as 400, before asking GitHub", async () => {
+    // arrange
+    // act
+    const res = await pullDiffResponse(query({ to: "nope" }), unreachable);
+
+    // assert
+    expect(res.status).toBe(400);
+    expect((await body(res)).error).toMatch(/40-character/);
+  });
+
+  test("reports a malformed from the same way as a malformed to", async () => {
+    // arrange
+    const { heads } = await localPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "nope", to: heads[1] as string }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+
+  test("reports a missing from as 400, before asking GitHub", async () => {
+    // arrange
+    const { heads } = await localPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ to: heads[1] as string }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+
+  test("reports a head this pull request never had as 404", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const stranger = "f".repeat(40);
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: heads[0] as string, to: stranger }),
+      stubHistory(base, heads),
+    );
+
+    // assert
+    expect(res.status).toBe(404);
+    expect((await body(res)).error).toMatch(/never had head/);
+  });
+});
 ```
