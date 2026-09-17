@@ -16,21 +16,19 @@ expensive, rate-limited, eventually-stale source down to a list of 40-character
 strings, and lets the free, exact, local one answer every question about
 content. It also means the API never has to be asked twice for the same commit.
 
-The two backends are kept apart on purpose. There is no shared
-`CommitBackend` interface yet, because we have exactly two implementations and
-the only honest way to find the abstraction is to write both first and see what
-they have in common. Guessing now would shape the second one to fit the first.
+There is no shared `CommitBackend` interface. Two implementations is not enough
+to find the abstraction, and one guessed now would only shape this backend to
+fit jj.
 
 ## Functionality
 
 ### Talking to GitHub
 
-REST's timeline endpoint reports a force push with a single `commit_id`, the
-commit that became the head. The commit that stopped being the head is not in
-the payload, so the pull request's original head, the one it was opened with,
-cannot be recovered from REST at all. GraphQL's `HeadRefForcePushedEvent`
-carries both `beforeCommit` and `afterCommit`, so GraphQL is not a preference
-here, it is the only endpoint that answers the question.
+GraphQL is the only endpoint that answers the question. REST's timeline reports
+a force push with a single `commit_id`, the commit that became the head, and
+the commit that stopped being the head is not in the payload, so the head the
+pull request was opened with cannot be recovered from REST at all. GraphQL's
+`HeadRefForcePushedEvent` carries both `beforeCommit` and `afterCommit`.
 
 The entire transport is one function type. Everything else in this module is a
 query string, a Zod schema and pure list handling, so injecting a stub at this
@@ -133,11 +131,10 @@ export const ghCliGraphQL: GitHubGraphQL = async (query, variables) => {
 
 A repository is an owner and a name, a pull request is a positive integer, and
 both arrive as URL query parameters written by somebody else. They are branded
-and parsed at the boundary so the rest of the module handles values that have
-already been checked, and so a junk parameter fails as a `ZodError` the
-[server](server.md) turns into a 400 rather than as a GraphQL error the server
-would have to turn into a 502. The difference matters: one of them is the
-caller's fault.
+and parsed at the boundary, so a junk parameter fails as a `ZodError` the
+[server](server.md) turns into a 400, which is the caller's fault, rather than
+as a GraphQL error it would have to turn into a 502, which is not. The rest of
+the module handles values that have already been checked.
 
 ```ts
 //| id: github-module
@@ -329,15 +326,13 @@ collected, which comes back with a null `beforeCommit` or `afterCommit`. Either
 way the states either side of the hole are no longer adjacent, so the flag
 travels with the data instead of the hole passing for a complete history.
 
-`timelineItems.totalCount` is not used for any of this, and should not be. It
-counts every kind of timeline item, comments and labels included, not the ones
-the `itemTypes` filter selected, so it is neither the number of force pushes
-nor a truncation signal.
+`timelineItems.totalCount` counts every kind of timeline item, comments and
+labels included, not the ones the `itemTypes` filter selected, so it is neither
+the number of force pushes nor a truncation signal. Nothing here reads it.
 
 `baseRefOid` is the base branch's tip **now**. GitHub does not record what the
-base was at any earlier moment, so an old head and today's base is the closest
-thing to a historical range that the API supports. Naming that limitation on
-the field is cheaper than rediscovering it.
+base was at any earlier moment, so an old head against today's base is the
+closest thing to a historical range the API supports.
 
 ```ts
 //| id: github-module
@@ -379,11 +374,10 @@ export interface ForcePushEvent {
 }
 ```
 
-`headChain` is pure and total. It is the whole rule about what a pull request's
-history is, so it is worth being able to test it against a list of events
-written by hand rather than only against whatever the API happened to return.
-It never throws: an empty chain is a pull request that was opened and left
-alone, which is most of them.
+`headChain` is pure and total, and it holds the whole rule about what a pull
+request's history is, so it can be tested against events written by hand rather
+than only against whatever the API returned. An empty chain is a pull request
+that was opened and left alone, which is most of them.
 
 ```ts
 //| id: github-module

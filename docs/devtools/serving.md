@@ -75,12 +75,11 @@ same whether or not anything was running. Starting waits too: `serve` prints the
 URLs only once both ports answer, and otherwise fails pointing at the log, so a
 green run means the servers are really up rather than merely spawned.
 
-The two checks bracket the spawn for a reason. A port this workspace was given
-can still be taken by something it did not start, a server left behind by an
-older way of doing this or another tool entirely, and then waiting for an answer
-would find that stranger's server and call it ours. So `serve` refuses to start
-on a port that is still answering after its own processes are gone, rather than
-quietly handing a reviewer a URL to someone else's work.
+A port this workspace was given can still be taken by something it did not
+start, a server left behind by an older way of doing this or another tool
+entirely, and then waiting for an answer would find that stranger's server and
+call it ours. So `serve` refuses to start on a port that is still answering
+after its own processes are gone.
 
 ## Reaching them from outside
 

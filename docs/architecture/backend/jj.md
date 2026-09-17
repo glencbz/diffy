@@ -363,8 +363,8 @@ export function parseFileDiff(patch: string): JjFileDiff {
 #### Test
 
 `jjLog` and `jjOpLog` have a hard dependency on `jj`, so the tests exercise the
-real CLI (rather than mocking it), since what we really care about is that we
-got the jj invocation right.
+real CLI rather than mocking it. What matters is that the invocation is
+right.
 
 It asserts on structural invariants that hold regardless of this repo's
 specific commit history: the root commit always exists, always sorts last in
@@ -663,10 +663,9 @@ The two sides need not be visible in the same view of the repo. A commit that
 has since been amended away still sits in the store, and jj resolves it from a
 full commit id even though no current view lists it. So the two ends of a
 comparison can be picked out of two different operations and still meet in a
-single `jj interdiff` call, with no `--at-operation` involved. Addressing
-commits by commit id rather than change id is what buys that: a change id
-names whichever version of a commit the current view holds, which is the one
-thing a before-and-after comparison must not do.
+single `jj interdiff` call, with no `--at-operation` involved. Commit ids are
+what buy that. A change id names whichever version of a commit the current view
+holds, which is exactly what a before-and-after comparison must not do.
 
 `jj interdiff` also emits a synthetic `JJ-COMMIT-DESCRIPTION` file whenever the
 two descriptions differ. It reaches the UI as an ordinary file diff, which is
