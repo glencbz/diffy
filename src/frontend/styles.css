@@ -35,6 +35,29 @@
   --teal-600: #1b7c83;
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/design-system.md#design-primitives>>[1] */
+:root {
+  --grey-800: #30363d;
+  --grey-850: #21262d;
+  --grey-950: #161b22;
+  --grey-1000: #0d1117;
+
+  --blue-400: #58a6ff;
+  --blue-900: #0d2d5e;
+
+  --green-300: #56d364;
+  --green-900: #0f2a14;
+
+  --red-400: #f85149;
+  --red-900: #3d1618;
+
+  --amber-400: #d29922;
+  --amber-900: #3a2d0a;
+
+  --purple-400: #bc8cff;
+  --teal-400: #56d4dd;
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/design-system.md#design-roles>>[init] */
 :root {
@@ -116,6 +139,10 @@
 /* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/design-system.md#design-shell>>[init] */
+body {
+  margin: 0;
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -663,6 +690,96 @@
   display: block;
   color: var(--text-faint);
   font-size: var(--text-size-small);
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-responsive>>[init] */
+@media (max-width: 1100px) {
+  :root {
+    --pane-picker-min: 180px;
+    --pane-list-min: 160px;
+    --pane-commits-width: 200px;
+  }
+}
+
+@media (max-width: 820px) {
+  .panes {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .pane {
+    width: auto;
+    min-width: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pane--picker,
+  .pane--list,
+  .pane--commits {
+    width: auto;
+    min-width: 0;
+    max-height: 30vh;
+  }
+
+  .pane--diff {
+    flex: 1 0 auto;
+    border-bottom: none;
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/design-system.md#design-dark>>[init] */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: var(--grey-1000);
+    --surface-raised: var(--grey-950);
+    --surface-sunken: var(--grey-850);
+    --surface-selected: var(--blue-900);
+
+    --border: var(--grey-800);
+    --border-subtle: var(--grey-850);
+
+    --text: var(--grey-100);
+    --text-muted: var(--grey-500);
+    --text-faint: var(--grey-600);
+    --text-ghost: var(--grey-700);
+    --text-inverse: var(--grey-1000);
+
+    --accent: var(--blue-400);
+    --danger: var(--red-400);
+
+    --diff-added: var(--green-300);
+    --diff-removed: var(--red-400);
+    --diff-meta: var(--grey-600);
+    --diff-hunk: var(--blue-400);
+
+    --review-open: var(--red-400);
+    --review-resolved: var(--green-300);
+    --review-stale: var(--amber-400);
+    --review-seen-surface: var(--green-900);
+    --review-seen-border: var(--green-600);
+    --review-changed-surface: var(--amber-900);
+    --review-changed-border: var(--amber-600);
+    --review-open-surface: var(--red-900);
+    --review-open-border: var(--red-600);
+    --review-unseen-surface: var(--blue-900);
+
+    --state-open: var(--green-300);
+    --state-merged: var(--purple-400);
+    --state-closed: var(--red-400);
+
+    --endpoint-before: var(--amber-400);
+
+    --graph-lane-0: var(--grey-100);
+    --graph-lane-1: var(--blue-400);
+    --graph-lane-2: var(--green-300);
+    --graph-lane-3: var(--purple-400);
+    --graph-lane-4: var(--amber-400);
+    --graph-lane-5: var(--teal-400);
+    --graph-lane-6: var(--red-400);
+  }
 }
 /* ~/~ end */
 /* ~/~ end */

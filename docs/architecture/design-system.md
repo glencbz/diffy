@@ -81,6 +81,10 @@ by a rule from a layer below it and the cascade agrees with the layering.
 <<design-pull-header>>
 
 <<design-pull-timeline>>
+
+<<design-responsive>>
+
+<<design-dark>>
 ```
 
 ## Primitives
@@ -124,6 +128,35 @@ had, collected so that two uses of the same grey are visibly the same grey.
 
   --purple-600: #8250df;
   --teal-600: #1b7c83;
+}
+```
+
+The ramps carry a dark end as well as a light one. A dark theme needs
+surfaces below the darkest text grey and accents bright enough to read on
+them, and those are shades of the same ramps rather than a second palette.
+
+```css
+/*| id: design-primitives
+:root {
+  --grey-800: #30363d;
+  --grey-850: #21262d;
+  --grey-950: #161b22;
+  --grey-1000: #0d1117;
+
+  --blue-400: #58a6ff;
+  --blue-900: #0d2d5e;
+
+  --green-300: #56d364;
+  --green-900: #0f2a14;
+
+  --red-400: #f85149;
+  --red-900: #3d1618;
+
+  --amber-400: #d29922;
+  --amber-900: #3a2d0a;
+
+  --purple-400: #bc8cff;
+  --teal-400: #56d4dd;
 }
 ```
 
@@ -234,7 +267,9 @@ component, and that is what makes the breakpoints below a two-line change.
 ## Shell
 
 The window is a column: a tab strip that does not scroll, and under it
-whichever screen is chosen. `min-height: 0` appears on every flex ancestor of
+whichever screen is chosen. The body's default margin goes, because a
+full-height app measured in `vh` inside an eight-pixel margin is sixteen
+pixels taller than the window and scrolls when it should not. `min-height: 0` appears on every flex ancestor of
 a scrolling pane because a flex item defaults to `min-height: auto`, which
 refuses to shrink below its content and pushes the overflow out of the window
 instead of into a scrollbar. It is the one piece of this file that is a
@@ -242,6 +277,10 @@ workaround rather than a decision.
 
 ```css
 /*| id: design-shell
+body {
+  margin: 0;
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -899,5 +938,121 @@ current selection everywhere else in the app.
   display: block;
   color: var(--text-faint);
   font-size: var(--text-size-small);
+}
+```
+
+## Responsiveness
+
+A window narrower than about three comfortable columns gets narrower columns,
+and a window narrower than about two stops being columns at all. The first
+breakpoint is an edit to the metrics layer and nothing else: rebinding the
+minimum widths retunes every pane at once, because no view and no component
+rule holds a width of its own.
+
+The second breakpoint has to change the layout rather than a length, so it
+turns the pane row into a stack and caps the pickers at a fraction of the
+viewport so the diff still has somewhere to be. That is the only rule in the
+file that overrides a component, and it reads as one because it is grouped
+here rather than left next to the pane it contradicts.
+
+```css
+/*| id: design-responsive
+@media (max-width: 1100px) {
+  :root {
+    --pane-picker-min: 180px;
+    --pane-list-min: 160px;
+    --pane-commits-width: 200px;
+  }
+}
+
+@media (max-width: 820px) {
+  .panes {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .pane {
+    width: auto;
+    min-width: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pane--picker,
+  .pane--list,
+  .pane--commits {
+    width: auto;
+    min-width: 0;
+    max-height: 30vh;
+  }
+
+  .pane--diff {
+    flex: 1 0 auto;
+    border-bottom: none;
+  }
+}
+```
+
+## Dark theme
+
+Dark mode rebinds roles and touches nothing else. No component rule, no
+breakpoint, and no view changes, which is the claim the layering makes and
+the reason it is worth the indirection: the whole theme is the block below.
+
+The diff and review colours brighten rather than swap. A patch reads the way
+a patch reads everywhere, so added stays green and removed stays red, at a
+lightness that survives a dark surface.
+
+```css
+/*| id: design-dark
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: var(--grey-1000);
+    --surface-raised: var(--grey-950);
+    --surface-sunken: var(--grey-850);
+    --surface-selected: var(--blue-900);
+
+    --border: var(--grey-800);
+    --border-subtle: var(--grey-850);
+
+    --text: var(--grey-100);
+    --text-muted: var(--grey-500);
+    --text-faint: var(--grey-600);
+    --text-ghost: var(--grey-700);
+    --text-inverse: var(--grey-1000);
+
+    --accent: var(--blue-400);
+    --danger: var(--red-400);
+
+    --diff-added: var(--green-300);
+    --diff-removed: var(--red-400);
+    --diff-meta: var(--grey-600);
+    --diff-hunk: var(--blue-400);
+
+    --review-open: var(--red-400);
+    --review-resolved: var(--green-300);
+    --review-stale: var(--amber-400);
+    --review-seen-surface: var(--green-900);
+    --review-seen-border: var(--green-600);
+    --review-changed-surface: var(--amber-900);
+    --review-changed-border: var(--amber-600);
+    --review-open-surface: var(--red-900);
+    --review-open-border: var(--red-600);
+    --review-unseen-surface: var(--blue-900);
+
+    --state-open: var(--green-300);
+    --state-merged: var(--purple-400);
+    --state-closed: var(--red-400);
+
+    --endpoint-before: var(--amber-400);
+
+    --graph-lane-0: var(--grey-100);
+    --graph-lane-1: var(--blue-400);
+    --graph-lane-2: var(--green-300);
+    --graph-lane-3: var(--purple-400);
+    --graph-lane-4: var(--amber-400);
+    --graph-lane-5: var(--teal-400);
+    --graph-lane-6: var(--red-400);
+  }
 }
 ```
