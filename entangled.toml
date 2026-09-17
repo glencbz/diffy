@@ -22,6 +22,11 @@ identifiers = ["graphql"]
 comment = { open = "#" }
 
 [[languages]]
+name = "CSS"
+identifiers = ["css"]
+comment = { open = "/*", close = "*/" }
+
+[[languages]]
 name = "HTML"
 identifiers = ["html"]
 comment = { open = "<!--", close = "-->" }

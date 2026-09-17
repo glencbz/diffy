@@ -9,28 +9,9 @@ export function PullPanes({
   review: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      <div
-        style={{
-          width: "22%",
-          minWidth: 220,
-          flex: "none",
-          overflow: "auto",
-          borderRight: "1px solid #ccc",
-        }}
-      >
-        {list}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        {review}
-      </div>
+    <div className="panes">
+      <div className="pane pane--list">{list}</div>
+      <div className="pane pane--main">{review}</div>
     </div>
   );
 }
@@ -50,18 +31,9 @@ export function PullReviewPanes({
     <>
       {header}
       {timeline}
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <div
-          style={{
-            width: 260,
-            flex: "none",
-            overflow: "auto",
-            borderRight: "1px solid #ccc",
-          }}
-        >
-          {commits}
-        </div>
-        <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      <div className="panes">
+        <div className="pane pane--commits">{commits}</div>
+        <div className="pane pane--diff">{diff}</div>
       </div>
     </>
   );

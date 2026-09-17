@@ -181,6 +181,8 @@ Allowed import edges:
 The landing page is an [HTML import](https://bun.com/docs/bundler/fullstack).
 Bun's bundler finds the `<script>` and `<link>` tags and bundles them, along
 with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
+The `<link>` is how the [design system](design-system.md) reaches the page;
+every class the views below name is defined there.
 
 ```html
 <!--| id: landing-page
@@ -190,6 +192,7 @@ with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
   <head>
     <meta charset="utf-8" />
     <title>Diffy</title>
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div id="root"></div>
@@ -1836,18 +1839,10 @@ export function ReviewPanes({
   diff: ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flex: 1,
-        minHeight: 0,
-        fontFamily: "ui-monospace, monospace",
-        fontSize: 13,
-      }}
-    >
+    <div className="panes">
       <PickerColumn caption="before">{before}</PickerColumn>
       <PickerColumn caption="after">{after}</PickerColumn>
-      <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      <div className="pane pane--diff">{diff}</div>
     </div>
   );
 }
@@ -1860,28 +1855,9 @@ function PickerColumn({
   children: ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: "25%",
-        minWidth: 240,
-        borderRight: "1px solid #ccc",
-      }}
-    >
-      <h2
-        style={{
-          margin: 0,
-          padding: "6px 8px",
-          font: "inherit",
-          fontWeight: "bold",
-          background: "#f0f0f0",
-          borderBottom: "1px solid #ccc",
-        }}
-      >
-        {caption}
-      </h2>
-      <div style={{ overflow: "auto" }}>{children}</div>
+    <div className="pane pane--picker">
+      <h2 className="pane__header">{caption}</h2>
+      <div className="pane__body">{children}</div>
     </div>
   );
 }
@@ -2889,32 +2865,14 @@ export function ModeTabs({
   onSelect: (mode: Mode) => void;
 }) {
   return (
-    <nav
-      style={{
-        display: "flex",
-        flex: "none",
-        background: "#f0f0f0",
-        borderBottom: "1px solid #ccc",
-      }}
-    >
+    <nav className="tabs">
       {(Object.keys(CAPTIONS) as Mode[]).map((candidate) => (
         <button
           type="button"
           key={candidate}
           onClick={() => onSelect(candidate)}
-          style={{
-            padding: "6px 14px",
-            font: "inherit",
-            fontWeight: candidate === mode ? "bold" : "normal",
-            color: candidate === mode ? "#0969da" : "#333",
-            cursor: "pointer",
-            border: "none",
-            borderBottom:
-              candidate === mode
-                ? "2px solid #0969da"
-                : "2px solid transparent",
-            background: "transparent",
-          }}
+          className={candidate === mode ? "tab tab--current" : "tab"}
+          aria-current={candidate === mode}
         >
           {CAPTIONS[candidate]}
         </button>
@@ -3226,28 +3184,9 @@ export function PullPanes({
   review: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      <div
-        style={{
-          width: "22%",
-          minWidth: 220,
-          flex: "none",
-          overflow: "auto",
-          borderRight: "1px solid #ccc",
-        }}
-      >
-        {list}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        {review}
-      </div>
+    <div className="panes">
+      <div className="pane pane--list">{list}</div>
+      <div className="pane pane--main">{review}</div>
     </div>
   );
 }
@@ -3267,18 +3206,9 @@ export function PullReviewPanes({
     <>
       {header}
       {timeline}
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <div
-          style={{
-            width: 260,
-            flex: "none",
-            overflow: "auto",
-            borderRight: "1px solid #ccc",
-          }}
-        >
-          {commits}
-        </div>
-        <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      <div className="panes">
+        <div className="pane pane--commits">{commits}</div>
+        <div className="pane pane--diff">{diff}</div>
       </div>
     </>
   );
@@ -3607,15 +3537,7 @@ export function App() {
   const session = useSession();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        fontFamily: "ui-monospace, monospace",
-        fontSize: 13,
-      }}
-    >
+    <div className="app">
       <ModeTabs mode={mode} onSelect={setMode} />
       {mode === "local" ? (
         <ReviewPanes

@@ -11,18 +11,10 @@ export function ReviewPanes({
   diff: ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flex: 1,
-        minHeight: 0,
-        fontFamily: "ui-monospace, monospace",
-        fontSize: 13,
-      }}
-    >
+    <div className="panes">
       <PickerColumn caption="before">{before}</PickerColumn>
       <PickerColumn caption="after">{after}</PickerColumn>
-      <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      <div className="pane pane--diff">{diff}</div>
     </div>
   );
 }
@@ -35,28 +27,9 @@ function PickerColumn({
   children: ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: "25%",
-        minWidth: 240,
-        borderRight: "1px solid #ccc",
-      }}
-    >
-      <h2
-        style={{
-          margin: 0,
-          padding: "6px 8px",
-          font: "inherit",
-          fontWeight: "bold",
-          background: "#f0f0f0",
-          borderBottom: "1px solid #ccc",
-        }}
-      >
-        {caption}
-      </h2>
-      <div style={{ overflow: "auto" }}>{children}</div>
+    <div className="pane pane--picker">
+      <h2 className="pane__header">{caption}</h2>
+      <div className="pane__body">{children}</div>
     </div>
   );
 }
