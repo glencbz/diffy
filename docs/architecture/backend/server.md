@@ -45,6 +45,7 @@ import {
   parsePullNumber,
   parseRepoRef,
   pullPins,
+  pullStateAt,
 } from "./backend/commit/github";
 import {
   JjError,
@@ -237,12 +238,10 @@ heads the pull request has had, and the local object store says what the
 commits under a given head are. The order of the four steps is the whole
 design.
 
-The head is checked against the pull request's own chain **before** anything is
-fetched, which is a security property. `gitMaterialize` asks a remote for an
-object id by name, and an id that reaches it unchecked means any URL can make
-this server fetch any object out of `origin`, including one on a branch the
-reader was never shown. Validating first means the only ids we ever fetch are
-ids GitHub already published as heads of the pull request being read.
+The ordering is a security property. [`pullStateAt`](github.md) resolves the
+head against the pull request's own chain **before** anything is fetched. Why
+that matters, and why a state is named by its head rather than by its version,
+are written down with the lookup.
 
 The base is the pull request's base branch tip now, not what it was then, which
 is all GitHub keeps. `git log <base>..<head>` is therefore "the commits this
@@ -266,10 +265,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
     const head = GitOid.parse(params.get("head"));
 
     const history = await githubPullRequestHistory(repo, number);
-    const state = history.states.find((candidate) => candidate.head === head);
-    if (state === undefined) {
-      throw new GitHubError(`#${number} never had head ${head}`, "not-found");
-    }
+    const state = pullStateAt(history, head);
 
     const [base, tip] = await gitMaterialize(pullPins(history, state));
     if (base === undefined || tip === undefined) {

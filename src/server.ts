@@ -9,6 +9,7 @@ import {
   parsePullNumber,
   parseRepoRef,
   pullPins,
+  pullStateAt,
 } from "./backend/commit/github";
 import {
   JjError,
@@ -164,10 +165,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
     const head = GitOid.parse(params.get("head"));
 
     const history = await githubPullRequestHistory(repo, number);
-    const state = history.states.find((candidate) => candidate.head === head);
-    if (state === undefined) {
-      throw new GitHubError(`#${number} never had head ${head}`, "not-found");
-    }
+    const state = pullStateAt(history, head);
 
     const [base, tip] = await gitMaterialize(pullPins(history, state));
     if (base === undefined || tip === undefined) {

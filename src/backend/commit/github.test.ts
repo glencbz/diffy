@@ -10,8 +10,10 @@ import {
   githubPullRequests,
   headChain,
   PullNumber,
+  type PullRequestHistory,
   parsePullNumber,
   parseRepoRef,
+  pullStateAt,
 } from "./github";
 
 /** The heads pull request #9 of this repo has had, oldest first. */
@@ -373,5 +375,73 @@ describe("parsePullNumber", () => {
       expect(() => parsePullNumber(raw)).toThrow(z.ZodError);
     },
   );
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/github.md#github-module-test>>[2]
+
+/** The error a call threw, so an assertion can look past its message. */
+function catchError(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected the call to throw");
+}
+
+describe("pullStateAt", () => {
+  const history: PullRequestHistory = {
+    number: PullNumber.parse(9),
+    baseRefName: "main",
+    baseRefOid: BASE,
+    states: headChain(chainEvents(CHAIN), CHAIN.at(-1) as GitOid),
+    truncated: false,
+  };
+
+  test("finds the head the pull request opened with", () => {
+    // arrange
+    // act
+    const state = pullStateAt(history, CHAIN[0] as GitOid);
+
+    // assert
+    expect(state).toEqual({
+      version: 1,
+      head: CHAIN[0] as GitOid,
+      origin: { kind: "opened" },
+    });
+  });
+
+  test("finds a head a force push produced", () => {
+    // arrange
+    // act
+    const state = pullStateAt(history, CHAIN[4] as GitOid);
+
+    // assert
+    expect(state.version).toBe(5);
+    expect(state.head).toBe(CHAIN[4] as GitOid);
+    expect(state.origin.kind).toBe("force-pushed");
+  });
+
+  test("refuses a head the pull request never had", () => {
+    // arrange
+    const stranger = oid("f");
+
+    // act
+    const error = catchError(() => pullStateAt(history, stranger));
+
+    // assert
+    expect(error).toBeInstanceOf(GitHubError);
+    expect(error).toMatchObject({ kind: "not-found" });
+    expect((error as Error).message).toContain(stranger);
+  });
+
+  test("refuses the base branch tip, which is not one of the heads", () => {
+    // arrange
+    // act
+    const error = catchError(() => pullStateAt(history, BASE));
+
+    // assert
+    expect(error).toMatchObject({ name: "GitHubError", kind: "not-found" });
+  });
 });
 // ~/~ end

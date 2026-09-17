@@ -526,6 +526,49 @@ export async function githubPullRequestHistory(
 }
 ```
 
+### Naming one state of a pull request
+
+A state is named by its head, never by its version, because a version number
+can come to mean a different commit. `version` is a position in the chain,
+assigned after collapsing and counted from one, so any state that leaves the
+chain renumbers every state after it: a head GitHub has garbage collected, a
+duplicate push that the collapse removes, or a hundred-and-first force push
+that pages the early ones out. A reader who bookmarked "v7" comes back to
+another commit, and nothing anywhere says so. A head is a commit id, and a
+commit id is the same commit forever.
+
+A head is therefore what every parameter naming a state takes, and
+`pullStateAt` is the lookup from head back to the state that carries it.
+Version numbers survive as display labels only. A chip reading `v7` is legible
+where forty hex characters are not.
+
+The lookup doubles as the check. `gitMaterialize` asks a remote for an object
+id by name, so an oid that reaches it unvalidated lets any URL make the server
+fetch any object out of `origin`, including one belonging to a branch the
+reader was never shown. Resolving the head against the pull request's own chain
+first means the only ids ever fetched are ids GitHub has already published as
+heads of the pull request being read.
+
+```ts
+//| id: github-module
+
+/** The state this pull request was in at `head`. Throws if it never had one. */
+export function pullStateAt(
+  history: PullRequestHistory,
+  head: GitOid,
+): PullRequestState {
+  const state = history.states.find((candidate) => candidate.head === head);
+  if (state === undefined) {
+    throw new GitHubError(
+      `#${history.number} never had head ${head}`,
+      "not-found",
+    );
+  }
+
+  return state;
+}
+```
+
 #### Test
 
 These tests make no network call. The transport is a parameter, so every case
@@ -551,8 +594,10 @@ import {
   githubPullRequests,
   headChain,
   PullNumber,
+  type PullRequestHistory,
   parsePullNumber,
   parseRepoRef,
+  pullStateAt,
 } from "./github";
 
 /** The heads pull request #9 of this repo has had, oldest first. */
@@ -920,5 +965,81 @@ describe("parsePullNumber", () => {
       expect(() => parsePullNumber(raw)).toThrow(z.ZodError);
     },
   );
+});
+```
+
+`pullStateAt` is pure and its input is a plain object, so its tests build a
+history by hand rather than going through a stubbed envelope. The case that
+earns its place is the last one. A 40-character hex string that is a real
+object id but not one of this pull request's heads has to be refused, because
+that is the shape a caller reaching for somebody else's commit arrives in.
+
+```ts
+//| id: github-module-test
+
+/** The error a call threw, so an assertion can look past its message. */
+function catchError(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected the call to throw");
+}
+
+describe("pullStateAt", () => {
+  const history: PullRequestHistory = {
+    number: PullNumber.parse(9),
+    baseRefName: "main",
+    baseRefOid: BASE,
+    states: headChain(chainEvents(CHAIN), CHAIN.at(-1) as GitOid),
+    truncated: false,
+  };
+
+  test("finds the head the pull request opened with", () => {
+    // arrange
+    // act
+    const state = pullStateAt(history, CHAIN[0] as GitOid);
+
+    // assert
+    expect(state).toEqual({
+      version: 1,
+      head: CHAIN[0] as GitOid,
+      origin: { kind: "opened" },
+    });
+  });
+
+  test("finds a head a force push produced", () => {
+    // arrange
+    // act
+    const state = pullStateAt(history, CHAIN[4] as GitOid);
+
+    // assert
+    expect(state.version).toBe(5);
+    expect(state.head).toBe(CHAIN[4] as GitOid);
+    expect(state.origin.kind).toBe("force-pushed");
+  });
+
+  test("refuses a head the pull request never had", () => {
+    // arrange
+    const stranger = oid("f");
+
+    // act
+    const error = catchError(() => pullStateAt(history, stranger));
+
+    // assert
+    expect(error).toBeInstanceOf(GitHubError);
+    expect(error).toMatchObject({ kind: "not-found" });
+    expect((error as Error).message).toContain(stranger);
+  });
+
+  test("refuses the base branch tip, which is not one of the heads", () => {
+    // arrange
+    // act
+    const error = catchError(() => pullStateAt(history, BASE));
+
+    // assert
+    expect(error).toMatchObject({ name: "GitHubError", kind: "not-found" });
+  });
 });
 ```

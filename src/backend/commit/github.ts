@@ -367,3 +367,21 @@ export async function githubPullRequestHistory(
   };
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[7]
+
+/** The state this pull request was in at `head`. Throws if it never had one. */
+export function pullStateAt(
+  history: PullRequestHistory,
+  head: GitOid,
+): PullRequestState {
+  const state = history.states.find((candidate) => candidate.head === head);
+  if (state === undefined) {
+    throw new GitHubError(
+      `#${history.number} never had head ${head}`,
+      "not-found",
+    );
+  }
+
+  return state;
+}
+// ~/~ end
