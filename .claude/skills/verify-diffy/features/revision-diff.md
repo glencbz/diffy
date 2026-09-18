@@ -43,7 +43,7 @@ Preconditions:
 - **Confirm against the API.** Take the change id from the row's accessible name
   and run `curl -fsS "$URL/api/diff?rev=<changeId>"`. The `status`, `path` and
   `patch` must match what the pane rendered.
-- **Proof.** `browser_snapshot` for the patch text, plus an absolute-path
+- **Proof.** `browser_snapshot` for the patch text, plus an unnamed
   `browser_take_screenshot` for the colouring.
 
 ## Gotchas

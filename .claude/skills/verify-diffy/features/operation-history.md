@@ -47,7 +47,7 @@ Preconditions:
 - **Return to the present.** `browser_select_option` with
   `values: ["latest (current)"]`, then `browser_wait_for` with
   `text: "fixture: merge the two topics"`.
-- **Proof.** A snapshot and an absolute-path screenshot at the travelled state,
+- **Proof.** A snapshot and an unnamed screenshot at the travelled state,
   showing the selected option and the shortened log together.
 
 ## Gotchas

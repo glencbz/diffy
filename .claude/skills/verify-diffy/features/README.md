@@ -29,8 +29,8 @@ feature file.
 ## Proof and skip reporting
 
 - Capture the action and the state it produced, not only the final screen.
-- UI proof is an ARIA snapshot plus a screenshot at an absolute path under
-  `.claude/verify-artifacts/`.
+- UI proof is an ARIA snapshot plus an unnamed screenshot, the form that hands
+  back the image rather than a link to one.
 - Confirm what the UI shows against the same data from `/api/*`.
 - Record the feature id and the entry point used with every artifact.
 - Report an unreachable path with the attempted call and the unmet
