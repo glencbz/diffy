@@ -1,27 +1,24 @@
 # Local git object store
 
-The [GitHub backend](github.md) knows which commits a pull request has had. It
-does not know what any of them say. This module is the other half: the local
-git object store, asked directly through the `git` CLI, which is where commit
-content comes from.
+Commit content comes from the local git object store, asked through the `git`
+CLI. The [GitHub backend](github.md) knows which commits a pull request has
+had; this module is the other half, and knows what they say.
 
-It knows nothing about GitHub, pull requests or forces pushes. Everything it
-takes is an object id and everything it answers is what the store holds. That
-split is deliberate. Commit metadata that arrives over an API is a claim about
-a remote at one moment, while the object store either has an object or does
-not, and a reader can check. Keeping the two apart means only one of them can
-be stale.
+Everything it takes is an object id and everything it answers is what the
+store holds, so nothing here knows about GitHub, pull requests or force
+pushes. Metadata that arrives over an API is a claim about a remote at one
+moment. The object store either has an object or does not, and a reader can
+check. Only one of the two can go stale.
 
 ## Functionality
 
 ### Naming a commit
 
 A `GitOid` is a full 40-character object id, and abbreviations are refused at
-the type boundary rather than resolved. Fetching a single object by id needs
-the whole id: the remote is being asked for a name it cannot look up in a ref,
-so there is nothing to disambiguate a prefix against. Accepting short ids here
-would mean a value that works for a local lookup and fails for a fetch, which
-is the sort of distinction a type is for.
+the type boundary rather than resolved, because fetching a single object by id
+needs the whole id. The remote is being asked for a name it cannot look up in
+a ref, so there is nothing to disambiguate a prefix against. A short id would
+work for a local lookup and fail for a fetch.
 
 `LocalOid` goes one step further. It is a `GitOid` carrying a witness that the
 object store has the commit, and `gitMaterialize` is the only function that
@@ -31,8 +28,8 @@ The alternative, a plain `GitOid` everywhere and a runtime check inside every
 reader, puts the same check in every new reader and forgets it in one of them.
 
 `GitError` covers both ways a `git` call can let us down: a non-zero exit, and
-a fetch that reports success without leaving the objects behind. The second is
-not hypothetical. A remote is free to refuse an unreachable object, and older
+a fetch that reports success without leaving the objects behind. A remote is
+free to refuse an unreachable object, and older
 `git` versions say so only in the exit status of the ref update.
 
 ```ts
@@ -99,9 +96,8 @@ perfectly present answers no, which is the answer a commit reader wants. The
 command is local and makes no network call.
 
 Absence is an ordinary answer rather than a failure, so this returns `false`
-instead of throwing. Every caller is about to decide whether to fetch, and a
-thrown exception would make "not here yet" the exceptional path when it is the
-common one.
+instead of throwing. Every caller is about to decide whether to fetch, and
+"not here yet" is the common case.
 
 ```ts
 //| id: git-module
@@ -124,35 +120,33 @@ at all.
 
 The destination ref is the load-bearing half of that command. A fetched object
 that nothing points at is unreachable locally too, and the next `git gc
---prune` deletes it, taking the review's "before" side with it. The ref is what
-keeps the object alive, so the ref has to say who is keeping it alive.
+--prune` deletes it, taking the review's "before" side with it. The ref keeps
+the object alive, so it has to say who is keeping it alive. Every pin therefore
+arrives as a `GitPin`, an oid together with the path that will hold it, and
+this module invents neither. Callers name their own pins, so nothing here knows
+what a pull request is; `gitForget` takes a path prefix and drops everything
+beneath it.
 
-Every pin therefore arrives as a `GitPin`, an oid together with the path that
-will hold it, and this module never invents either. Callers name their own pins,
-so nothing here knows what a pull request is; `gitForget` takes a path prefix and
-drops everything beneath it.
-
-The naming that matters is the one the GitHub side chooses, `pull/<number>/v<n>`,
-mirroring the `refs/pull/<number>/` layout GitHub publishes. Reusing GitHub's own
-refs was the first thing to try and they do not answer. `refs/pull/<number>/head`
-tracks only the current head, so every state a force push replaced, which is the
-entire reason this module exists, is advertised by no ref on the remote at all.
-Those commits are still fetchable by oid, which is what makes any of this work,
-but nothing names them.
+The naming that matters is the one the GitHub side chooses,
+`pull/<number>/v<n>`, mirroring the `refs/pull/<number>/` layout GitHub
+publishes. GitHub's own refs do not answer. `refs/pull/<number>/head` tracks
+only the current head, so every state a force push replaced, which is the
+entire reason this module exists, is advertised by no ref on the remote at
+all. Those commits are still fetchable by
+oid, which is what makes any of this work, but nothing names them.
 
 Grouping under the pull request is what makes the pins collectable. A flat
-namespace records that something wanted an object once and never when that stops
-being true, so refs accumulate with no rule for clearing them. Grouped under the
-pull request that pulled them in, the rule is ordinary: finish with a pull
-request and the whole subtree can go.
+namespace records that something wanted an object once and never when that
+stops being true, so refs accumulate with no rule for clearing them. Grouped
+under the pull request that pulled them in, the rule is ordinary: finish with a
+pull request and the whole subtree can go.
 
-Numbering the states rather than spelling their oids costs one property and buys
-another. The version is diffy's own count of the force-push chain, not an
-identifier GitHub issues, so it moves if GitHub ever collects the commits behind
-an old event and that event drops out of the chain. The refs are a cache, not a
-record, so a moved number re-points a ref and at worst orphans an object that the
-next view fetches again. What it buys is a namespace a person can read, which
-matters for refs whose whole purpose is being inspected and pruned by hand.
+That `v<n>` is diffy's own count of the force-push chain, not an identifier
+GitHub issues, so it moves if GitHub collects the commits behind an old event
+and that event drops out of the chain. The refs are a cache, not a record, so a
+moved number re-points a ref and at worst orphans an object the next view
+fetches again. What it buys is a namespace a person can read, which matters for
+refs meant to be inspected and pruned by hand.
 
 The refs sit under a namespace of our own, so they never appear as branches or
 tags and jj never imports them as bookmarks.
@@ -169,9 +163,9 @@ store are filtered out first, so the all-present case, which is every repeat
 view of the same pull request, costs a few `cat-file` calls and no network at
 all.
 
-The presence re-check afterwards is not belt and braces. `git fetch` can exit
-zero having declined an individual refspec, so the only trustworthy report that
-the objects arrived is the object store itself. Anything still missing is a
+`git fetch` can exit zero having declined an individual refspec, so the only
+trustworthy report that the objects arrived is the object store itself, which
+is what the presence re-check afterwards reads. Anything still missing is a
 `GitError` naming it, and the error carries whatever the remote said.
 
 The returned witnesses follow the order asked, duplicates included, so a caller
@@ -338,10 +332,10 @@ than a mock, the same call the [jj tests](jj.md#test) make. What they assert on
 is structural: this repo always has a `HEAD` with an ancestor, and 40 `f`s are
 never an object.
 
-The `gitMaterialize` case is about idempotence, not fetching. Running it twice
-over an oid that is already present must succeed both times and must not reach
-the network, which is the property that makes repeat views of a pull request
-cheap. A fetch test would need a remote and would prove less.
+The `gitMaterialize` case is about idempotence. Running it twice over an oid
+that is already present must succeed both times and must not reach the network,
+which is what makes repeat views of a pull request cheap. A fetch test would
+need a remote and would prove less.
 
 ```ts
 //| id: git-module-test

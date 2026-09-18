@@ -32,33 +32,32 @@ and parses the diffs; the frontend only renders.
 
 ### Web backend
 
-The backend will use Bun, which is really convenient to set up and reduces the
+The backend uses Bun, which is really convenient to set up and reduces the
 complexity hell that is most Node projects.
 
 ### Commit backend
 
-To get the source of commits, we'll introduce an abstraction over a source of
-commits: the Commit backend. The first commit backend we want is jj, but
-subsequently we'll also grab commits from different PR versions on GitHub.
+Commits come from a commit backend. There are two, jj and a GitHub pull
+request, and no shared interface between them. Two implementations is not
+enough to know what the abstraction should be, and one guessed from either
+would only describe that one again. They stay apart until a third case, or a
+real need to swap them, says what they have in common.
 
-A commit backend must support the following operations:
+A backend has to answer three questions:
 
 * Get a list of commits with topological sorting.
 * Get the diff of single commit.
 * Get the parent of the commit.
 
+jj answers all three through one CLI. The GitHub backend takes two modules to
+do it, one for which commits a pull request has had and one for what they
+contain.
+
 #### jj backend
 
-We'll use jj via CLI because that's more stable than the library.
+jj is reached through its CLI, which is more stable than the library.
 
 #### GitHub backend
-
-The second source of commits is a GitHub pull request, and it is deliberately
-a separate backend rather than a second implementation of the jj one. Two
-implementations is not enough to know what the shared interface should be, and
-an interface guessed from one of them would only describe jj again. They stay
-apart until a third case, or a real need to swap them, says what they have in
-common.
 
 A pull request's history axis is its chain of force pushes. Every force push
 records the head before it and the head after it, so the heads a branch has

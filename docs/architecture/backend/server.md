@@ -2,7 +2,7 @@
 
 ## Web server
 
-As with all our components, we add a just rule to run the backend:
+A just rule runs the backend:
 
 ```just
 #| id: just-bun
@@ -159,16 +159,16 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 
 ### Reading a pull request from GitHub
 
-The [GitHub backend](github.md) fails in more ways than jj does, and they are
-not all the caller's fault, so `githubJson` sorts them rather than flattening
-everything into a 400 the way `jjJson` can. A `GitHubError` of kind
-`not-found` is a 404, because the repository or the pull request the URL names
-does not exist. Kind `upstream` is a 502: GitHub was asked and did not answer.
-A `GitError` is also a 502, which is the least obvious of the four. It means
-GitHub named a commit, we asked the remote for it and the remote would not hand
-it over, so the request was well-formed and the upstream is inconsistent. A
-`ZodError` is the only 400 left, and it carries `z.prettifyError`'s rendering,
-which names the offending field instead of making the caller guess.
+The [GitHub backend](github.md) fails in more ways than jj does, and not all of
+them are the caller's fault, so `githubJson` sorts them rather than flattening
+everything into a 400 the way `jjJson` can. A `GitHubError` of kind `not-found`
+is a 404, because the repository or the pull request the URL names does not
+exist. Kind `upstream` is a 502, meaning GitHub was asked and did not answer. A
+`GitError` is the least obvious 502: GitHub named a commit, we asked the remote
+for it and the remote would not hand it over, so the request was well-formed
+and the upstream is inconsistent. A `ZodError` is the only 400 left, and it
+carries `z.prettifyError`'s rendering, which names the offending field instead
+of making the caller guess.
 
 ```ts
 //| id: backend-server
@@ -238,12 +238,11 @@ commits under a given head are. The order of the four steps is the whole
 design.
 
 The head is checked against the pull request's own chain **before** anything is
-fetched. That is a security property, not a nicety. `gitMaterialize` asks a
-remote for an object id by name, and an id that reaches it unchecked means any
-URL can make this server fetch any object out of `origin`, including one that
-belongs to a branch the reader was never shown. Validating first means the only
-ids we will ever fetch are ids GitHub already published as heads of the pull
-request being read.
+fetched, which is a security property. `gitMaterialize` asks a remote for an
+object id by name, and an id that reaches it unchecked means any URL can make
+this server fetch any object out of `origin`, including one on a branch the
+reader was never shown. Validating first means the only ids we ever fetch are
+ids GitHub already published as heads of the pull request being read.
 
 The base is the pull request's base branch tip now, not what it was then, which
 is all GitHub keeps. `git log <base>..<head>` is therefore "the commits this
@@ -523,10 +522,9 @@ describe("handleInterdiff", () => {
 
 
 The GitHub routes are only tested for what they refuse. Every other case talks
-to GitHub, and a test suite that needs a token and a network is a test suite
-that fails for reasons unrelated to the code. What matters here is that a
-malformed parameter is a 400 and that it costs no API call, which is the same
-thing as saying the parse happens first.
+to GitHub, and a test suite that needs a token and a network fails for reasons
+unrelated to the code. What these pin is that a malformed parameter is a 400
+and costs no API call, which is the same as saying the parse happens first.
 
 ```ts
 //| id: backend-server-test

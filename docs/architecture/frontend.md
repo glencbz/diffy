@@ -14,9 +14,9 @@ commit-at-a-time job.
 An operation selector sits above each picker. jj records every repo mutation as
 an operation; picking a past one rewinds that side's log to how it looked right
 after that step, via `jj ... --at-operation`. The two sides choose
-independently, and that is the whole point. A commit as it stood ten operations
-ago and the same commit now are exactly the pair worth comparing, and no single
-view of the repo holds both.
+independently. A commit as it stood ten operations ago and the same commit now
+are exactly the pair worth comparing, and no single view of the repo holds
+both.
 
 A commit with nothing opposite it shows its own diff, whether that is because
 the reader picked one side only or because the commit was added to or dropped
@@ -25,7 +25,7 @@ an empty before side, rather than a second mode to switch into.
 
 The tech plan first sketched this in htmx. We went with React instead. The
 pickers carry client-side state. Two selections drive the diff panel, and both
-have to survive each of those loads. Component state does that cleanly. htmx
+have to survive every reload of either side. Component state does that cleanly. htmx
 would need a stack of out-of-band swaps.
 
 ## Architecture
@@ -63,10 +63,10 @@ argument: it names its two commits by commit id, which resolves in any view.
 ### state
 
 Each `state/` module owns one slice of the app's data and keeps it current with
-the backend. `useOperations` owns the operation list. `useCommitLog` owns the
-commit list for one side's selected operation, so there is one instance of it
-per side. `useInterdiff` owns the diff between the two selected commits. Ownership is the point. One module loads its slice and
-reloads it when the input changes. The same module holds the loading and error
+the backend. `useOperations` owns the operation list. `useCommitLog` owns the commit list
+for one side's selected operation, so there is one instance of it per side.
+`useInterdiff` owns the diff between the two selected commits. One module loads
+its slice, reloads it when the input changes, and holds the loading and error
 state around it.
 
 `useEffect` plus fetch plus cancel-on-change is fiddly, and it runs the same
@@ -100,11 +100,11 @@ A controller in `controllers/` wires one state hook to one view. It calls the
 hook and reads the `AsyncState`. Then it renders the view or a `Message`. It
 has no markup of its own.
 
-When there is no diff to show yet, the controller decides what goes on screen.
-`DiffView` never sees that case. It stays at "render these files", with no null
-checks. One panel's branching sits in one file. `OperationLog` drives
-`OperationPicker`. `CommitLog` drives `CommitGraph`. `Interdiff` drives
-`ComparisonHeader` and `DiffView`.
+When there is no diff to show yet, the controller decides what goes on screen,
+so `DiffView` stays at "render these files" with no null checks and one panel's
+branching sits in one file. `OperationLog` drives `OperationPicker`.
+`CommitLog` drives `CommitGraph`. `Interdiff` drives `ComparisonHeader` and
+`DiffView`.
 
 ### root
 
@@ -730,10 +730,9 @@ and a selection has to keep meaning the one commit the reader clicked.
 
 Any number of rows can be selected, and the graph hands back the whole
 selection rather than the row that was clicked. It orders that selection the
-way the log is ordered, because it is the only piece of the app that knows
-what the order is. Click order would mean a series lines up against the other
-side in whatever sequence the reader happened to click, which is not an order
-at all.
+way the log is ordered, because it is the only piece of the app that knows what
+the order is. Click order would line a series up against the other side in
+whatever sequence the reader happened to click.
 
 ```tsx
 //| id: frontend-view-commit-graph
@@ -955,10 +954,10 @@ order of the graphs that fed it. Each section is its own header and its own
 patch, so a reader scrolls the comparison the way they scroll a branch.
 
 A row with no files still renders, and says which kind of nothing it is. Two
-commits that make the same change is the answer someone checking a rebase is
-looking for; an empty commit on its own is not the same statement. That
-branch lives here rather than in the controller, because it is per row and the
-controller sees the list.
+commits that make the same change is the answer someone checking a rebase
+wants; an empty commit on its own says something else. That branch lives here
+rather than in the controller, because it is per row and the controller sees
+the list.
 
 ```tsx
 //| id: frontend-view-interdiff-rows
