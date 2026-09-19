@@ -78,7 +78,7 @@ describe("commitsFrom", () => {
     expect(commits).toEqual([
       {
         commitId: HEAD,
-        changeId: HEAD,
+        changeId: null,
         description: "frontend: give the graph side-by-side branch lanes",
         parents: [BASE],
       },

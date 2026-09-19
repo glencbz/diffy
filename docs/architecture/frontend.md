@@ -589,10 +589,13 @@ a response that lands after the source has moved on again. `commitsFrom` is the
 one place in the app that dispatches on `source.kind`, so adding a third kind
 of source is one branch here and nothing anywhere else.
 
-A git commit has no change id. `commitsFrom` puts its commit id in that field,
-because the graph rows abbreviate the change id and the abbreviation of a
-commit id is the short oid, which is how GitHub names the same commit on the
-same screen.
+A git commit has no change id, and `commitsFrom` leaves the field null rather
+than filling it with the commit id. A row names both ids, so a commit id
+standing in for a change id would print twice, and the two are not
+interchangeable: a change id survives an amend and a commit id does not. The
+row falls back to the short oid on its own, which is how GitHub names the same
+commit on the same screen, and `reviewKey` reads the null as its cue to key a
+mark by revision.
 
 A source is an object, freshly built every render, so the effect cannot depend
 on it directly without restarting on every render. It depends on the source's
@@ -616,7 +619,7 @@ import type { AsyncState } from "./asyncState";
 function asLogEntry(commit: GitCommit): LogEntry {
   return {
     commitId: commit.commitId,
-    changeId: commit.commitId,
+    changeId: null,
     description: commit.description,
     parents: commit.parents,
   };
@@ -748,7 +751,7 @@ describe("commitsFrom", () => {
     expect(commits).toEqual([
       {
         commitId: HEAD,
-        changeId: HEAD,
+        changeId: null,
         description: "frontend: give the graph side-by-side branch lanes",
         parents: [BASE],
       },
