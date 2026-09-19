@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
 import {
+  COMMIT_MARKERS,
   JjError,
   jjCommits,
   jjDiff,
@@ -23,11 +24,46 @@ describe("jjLog", () => {
       expect(typeof entry.changeId).toBe("string");
       expect(typeof entry.description).toBe("string");
       expect(Array.isArray(entry.parents)).toBe(true);
+      expect(typeof entry.author).toBe("string");
+      expect(Number.isNaN(Date.parse(entry.timestamp))).toBe(false);
+      for (const ref of entry.refs) expect(typeof ref.name).toBe("string");
+      for (const marker of entry.markers) {
+        expect(COMMIT_MARKERS).toContain(marker);
+      }
     }
 
     const root = entries.at(-1);
     expect(root?.commitId).toBe("0".repeat(40));
     expect(root?.changeId).toBe("z".repeat(32));
+    expect(root?.markers).toEqual(["empty"]);
+    expect(root?.refs).toEqual([]);
+  });
+
+  test("marks the working copy and nothing else", async () => {
+    // arrange
+    // act
+    const entries = await jjLog({ revset: "all()" });
+
+    // assert
+    const here = entries.filter((entry) =>
+      entry.markers.includes("working-copy"),
+    );
+    expect(here).toHaveLength(1);
+    expect(here[0]?.commitId).toBe(
+      (await jjLog({ revset: "@" }))[0]?.commitId as string,
+    );
+  });
+
+  test("names the bookmarks pointing at a commit", async () => {
+    // arrange
+    // act
+    const entries = await jjLog({ revset: "bookmarks()" });
+
+    // assert
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.refs.some((ref) => ref.kind === "bookmark")).toBe(true);
+    }
   });
 
   test("respects the limit option", async () => {
