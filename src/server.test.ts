@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { jjLog } from "./backend/commit/jj";
+import type { GitHubGraphQL } from "./backend/commit/github";
+import { jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -9,6 +10,7 @@ import {
   handleInterdiff,
   handleLog,
   handleOperations,
+  pullDiffResponse,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -243,6 +245,143 @@ describe("the GitHub routes", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/40-character/);
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[2]
+
+describe("pullDiffResponse", () => {
+  /** A pull request whose base and heads are commits every clone of this repo has. */
+  async function localPull(): Promise<{ base: string; heads: string[] }> {
+    return {
+      base: await commitId("root()+"),
+      heads: [await commitId("root()++"), await commitId("root()+++")],
+    };
+  }
+
+  /** A transport that answers the history query for that pull request. */
+  function stubHistory(base: string, heads: string[]): GitHubGraphQL {
+    return () =>
+      Promise.resolve({
+        data: {
+          repository: {
+            pullRequest: {
+              number: 9,
+              headRefOid: heads.at(-1),
+              baseRefName: "main",
+              baseRefOid: base,
+              timelineItems: {
+                pageInfo: { hasNextPage: false },
+                nodes: heads.slice(1).map((after, index) => ({
+                  createdAt: "2026-09-01T10:00:00Z",
+                  beforeCommit: { oid: heads[index] },
+                  afterCommit: { oid: after },
+                })),
+              },
+            },
+          },
+        },
+      });
+  }
+
+  const unreachable: GitHubGraphQL = () =>
+    Promise.reject(new Error("the transport should not have been reached"));
+
+  function query(extra: Record<string, string>): URLSearchParams {
+    return new URLSearchParams({
+      repo: "glencbz/diffy",
+      number: "9",
+      ...extra,
+    });
+  }
+
+  async function body(res: Response) {
+    return (await res.json()) as {
+      from: string;
+      to: string;
+      files: { status: string; path?: string; newPath?: string }[];
+      error?: string;
+    };
+  }
+
+  function paths(files: { path?: string; newPath?: string }[]): string[] {
+    return files.map((file) => file.path ?? file.newPath ?? "");
+  }
+
+  test("interdiffs two heads of the same pull request", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const [earlier, later] = heads as [string, string];
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: earlier, to: later }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.from).toBe(earlier);
+    expect(answer.to).toBe(later);
+    expect(answer.files).toEqual(
+      await jjInterdiff({ from: earlier, to: later }),
+    );
+    expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
+  });
+
+  test("reports a head that is not a 40-hex oid as 400, before asking GitHub", async () => {
+    // arrange
+    // act
+    const res = await pullDiffResponse(query({ to: "nope" }), unreachable);
+
+    // assert
+    expect(res.status).toBe(400);
+    expect((await body(res)).error).toMatch(/40-character/);
+  });
+
+  test("reports a malformed from the same way as a malformed to", async () => {
+    // arrange
+    const { heads } = await localPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "nope", to: heads[1] as string }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+
+  test("reports a missing from as 400, before asking GitHub", async () => {
+    // arrange
+    const { heads } = await localPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ to: heads[1] as string }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+
+  test("reports a head this pull request never had as 404", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const stranger = "f".repeat(40);
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: heads[0] as string, to: stranger }),
+      stubHistory(base, heads),
+    );
+
+    // assert
+    expect(res.status).toBe(404);
+    expect((await body(res)).error).toMatch(/never had head/);
   });
 });
 // ~/~ end

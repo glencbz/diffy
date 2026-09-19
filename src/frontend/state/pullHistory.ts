@@ -1,19 +1,20 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-commit-log>>[init]
+// ~/~ begin <<docs/architecture/frontend.md#frontend-state-pull-history>>[init]
 import { useEffect, useState } from "react";
-import { fetchLog, type LogEntry } from "../api";
+import { fetchPullHistory, type PullHistory } from "../api";
 import type { AsyncState } from "./asyncState";
 
-export function useCommitLog(
-  atOperation: string | null,
-): AsyncState<LogEntry[]> {
-  const [state, setState] = useState<AsyncState<LogEntry[]>>({
+export function usePullHistory(
+  repo: string,
+  number: number,
+): AsyncState<PullHistory> {
+  const [state, setState] = useState<AsyncState<PullHistory>>({
     status: "loading",
   });
 
   useEffect(() => {
     let live = true;
     setState({ status: "loading" });
-    fetchLog(atOperation ?? undefined)
+    fetchPullHistory(repo, number)
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -23,7 +24,7 @@ export function useCommitLog(
     return () => {
       live = false;
     };
-  }, [atOperation]);
+  }, [repo, number]);
 
   return state;
 }

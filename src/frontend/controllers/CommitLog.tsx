@@ -1,18 +1,19 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-controller-commit-log>>[init]
-import { useCommitLog } from "../state/commitLog";
+import type { Source } from "../api";
+import { useCommits } from "../state/commits";
 import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";
 
 export function CommitLog({
-  atOperation,
+  source,
   selected,
   onSelect,
 }: {
-  atOperation: string | null;
+  source: Source;
   selected: string[];
-  onSelect: (commitIds: string[]) => void;
+  onSelect?: ((commitIds: string[]) => void) | undefined;
 }) {
-  const log = useCommitLog(atOperation);
+  const log = useCommits(source);
 
   if (log.status === "loading") return <Message>Loading commits...</Message>;
   if (log.status === "error") {
