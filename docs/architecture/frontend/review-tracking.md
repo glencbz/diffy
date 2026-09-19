@@ -578,6 +578,62 @@ describe("reviewKey", () => {
   });
 });
 ```
+
+A comment or a comparison row is always in one of the same three states —
+still open, resolved, or stale against a rewrite since it was written — and
+`--review-open`, `--review-resolved`, and `--review-stale` are the one set
+of roles that both the tone chip on a comparison header and the accent on a
+comment thread read from. A resolved comment and a resolved row share a
+colour without either file naming it.
+
+```css
+/*| id: design-review-state
+.review-chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-large);
+  font-size: var(--text-size-small);
+}
+
+.review-chip--resolved {
+  background: var(--review-seen-surface);
+  color: var(--review-resolved);
+  border: 1px solid var(--review-seen-border);
+}
+
+.review-chip--stale {
+  background: var(--review-changed-surface);
+  color: var(--review-stale);
+  border: 1px solid var(--review-changed-border);
+}
+
+.review-chip--open {
+  background: var(--review-open-surface);
+  color: var(--review-open);
+  border: 1px solid var(--review-open-border);
+}
+
+.comment-thread {
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) var(--space-4);
+  border-left: var(--border-width-accent) solid var(--review-open);
+}
+
+.comment-thread--resolved {
+  border-left-color: var(--review-resolved);
+  opacity: 0.72;
+}
+
+.comment-thread__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-faint);
+}
+
+.comment-thread__stale {
+  color: var(--review-stale);
+}
+```
 ## Session
 
 The session belongs to whoever is reading, not to the repository being read,

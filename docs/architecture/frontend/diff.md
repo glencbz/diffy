@@ -489,6 +489,110 @@ function gutterLines(patch: string): GutterLine[] {
 }
 ```
 
+A patch line's colour is chosen from the same fixed set a unified diff
+always has — added, removed, a hunk header, or file-level meta — so DiffView
+maps a line's text to one of four modifier classes instead of a lookup
+table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
+`--diff-meta` are the only place those colours live.
+
+```css
+/*| id: design-diff-view
+.diff-view {
+  padding: var(--space-5);
+}
+
+.diff-file {
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+}
+
+.diff-file__header {
+  padding: var(--space-2) var(--space-4);
+  font-weight: bold;
+  background: var(--surface-raised);
+}
+
+.diff-file__status {
+  margin-right: var(--space-4);
+  color: var(--text-muted);
+}
+
+.diff-file__binary {
+  padding: var(--space-4);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.diff-file__patch {
+  margin: 0;
+  padding: var(--space-4);
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.diff-line--interactive {
+  cursor: pointer;
+}
+
+.diff-line__gutter {
+  width: var(--gutter-width);
+  flex: none;
+  margin-right: var(--space-4);
+  text-align: right;
+  color: var(--text-ghost);
+  user-select: none;
+}
+
+.diff-line__text--meta {
+  color: var(--diff-meta);
+}
+
+.diff-line__text--hunk {
+  color: var(--diff-hunk);
+}
+
+.diff-line__text--added {
+  color: var(--diff-added);
+}
+
+.diff-line__text--removed {
+  color: var(--diff-removed);
+}
+
+.comment-composer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.comment-composer__line {
+  margin-bottom: var(--space-2);
+  color: var(--text-faint);
+}
+
+.comment-composer__input {
+  width: 100%;
+  font: inherit;
+}
+
+.comment-composer__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+```
+
 ## Interdiff rows
 
 One section per lined-up pair, in the order the backend sent them, which is the
@@ -563,6 +667,18 @@ export function InterdiffRows({
 
 function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
+}
+```
+
+A comparison with no files still renders, and the placeholder saying so
+gets the same muted italic treatment every empty state in the app uses.
+
+```css
+/*| id: design-interdiff-rows
+.interdiff-empty {
+  padding: var(--space-5);
+  font-style: italic;
+  color: var(--text-muted);
 }
 ```
 ## Comparison header
@@ -659,5 +775,47 @@ function Chip({
   children: ReactNode;
 }) {
   return <span className={`review-chip ${TONE_CLASS[tone]}`}>{children}</span>;
+}
+```
+
+ComparisonHeader stacks the before and after rows over a strip of review
+actions, and the caption column is a fixed width so "before" and "after"
+line up with each other no matter how long the commit summary next to them
+runs.
+
+```css
+/*| id: design-comparison-header
+.comparison-header {
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-header__row {
+  display: flex;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.comparison-header__caption {
+  width: var(--label-width);
+  flex: none;
+  color: var(--text-faint);
+}
+
+.comparison-header__unavailable {
+  font-style: italic;
+  color: var(--text-ghost);
+}
+
+.comparison-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.comparison-header__mark-seen {
+  font: inherit;
 }
 ```

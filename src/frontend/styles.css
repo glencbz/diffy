@@ -1,5 +1,5 @@
-/* ~/~ begin <<docs/architecture/design-system.md#stylesheet>>[init] */
-/* ~/~ begin <<docs/architecture/design-system.md#design-primitives>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/index.md#stylesheet>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-primitives>>[init] */
 :root {
   --grey-0: #ffffff;
   --grey-50: #fafafa;
@@ -35,7 +35,7 @@
   --teal-600: #1b7c83;
 }
 /* ~/~ end */
-/* ~/~ begin <<docs/architecture/design-system.md#design-primitives>>[1] */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-primitives>>[1] */
 :root {
   --grey-800: #30363d;
   --grey-850: #21262d;
@@ -59,7 +59,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-roles>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-roles>>[init] */
 :root {
   --surface: var(--grey-0);
   --surface-raised: var(--grey-100);
@@ -110,7 +110,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-metrics>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-metrics>>[init] */
 :root {
   --space-1: 2px;
   --space-2: 4px;
@@ -138,7 +138,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-shell>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/shell.md#design-app>>[init] */
 body {
   margin: 0;
 }
@@ -152,7 +152,9 @@ body {
   color: var(--text);
   background: var(--surface);
 }
+/* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/shell.md#design-mode-tabs>>[init] */
 .tabs {
   display: flex;
   flex: none;
@@ -181,7 +183,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-panes>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-panes>>[init] */
 .panes {
   display: flex;
   flex: 1;
@@ -242,7 +244,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-message>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/shell.md#design-message>>[init] */
 .message {
   padding: var(--space-5);
   color: var(--text);
@@ -253,7 +255,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-operation-picker>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[init] */
 .operation-picker {
   display: flex;
   align-items: center;
@@ -272,7 +274,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-commit-label>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-label>>[init] */
 .commit-label__id {
   margin-right: var(--space-4);
   color: var(--text-faint);
@@ -292,7 +294,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-comparison-header>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-comparison-header>>[init] */
 .comparison-header {
   padding: var(--space-4) var(--space-5);
   background: var(--surface-sunken);
@@ -328,7 +330,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-review-state>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/review-tracking.md#design-review-state>>[init] */
 .review-chip {
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-large);
@@ -376,7 +378,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-commit-graph>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-graph>>[init] */
 .commit-graph__row {
   display: flex;
   align-items: center;
@@ -444,7 +446,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-interdiff-rows>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-interdiff-rows>>[init] */
 .interdiff-empty {
   padding: var(--space-5);
   font-style: italic;
@@ -452,7 +454,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-diff-view>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[init] */
 .diff-view {
   padding: var(--space-5);
 }
@@ -549,7 +551,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-pull-state-chip>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-state-chip>>[init] */
 .chip {
   flex: none;
   padding: 0 var(--space-3);
@@ -571,7 +573,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-pull-list>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-list>>[init] */
 .pull-list__item {
   display: block;
   width: 100%;
@@ -611,7 +613,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-pull-header>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[init] */
 .pull-header {
   display: flex;
   flex: none;
@@ -638,7 +640,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-pull-timeline>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-timeline>>[init] */
 .pull-timeline {
   flex: none;
   padding: var(--space-3) var(--space-5);
@@ -693,7 +695,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-responsive>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-responsive-metrics>>[init] */
 @media (max-width: 1100px) {
   :root {
     --pane-picker-min: 180px;
@@ -701,7 +703,9 @@ body {
     --pane-commits-width: 200px;
   }
 }
+/* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-responsive-panes>>[init] */
 @media (max-width: 820px) {
   .panes {
     flex-direction: column;
@@ -730,7 +734,7 @@ body {
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/design-system.md#design-dark>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-dark>>[init] */
 @media (prefers-color-scheme: dark) {
   :root {
     --surface: var(--grey-1000);

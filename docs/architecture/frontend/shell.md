@@ -7,7 +7,7 @@ The page, the root component, and the switch between the two screens.
 The landing page is an [HTML import](https://bun.com/docs/bundler/fullstack).
 Bun's bundler finds the `<script>` and `<link>` tags and bundles them, along
 with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
-The `<link>` is how the [design system](../design-system.md) reaches the page;
+The `<link>` is how the [stylesheet](index.md#styling) reaches the page;
 every class the views name is defined there.
 
 ```html
@@ -40,6 +40,8 @@ if (container === null) throw new Error("missing #root element");
 
 createRoot(container).render(<App />);
 ```
+
+## App
 
 `App` calls `useSession()` once, alongside the two `useSide()` calls it
 already owns, and passes it down to whichever `DiffPane` is on screen. One
@@ -137,6 +139,34 @@ function SidePicker({ side }: { side: Side<JjSource> }) {
   );
 }
 ```
+
+The window is a column: a tab strip that does not scroll, and under it
+whichever screen is chosen. The body's default margin goes, because a
+full-height app measured in `vh` inside an eight-pixel margin is sixteen
+pixels taller than the window and scrolls when it should not.
+
+`min-height: 0` appears here and on every flex ancestor of a scrolling pane,
+because a flex item defaults to `min-height: auto`, which refuses to shrink
+below its content and pushes the overflow out of the window instead of into a
+scrollbar. It is the one rule in the stylesheet that is a workaround rather
+than a decision.
+
+```css
+/*| id: design-app
+body {
+  margin: 0;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  font-family: var(--font-mono);
+  font-size: var(--text-size);
+  color: var(--text);
+  background: var(--surface);
+}
+```
 ## Mode tabs
 
 Two screens, one strip. The tabs sit above everything, because the choice they
@@ -177,6 +207,40 @@ export function ModeTabs({
 }
 ```
 
+The strip takes its own height and no more, so the screen under it gets
+everything left over however tall the window is. A tab is a button dressed as
+a tab rather than a link, because choosing a screen changes no address.
+
+```css
+/*| id: design-mode-tabs
+.tabs {
+  display: flex;
+  flex: none;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: var(--space-3) var(--space-6);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+}
+
+.tab:hover {
+  background: var(--surface-sunken);
+}
+
+.tab--current {
+  font-weight: bold;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+```
+
 ## Message
 
 The controllers route all of their status text through this one component.
@@ -198,5 +262,20 @@ export function Message({
       {children}
     </p>
   );
+}
+```
+
+The only variable is whether the news is bad. `.message--error` is the single
+modifier that recolours it, leaving the ordinary case as plain body text.
+
+```css
+/*| id: design-message
+.message {
+  padding: var(--space-5);
+  color: var(--text);
+}
+
+.message--error {
+  color: var(--danger);
 }
 ```

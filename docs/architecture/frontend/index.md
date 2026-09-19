@@ -184,6 +184,88 @@ Allowed import edges:
 - `controllers/` import `state/`, `views/`, and `api.ts` *types*.
 - `App.tsx` imports `controllers/`, `views/`, and `api.ts` *types*.
 
+## Styling
+
+The stylesheet is read top to bottom as four layers, and each one may only
+name the layer above it.
+
+**Primitives** are the raw ramps, named for what they are. `--grey-300` says
+nothing about where it is used. Changing one reshades the palette.
+
+**Roles** map a primitive to a job. `--border` is `--grey-300`. This is the
+only layer a component is allowed to name, which is what lets the palette and
+the meaning move independently. Retheming the app is an edit to this layer;
+so is dark mode, which rebinds roles and leaves every rule below untouched.
+
+**Metrics** are the tunable lengths: the spacing step, the type sizes, and
+the widths of the columns. Responsiveness is an edit to this layer, because a
+breakpoint that only rebinds `--pane-picker-width` cannot accidentally change
+a colour.
+
+**Components** are the classes the views use. They name roles and metrics and
+never a primitive, so a component rule contains no literal a reviewer has to
+decode.
+
+A change therefore has one address. A new brand colour is a primitive. A
+caption that should be darker is a role. A column that should be wider on
+large screens is a metric under a breakpoint. Nothing else needs reading.
+
+The primitives, the roles, the metrics, and the dark theme are shared by
+everything and live in [Design tokens](tokens.md). A component's rules live
+with the component, in the document that holds its markup, because a class and
+the element that carries it are one thing to change and were two files to find.
+
+The stylesheet is assembled here in layer order, so a rule can only be
+overridden by a rule from a layer below it and the cascade agrees with the
+layering. This block is the one place that order is written down, and it is the
+only reason a component's rules can be authored anywhere.
+
+```css
+/*| id: stylesheet
+/*| file: src/frontend/styles.css
+<<design-primitives>>
+
+<<design-roles>>
+
+<<design-metrics>>
+
+<<design-app>>
+
+<<design-mode-tabs>>
+
+<<design-panes>>
+
+<<design-message>>
+
+<<design-operation-picker>>
+
+<<design-commit-label>>
+
+<<design-comparison-header>>
+
+<<design-review-state>>
+
+<<design-commit-graph>>
+
+<<design-interdiff-rows>>
+
+<<design-diff-view>>
+
+<<design-pull-state-chip>>
+
+<<design-pull-list>>
+
+<<design-pull-header>>
+
+<<design-pull-timeline>>
+
+<<design-responsive-metrics>>
+
+<<design-responsive-panes>>
+
+<<design-dark>>
+```
+
 ## Async state
 
 Every slice reports its status as an `AsyncState<T>`.

@@ -118,3 +118,27 @@ function optionLabel(operation: OpLogEntry): string {
   return `${operation.id.slice(0, 8)}  ${what}  ${when}`;
 }
 ```
+
+OperationPicker is a label wrapping a native `<select>`, so there is little
+to style beyond lining the caption up with the control and letting the
+select itself take the rest of the row.
+
+```css
+/*| id: design-operation-picker
+.operation-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.operation-picker__label {
+  color: var(--text-faint);
+}
+
+.operation-picker__select {
+  flex: 1;
+  font: inherit;
+}
+```

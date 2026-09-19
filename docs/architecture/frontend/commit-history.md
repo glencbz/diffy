@@ -452,6 +452,88 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
 }
 ```
 
+CommitGraph reads its edge and node colours off a seven-step lane ramp
+instead of picking one by hand: a lane's index selects one of the
+`--graph-lane-N` roles as `color`, and the line and circle underneath both
+draw in `currentColor`, so an edge always agrees with the node it meets.
+
+The gutter is the one width the stylesheet does not set. It depends on how many
+lanes a history happens to use, and the `<svg>` already carries that number
+in its own `width` attribute, so a rule here would be a second copy of a
+figure the markup has. The row height is the same story in reverse: the
+graphic is drawn against a row height the component computes its geometry
+from, and the row takes its height from the graphic rather than from a
+length declared here that could drift away from the arithmetic.
+
+```css
+/*| id: design-commit-graph
+.commit-graph__row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: none;
+  white-space: nowrap;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.commit-graph__row--selected {
+  background: var(--surface-selected);
+}
+
+.commit-graph__row--interactive {
+  cursor: pointer;
+}
+
+.commit-graph__gutter {
+  flex: none;
+}
+
+.commit-graph__edge {
+  stroke: currentColor;
+}
+
+.commit-graph__node {
+  stroke: currentColor;
+  fill: currentColor;
+}
+
+.commit-graph__node--merge {
+  fill: var(--surface);
+}
+
+.commit-graph__lane--0 {
+  color: var(--graph-lane-0);
+}
+
+.commit-graph__lane--1 {
+  color: var(--graph-lane-1);
+}
+
+.commit-graph__lane--2 {
+  color: var(--graph-lane-2);
+}
+
+.commit-graph__lane--3 {
+  color: var(--graph-lane-3);
+}
+
+.commit-graph__lane--4 {
+  color: var(--graph-lane-4);
+}
+
+.commit-graph__lane--5 {
+  color: var(--graph-lane-5);
+}
+
+.commit-graph__lane--6 {
+  color: var(--graph-lane-6);
+}
+```
+
 A test pins the lane arithmetic: a linear run stays in lane zero, and a
 fork/merge diamond puts the merge on a hollow node and collapses the side
 branch back to lane zero.
@@ -508,7 +590,7 @@ A commit with no change id falls back to its short commit id, in italic. The
 two are not the same promise. A change id is the commit's identity across a
 rewrite; a commit id names one revision and does not survive an amend.
 Rendering them identically would invite a reader to trust the wrong one. The
-cue stays small and stays in the same dim `#888`, because on a git-backed row
+cue stays small and stays in `--text-faint`, because on a git-backed row
 this is ordinary, not an error.
 
 ```tsx
@@ -540,5 +622,30 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
       </span>
     </>
   );
+}
+```
+
+`.commit-label__id--synthetic` is the one modifier this label needs.
+Everything else about a commit's line is the same shape whether the id is a
+change id or a stand-in for one.
+
+```css
+/*| id: design-commit-label
+.commit-label__id {
+  margin-right: var(--space-4);
+  color: var(--text-faint);
+}
+
+.commit-label__id--synthetic {
+  font-style: italic;
+}
+
+.commit-label__summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__placeholder {
+  color: var(--text-ghost);
 }
 ```
