@@ -110,12 +110,29 @@ curl -fsS "$URL/api/log?op=$(cat /tmp/diffy-verify/default/early-op)"
 ## Evidence
 
 Proof artifacts go to `.claude/verify-artifacts/` in the repo, which is
-gitignored and survives cleanup. Screenshots need an **absolute** path or they
-land in the server's working directory instead:
+gitignored and survives cleanup.
+
+Take a screenshot with no `filename`. That is the only form whose result carries
+the image, so it is the only form you can look at:
 
 ```json
-{"filename": "/abs/path/to/repo/.claude/verify-artifacts/<feature>.png"}
+{"fullPage": true}
 ```
+
+The server names the file under the `--output-dir` in `.mcp.json`, which is that
+same artifacts directory, and hands back both the path and the pixels. Passing a
+`filename` suppresses the image and returns a link alone, so a run that names
+every shot is a run that never saw one. Name a shot only when a later step needs
+to find it again, and `Read` the path afterwards to look at it.
+
+Every path in a tool result, screenshot or ARIA snapshot alike, is relative to
+the directory the session started in, because that is where the MCP server runs.
+It is not your jj workspace. Resolve one against the session directory before
+reading it, or the read fails on a file that is sitting there.
+
+A human sees none of this: the images are on the VM. Serve the artifacts
+directory and share the port with `ssh exe.dev share port <vm> <port>` when
+someone wants to look.
 
 Standards for a proof of this app:
 

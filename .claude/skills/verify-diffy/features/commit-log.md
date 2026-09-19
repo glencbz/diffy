@@ -44,9 +44,9 @@ Preconditions:
   `target: 'button:has-text("fixture: extend the notes file")'`. The right pane
   replaces `Select a commit to see its diff.` with the file header
   `modified notes.txt`, and the row's background turns pale blue.
-- **Proof.** `browser_snapshot`, then `browser_take_screenshot` with an absolute
-  `filename` under `.claude/verify-artifacts/`. Both must show the selected row
-  and the diff it produced in the same frame.
+- **Proof.** `browser_snapshot`, then `browser_take_screenshot` with no
+  `filename`. Both must show the selected row and the diff it produced in the
+  same frame.
 
 ## Gotchas
 
