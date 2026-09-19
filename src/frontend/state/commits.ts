@@ -12,7 +12,7 @@ import type { AsyncState } from "./asyncState";
 function asLogEntry(commit: GitCommit): LogEntry {
   return {
     commitId: commit.commitId,
-    changeId: commit.commitId,
+    changeId: null,
     description: commit.description,
     parents: commit.parents,
   };
