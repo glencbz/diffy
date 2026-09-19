@@ -181,6 +181,8 @@ Allowed import edges:
 The landing page is an [HTML import](https://bun.com/docs/bundler/fullstack).
 Bun's bundler finds the `<script>` and `<link>` tags and bundles them, along
 with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
+The `<link>` is how the [design system](design-system.md) reaches the page;
+every class the views below name is defined there.
 
 ```html
 <!--| id: landing-page
@@ -190,6 +192,7 @@ with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
   <head>
     <meta charset="utf-8" />
     <title>Diffy</title>
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div id="root"></div>
@@ -1836,18 +1839,10 @@ export function ReviewPanes({
   diff: ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flex: 1,
-        minHeight: 0,
-        fontFamily: "ui-monospace, monospace",
-        fontSize: 13,
-      }}
-    >
+    <div className="panes">
       <PickerColumn caption="before">{before}</PickerColumn>
       <PickerColumn caption="after">{after}</PickerColumn>
-      <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      <div className="pane pane--diff">{diff}</div>
     </div>
   );
 }
@@ -1860,28 +1855,9 @@ function PickerColumn({
   children: ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: "25%",
-        minWidth: 240,
-        borderRight: "1px solid #ccc",
-      }}
-    >
-      <h2
-        style={{
-          margin: 0,
-          padding: "6px 8px",
-          font: "inherit",
-          fontWeight: "bold",
-          background: "#f0f0f0",
-          borderBottom: "1px solid #ccc",
-        }}
-      >
-        {caption}
-      </h2>
-      <div style={{ overflow: "auto" }}>{children}</div>
+    <div className="pane pane--picker">
+      <h2 className="pane__header">{caption}</h2>
+      <div className="pane__body">{children}</div>
     </div>
   );
 }
@@ -1904,7 +1880,7 @@ export function Message({
   tone?: "info" | "error";
 }) {
   return (
-    <p style={{ padding: 12, color: tone === "error" ? "#cf222e" : "#333" }}>
+    <p className={tone === "error" ? "message message--error" : "message"}>
       {children}
     </p>
   );
@@ -1934,20 +1910,12 @@ export function OperationPicker({
   onSelect: (operationId: string | null) => void;
 }) {
   return (
-    <label
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: 8,
-        borderBottom: "1px solid #ccc",
-      }}
-    >
-      <span style={{ color: "#888" }}>operation</span>
+    <label className="operation-picker">
+      <span className="operation-picker__label">operation</span>
       <select
         value={selected ?? ""}
         onChange={(event) => onSelect(event.target.value || null)}
-        style={{ flex: 1, font: "inherit" }}
+        className="operation-picker__select"
       >
         <option value="">latest (current)</option>
         {operations.map((operation) => (
@@ -1994,16 +1962,18 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
   return (
     <>
       <span
-        style={{
-          color: "#888",
-          marginRight: 8,
-          fontStyle: commit.changeId !== null ? "normal" : "italic",
-        }}
+        className={
+          commit.changeId !== null
+            ? "commit-label__id"
+            : "commit-label__id commit-label__id--synthetic"
+        }
       >
         {shortId}
       </span>
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {summary || <em style={{ color: "#999" }}>(no description)</em>}
+      <span className="commit-label__summary">
+        {summary || (
+          <em className="commit-label__placeholder">(no description)</em>
+        )}
       </span>
     </>
   );
@@ -2027,7 +1997,7 @@ which action is current.
 ```tsx
 //| id: frontend-view-comparison-header
 //| file: src/frontend/views/ComparisonHeader.tsx
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
 import type { ReviewedRow, RowReview } from "../state/review";
 import { CommitLabel } from "./CommitLabel";
@@ -2044,21 +2014,17 @@ export function ComparisonHeader({
   ).length;
 
   return (
-    <header
-      style={{
-        padding: "8px 12px",
-        background: "#fafafa",
-        borderBottom: "1px solid #ccc",
-      }}
-    >
+    <header className="comparison-header">
       <Row caption="before" commit={row.from} />
       <Row caption="after" commit={row.to} />
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}
-      >
+      <div className="comparison-header__actions">
         <ReviewChip review={row.review} />
         {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
-        <button type="button" onClick={onMarkSeen} style={{ font: "inherit" }}>
+        <button
+          type="button"
+          onClick={onMarkSeen}
+          className="comparison-header__mark-seen"
+        >
           {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
         </button>
       </div>
@@ -2074,16 +2040,10 @@ function Row({
   commit: LogEntry | null;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-      }}
-    >
-      <span style={{ color: "#888", width: 56, flex: "none" }}>{caption}</span>
+    <div className="comparison-header__row">
+      <span className="comparison-header__caption">{caption}</span>
       {commit === null ? (
-        <em style={{ color: "#999" }}>not in this series</em>
+        <em className="comparison-header__unavailable">not in this series</em>
       ) : (
         <CommitLabel commit={commit} />
       )}
@@ -2100,6 +2060,12 @@ function ReviewChip({ review }: { review: RowReview }) {
   );
 }
 
+const TONE_CLASS: Record<"reviewed" | "changed" | "open", string> = {
+  reviewed: "review-chip--resolved",
+  changed: "review-chip--stale",
+  open: "review-chip--open",
+};
+
 function Chip({
   tone,
   children,
@@ -2107,36 +2073,7 @@ function Chip({
   tone: "reviewed" | "changed" | "open";
   children: ReactNode;
 }) {
-  const toneStyle: Record<typeof tone, CSSProperties> = {
-    reviewed: {
-      background: "#edf7ed",
-      color: "#2b6a2b",
-      border: "1px solid #a8d5a8",
-    },
-    changed: {
-      background: "#fdf5e3",
-      color: "#8a5a00",
-      border: "1px solid #e6c98a",
-    },
-    open: {
-      background: "#fdecec",
-      color: "#a01b1b",
-      border: "1px solid #e6a8a8",
-    },
-  };
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        padding: "0 5px",
-        borderRadius: 8,
-        lineHeight: "15px",
-        ...toneStyle[tone],
-      }}
-    >
-      {children}
-    </span>
-  );
+  return <span className={`review-chip ${TONE_CLASS[tone]}`}>{children}</span>;
 }
 ```
 
@@ -2176,26 +2113,16 @@ changes nothing.
 ```tsx
 //| id: frontend-view-commit-graph
 //| file: src/frontend/views/CommitGraph.tsx
-import type { CSSProperties } from "react";
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
 const ROW_HEIGHT = 28;
 const LANE_WIDTH = 24;
+const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
-const LANE_COLORS = [
-  "#333",
-  "#0969da",
-  "#1a7f37",
-  "#8250df",
-  "#bf8700",
-  "#1b7c83",
-  "#cf222e",
-];
-
-function laneColor(lane: number): string {
-  return LANE_COLORS[lane % LANE_COLORS.length] as string;
+function laneClass(lane: number): string {
+  return `commit-graph__lane--${lane % LANE_CLASS_COUNT}`;
 }
 
 export type GraphEdge = { from: number; to: number };
@@ -2316,19 +2243,9 @@ export function CommitGraph({
     <div>
       {commits.map((commit, index) => {
         const row = rows[index] as GraphRow;
-        const style: CSSProperties = {
-          display: "flex",
-          alignItems: "center",
-          width: "100%",
-          height: ROW_HEIGHT,
-          padding: 0,
-          border: "none",
-          whiteSpace: "nowrap",
-          font: "inherit",
-          color: "inherit",
-          textAlign: "left",
-          background: chosen.has(commit.commitId) ? "#d0e4ff" : "transparent",
-        };
+        const className = `commit-graph__row${
+          chosen.has(commit.commitId) ? " commit-graph__row--selected" : ""
+        }`;
         const content = (
           <>
             <RowGraphic row={row} width={gutterWidth} />
@@ -2337,7 +2254,7 @@ export function CommitGraph({
         );
 
         return onSelect === undefined ? (
-          <div key={commit.commitId} style={style}>
+          <div key={commit.commitId} className={className}>
             {content}
           </div>
         ) : (
@@ -2345,7 +2262,7 @@ export function CommitGraph({
             type="button"
             key={commit.commitId}
             onClick={() => toggle(commit.commitId, onSelect)}
-            style={{ ...style, cursor: "pointer" }}
+            className={`${className} commit-graph__row--interactive`}
           >
             {content}
           </button>
@@ -2363,7 +2280,7 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
     <svg
       width={width}
       height={ROW_HEIGHT}
-      style={{ flex: "none" }}
+      className="commit-graph__gutter"
       aria-hidden="true"
     >
       {row.incoming.map((edge) => (
@@ -2373,7 +2290,7 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
           y1={0}
           x2={x(edge.to)}
           y2={middle}
-          stroke={laneColor(edge.to)}
+          className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
       {row.outgoing.map((edge) => (
@@ -2383,15 +2300,16 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
           y1={middle}
           x2={x(edge.to)}
           y2={ROW_HEIGHT}
-          stroke={laneColor(edge.to)}
+          className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
       <circle
         cx={x(row.lane)}
         cy={middle}
         r={4}
-        fill={row.isMerge ? "#fff" : laneColor(row.lane)}
-        stroke={laneColor(row.lane)}
+        className={`commit-graph__node ${laneClass(row.lane)}${
+          row.isMerge ? " commit-graph__node--merge" : ""
+        }`}
       />
     </svg>
   );
@@ -2447,7 +2365,7 @@ export function InterdiffRows({
         <section key={rowKey(row)}>
           <ComparisonHeader row={row} onMarkSeen={() => onMarkSeen(row)} />
           {row.files.length === 0 ? (
-            <p style={{ padding: 12, fontStyle: "italic", color: "#666" }}>
+            <p className="interdiff-empty">
               {row.from !== null && row.to !== null
                 ? "Both commits make the same change."
                 : "No changes in this commit."}
@@ -2557,7 +2475,7 @@ read-only diff cannot advertise an affordance that records nothing.
 ```tsx
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
-import { type CSSProperties, useState } from "react";
+import { useState } from "react";
 import type { FileDiff } from "../api";
 import type { RowComment } from "../state/review";
 
@@ -2583,7 +2501,7 @@ export function DiffView({
   } | null>(null);
 
   return (
-    <div style={{ padding: 12 }}>
+    <div className="diff-view">
       {files.map((file) => {
         const path = pathOf(file);
         return (
@@ -2629,23 +2547,15 @@ interface FileReview {
 
 function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
   return (
-    <section style={{ marginBottom: 16, border: "1px solid #ccc" }}>
-      <header
-        style={{
-          background: "#f0f0f0",
-          padding: "4px 8px",
-          fontWeight: "bold",
-        }}
-      >
-        <span style={{ color: "#666", marginRight: 8 }}>{file.status}</span>
+    <section className="diff-file">
+      <header className="diff-file__header">
+        <span className="diff-file__status">{file.status}</span>
         {pathOf(file)}
       </header>
       {file.binary ? (
-        <p style={{ padding: 8, fontStyle: "italic", color: "#666" }}>
-          Binary file, no textual diff.
-        </p>
+        <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
-        <pre style={{ margin: 0, padding: 8, overflowX: "auto" }}>
+        <pre className="diff-file__patch">
           {gutterLines(file.patch).map(({ text, afterLine }, index) => (
             <PatchLine
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
@@ -2695,21 +2605,21 @@ function CommentComposer({
 
   return (
     <form
-      style={{ padding: 8, borderTop: "1px solid #ccc", background: "#fafafa" }}
+      className="comment-composer"
       onSubmit={(event) => {
         event.preventDefault();
         if (body.trim() === "") return;
         onSubmit(line, body);
       }}
     >
-      <div style={{ color: "#888", marginBottom: 4 }}>line {line}</div>
+      <div className="comment-composer__line">line {line}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
         rows={3}
-        style={{ width: "100%", font: "inherit" }}
+        className="comment-composer__input"
       />
-      <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+      <div className="comment-composer__actions">
         <button type="submit">comment</button>
         <button type="button" onClick={onCancel}>
           cancel
@@ -2730,16 +2640,13 @@ function CommentThread({
 }) {
   return (
     <div
-      style={{
-        borderLeft: `3px solid ${comment.resolved ? "#63b363" : "#a01b1b"}`,
-        padding: "6px 8px",
-        margin: "4px 8px",
-        opacity: comment.resolved ? 0.72 : 1,
-      }}
+      className={
+        comment.resolved
+          ? "comment-thread comment-thread--resolved"
+          : "comment-thread"
+      }
     >
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 8, color: "#888" }}
-      >
+      <div className="comment-thread__meta">
         <span>
           {comment.path}:{comment.line} ·{" "}
           {comment.resolved ? "resolved" : "open"}
@@ -2753,7 +2660,7 @@ function CommentThread({
       </div>
       <div>{comment.body}</div>
       {comment.stale && (
-        <div style={{ color: "#8a5a00" }}>
+        <div className="comment-thread__stale">
           written against {comment.commitId.slice(0, 8)}. That line has since
           been rewritten.
         </div>
@@ -2761,26 +2668,6 @@ function CommentThread({
     </div>
   );
 }
-
-const gutterStyle: CSSProperties = {
-  width: 40,
-  flex: "none",
-  textAlign: "right",
-  marginRight: 8,
-  color: "#999",
-  userSelect: "none",
-};
-
-const lineRowStyle: CSSProperties = {
-  display: "flex",
-  width: "100%",
-  margin: 0,
-  padding: 0,
-  border: "none",
-  background: "transparent",
-  font: "inherit",
-  textAlign: "left",
-};
 
 /** A `<button>` when the line has an after-side line to comment on, a `<div>`
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
@@ -2794,22 +2681,25 @@ function PatchLine({
   afterLine: number | null;
   onOpenComposer?: (line: number) => void;
 }) {
+  const kind = lineKind(text);
   const body = (
     <>
-      <span style={gutterStyle}>{afterLine ?? ""}</span>
-      <span style={{ color: lineColor(text) }}>{text === "" ? " " : text}</span>
+      <span className="diff-line__gutter">{afterLine ?? ""}</span>
+      <span className={kind === null ? undefined : `diff-line__text--${kind}`}>
+        {text === "" ? " " : text}
+      </span>
     </>
   );
 
   if (afterLine === null || onOpenComposer === undefined) {
-    return <div style={lineRowStyle}>{body}</div>;
+    return <div className="diff-line">{body}</div>;
   }
 
   return (
     <button
       type="button"
       onClick={() => onOpenComposer(afterLine)}
-      style={{ ...lineRowStyle, cursor: "pointer" }}
+      className="diff-line diff-line--interactive"
     >
       {body}
     </button>
@@ -2820,14 +2710,16 @@ function pathOf(file: FileDiff): string {
   return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
 }
 
-function lineColor(line: string): string | undefined {
-  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "#666";
+type DiffLineKind = "meta" | "hunk" | "added" | "removed";
+
+function lineKind(line: string): DiffLineKind | null {
+  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "meta";
   if (line.startsWith("diff --git ") || line.startsWith("index "))
-    return "#666";
-  if (line.startsWith("@@")) return "#0969da";
-  if (line.startsWith("+")) return "#1a7f37";
-  if (line.startsWith("-")) return "#cf222e";
-  return undefined;
+    return "meta";
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("+")) return "added";
+  if (line.startsWith("-")) return "removed";
+  return null;
 }
 
 interface GutterLine {
@@ -2889,32 +2781,14 @@ export function ModeTabs({
   onSelect: (mode: Mode) => void;
 }) {
   return (
-    <nav
-      style={{
-        display: "flex",
-        flex: "none",
-        background: "#f0f0f0",
-        borderBottom: "1px solid #ccc",
-      }}
-    >
+    <nav className="tabs">
       {(Object.keys(CAPTIONS) as Mode[]).map((candidate) => (
         <button
           type="button"
           key={candidate}
           onClick={() => onSelect(candidate)}
-          style={{
-            padding: "6px 14px",
-            font: "inherit",
-            fontWeight: candidate === mode ? "bold" : "normal",
-            color: candidate === mode ? "#0969da" : "#333",
-            cursor: "pointer",
-            border: "none",
-            borderBottom:
-              candidate === mode
-                ? "2px solid #0969da"
-                : "2px solid transparent",
-            background: "transparent",
-          }}
+          className={candidate === mode ? "tab tab--current" : "tab"}
+          aria-current={candidate === mode}
         >
           {CAPTIONS[candidate]}
         </button>
@@ -2935,26 +2809,15 @@ list and the header colour them the same.
 //| file: src/frontend/views/PullStateChip.tsx
 import type { PullState } from "../api";
 
-const CHIP_COLORS: Record<PullState, string> = {
-  OPEN: "#1a7f37",
-  MERGED: "#8250df",
-  CLOSED: "#cf222e",
+const CHIP_CLASS: Record<PullState, string> = {
+  OPEN: "chip--open",
+  MERGED: "chip--merged",
+  CLOSED: "chip--closed",
 };
 
 export function PullStateChip({ state }: { state: PullState }) {
   return (
-    <span
-      style={{
-        flex: "none",
-        padding: "0 6px",
-        borderRadius: 3,
-        background: CHIP_COLORS[state],
-        color: "#fff",
-        fontSize: 11,
-      }}
-    >
-      {state.toLowerCase()}
-    </span>
+    <span className={`chip ${CHIP_CLASS[state]}`}>{state.toLowerCase()}</span>
   );
 }
 ```
@@ -2988,34 +2851,18 @@ export function PullList({
           type="button"
           key={pull.number}
           onClick={() => onSelect(pull.number)}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "6px 8px",
-            border: "none",
-            borderBottom: "1px solid #eee",
-            cursor: "pointer",
-            font: "inherit",
-            color: "inherit",
-            textAlign: "left",
-            background: pull.number === selected ? "#d0e4ff" : "transparent",
-          }}
+          className={
+            pull.number === selected
+              ? "pull-list__item pull-list__item--selected"
+              : "pull-list__item"
+          }
         >
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "#888" }}>#{pull.number}</span>
+          <span className="pull-list__row">
+            <span className="pull-list__number">#{pull.number}</span>
             <PullStateChip state={pull.state} />
           </span>
-          <span
-            style={{
-              display: "block",
-              overflow: "hidden",
-              whiteSpace: "nowrap",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {pull.title}
-          </span>
-          <span style={{ color: "#888" }}>← {pull.baseRefName}</span>
+          <span className="pull-list__title">{pull.title}</span>
+          <span className="pull-list__base">← {pull.baseRefName}</span>
         </button>
       ))}
     </div>
@@ -3037,31 +2884,17 @@ import { PullStateChip } from "./PullStateChip";
 
 export function PullHeader({ pull }: { pull: PullSummary }) {
   return (
-    <header
-      style={{
-        display: "flex",
-        flex: "none",
-        alignItems: "center",
-        gap: 10,
-        padding: "6px 10px",
-        background: "#f0f0f0",
-        borderBottom: "1px solid #ccc",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-      }}
-    >
-      <span style={{ color: "#888" }}>#{pull.number}</span>
-      <strong style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {pull.title}
-      </strong>
+    <header className="pull-header">
+      <span className="pull-header__meta">#{pull.number}</span>
+      <strong className="pull-header__title">{pull.title}</strong>
       <PullStateChip state={pull.state} />
-      <span style={{ color: "#888" }}>base: {pull.baseRefName}</span>
-      <span style={{ color: "#888" }}>{pull.author}</span>
+      <span className="pull-header__meta">base: {pull.baseRefName}</span>
+      <span className="pull-header__meta">{pull.author}</span>
       <a
         href={pull.url}
         target="_blank"
         rel="noreferrer"
-        style={{ color: "#0969da" }}
+        className="pull-header__link"
       >
         github
       </a>
@@ -3096,8 +2929,7 @@ with an empty answer, which is a different thing to be told.
 //| file: src/frontend/views/PullTimeline.tsx
 import type { GitOid, PullHeadOrigin, PullVersion } from "../api";
 
-const AFTER = "#0969da";
-const BEFORE = "#bf8700";
+type Endpoint = "before" | "after";
 
 export function PullTimeline({
   states,
@@ -3111,32 +2943,19 @@ export function PullTimeline({
   onPick: (head: GitOid, end: "before" | "after") => void;
 }) {
   return (
-    <div
-      style={{
-        flex: "none",
-        padding: "6px 10px",
-        borderBottom: "1px solid #ccc",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          gap: 6,
-          overflowX: "auto",
-        }}
-      >
+    <div className="pull-timeline">
+      <div className="pull-timeline__row">
         {states.map((state) => (
           <Chip
             key={state.head}
             caption={`v${state.version}`}
             detail={`${state.head.slice(0, 7)}  ${when(state.origin)}`}
-            accent={accentFor(state.head, before, after)}
+            endpoint={endpointFor(state.head, before, after)}
             onClick={(shift) => onPick(state.head, shift ? "before" : "after")}
           />
         ))}
       </div>
-      <p style={{ margin: "6px 0 0", color: "#888" }}>
+      <p className="pull-timeline__caption">
         {caption(states, before, after)} · click sets the after end, shift-click
         sets the before end
       </p>
@@ -3145,9 +2964,13 @@ export function PullTimeline({
 }
 
 /** The after end wins when one chip is both, since it is the one being read. */
-function accentFor(head: GitOid, before: GitOid, after: GitOid): string | null {
-  if (head === after) return AFTER;
-  if (head === before) return BEFORE;
+function endpointFor(
+  head: GitOid,
+  before: GitOid,
+  after: GitOid,
+): Endpoint | null {
+  if (head === after) return "after";
+  if (head === before) return "before";
   return null;
 }
 
@@ -3173,34 +2996,24 @@ function caption(states: PullVersion[], before: GitOid, after: GitOid): string {
 function Chip({
   caption,
   detail,
-  accent,
+  endpoint,
   onClick,
 }: {
   caption: string;
   detail: string;
-  accent: string | null;
+  endpoint: Endpoint | null;
   onClick: (shiftKey: boolean) => void;
 }) {
   return (
     <button
       type="button"
       onClick={(event) => onClick(event.shiftKey)}
-      style={{
-        flex: "none",
-        padding: "3px 8px",
-        border: `1px solid ${accent ?? "#ccc"}`,
-        borderRadius: 3,
-        cursor: "pointer",
-        font: "inherit",
-        textAlign: "left",
-        color: accent ?? "inherit",
-        background: accent === null ? "#fff" : "#f4f8ff",
-      }}
+      className={
+        endpoint === null ? "pull-chip" : `pull-chip pull-chip--${endpoint}`
+      }
     >
-      <span style={{ display: "block", fontWeight: "bold" }}>{caption}</span>
-      <span style={{ display: "block", color: "#888", fontSize: 11 }}>
-        {detail}
-      </span>
+      <span className="pull-chip__caption">{caption}</span>
+      <span className="pull-chip__detail">{detail}</span>
     </button>
   );
 }
@@ -3226,28 +3039,9 @@ export function PullPanes({
   review: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      <div
-        style={{
-          width: "22%",
-          minWidth: 220,
-          flex: "none",
-          overflow: "auto",
-          borderRight: "1px solid #ccc",
-        }}
-      >
-        {list}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        {review}
-      </div>
+    <div className="panes">
+      <div className="pane pane--list">{list}</div>
+      <div className="pane pane--main">{review}</div>
     </div>
   );
 }
@@ -3267,18 +3061,9 @@ export function PullReviewPanes({
     <>
       {header}
       {timeline}
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <div
-          style={{
-            width: 260,
-            flex: "none",
-            overflow: "auto",
-            borderRight: "1px solid #ccc",
-          }}
-        >
-          {commits}
-        </div>
-        <div style={{ flex: 1, overflow: "auto" }}>{diff}</div>
+      <div className="panes">
+        <div className="pane pane--commits">{commits}</div>
+        <div className="pane pane--diff">{diff}</div>
       </div>
     </>
   );
@@ -3607,15 +3392,7 @@ export function App() {
   const session = useSession();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        fontFamily: "ui-monospace, monospace",
-        fontSize: 13,
-      }}
-    >
+    <div className="app">
       <ModeTabs mode={mode} onSelect={setMode} />
       {mode === "local" ? (
         <ReviewPanes

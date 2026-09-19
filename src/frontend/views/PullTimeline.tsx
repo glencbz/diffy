@@ -1,8 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-view-pull-timeline>>[init]
 import type { GitOid, PullHeadOrigin, PullVersion } from "../api";
 
-const AFTER = "#0969da";
-const BEFORE = "#bf8700";
+type Endpoint = "before" | "after";
 
 export function PullTimeline({
   states,
@@ -16,32 +15,19 @@ export function PullTimeline({
   onPick: (head: GitOid, end: "before" | "after") => void;
 }) {
   return (
-    <div
-      style={{
-        flex: "none",
-        padding: "6px 10px",
-        borderBottom: "1px solid #ccc",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          gap: 6,
-          overflowX: "auto",
-        }}
-      >
+    <div className="pull-timeline">
+      <div className="pull-timeline__row">
         {states.map((state) => (
           <Chip
             key={state.head}
             caption={`v${state.version}`}
             detail={`${state.head.slice(0, 7)}  ${when(state.origin)}`}
-            accent={accentFor(state.head, before, after)}
+            endpoint={endpointFor(state.head, before, after)}
             onClick={(shift) => onPick(state.head, shift ? "before" : "after")}
           />
         ))}
       </div>
-      <p style={{ margin: "6px 0 0", color: "#888" }}>
+      <p className="pull-timeline__caption">
         {caption(states, before, after)} · click sets the after end, shift-click
         sets the before end
       </p>
@@ -50,9 +36,13 @@ export function PullTimeline({
 }
 
 /** The after end wins when one chip is both, since it is the one being read. */
-function accentFor(head: GitOid, before: GitOid, after: GitOid): string | null {
-  if (head === after) return AFTER;
-  if (head === before) return BEFORE;
+function endpointFor(
+  head: GitOid,
+  before: GitOid,
+  after: GitOid,
+): Endpoint | null {
+  if (head === after) return "after";
+  if (head === before) return "before";
   return null;
 }
 
@@ -78,34 +68,24 @@ function caption(states: PullVersion[], before: GitOid, after: GitOid): string {
 function Chip({
   caption,
   detail,
-  accent,
+  endpoint,
   onClick,
 }: {
   caption: string;
   detail: string;
-  accent: string | null;
+  endpoint: Endpoint | null;
   onClick: (shiftKey: boolean) => void;
 }) {
   return (
     <button
       type="button"
       onClick={(event) => onClick(event.shiftKey)}
-      style={{
-        flex: "none",
-        padding: "3px 8px",
-        border: `1px solid ${accent ?? "#ccc"}`,
-        borderRadius: 3,
-        cursor: "pointer",
-        font: "inherit",
-        textAlign: "left",
-        color: accent ?? "inherit",
-        background: accent === null ? "#fff" : "#f4f8ff",
-      }}
+      className={
+        endpoint === null ? "pull-chip" : `pull-chip pull-chip--${endpoint}`
+      }
     >
-      <span style={{ display: "block", fontWeight: "bold" }}>{caption}</span>
-      <span style={{ display: "block", color: "#888", fontSize: 11 }}>
-        {detail}
-      </span>
+      <span className="pull-chip__caption">{caption}</span>
+      <span className="pull-chip__detail">{detail}</span>
     </button>
   );
 }

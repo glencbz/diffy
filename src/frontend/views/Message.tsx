@@ -9,7 +9,7 @@ export function Message({
   tone?: "info" | "error";
 }) {
   return (
-    <p style={{ padding: 12, color: tone === "error" ? "#cf222e" : "#333" }}>
+    <p className={tone === "error" ? "message message--error" : "message"}>
       {children}
     </p>
   );

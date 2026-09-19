@@ -19,15 +19,7 @@ export function App() {
   const session = useSession();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        fontFamily: "ui-monospace, monospace",
-        fontSize: 13,
-      }}
-    >
+    <div className="app">
       <ModeTabs mode={mode} onSelect={setMode} />
       {mode === "local" ? (
         <ReviewPanes

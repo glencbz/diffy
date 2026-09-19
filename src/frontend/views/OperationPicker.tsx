@@ -11,20 +11,12 @@ export function OperationPicker({
   onSelect: (operationId: string | null) => void;
 }) {
   return (
-    <label
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: 8,
-        borderBottom: "1px solid #ccc",
-      }}
-    >
-      <span style={{ color: "#888" }}>operation</span>
+    <label className="operation-picker">
+      <span className="operation-picker__label">operation</span>
       <select
         value={selected ?? ""}
         onChange={(event) => onSelect(event.target.value || null)}
-        style={{ flex: 1, font: "inherit" }}
+        className="operation-picker__select"
       >
         <option value="">latest (current)</option>
         {operations.map((operation) => (

@@ -14,32 +14,14 @@ export function ModeTabs({
   onSelect: (mode: Mode) => void;
 }) {
   return (
-    <nav
-      style={{
-        display: "flex",
-        flex: "none",
-        background: "#f0f0f0",
-        borderBottom: "1px solid #ccc",
-      }}
-    >
+    <nav className="tabs">
       {(Object.keys(CAPTIONS) as Mode[]).map((candidate) => (
         <button
           type="button"
           key={candidate}
           onClick={() => onSelect(candidate)}
-          style={{
-            padding: "6px 14px",
-            font: "inherit",
-            fontWeight: candidate === mode ? "bold" : "normal",
-            color: candidate === mode ? "#0969da" : "#333",
-            cursor: "pointer",
-            border: "none",
-            borderBottom:
-              candidate === mode
-                ? "2px solid #0969da"
-                : "2px solid transparent",
-            background: "transparent",
-          }}
+          className={candidate === mode ? "tab tab--current" : "tab"}
+          aria-current={candidate === mode}
         >
           {CAPTIONS[candidate]}
         </button>
