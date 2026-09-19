@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-session>>[init]
+// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session>>[init]
 import { useCallback, useState } from "react";
 import {
   type Comment,

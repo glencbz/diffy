@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-controller-pull-review>>[init]
+// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-review>>[init]
 import { useState } from "react";
 import type { GitOid, PullSummary } from "../api";
 import { usePullHistory } from "../state/pullHistory";

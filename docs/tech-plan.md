@@ -27,7 +27,7 @@ earlier self. Lining up two series is its own problem and has its own module,
 We first tried htmx, but the v0 UI (a commit picker whose selection drives a
 diff panel) has enough client-side state that we switched to React. The
 frontend is now a small React + Zod app, described in
-[architecture/frontend.md](architecture/frontend.md). The backend still runs jj
+[architecture/frontend/index.md](architecture/frontend/index.md). The backend still runs jj
 and parses the diffs; the frontend only renders.
 
 ### Web backend

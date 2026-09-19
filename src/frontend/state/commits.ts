@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-commits>>[init]
+// ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-state-commits>>[init]
 import { useEffect, useState } from "react";
 import {
   fetchLog,

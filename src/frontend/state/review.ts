@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-review>>[init]
+// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-review>>[init]
 import * as z from "zod";
 import type { InterdiffRow } from "../api";
 

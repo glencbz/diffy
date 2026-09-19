@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-commit-label>>[init]
+// ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-label>>[init]
 import type { LogEntry } from "../api";
 
 export function CommitLabel({ commit }: { commit: LogEntry }) {
