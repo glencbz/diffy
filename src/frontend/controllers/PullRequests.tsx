@@ -1,12 +1,19 @@
 // ~/~ begin <<docs/architecture/frontend.md#frontend-controller-pull-requests>>[init]
 import { useState } from "react";
 import { usePulls } from "../state/pulls";
+import type { Session } from "../state/session";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { PullPanes } from "../views/PullPanes";
 import { PullReview } from "./PullReview";
 
-export function PullRequests({ repo }: { repo: string }) {
+export function PullRequests({
+  repo,
+  session,
+}: {
+  repo: string;
+  session: Session;
+}) {
   const pulls = usePulls(repo);
   const [selected, setSelected] = useState<number | null>(null);
 
@@ -32,7 +39,12 @@ export function PullRequests({ repo }: { repo: string }) {
         pull === undefined ? (
           <Message>Select a pull request to review it.</Message>
         ) : (
-          <PullReview key={pull.number} repo={repo} pull={pull} />
+          <PullReview
+            key={pull.number}
+            repo={repo}
+            pull={pull}
+            session={session}
+          />
         )
       }
     />

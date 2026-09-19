@@ -582,6 +582,17 @@ describe("handleInterdiff", () => {
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
   });
+
+  test("keeps interdiff rows free of review fields", async () => {
+    // arrange
+    const to = await commitId("root()+");
+
+    // act
+    const rows = await rowsFor([["to", to]]);
+
+    // assert
+    expect(Object.keys(rows[0] ?? {}).sort()).toEqual(["files", "from", "to"]);
+  });
 });
 ```
 

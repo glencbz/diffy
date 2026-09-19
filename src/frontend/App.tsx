@@ -5,6 +5,7 @@ import { CommitLog } from "./controllers/CommitLog";
 import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
+import { useSession } from "./state/session";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { ReviewPanes } from "./views/ReviewPanes";
 
@@ -15,6 +16,7 @@ export function App() {
   const [mode, setMode] = useState<Mode>("local");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
+  const session = useSession();
 
   return (
     <div
@@ -38,11 +40,12 @@ export function App() {
                 from: before.commits,
                 to: after.commits,
               }}
+              session={session}
             />
           }
         />
       ) : (
-        <PullRequests repo={REPO} />
+        <PullRequests repo={REPO} session={session} />
       )}
     </div>
   );

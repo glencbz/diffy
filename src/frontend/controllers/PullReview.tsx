@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { GitOid, PullSummary } from "../api";
 import { usePullHistory } from "../state/pullHistory";
+import type { Session } from "../state/session";
 import { Message } from "../views/Message";
 import { PullHeader } from "../views/PullHeader";
 import { PullReviewPanes } from "../views/PullPanes";
@@ -12,9 +13,11 @@ import { DiffPane } from "./DiffPane";
 export function PullReview({
   repo,
   pull,
+  session,
 }: {
   repo: string;
   pull: PullSummary;
+  session: Session;
 }) {
   const history = usePullHistory(repo, pull.number);
   const [before, setBefore] = useState<GitOid | null>(null);
@@ -57,7 +60,12 @@ export function PullReview({
           selected={[]}
         />
       }
-      diff={<DiffPane comparison={{ kind: "pull", repo, number, from, to }} />}
+      diff={
+        <DiffPane
+          comparison={{ kind: "pull", repo, number, from, to }}
+          session={session}
+        />
+      }
     />
   );
 }
