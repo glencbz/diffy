@@ -26,7 +26,16 @@ describe("commitsFrom", () => {
   test("reads a jj source out of the live commit log", async () => {
     // arrange
     const entries = [
-      { commitId: "c1", changeId: "k1", description: "one", parents: [] },
+      {
+        commitId: "c1",
+        changeId: "k1",
+        description: "one",
+        parents: [],
+        author: "someone@example.com",
+        timestamp: "2026-01-01T00:00:00Z",
+        refs: [],
+        markers: [],
+      },
     ];
     const asked = serve(entries);
 
@@ -81,6 +90,10 @@ describe("commitsFrom", () => {
         changeId: null,
         description: "frontend: give the graph side-by-side branch lanes",
         parents: [BASE],
+        author: "glencbz",
+        timestamp: "2026-09-10T09:00:00Z",
+        refs: [],
+        markers: [],
       },
     ]);
     expect(asked[0]).toBe(

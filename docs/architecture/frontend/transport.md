@@ -17,6 +17,15 @@ with nothing raised to say why. A missing field is a backend nobody taught
 about this one, and it should fail at the boundary.
 [`alignSeries`](../backend/series.md) has what pairing does without an id.
 
+`LogEntry` carries the rest of what a log row shows: who wrote the commit,
+when, the names pointing at it and the standings a backend reports about it.
+`author` and `timestamp` are display strings whose precision is the backend's
+to choose, because the two backends disagree on which one a reader wants. jj
+prints an author's email and a committer's timestamp, and matching `jj log`
+is the point; a GitHub pull request is read through git, which knows an
+author's name and the date they wrote. `refs` and `markers` are empty for a
+git commit, which has neither in this app.
+
 `GitOid` is branded, so the only way to hold one is to have parsed it out of a
 backend response. A head oid cannot be typed into the app by hand, which is
 what makes the guarantee in the next section hold at compile time.
@@ -33,11 +42,33 @@ export const GitOid = z
   .brand("GitOid");
 export type GitOid = z.infer<typeof GitOid>;
 
+/** A name a backend prints beside a commit: see `CommitRef` in the jj module. */
+export const CommitRef = z.object({
+  kind: z.enum(["bookmark", "tag", "working-copy"]),
+  name: z.string(),
+});
+export type CommitRef = z.infer<typeof CommitRef>;
+
+export const CommitMarker = z.enum([
+  "working-copy",
+  "empty",
+  "conflict",
+  "divergent",
+  "hidden",
+]);
+export type CommitMarker = z.infer<typeof CommitMarker>;
+
 export const LogEntry = z.object({
   commitId: z.string(),
   changeId: z.string().nullable(),
   description: z.string(),
   parents: z.array(z.string()),
+  /** Whoever the backend names as the author, as it names them. */
+  author: z.string(),
+  /** ISO 8601. The instant the backend dates this commit by. */
+  timestamp: z.string(),
+  refs: z.array(CommitRef),
+  markers: z.array(CommitMarker),
 });
 export type LogEntry = z.infer<typeof LogEntry>;
 

@@ -138,6 +138,16 @@ patch to read the way a patch reads everywhere else.
 
     --endpoint-before: var(--amber-600);
 
+    --ref-bookmark: var(--purple-600);
+    --ref-tag: var(--teal-600);
+    --ref-working-copy: var(--blue-600);
+
+    --marker-working-copy: var(--blue-600);
+    --marker-empty: var(--green-600);
+    --marker-conflict: var(--red-600);
+    --marker-divergent: var(--amber-600);
+    --marker-hidden: var(--grey-500);
+
     --graph-lane-0: var(--grey-900);
     --graph-lane-1: var(--blue-600);
     --graph-lane-2: var(--green-600);
@@ -175,6 +185,7 @@ component, and that is what makes the breakpoints below a two-line change.
     --font-mono: ui-monospace, monospace;
     --text-size: 13px;
     --text-size-small: 11px;
+    --text-line-height: 1.4;
 
     --radius: 3px;
     --radius-large: 8px;
@@ -183,9 +194,10 @@ component, and that is what makes the breakpoints below a two-line change.
     --pane-picker-min: 240px;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
-    --pane-commits-width: 260px;
+    --pane-commits-width: 360px;
     --gutter-width: 40px;
     --label-width: 56px;
+    --ref-max-width: 14em;
     --border-width-accent: 3px;
   }
 }
@@ -209,7 +221,7 @@ sits with the panes it rearranges, in [Layout](layout.md).
     :root {
       --pane-picker-min: 180px;
       --pane-list-min: 160px;
-      --pane-commits-width: 200px;
+      --pane-commits-width: 260px;
     }
   }
 }
@@ -268,6 +280,16 @@ lightness that survives a dark surface.
       --state-closed: var(--red-400);
 
       --endpoint-before: var(--amber-400);
+
+      --ref-bookmark: var(--purple-400);
+      --ref-tag: var(--teal-400);
+      --ref-working-copy: var(--blue-400);
+
+      --marker-working-copy: var(--blue-400);
+      --marker-empty: var(--green-300);
+      --marker-conflict: var(--red-400);
+      --marker-divergent: var(--amber-400);
+      --marker-hidden: var(--grey-600);
 
       --graph-lane-0: var(--grey-100);
       --graph-lane-1: var(--blue-400);

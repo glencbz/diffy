@@ -44,6 +44,10 @@ function asLogEntry(commit: GitCommit): LogEntry {
     changeId: null,
     description: commit.description,
     parents: commit.parents,
+    author: commit.author,
+    timestamp: commit.authoredAt,
+    refs: [],
+    markers: [],
   };
 }
 
@@ -121,7 +125,16 @@ describe("commitsFrom", () => {
   test("reads a jj source out of the live commit log", async () => {
     // arrange
     const entries = [
-      { commitId: "c1", changeId: "k1", description: "one", parents: [] },
+      {
+        commitId: "c1",
+        changeId: "k1",
+        description: "one",
+        parents: [],
+        author: "someone@example.com",
+        timestamp: "2026-01-01T00:00:00Z",
+        refs: [],
+        markers: [],
+      },
     ];
     const asked = serve(entries);
 
@@ -176,6 +189,10 @@ describe("commitsFrom", () => {
         changeId: null,
         description: "frontend: give the graph side-by-side branch lanes",
         parents: [BASE],
+        author: "glencbz",
+        timestamp: "2026-09-10T09:00:00Z",
+        refs: [],
+        markers: [],
       },
     ]);
     expect(asked[0]).toBe(
@@ -228,13 +245,14 @@ already points at a parent absorbs the incoming branch instead of doubling up,
 which is how a side branch collapses back into its base.
 
 `layoutGraph` is the whole algorithm, and it is pure, commits in, lanes and
-edges out. The view just turns each row into an `<svg>` gutter. Lane colour is
+edges out. The view just turns each row into an `<svg>` gutter, whose height
+is the row's: `ROW_HEIGHT` is the one place a row's height is written, and it
+has to clear the two lines the label stacks beside it. Lane colour is
 cycled by index so parallel branches stay distinct, and lane zero stays grey,
 so a linear history looks the same as `jj log`.
 
-Clicking a row toggles that commit by commit id, while the row goes on showing
-a change id, which is shorter and is what `jj log` prints. The two are not
-interchangeable as identifiers. A change id names whichever version of a commit
+Clicking a row toggles that commit by commit id, never by the change id the
+label leads with. The two are not interchangeable as identifiers. A change id names whichever version of a commit
 the current view holds, so it says something different in each operation's log,
 and a selection has to keep meaning the one commit the reader clicked.
 
@@ -255,7 +273,7 @@ changes nothing.
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 40;
 const LANE_WIDTH = 24;
 const LANE_CLASS_COUNT = 7;
 
@@ -475,7 +493,7 @@ length declared here that could drift away from the arithmetic.
     display: flex;
     align-items: center;
     width: 100%;
-    padding: 0;
+    padding: 0 var(--space-4) 0 0;
     border: none;
     white-space: nowrap;
     font: inherit;
@@ -551,7 +569,16 @@ import type { LogEntry } from "../api";
 import { layoutGraph } from "./CommitGraph";
 
 function commit(id: string, parents: string[]): LogEntry {
-  return { commitId: id, changeId: `${id}-change`, description: id, parents };
+  return {
+    commitId: id,
+    changeId: `${id}-change`,
+    description: id,
+    parents,
+    author: "someone@example.com",
+    timestamp: "2026-01-01T00:00:00Z",
+    refs: [],
+    markers: [],
+  };
 }
 
 describe("layoutGraph", () => {
@@ -587,63 +614,179 @@ describe("layoutGraph", () => {
 ```
 ## Commit label
 
-The graph rows and the diff panel's header both name a commit the same way: its
-short change id, then the first line of its description. One component, so the
-two never drift apart.
+The graph rows and the diff panel's header both name a commit the same way,
+and they name it the way `jj log` does: a line of metadata over the first line
+of the description. One component, so the two never drift apart, and a reader
+who knows the terminal already knows the row.
 
-A commit with no change id falls back to its short commit id, in italic. The
-two are not the same promise. A change id is the commit's identity across a
-rewrite; a commit id names one revision and does not survive an amend.
-Rendering them identically would invite a reader to trust the wrong one. The
-cue stays small and stays in `--text-faint`, because on a git-backed row
-this is ordinary, not an error.
+The metadata line follows jj's order. The change id, who wrote it, when, the
+names pointing at it, the commit id, and then the standings jj reports. Every
+standing lands there, including the two jj puts elsewhere: `@` for the
+working copy, which jj spends a glyph column on, and `(empty)`, which jj puts
+in front of the description. One list renders as one map over one array, where
+jj's placement would scatter five values over three places for no gain a
+reader can use.
+
+A commit with no change id falls back to its short commit id, in italic, and
+drops the commit id from jj's position rather than printing the same eight
+characters twice. The two are not the same promise. A change id is the
+commit's identity across a rewrite; a commit id names one revision and does
+not survive an amend. Rendering them identically would invite a reader to
+trust the wrong one. The cue stays small and stays in the same dim grey,
+because on a git-backed row this is ordinary, not an error.
+
+The `<time>` element carries the full timestamp the backend sent, so the
+offset survives in the markup even though the text is trimmed to the seconds
+`jj log` shows. `REFS` and `MARKERS` are maps from a union to a class name and
+a word, matching the rest of the app: a kind jj grows is a row in a table and
+a type error until it has one.
 
 ```tsx
 //| id: frontend-view-commit-label
 //| file: src/frontend/views/CommitLabel.tsx
-import type { LogEntry } from "../api";
+import type { CommitMarker, CommitRef, LogEntry } from "../api";
+
+const REFS: Record<CommitRef["kind"], string> = {
+  bookmark: "commit-ref--bookmark",
+  tag: "commit-ref--tag",
+  "working-copy": "commit-ref--working-copy",
+};
+
+const MARKERS: Record<CommitMarker, { word: string; className: string }> = {
+  "working-copy": { word: "@", className: "commit-marker--working-copy" },
+  empty: { word: "(empty)", className: "commit-marker--empty" },
+  conflict: { word: "conflict", className: "commit-marker--conflict" },
+  divergent: { word: "divergent", className: "commit-marker--divergent" },
+  hidden: { word: "hidden", className: "commit-marker--hidden" },
+};
 
 export function CommitLabel({ commit }: { commit: LogEntry }) {
   const summary = commit.description.split("\n")[0] ?? "";
-  const shortId =
-    commit.changeId !== null
-      ? commit.changeId.slice(0, 8)
-      : commit.commitId.slice(0, 8);
+  const shortCommitId = commit.commitId.slice(0, 8);
+  const shortChangeId = commit.changeId?.slice(0, 8) ?? null;
+
   return (
-    <>
-      <span
-        className={
-          commit.changeId !== null
-            ? "commit-label__id"
-            : "commit-label__id commit-label__id--synthetic"
-        }
-      >
-        {shortId}
+    <span className="commit-label">
+      <span className="commit-label__meta">
+        <span
+          className={
+            shortChangeId !== null
+              ? "commit-label__id"
+              : "commit-label__id commit-label__id--synthetic"
+          }
+        >
+          {shortChangeId ?? shortCommitId}
+        </span>
+        <span className="commit-label__author">{commit.author}</span>
+        <time className="commit-label__time" dateTime={commit.timestamp}>
+          {commit.timestamp.slice(0, 19).replace("T", " ")}
+        </time>
+        {commit.refs.map((ref) => (
+          <span
+            key={`${ref.kind}:${ref.name}`}
+            className={`commit-ref ${REFS[ref.kind]}`}
+          >
+            {ref.name}
+          </span>
+        ))}
+        {shortChangeId !== null && (
+          <span className="commit-label__commit-id">{shortCommitId}</span>
+        )}
+        {commit.markers.map((marker) => (
+          <span
+            key={marker}
+            className={`commit-marker ${MARKERS[marker].className}`}
+          >
+            {MARKERS[marker].word}
+          </span>
+        ))}
       </span>
       <span className="commit-label__summary">
         {summary || (
           <em className="commit-label__placeholder">(no description)</em>
         )}
       </span>
-    </>
+    </span>
   );
 }
 ```
+
+A label is two stacked lines, the way `jj log` writes one: metadata over the
+description. The metadata line is the smaller type and a muted colour, so a
+pane of them still scans as a list of descriptions.
 
 `.commit-label__id--synthetic` is the one modifier this label needs.
 Everything else about a commit's line is the same shape whether the id is a
 change id or a stand-in for one.
 
+The metadata line holds more than a narrow pane can show, and only the two
+fields that survive being cut short give up any of it. The author yields four
+times as fast as the timestamp, and an id, a name and a marker yield nothing:
+a pane too narrow for the line reads `glencbz@gm…` and keeps `main`, the
+commit id and the `conflict` whole.
+
+That is a rule about ellipses more than about priority. A token here is eight
+characters or one short word, so shrinking it by a pixel costs it a character
+and then a second one for the ellipsis, and `main` becomes `ma…` for a
+rounding error. Only a field long enough to read once truncated can be asked
+to truncate, and `--ref-max-width` caps a name at its own expense rather than
+letting one long bookmark push the line apart.
+
+A name and a standing are each a colour rather than a chip. The line is
+already dense at eleven pixels, and a row of filled pills at that size reads
+as furniture rather than as the handful of words jj colours in a terminal.
+
+Neither id carries a colour of its own. Both inherit the line's one muted
+grey, and the change id leads while the commit id follows the names, which is
+the order `jj log` reads in and enough to tell them apart. Grading them by
+lightness instead would have cost the fainter of the two its WCAG AA contrast
+at eleven pixels, for a hierarchy their positions already carry.
+
 ```css
 /*| id: design-commit-label
 @layer components {
+  .commit-label {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    line-height: var(--text-line-height);
+  }
+
+  .commit-label__meta {
+    display: flex;
+    gap: var(--space-3);
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
   .commit-label__id {
-    margin-right: var(--space-4);
-    color: var(--text-faint);
+    flex: none;
   }
 
   .commit-label__id--synthetic {
     font-style: italic;
+  }
+
+  .commit-label__author {
+    flex: 0 4 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .commit-label__time {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .commit-label__commit-id {
+    flex: none;
   }
 
   .commit-label__summary {
@@ -653,6 +796,53 @@ change id or a stand-in for one.
 
   .commit-label__placeholder {
     color: var(--text-ghost);
+  }
+
+  .commit-ref {
+    flex: none;
+    max-width: var(--ref-max-width);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .commit-ref--bookmark {
+    color: var(--ref-bookmark);
+  }
+
+  .commit-ref--tag {
+    color: var(--ref-tag);
+  }
+
+  .commit-ref--working-copy {
+    color: var(--ref-working-copy);
+  }
+
+  .commit-ref--working-copy::after {
+    content: "@";
+  }
+
+  .commit-marker {
+    flex: none;
+  }
+
+  .commit-marker--working-copy {
+    color: var(--marker-working-copy);
+  }
+
+  .commit-marker--empty {
+    color: var(--marker-empty);
+  }
+
+  .commit-marker--conflict {
+    color: var(--marker-conflict);
+  }
+
+  .commit-marker--divergent {
+    color: var(--marker-divergent);
+  }
+
+  .commit-marker--hidden {
+    color: var(--marker-hidden);
   }
 }
 ```

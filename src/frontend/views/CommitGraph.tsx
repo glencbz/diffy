@@ -2,7 +2,7 @@
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 40;
 const LANE_WIDTH = 24;
 const LANE_CLASS_COUNT = 7;
 
