@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-commit-graph-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-graph-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { LogEntry } from "../api";
 import { layoutGraph } from "./CommitGraph";

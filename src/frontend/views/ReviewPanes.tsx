@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-review-panes>>[init]
+// ~/~ begin <<docs/architecture/frontend/layout.md#frontend-view-review-panes>>[init]
 import type { ReactNode } from "react";
 
 export function ReviewPanes({

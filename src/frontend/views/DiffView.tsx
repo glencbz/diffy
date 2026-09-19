@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-diff>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
 import { useState } from "react";
 import type { FileDiff } from "../api";
 import type { RowComment } from "../state/review";

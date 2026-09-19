@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-interdiff-rows>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import type { ReviewedRow } from "../state/review";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";

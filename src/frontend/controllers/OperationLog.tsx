@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-controller-operation-log>>[init]
+// ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-controller-operation-log>>[init]
 import { useOperations } from "../state/operations";
 import { Message } from "../views/Message";
 import { OperationPicker } from "../views/OperationPicker";

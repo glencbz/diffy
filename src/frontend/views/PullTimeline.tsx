@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-pull-timeline>>[init]
+// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-timeline>>[init]
 import type { GitOid, PullHeadOrigin, PullVersion } from "../api";
 
 type Endpoint = "before" | "after";

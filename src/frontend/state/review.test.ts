@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-review-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-review-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";

@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-comparison>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-state-comparison>>[init]
 import { useEffect, useState } from "react";
 import {
   type FileDiff,

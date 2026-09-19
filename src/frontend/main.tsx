@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-entry>>[init]
+// ~/~ begin <<docs/architecture/frontend/shell.md#frontend-entry>>[init]
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 

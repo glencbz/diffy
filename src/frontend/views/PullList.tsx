@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-pull-list>>[init]
+// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-list>>[init]
 import type { PullSummary } from "../api";
 import { PullStateChip } from "./PullStateChip";
 

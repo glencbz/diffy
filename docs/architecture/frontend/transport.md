@@ -1,4 +1,29 @@
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[init]
+# Transport
+
+`api.ts` is the only module that talks to the backend, and the only one that
+knows a server exists.
+
+`api.ts` has one Zod schema and one `fetch` wrapper per endpoint. `JjFileDiff`
+is a discriminated union on `status`. `added`, `deleted`, and `modified` carry
+a single `path`. `renamed` and `copied` carry `oldPath` and `newPath`.
+
+`LogEntry.changeId` is nullable because a GitHub pull request's commits are
+plain git commits, and a git commit has no change id. The field stays
+required, so a backend without one has to say `changeId: null`. Defaulting a
+missing key to null reads as more forgiving and costs more than it gives. A
+jj backend that stopped emitting `change_id` through a bug of its own would
+parse cleanly, and every row would quietly lose its rewrite-stable identity
+with nothing raised to say why. A missing field is a backend nobody taught
+about this one, and it should fail at the boundary.
+[`alignSeries`](../backend/series.md) has what pairing does without an id.
+
+`GitOid` is branded, so the only way to hold one is to have parsed it out of a
+backend response. A head oid cannot be typed into the app by hand, which is
+what makes the guarantee in the next section hold at compile time.
+
+```ts
+//| id: frontend-api
+//| file: src/frontend/api.ts
 import * as z from "zod";
 
 /** A full 40-hex git object id. Branded: only a parsed response mints one. */
@@ -126,8 +151,25 @@ export async function fetchInterdiff(
     await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
   );
 }
-// ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[1]
+```
+
+## Where a side's commits come from
+
+A side of the comparison is a list of commits, and there is more than one place
+those commits can come from. A jj operation gives the local repo as it stood
+after that step. A head of a pull request gives a branch on GitHub as it stood
+before somebody force-pushed over it. `Source` is that choice, a tagged union
+rather than an operation with a pull request hanging off it, so a side is
+always exactly one of the two and no view has to ask which.
+
+A pull request head is named by its object id and never by the version number
+the timeline shows. A version is a position in a chain that shifts, so `v7` can
+come to mean a different commit while the page is open; the backend's
+`pullStateAt` has the full account. Holding the oid makes "show me version 7 of
+a pull request that now has three versions" a request nobody can express.
+
+```ts
+//| id: frontend-api
 
 /** A view of the local repo: the jj operation to read its log at. */
 export type JjSource = { kind: "jj"; operation: string | null };
@@ -173,8 +215,21 @@ export async function fetchPullCommits(
     ),
   );
 }
-// ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[2]
+```
+
+## Reading a pull request
+
+The pull request screen calls its endpoints in the order the reader moves
+through them: the repository's pull requests, then one pull request's chain of
+heads, then the diff at or between those heads.
+
+`fetchPullDiff` takes `from` and `to` as two required heads, because the
+route answers one comparison and it needs both ends. The
+[route's own doc](../backend/server.md) says why that comparison is an
+interdiff and not a tree diff against the base branch.
+
+```ts
+//| id: frontend-api
 
 export const PullState = z.enum(["OPEN", "CLOSED", "MERGED"]);
 export type PullState = z.infer<typeof PullState>;
@@ -268,4 +323,4 @@ export async function fetchPullDiff(
     ),
   );
 }
-// ~/~ end
+```

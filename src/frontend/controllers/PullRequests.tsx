@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-controller-pull-requests>>[init]
+// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-requests>>[init]
 import { useState } from "react";
 import { usePulls } from "../state/pulls";
 import type { Session } from "../state/session";

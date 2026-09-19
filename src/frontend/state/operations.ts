@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-operations>>[init]
+// ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-state-operations>>[init]
 import { useEffect, useState } from "react";
 import { fetchOperations, type OpLogEntry } from "../api";
 import type { AsyncState } from "./asyncState";
