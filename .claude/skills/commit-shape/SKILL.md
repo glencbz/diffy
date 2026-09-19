@@ -63,9 +63,9 @@ Negative: `Change functionX() to accept Y param, delete functionY().`
 Positive: `Introduce UI feature X. It needs progress from subsystem A, so write
 the plumbing for that.`
 
-Mood, tense, capitalization, subject length, and wrapping are set by the
-"Commit messages" section of `CLAUDE.md`. Follow that section; this skill does
-not restate it.
+Mood, tense, capitalization, subject length, wrapping, and the shape of the
+body are set by the "Commit messages" section of `CLAUDE.md`. Follow that
+section; this skill does not restate it.
 
 ## Incidental work
 
