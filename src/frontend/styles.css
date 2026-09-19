@@ -100,6 +100,16 @@
 
   --endpoint-before: var(--amber-600);
 
+  --ref-bookmark: var(--purple-600);
+  --ref-tag: var(--teal-600);
+  --ref-working-copy: var(--blue-600);
+
+  --marker-working-copy: var(--blue-600);
+  --marker-empty: var(--green-600);
+  --marker-conflict: var(--red-600);
+  --marker-divergent: var(--amber-600);
+  --marker-hidden: var(--grey-500);
+
   --graph-lane-0: var(--grey-900);
   --graph-lane-1: var(--blue-600);
   --graph-lane-2: var(--green-600);
@@ -123,6 +133,7 @@
   --font-mono: ui-monospace, monospace;
   --text-size: 13px;
   --text-size-small: 11px;
+  --text-line-height: 1.4;
 
   --radius: 3px;
   --radius-large: 8px;
@@ -131,9 +142,10 @@
   --pane-picker-min: 240px;
   --pane-list-width: 22%;
   --pane-list-min: 220px;
-  --pane-commits-width: 260px;
+  --pane-commits-width: 360px;
   --gutter-width: 40px;
   --label-width: 56px;
+  --ref-max-width: 14em;
   --border-width-accent: 3px;
 }
 /* ~/~ end */
@@ -273,13 +285,48 @@ body {
 /* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/design-system.md#design-commit-label>>[init] */
+.commit-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  line-height: var(--text-line-height);
+}
+
+.commit-label__meta {
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-size-small);
+  color: var(--text-muted);
+}
+
 .commit-label__id {
-  margin-right: var(--space-4);
-  color: var(--text-faint);
+  flex: none;
 }
 
 .commit-label__id--synthetic {
   font-style: italic;
+}
+
+.commit-label__author {
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__time {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__commit-id {
+  flex: none;
 }
 
 .commit-label__summary {
@@ -289,6 +336,53 @@ body {
 
 .commit-label__placeholder {
   color: var(--text-ghost);
+}
+
+.commit-ref {
+  flex: none;
+  max-width: var(--ref-max-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-ref--bookmark {
+  color: var(--ref-bookmark);
+}
+
+.commit-ref--tag {
+  color: var(--ref-tag);
+}
+
+.commit-ref--working-copy {
+  color: var(--ref-working-copy);
+}
+
+.commit-ref--working-copy::after {
+  content: "@";
+}
+
+.commit-marker {
+  flex: none;
+}
+
+.commit-marker--working-copy {
+  color: var(--marker-working-copy);
+}
+
+.commit-marker--empty {
+  color: var(--marker-empty);
+}
+
+.commit-marker--conflict {
+  color: var(--marker-conflict);
+}
+
+.commit-marker--divergent {
+  color: var(--marker-divergent);
+}
+
+.commit-marker--hidden {
+  color: var(--marker-hidden);
 }
 /* ~/~ end */
 
@@ -381,7 +475,7 @@ body {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 0;
+  padding: 0 var(--space-4) 0 0;
   border: none;
   white-space: nowrap;
   font: inherit;
@@ -698,7 +792,7 @@ body {
   :root {
     --pane-picker-min: 180px;
     --pane-list-min: 160px;
-    --pane-commits-width: 200px;
+    --pane-commits-width: 260px;
   }
 }
 
@@ -771,6 +865,16 @@ body {
     --state-closed: var(--red-400);
 
     --endpoint-before: var(--amber-400);
+
+    --ref-bookmark: var(--purple-400);
+    --ref-tag: var(--teal-400);
+    --ref-working-copy: var(--blue-400);
+
+    --marker-working-copy: var(--blue-400);
+    --marker-empty: var(--green-300);
+    --marker-conflict: var(--red-400);
+    --marker-divergent: var(--amber-400);
+    --marker-hidden: var(--grey-600);
 
     --graph-lane-0: var(--grey-100);
     --graph-lane-1: var(--blue-400);

@@ -4,7 +4,16 @@ import type { LogEntry } from "../api";
 import { layoutGraph } from "./CommitGraph";
 
 function commit(id: string, parents: string[]): LogEntry {
-  return { commitId: id, changeId: `${id}-change`, description: id, parents };
+  return {
+    commitId: id,
+    changeId: `${id}-change`,
+    description: id,
+    parents,
+    author: "someone@example.com",
+    timestamp: "2026-01-01T00:00:00Z",
+    refs: [],
+    markers: [],
+  };
 }
 
 describe("layoutGraph", () => {

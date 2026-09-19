@@ -231,6 +231,15 @@ with nothing raised to say why. A missing field is a backend nobody taught
 about this one, and it should fail at the boundary.
 [`alignSeries`](backend/series.md) has what pairing does without an id.
 
+`LogEntry` carries the rest of what a log row shows: who wrote the commit,
+when, the names pointing at it and the standings a backend reports about it.
+`author` and `timestamp` are display strings whose precision is the backend's
+to choose, because the two backends disagree on which one a reader wants. jj
+prints an author's email and a committer's timestamp, and matching `jj log`
+is the point; a GitHub pull request is read through git, which knows an
+author's name and the date they wrote. `refs` and `markers` are empty for a
+git commit, which has neither in this app.
+
 `GitOid` is branded, so the only way to hold one is to have parsed it out of a
 backend response. A head oid cannot be typed into the app by hand, which is
 what makes the guarantee in the next section hold at compile time.
@@ -247,11 +256,33 @@ export const GitOid = z
   .brand("GitOid");
 export type GitOid = z.infer<typeof GitOid>;
 
+/** A name a backend prints beside a commit: see `CommitRef` in the jj module. */
+export const CommitRef = z.object({
+  kind: z.enum(["bookmark", "tag", "working-copy"]),
+  name: z.string(),
+});
+export type CommitRef = z.infer<typeof CommitRef>;
+
+export const CommitMarker = z.enum([
+  "working-copy",
+  "empty",
+  "conflict",
+  "divergent",
+  "hidden",
+]);
+export type CommitMarker = z.infer<typeof CommitMarker>;
+
 export const LogEntry = z.object({
   commitId: z.string(),
   changeId: z.string().nullable(),
   description: z.string(),
   parents: z.array(z.string()),
+  /** Whoever the backend names as the author, as it names them. */
+  author: z.string(),
+  /** ISO 8601. The instant the backend dates this commit by. */
+  timestamp: z.string(),
+  refs: z.array(CommitRef),
+  markers: z.array(CommitMarker),
 });
 export type LogEntry = z.infer<typeof LogEntry>;
 
@@ -589,10 +620,13 @@ a response that lands after the source has moved on again. `commitsFrom` is the
 one place in the app that dispatches on `source.kind`, so adding a third kind
 of source is one branch here and nothing anywhere else.
 
-A git commit has no change id. `commitsFrom` puts its commit id in that field,
-because the graph rows abbreviate the change id and the abbreviation of a
-commit id is the short oid, which is how GitHub names the same commit on the
-same screen.
+A git commit has no change id, and `commitsFrom` leaves the field null rather
+than filling it with the commit id. A row names both ids, so a commit id
+standing in for a change id would print twice, and the two are not
+interchangeable: a change id survives an amend and a commit id does not. The
+row falls back to the short oid on its own, which is how GitHub names the same
+commit on the same screen, and `reviewKey` reads the null as its cue to key a
+mark by revision.
 
 A source is an object, freshly built every render, so the effect cannot depend
 on it directly without restarting on every render. It depends on the source's
@@ -616,9 +650,13 @@ import type { AsyncState } from "./asyncState";
 function asLogEntry(commit: GitCommit): LogEntry {
   return {
     commitId: commit.commitId,
-    changeId: commit.commitId,
+    changeId: null,
     description: commit.description,
     parents: commit.parents,
+    author: commit.author,
+    timestamp: commit.authoredAt,
+    refs: [],
+    markers: [],
   };
 }
 
@@ -696,7 +734,16 @@ describe("commitsFrom", () => {
   test("reads a jj source out of the live commit log", async () => {
     // arrange
     const entries = [
-      { commitId: "c1", changeId: "k1", description: "one", parents: [] },
+      {
+        commitId: "c1",
+        changeId: "k1",
+        description: "one",
+        parents: [],
+        author: "someone@example.com",
+        timestamp: "2026-01-01T00:00:00Z",
+        refs: [],
+        markers: [],
+      },
     ];
     const asked = serve(entries);
 
@@ -748,9 +795,13 @@ describe("commitsFrom", () => {
     expect(commits).toEqual([
       {
         commitId: HEAD,
-        changeId: HEAD,
+        changeId: null,
         description: "frontend: give the graph side-by-side branch lanes",
         parents: [BASE],
+        author: "glencbz",
+        timestamp: "2026-09-10T09:00:00Z",
+        refs: [],
+        markers: [],
       },
     ]);
     expect(asked[0]).toBe(
@@ -1176,12 +1227,23 @@ import type { InterdiffRow, LogEntry } from "../api";
 import { reviewKey, reviewRows, type SessionDocument } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
-  return { changeId, commitId, description: "", parents: [] };
+  return { ...blank, changeId, commitId };
 }
 
 function gitLogEntry(commitId: string): LogEntry {
-  return { changeId: null, commitId, description: "", parents: [] };
+  return { ...blank, changeId: null, commitId };
 }
+
+const blank = {
+  changeId: null,
+  commitId: "",
+  description: "",
+  parents: [],
+  author: "",
+  timestamp: "2026-01-01T00:00:00Z",
+  refs: [],
+  markers: [],
+} satisfies LogEntry;
 
 function pairRow(
   changeId: string,
@@ -1937,45 +1999,99 @@ function optionLabel(operation: OpLogEntry): string {
 
 ### Commit label
 
-The graph rows and the diff panel's header both name a commit the same way: its
-short change id, then the first line of its description. One component, so the
-two never drift apart.
+The graph rows and the diff panel's header both name a commit the same way,
+and they name it the way `jj log` does: a line of metadata over the first line
+of the description. One component, so the two never drift apart, and a reader
+who knows the terminal already knows the row.
 
-A commit with no change id falls back to its short commit id, in italic. The
-two are not the same promise. A change id is the commit's identity across a
-rewrite; a commit id names one revision and does not survive an amend.
-Rendering them identically would invite a reader to trust the wrong one. The
-cue stays small and stays in the same dim `#888`, because on a git-backed row
-this is ordinary, not an error.
+The metadata line follows jj's order. The change id, who wrote it, when, the
+names pointing at it, the commit id, and then the standings jj reports. Every
+standing lands there, including the two jj puts elsewhere: `@` for the
+working copy, which jj spends a glyph column on, and `(empty)`, which jj puts
+in front of the description. One list renders as one map over one array, where
+jj's placement would scatter five values over three places for no gain a
+reader can use.
+
+A commit with no change id falls back to its short commit id, in italic, and
+drops the commit id from jj's position rather than printing the same eight
+characters twice. The two are not the same promise. A change id is the
+commit's identity across a rewrite; a commit id names one revision and does
+not survive an amend. Rendering them identically would invite a reader to
+trust the wrong one. The cue stays small and stays in the same dim grey,
+because on a git-backed row this is ordinary, not an error.
+
+The `<time>` element carries the full timestamp the backend sent, so the
+offset survives in the markup even though the text is trimmed to the seconds
+`jj log` shows. `REFS` and `MARKERS` are maps from a union to a class name and
+a word, matching the rest of the app: a kind jj grows is a row in a table and
+a type error until it has one.
 
 ```tsx
 //| id: frontend-view-commit-label
 //| file: src/frontend/views/CommitLabel.tsx
-import type { LogEntry } from "../api";
+import type { CommitMarker, CommitRef, LogEntry } from "../api";
+
+const REFS: Record<CommitRef["kind"], string> = {
+  bookmark: "commit-ref--bookmark",
+  tag: "commit-ref--tag",
+  "working-copy": "commit-ref--working-copy",
+};
+
+const MARKERS: Record<CommitMarker, { word: string; className: string }> = {
+  "working-copy": { word: "@", className: "commit-marker--working-copy" },
+  empty: { word: "(empty)", className: "commit-marker--empty" },
+  conflict: { word: "conflict", className: "commit-marker--conflict" },
+  divergent: { word: "divergent", className: "commit-marker--divergent" },
+  hidden: { word: "hidden", className: "commit-marker--hidden" },
+};
 
 export function CommitLabel({ commit }: { commit: LogEntry }) {
   const summary = commit.description.split("\n")[0] ?? "";
-  const shortId =
-    commit.changeId !== null
-      ? commit.changeId.slice(0, 8)
-      : commit.commitId.slice(0, 8);
+  const shortCommitId = commit.commitId.slice(0, 8);
+  const shortChangeId = commit.changeId?.slice(0, 8) ?? null;
+
   return (
-    <>
-      <span
-        className={
-          commit.changeId !== null
-            ? "commit-label__id"
-            : "commit-label__id commit-label__id--synthetic"
-        }
-      >
-        {shortId}
+    <span className="commit-label">
+      <span className="commit-label__meta">
+        <span
+          className={
+            shortChangeId !== null
+              ? "commit-label__id"
+              : "commit-label__id commit-label__id--synthetic"
+          }
+        >
+          {shortChangeId ?? shortCommitId}
+        </span>
+        <span className="commit-label__author">{commit.author}</span>
+        <time className="commit-label__time" dateTime={commit.timestamp}>
+          {commit.timestamp.slice(0, 19).replace("T", " ")}
+        </time>
+        {commit.refs.map((ref) => (
+          <span
+            key={`${ref.kind}:${ref.name}`}
+            className={`commit-ref ${REFS[ref.kind]}`}
+          >
+            {ref.name}
+          </span>
+        ))}
+        {shortChangeId !== null && (
+          <span className="commit-label__commit-id">{shortCommitId}</span>
+        )}
+        {commit.markers.map((marker) => (
+          <span
+            key={marker}
+            className={`commit-marker ${MARKERS[marker].className}`}
+          >
+            {MARKERS[marker].word}
+          </span>
+        ))}
       </span>
       <span className="commit-label__summary">
         {summary || (
           <em className="commit-label__placeholder">(no description)</em>
         )}
       </span>
-    </>
+    </span>
   );
 }
 ```
@@ -2089,13 +2205,14 @@ already points at a parent absorbs the incoming branch instead of doubling up,
 which is how a side branch collapses back into its base.
 
 `layoutGraph` is the whole algorithm, and it is pure, commits in, lanes and
-edges out. The view just turns each row into an `<svg>` gutter. Lane colour is
+edges out. The view just turns each row into an `<svg>` gutter, whose height
+is the row's: `ROW_HEIGHT` is the one place a row's height is written, and it
+has to clear the two lines the label stacks beside it. Lane colour is
 cycled by index so parallel branches stay distinct, and lane zero stays grey,
 so a linear history looks the same as `jj log`.
 
-Clicking a row toggles that commit by commit id, while the row goes on showing
-a change id, which is shorter and is what `jj log` prints. The two are not
-interchangeable as identifiers. A change id names whichever version of a commit
+Clicking a row toggles that commit by commit id, never by the change id the
+label leads with. The two are not interchangeable as identifiers. A change id names whichever version of a commit
 the current view holds, so it says something different in each operation's log,
 and a selection has to keep meaning the one commit the reader clicked.
 
@@ -2116,7 +2233,7 @@ changes nothing.
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 40;
 const LANE_WIDTH = 24;
 const LANE_CLASS_COUNT = 7;
 
@@ -2405,7 +2522,16 @@ import type { LogEntry } from "../api";
 import { layoutGraph } from "./CommitGraph";
 
 function commit(id: string, parents: string[]): LogEntry {
-  return { commitId: id, changeId: `${id}-change`, description: id, parents };
+  return {
+    commitId: id,
+    changeId: `${id}-change`,
+    description: id,
+    parents,
+    author: "someone@example.com",
+    timestamp: "2026-01-01T00:00:00Z",
+    refs: [],
+    markers: [],
+  };
 }
 
 describe("layoutGraph", () => {

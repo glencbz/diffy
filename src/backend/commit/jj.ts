@@ -34,20 +34,73 @@ async function runJj(args: string[]): Promise<string> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[1]
 
+/** A name `jj log` prints beside a commit. */
+export interface CommitRef {
+  kind: "bookmark" | "tag" | "working-copy";
+  /** The name jj shows: `name`, or `name@remote` for a drifted remote ref. */
+  name: string;
+}
+
+/** The standings `jj log` reports about a commit, in the order jj shows them. */
+export const COMMIT_MARKERS = [
+  "working-copy",
+  "empty",
+  "conflict",
+  "divergent",
+  "hidden",
+] as const;
+export type CommitMarker = (typeof COMMIT_MARKERS)[number];
+
+const MARKER_KEYWORDS = {
+  "working-copy": "current_working_copy",
+  empty: "empty",
+  conflict: "conflict",
+  divergent: "divergent",
+  hidden: "hidden",
+} satisfies Record<CommitMarker, string>;
+
 export interface JjLogEntry {
   commitId: string;
   changeId: string;
   description: string;
   /** Parent commit IDs, in jj's order. Empty only for the root commit. */
   parents: string[];
+  /** The author's email, the identity `jj log` prints. */
+  author: string;
+  /** ISO 8601 committer timestamp, the time `jj log` prints. */
+  timestamp: string;
+  /** Bookmarks, then tags, then working copies, as `jj log` orders them. */
+  refs: CommitRef[];
+  markers: CommitMarker[];
 }
 
-const JjLogEntryWire = z.object({
-  commit_id: z.string(),
-  change_id: z.string(),
-  description: z.string(),
-  parents: z.array(z.string()),
+const CommitRefWire = z.object({
+  name: z.string(),
+  remote: z.string().optional(),
 });
+type CommitRefWire = z.infer<typeof CommitRefWire>;
+
+const JjLogEntryWire = z.object({
+  commit: z.object({
+    commit_id: z.string(),
+    change_id: z.string(),
+    description: z.string(),
+    parents: z.array(z.string()),
+    author: z.object({ email: z.string() }),
+    committer: z.object({ timestamp: z.string() }),
+  }),
+  bookmarks: z.array(CommitRefWire),
+  tags: z.array(CommitRefWire),
+  working_copies: z.array(z.string()),
+  markers: z.object({
+    "working-copy": z.boolean(),
+    empty: z.boolean(),
+    conflict: z.boolean(),
+    divergent: z.boolean(),
+    hidden: z.boolean(),
+  }),
+});
+type JjLogEntryWire = z.infer<typeof JjLogEntryWire>;
 
 export interface JjLogOptions {
   revset?: string;
@@ -56,7 +109,35 @@ export interface JjLogOptions {
   atOperation?: string;
 }
 
-const LOG_TEMPLATE = 'json(self) ++ "\n"';
+const LOG_TEMPLATE = [
+  '"{\\"commit\\":" ++ json(self)',
+  '++ ",\\"bookmarks\\":" ++ json(bookmarks)',
+  '++ ",\\"tags\\":" ++ json(tags)',
+  '++ ",\\"working_copies\\":" ++ json(working_copies.map(|wc| wc.name()))',
+  '++ ",\\"markers\\":{"',
+  COMMIT_MARKERS.map(
+    (marker) => `++ "\\"${marker}\\":" ++ json(${MARKER_KEYWORDS[marker]})`,
+  ).join(' ++ "," '),
+  '++ "}}\\n"',
+].join(" ");
+
+function refName(ref: CommitRefWire): string {
+  return ref.remote === undefined ? ref.name : `${ref.name}@${ref.remote}`;
+}
+
+function refsOf(entry: JjLogEntryWire): CommitRef[] {
+  return [
+    ...entry.bookmarks.map((ref) => ({
+      kind: "bookmark" as const,
+      name: refName(ref),
+    })),
+    ...entry.tags.map((ref) => ({ kind: "tag" as const, name: refName(ref) })),
+    ...entry.working_copies.map((name) => ({
+      kind: "working-copy" as const,
+      name,
+    })),
+  ];
+}
 
 export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
   const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
@@ -68,21 +149,24 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 
   const output = await runJj(args);
 
-  return Promise.all(
-    output
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .map(async (line) => {
-        const commit = await JjLogEntryWire.parseAsync(JSON.parse(line));
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const entry = JjLogEntryWire.parse(JSON.parse(line));
+      const { commit } = entry;
 
-        return {
-          commitId: commit.commit_id,
-          changeId: commit.change_id,
-          description: commit.description,
-          parents: commit.parents,
-        };
-      }),
-  );
+      return {
+        commitId: commit.commit_id,
+        changeId: commit.change_id,
+        description: commit.description,
+        parents: commit.parents,
+        author: commit.author.email,
+        timestamp: commit.committer.timestamp,
+        refs: refsOf(entry),
+        markers: COMMIT_MARKERS.filter((marker) => entry.markers[marker]),
+      };
+    });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[2]
