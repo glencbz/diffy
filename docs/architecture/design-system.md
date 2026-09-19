@@ -214,6 +214,16 @@ patch to read the way a patch reads everywhere else.
 
   --endpoint-before: var(--amber-600);
 
+  --ref-bookmark: var(--purple-600);
+  --ref-tag: var(--teal-600);
+  --ref-working-copy: var(--blue-600);
+
+  --marker-working-copy: var(--blue-600);
+  --marker-empty: var(--green-600);
+  --marker-conflict: var(--red-600);
+  --marker-divergent: var(--amber-600);
+  --marker-hidden: var(--grey-500);
+
   --graph-lane-0: var(--grey-900);
   --graph-lane-1: var(--blue-600);
   --graph-lane-2: var(--green-600);
@@ -249,6 +259,7 @@ component, and that is what makes the breakpoints below a two-line change.
   --font-mono: ui-monospace, monospace;
   --text-size: 13px;
   --text-size-small: 11px;
+  --text-line-height: 1.4;
 
   --radius: 3px;
   --radius-large: 8px;
@@ -257,9 +268,10 @@ component, and that is what makes the breakpoints below a two-line change.
   --pane-picker-min: 240px;
   --pane-list-width: 22%;
   --pane-list-min: 220px;
-  --pane-commits-width: 260px;
+  --pane-commits-width: 360px;
   --gutter-width: 40px;
   --label-width: 56px;
+  --ref-max-width: 14em;
   --border-width-accent: 3px;
 }
 ```
@@ -434,20 +446,82 @@ select itself take the rest of the row.
 
 ## Commit label
 
+A label is two stacked lines, the way `jj log` writes one: metadata over the
+description. The metadata line is the smaller type and a muted colour, so a
+pane of them still scans as a list of descriptions.
+
 A commit with no change id falls back to its short commit id rendered in
 italic, so `.commit-label__id--synthetic` is the one modifier this label
-needs; everything else about a commit's line is the same shape whether the
-id is a change id or a stand-in for one.
+needs; everything else about a commit's line is the same shape whether the id
+is a change id or a stand-in for one.
+
+The metadata line holds more than a narrow pane can show, and only the two
+fields that survive being cut short give up any of it. The author yields four
+times as fast as the timestamp, and an id, a name and a marker yield nothing:
+a pane too narrow for the line reads `glencbz@gm…` and keeps `main`, the
+commit id and the `conflict` whole.
+
+That is a rule about ellipses more than about priority. A token here is eight
+characters or one short word, so shrinking it by a pixel costs it a character
+and then a second one for the ellipsis, and `main` becomes `ma…` for a
+rounding error. Only a field long enough to read once truncated can be asked
+to truncate, and `--ref-max-width` caps a name at its own expense rather than
+letting one long bookmark push the line apart.
+
+A name and a standing are each a colour rather than a chip. The line is
+already dense at eleven pixels, and a row of filled pills at that size reads
+as furniture rather than as the handful of words jj colours in a terminal.
+
+Neither id carries a colour of its own. Both inherit the line's one muted
+grey, and the change id leads while the commit id follows the names, which is
+the order `jj log` reads in and enough to tell them apart. Grading them by
+lightness instead would have cost the fainter of the two its WCAG AA contrast
+at eleven pixels, for a hierarchy their positions already carry.
 
 ```css
 /*| id: design-commit-label
+.commit-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  line-height: var(--text-line-height);
+}
+
+.commit-label__meta {
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-size-small);
+  color: var(--text-muted);
+}
+
 .commit-label__id {
-  margin-right: var(--space-4);
-  color: var(--text-faint);
+  flex: none;
 }
 
 .commit-label__id--synthetic {
   font-style: italic;
+}
+
+.commit-label__author {
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__time {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-label__commit-id {
+  flex: none;
 }
 
 .commit-label__summary {
@@ -457,6 +531,53 @@ id is a change id or a stand-in for one.
 
 .commit-label__placeholder {
   color: var(--text-ghost);
+}
+
+.commit-ref {
+  flex: none;
+  max-width: var(--ref-max-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-ref--bookmark {
+  color: var(--ref-bookmark);
+}
+
+.commit-ref--tag {
+  color: var(--ref-tag);
+}
+
+.commit-ref--working-copy {
+  color: var(--ref-working-copy);
+}
+
+.commit-ref--working-copy::after {
+  content: "@";
+}
+
+.commit-marker {
+  flex: none;
+}
+
+.commit-marker--working-copy {
+  color: var(--marker-working-copy);
+}
+
+.commit-marker--empty {
+  color: var(--marker-empty);
+}
+
+.commit-marker--conflict {
+  color: var(--marker-conflict);
+}
+
+.commit-marker--divergent {
+  color: var(--marker-divergent);
+}
+
+.commit-marker--hidden {
+  color: var(--marker-hidden);
 }
 ```
 
@@ -583,7 +704,7 @@ length declared here that could drift away from the arithmetic.
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 0;
+  padding: 0 var(--space-4) 0 0;
   border: none;
   white-space: nowrap;
   font: inherit;
@@ -961,7 +1082,7 @@ here rather than left next to the pane it contradicts.
   :root {
     --pane-picker-min: 180px;
     --pane-list-min: 160px;
-    --pane-commits-width: 200px;
+    --pane-commits-width: 260px;
   }
 }
 
@@ -1045,6 +1166,16 @@ lightness that survives a dark surface.
     --state-closed: var(--red-400);
 
     --endpoint-before: var(--amber-400);
+
+    --ref-bookmark: var(--purple-400);
+    --ref-tag: var(--teal-400);
+    --ref-working-copy: var(--blue-400);
+
+    --marker-working-copy: var(--blue-400);
+    --marker-empty: var(--green-300);
+    --marker-conflict: var(--red-400);
+    --marker-divergent: var(--amber-400);
+    --marker-hidden: var(--grey-600);
 
     --graph-lane-0: var(--grey-100);
     --graph-lane-1: var(--blue-400);

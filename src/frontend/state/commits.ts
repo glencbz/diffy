@@ -15,6 +15,10 @@ function asLogEntry(commit: GitCommit): LogEntry {
     changeId: null,
     description: commit.description,
     parents: commit.parents,
+    author: commit.author,
+    timestamp: commit.authoredAt,
+    refs: [],
+    markers: [],
   };
 }
 
