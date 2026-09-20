@@ -146,18 +146,17 @@ export function PullRequests({
 
 ## Pull review controller
 
-One pull request, head by head. The two ends of the comparison live here: the
-after end defaults to the latest head and the before end to the first, so a
-pull request opens on the interdiff across its whole force-push history, v1
-to latest, and a shift-click narrows it to what changed since one particular
-head.
+One pull request, head by head. The before end defaults to the base and the
+after end to the latest head, so a pull request opens on what it introduces
+against the branch it targets. That is the question a reviewer asks on
+opening a pull request, and it replaces a defect the old default had: a pull
+request with only one version used to compare that version against itself
+and show an empty diff, because the before end also defaulted to a head.
 
 The before end is a `PullBaseline` rather than a head, which is what the
-[diff route](../backend/server.md) takes. The timeline offers heads and
-nothing else, so every baseline this controller holds is a version and the
-screen shows what it showed before. The conversion happens where this
-controller reads and writes that state, which leaves the timeline a view of
-heads.
+[diff route](../backend/server.md) takes. The picker below hands one back
+directly, so this controller passes what it is given straight through
+instead of converting a head into a baseline itself.
 
 ```tsx
 //| id: frontend-controller-pull-review
@@ -167,9 +166,9 @@ import type { GitOid, PullBaseline, PullSummary } from "../api";
 import { usePullHistory } from "../state/pullHistory";
 import type { Session } from "../state/session";
 import { Message } from "../views/Message";
+import { PullComparisonPicker } from "../views/PullComparisonPicker";
 import { PullHeader } from "../views/PullHeader";
 import { PullReviewPanes } from "../views/PullPanes";
-import { PullTimeline } from "../views/PullTimeline";
 import { CommitLog } from "./CommitLog";
 import { DiffPane } from "./DiffPane";
 
@@ -183,8 +182,8 @@ export function PullReview({
   session: Session;
 }) {
   const history = usePullHistory(repo, pull.number);
-  const [before, setBefore] = useState<PullBaseline | null>(null);
-  const [after, setAfter] = useState<GitOid | null>(null);
+  const [from, setFrom] = useState<PullBaseline>({ kind: "base" });
+  const [pickedTo, setPickedTo] = useState<GitOid | null>(null);
 
   if (history.status === "loading") {
     return <Message>Loading versions...</Message>;
@@ -193,31 +192,24 @@ export function PullReview({
     return <Message tone="error">{history.message}</Message>;
   }
 
-  const states = history.data.states;
-  const first = states[0];
-  const latest = states.at(-1);
-  if (first === undefined || latest === undefined) {
+  const latest = history.data.states.at(-1);
+  if (latest === undefined) {
     return <Message tone="error">This pull request has had no head.</Message>;
   }
 
-  const from: PullBaseline = before ?? { kind: "version", head: first.head };
-  const to = after ?? latest.head;
+  const to = pickedTo ?? latest.head;
   const number = pull.number;
 
   return (
     <PullReviewPanes
       header={<PullHeader pull={pull} />}
-      timeline={
-        <PullTimeline
-          states={states}
-          // A baseline that is not a head has no chip to mark, and the base
-          // branch tip is never one of the heads.
-          before={from.kind === "version" ? from.head : history.data.baseRefOid}
-          after={to}
-          onPick={(head, end) => {
-            if (end === "before") setBefore({ kind: "version", head });
-            else setAfter(head);
-          }}
+      picker={
+        <PullComparisonPicker
+          history={history.data}
+          from={from}
+          to={to}
+          onPickFrom={setFrom}
+          onPickTo={setPickedTo}
         />
       }
       commits={
@@ -399,79 +391,146 @@ outranks the others.
 }
 ```
 
-## Pull request timeline
+## Pull comparison picker
 
-Every head the branch has had, oldest first, on one line. Both ends of the
-comparison are marked on that line at the same time: the after end in blue, the
-before end in amber. A dropdown per end would show one choice each and neither
-in the context of the other.
+Two native `<select>`s, one per end of the comparison, each wrapped in a
+`<label>` with a visible text caption. [`OperationPicker`](local-history.md)
+is the only other place in the app that reaches for a native select, and this
+follows its shape: a label naming the field, a select whose `value` is looked
+up rather than trusted, and `onChange` turning the chosen option back into a
+real value before it leaves the component.
 
-A click moves the after end and a shift-click moves the before end. Shift-click
-is not discoverable, so the hint next to the chips says so in words rather than
-leaving a reader to find it.
+A native select is the right control for a phone as well as a desktop. A
+touch browser renders it as a full-screen list a reader taps through, and it
+is keyboard- and screen-reader-complete with no work of its own.
 
-A chip shows its version label, the short oid, and when the force push that
-made it happened. The label is for the reader, and everything that asks the
-backend for a state passes the oid.
+The "from" select offers the base branch tip alongside every version; the
+"to" select offers versions only. The base as the after end is the pull
+request read backwards, which nobody reads, and the commit strip beside the
+diff takes `to` as a head with nothing to draw for a base. That asymmetry is
+why the component takes `from: PullBaseline` and `to: GitOid` rather than a
+matched pair.
 
-Both ends can land on the same head, and the caption names which way it
-happened rather than reading like a typo, "comparing v1 → v1". A pull
-request nobody has force-pushed has one head and nothing yet to compare. A
-reviewer who picks one chip twice on a longer timeline has asked a question
-with an empty answer, which is a different thing to be told.
+Each option is one line: `base (main @ a1b2c3d)` for the base, and
+`v3 (c3d4e5f, force-pushed 2024-05-01)` for a version, built from its
+position in the chain, its short oid, and how it became the head. A version
+option is never picked by casting `event.target.value`, a DOM string, to a
+`GitOid`. It is looked up in `history.states` instead, and the branded oid
+that was already there is handed back; a value matching nothing is a bug,
+and it throws rather than inventing an oid.
+
+`PullHistory.truncated` is true when the branch was force-pushed more times
+than one page of GitHub's history holds, so the middle of the chain is
+missing and the version numbers this component labels options with are
+positions among the states that survived, not actual push counts. A dropdown
+hides that gap worse than a row of chips would have, since a collapsed list
+gives no visual hint that anything is missing, so a short note says a gap
+exists. GitHub's own history does not say where the gap is, only that there
+is one, so the note does not try to mark it between two options either.
+
+The caption matters more here than the chip row's caption did, because the
+two selects name which versions are being compared but not which kind of
+comparison is on screen. Base against a head is a tree diff of content;
+version against version is a diff of diffs. Those answer different
+questions, and [the backend route](../backend/server.md) refused to offer a
+second comparison here for exactly as long as it would have gone unlabelled.
+The caption is what discharges that objection, so it is load-bearing rather
+than decoration.
 
 ```tsx
-//| id: frontend-view-pull-timeline
-//| file: src/frontend/views/PullTimeline.tsx
-import type { GitOid, PullHeadOrigin, PullVersion } from "../api";
+//| id: frontend-view-pull-comparison-picker
+//| file: src/frontend/views/PullComparisonPicker.tsx
+import type {
+  GitOid,
+  PullBaseline,
+  PullHeadOrigin,
+  PullHistory,
+  PullVersion,
+} from "../api";
 
-type Endpoint = "before" | "after";
-
-export function PullTimeline({
-  states,
-  before,
-  after,
-  onPick,
+export function PullComparisonPicker({
+  history,
+  from,
+  to,
+  onPickFrom,
+  onPickTo,
 }: {
-  states: PullVersion[];
-  before: GitOid;
-  after: GitOid;
-  onPick: (head: GitOid, end: "before" | "after") => void;
+  history: PullHistory;
+  from: PullBaseline;
+  to: GitOid;
+  onPickFrom: (from: PullBaseline) => void;
+  onPickTo: (head: GitOid) => void;
 }) {
+  const { states, baseRefName, baseRefOid, truncated } = history;
+
   return (
-    <div className="pull-timeline">
-      <div className="pull-timeline__row">
-        {states.map((state) => (
-          <Chip
-            key={state.head}
-            caption={`v${state.version}`}
-            detail={`${state.head.slice(0, 7)}  ${when(state.origin)}`}
-            endpoint={endpointFor(state.head, before, after)}
-            onClick={(shift) => onPick(state.head, shift ? "before" : "after")}
-          />
-        ))}
-      </div>
-      <p className="pull-timeline__caption">
-        {caption(states, before, after)} · click sets the after end, shift-click
-        sets the before end
+    <div className="pull-compare">
+      <label className="pull-compare__field">
+        <span className="pull-compare__label">from</span>
+        <select
+          value={from.kind === "base" ? "base" : from.head}
+          onChange={(event) =>
+            onPickFrom(parseBaseline(event.target.value, states))
+          }
+          className="pull-compare__select"
+        >
+          <option value="base">{`base (${baseRefName} @ ${baseRefOid.slice(0, 7)})`}</option>
+          {states.map((state) => (
+            <option key={state.head} value={state.head}>
+              {versionLabel(state)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="pull-compare__field">
+        <span className="pull-compare__label">to</span>
+        <select
+          value={to}
+          onChange={(event) => onPickTo(lookupHead(event.target.value, states))}
+          className="pull-compare__select"
+        >
+          {states.map((state) => (
+            <option key={state.head} value={state.head}>
+              {versionLabel(state)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {truncated ? (
+        <p className="pull-compare__truncated">
+          Some versions are missing here. This pull request was force-pushed
+          more times than GitHub's history holds, and it does not say which ones
+          were lost.
+        </p>
+      ) : null}
+      <p className="pull-compare__caption">
+        {caption(states, baseRefName, from, to)}
       </p>
     </div>
   );
 }
 
-/** The after end wins when one chip is both, since it is the one being read. */
-function endpointFor(
-  head: GitOid,
-  before: GitOid,
-  after: GitOid,
-): Endpoint | null {
-  if (head === after) return "after";
-  if (head === before) return "before";
-  return null;
+function parseBaseline(value: string, states: PullVersion[]): PullBaseline {
+  if (value === "base") return { kind: "base" };
+  return { kind: "version", head: lookupHead(value, states) };
+}
+
+function lookupHead(value: string, states: PullVersion[]): GitOid {
+  const state = states.find((candidate) => candidate.head === value);
+  if (state === undefined) {
+    throw new Error(`no version of this pull request has head ${value}`);
+  }
+  return state.head;
+}
+
+function versionLabel(state: PullVersion): string {
+  return `v${state.version} (${state.head.slice(0, 7)}, ${when(state.origin)})`;
 }
 
 function when(origin: PullHeadOrigin): string {
-  if (origin.kind === "force-pushed") return origin.at.slice(0, 10);
+  if (origin.kind === "force-pushed") {
+    return `force-pushed ${origin.at.slice(0, 10)}`;
+  }
   return origin.kind;
 }
 
@@ -480,99 +539,78 @@ function label(states: PullVersion[], head: GitOid): string {
   return state === undefined ? head.slice(0, 7) : `v${state.version}`;
 }
 
-function caption(states: PullVersion[], before: GitOid, after: GitOid): string {
-  if (before !== after) {
-    return `comparing ${label(states, before)} → ${label(states, after)}`;
+function caption(
+  states: PullVersion[],
+  baseRefName: string,
+  from: PullBaseline,
+  to: GitOid,
+): string {
+  if (from.kind === "base") {
+    return `what ${label(states, to)} adds to ${baseRefName}`;
   }
-  return states.length === 1
-    ? `${label(states, after)} is the only version so far`
-    : `${label(states, after)} against itself`;
-}
-
-function Chip({
-  caption,
-  detail,
-  endpoint,
-  onClick,
-}: {
-  caption: string;
-  detail: string;
-  endpoint: Endpoint | null;
-  onClick: (shiftKey: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(event) => onClick(event.shiftKey)}
-      className={
-        endpoint === null ? "pull-chip" : `pull-chip pull-chip--${endpoint}`
-      }
-    >
-      <span className="pull-chip__caption">{caption}</span>
-      <span className="pull-chip__detail">{detail}</span>
-    </button>
-  );
+  if (from.head === to) {
+    return `${label(states, to)} against itself`;
+  }
+  return `what changed between ${label(states, from.head)} and ${label(states, to)}`;
 }
 ```
 
-A version chip on the timeline is picked as the before end, the after end,
-or neither, which is a fixed set of three and becomes a modifier rather
-than a colour computed in the component. `--endpoint-before` is the one new
-role this adds; the after end reuses `--accent`, the same blue used for the
-current selection everywhere else in the app.
+A reader loses something real here. A row of chips names both ends of the
+whole force-push history at a glance; two dropdowns hide that history behind
+a list a reader has to open and count through. The change is made anyway,
+because a picker a phone cannot operate is not a picker. Shift-click has no
+touch equivalent, so a reader on a phone could move the after end and never
+the before end, which is a control that only half works for part of its
+audience.
+
+`PullComparisonPicker` is two labelled selects and two caption lines, so
+`.pull-compare` is the flex row that holds all four and the rest of the
+classes only line each part up. `flex-wrap: wrap` on that row is what lets
+the two fields sit side by side on a wide screen and drop to a stack on a
+phone, and `min-height: 44px` on the select is the standard minimum touch
+target size (WCAG 2.5.5), which a desktop pointer never notices. `min-width:
+0` on the field and the select keeps a long option label from forcing the
+row wider than its column, the same problem a text-overflow ellipsis solves
+elsewhere in this app.
 
 ```css
-/*| id: design-pull-timeline
+/*| id: design-pull-comparison-picker
 @layer components {
-  .pull-timeline {
-    flex: none;
+  .pull-compare {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
     padding: var(--space-3) var(--space-5);
     border-bottom: 1px solid var(--border);
   }
 
-  .pull-timeline__row {
+  .pull-compare__field {
     display: flex;
-    align-items: stretch;
+    align-items: center;
     gap: var(--space-3);
-    overflow-x: auto;
+    min-width: 0;
   }
 
-  .pull-timeline__caption {
-    margin: var(--space-3) 0 0;
+  .pull-compare__label {
     color: var(--text-faint);
   }
 
-  .pull-chip {
-    flex: none;
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
+  .pull-compare__select {
+    min-height: 44px;
+    min-width: 0;
     font: inherit;
-    text-align: left;
-    color: inherit;
-    background: var(--surface);
   }
 
-  .pull-chip--before {
-    border-color: var(--endpoint-before);
-    color: var(--endpoint-before);
-    background: var(--review-unseen-surface);
+  .pull-compare__caption {
+    flex: 1 0 100%;
+    margin: 0;
+    color: var(--text-faint);
   }
 
-  .pull-chip--after {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--review-unseen-surface);
-  }
-
-  .pull-chip__caption {
-    display: block;
-    font-weight: bold;
-  }
-
-  .pull-chip__detail {
-    display: block;
+  .pull-compare__truncated {
+    flex: 1 0 100%;
+    margin: 0;
     color: var(--text-faint);
     font-size: var(--text-size-small);
   }

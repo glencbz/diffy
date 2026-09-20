@@ -264,8 +264,8 @@ whatever sequence the reader happened to click.
 
 `onSelect` is optional. Without it the same graph draws a history that is read
 rather than picked from, which is what the pull request screen needs. Its two
-ends are chosen on the timeline, so a clickable row would be a control that
-changes nothing.
+ends are chosen in the comparison picker, so a clickable row would be a
+control that changes nothing.
 
 ```tsx
 //| id: frontend-view-commit-graph

@@ -56,9 +56,9 @@ function PickerColumn({
 ## Pull request panes
 
 Two layouts, because the pull request screen nests. The outer one is the list
-against everything else. The inner one stacks the header and the timeline over
-a narrow commit strip and the diff, which is the part being read and so gets
-the room.
+against everything else. The inner one stacks the header and the comparison
+picker over a narrow commit strip and the diff, which is the part being read
+and so gets the room.
 
 ```tsx
 //| id: frontend-view-pull-panes
@@ -82,19 +82,19 @@ export function PullPanes({
 
 export function PullReviewPanes({
   header,
-  timeline,
+  picker,
   commits,
   diff,
 }: {
   header: ReactNode;
-  timeline: ReactNode;
+  picker: ReactNode;
   commits: ReactNode;
   diff: ReactNode;
 }) {
   return (
     <>
       {header}
-      {timeline}
+      {picker}
       <div className="panes">
         <div className="pane pane--commits">{commits}</div>
         <div className="pane pane--diff">{diff}</div>

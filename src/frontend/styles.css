@@ -111,8 +111,6 @@
     --state-merged: var(--purple-600);
     --state-closed: var(--red-600);
 
-    --endpoint-before: var(--amber-600);
-
     --ref-bookmark: var(--purple-600);
     --ref-tag: var(--teal-600);
     --ref-working-copy: var(--blue-600);
@@ -174,8 +172,6 @@
       --state-open: var(--green-300);
       --state-merged: var(--purple-400);
       --state-closed: var(--red-400);
-
-      --endpoint-before: var(--amber-400);
 
       --ref-bookmark: var(--purple-400);
       --ref-tag: var(--teal-400);
@@ -855,57 +851,43 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-timeline>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-comparison-picker>>[init] */
 @layer components {
-  .pull-timeline {
-    flex: none;
+  .pull-compare {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
     padding: var(--space-3) var(--space-5);
     border-bottom: 1px solid var(--border);
   }
 
-  .pull-timeline__row {
+  .pull-compare__field {
     display: flex;
-    align-items: stretch;
+    align-items: center;
     gap: var(--space-3);
-    overflow-x: auto;
+    min-width: 0;
   }
 
-  .pull-timeline__caption {
-    margin: var(--space-3) 0 0;
+  .pull-compare__label {
     color: var(--text-faint);
   }
 
-  .pull-chip {
-    flex: none;
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
+  .pull-compare__select {
+    min-height: 44px;
+    min-width: 0;
     font: inherit;
-    text-align: left;
-    color: inherit;
-    background: var(--surface);
   }
 
-  .pull-chip--before {
-    border-color: var(--endpoint-before);
-    color: var(--endpoint-before);
-    background: var(--review-unseen-surface);
+  .pull-compare__caption {
+    flex: 1 0 100%;
+    margin: 0;
+    color: var(--text-faint);
   }
 
-  .pull-chip--after {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--review-unseen-surface);
-  }
-
-  .pull-chip__caption {
-    display: block;
-    font-weight: bold;
-  }
-
-  .pull-chip__detail {
-    display: block;
+  .pull-compare__truncated {
+    flex: 1 0 100%;
+    margin: 0;
     color: var(--text-faint);
     font-size: var(--text-size-small);
   }

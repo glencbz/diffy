@@ -34,7 +34,13 @@ export function DiffPane({
     );
   }
   if (answer.data.files.length === 0) {
-    return <Message>These two versions make the same change.</Message>;
+    return (
+      <Message>
+        {comparison.kind === "pull" && comparison.from.kind === "base"
+          ? "This pull request introduces no changes over its base."
+          : "These two versions make the same change."}
+      </Message>
+    );
   }
 
   return <DiffView files={answer.data.files} />;

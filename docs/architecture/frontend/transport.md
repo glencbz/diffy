@@ -194,7 +194,7 @@ rather than an operation with a pull request hanging off it, so a side is
 always exactly one of the two and no view has to ask which.
 
 A pull request head is named by its object id and never by the version number
-the timeline shows. A version is a position in a chain that shifts, so `v7` can
+the picker shows. A version is a position in a chain that shifts, so `v7` can
 come to mean a different commit while the page is open; the backend's
 `pullStateAt` has the full account. Holding the oid makes "show me version 7 of
 a pull request that now has three versions" a request nobody can express.

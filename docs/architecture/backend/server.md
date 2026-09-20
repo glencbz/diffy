@@ -327,11 +327,11 @@ pull request whose work is already in `main`.
 
 A second comparison was refused here for as long as it would have gone
 unlabelled, since a reader would then be working out which of two answers is
-in front of them. The timeline names both ends of the comparison it is
-showing, so that reader does not exist. Each comparison is worth naming once.
+in front of them. The comparison picker's caption names which one is on
+screen, so that reader does not exist. Each comparison is worth naming once.
 The interdiff says how the change itself evolved. The base comparison says
-what the pull request introduces. Nothing in the timeline asks for the base
-yet, so the route is all of it so far.
+what the pull request introduces. The picker now offers the base as the
+before end, so this is the whole of what the route needs to serve.
 
 The two comparisons use `gitMaterialize` differently, and `pullDiffFiles`
 holds that along with the choice. Comparing two heads needs only that the call

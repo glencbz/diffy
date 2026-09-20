@@ -18,19 +18,19 @@ export function PullPanes({
 
 export function PullReviewPanes({
   header,
-  timeline,
+  picker,
   commits,
   diff,
 }: {
   header: ReactNode;
-  timeline: ReactNode;
+  picker: ReactNode;
   commits: ReactNode;
   diff: ReactNode;
 }) {
   return (
     <>
       {header}
-      {timeline}
+      {picker}
       <div className="panes">
         <div className="pane pane--commits">{commits}</div>
         <div className="pane pane--diff">{diff}</div>
