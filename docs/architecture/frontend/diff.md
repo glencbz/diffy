@@ -497,99 +497,101 @@ table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
 
 ```css
 /*| id: design-diff-view
-.diff-view {
-  padding: var(--space-5);
-}
+@layer components {
+  .diff-view {
+    padding: var(--space-5);
+  }
 
-.diff-file {
-  margin-bottom: var(--space-6);
-  border: 1px solid var(--border);
-}
+  .diff-file {
+    margin-bottom: var(--space-6);
+    border: 1px solid var(--border);
+  }
 
-.diff-file__header {
-  padding: var(--space-2) var(--space-4);
-  font-weight: bold;
-  background: var(--surface-raised);
-}
+  .diff-file__header {
+    padding: var(--space-2) var(--space-4);
+    font-weight: bold;
+    background: var(--surface-raised);
+  }
 
-.diff-file__status {
-  margin-right: var(--space-4);
-  color: var(--text-muted);
-}
+  .diff-file__status {
+    margin-right: var(--space-4);
+    color: var(--text-muted);
+  }
 
-.diff-file__binary {
-  padding: var(--space-4);
-  font-style: italic;
-  color: var(--text-muted);
-}
+  .diff-file__binary {
+    padding: var(--space-4);
+    font-style: italic;
+    color: var(--text-muted);
+  }
 
-.diff-file__patch {
-  margin: 0;
-  padding: var(--space-4);
-  overflow-x: auto;
-}
+  .diff-file__patch {
+    margin: 0;
+    padding: var(--space-4);
+    overflow-x: auto;
+  }
 
-.diff-line {
-  display: flex;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-}
+  .diff-line {
+    display: flex;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+  }
 
-.diff-line--interactive {
-  cursor: pointer;
-}
+  .diff-line--interactive {
+    cursor: pointer;
+  }
 
-.diff-line__gutter {
-  width: var(--gutter-width);
-  flex: none;
-  margin-right: var(--space-4);
-  text-align: right;
-  color: var(--text-ghost);
-  user-select: none;
-}
+  .diff-line__gutter {
+    width: var(--gutter-width);
+    flex: none;
+    margin-right: var(--space-4);
+    text-align: right;
+    color: var(--text-ghost);
+    user-select: none;
+  }
 
-.diff-line__text--meta {
-  color: var(--diff-meta);
-}
+  .diff-line__text--meta {
+    color: var(--diff-meta);
+  }
 
-.diff-line__text--hunk {
-  color: var(--diff-hunk);
-}
+  .diff-line__text--hunk {
+    color: var(--diff-hunk);
+  }
 
-.diff-line__text--added {
-  color: var(--diff-added);
-}
+  .diff-line__text--added {
+    color: var(--diff-added);
+  }
 
-.diff-line__text--removed {
-  color: var(--diff-removed);
-}
+  .diff-line__text--removed {
+    color: var(--diff-removed);
+  }
 
-.comment-composer {
-  padding: var(--space-4);
-  border-top: 1px solid var(--border);
-  background: var(--surface-sunken);
-}
+  .comment-composer {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border);
+    background: var(--surface-sunken);
+  }
 
-.comment-composer__line {
-  margin-bottom: var(--space-2);
-  color: var(--text-faint);
-}
+  .comment-composer__line {
+    margin-bottom: var(--space-2);
+    color: var(--text-faint);
+  }
 
-.comment-composer__input {
-  width: 100%;
-  font: inherit;
-}
+  .comment-composer__input {
+    width: 100%;
+    font: inherit;
+  }
 
-.comment-composer__actions {
-  display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+  .comment-composer__actions {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
 }
 ```
 
@@ -675,10 +677,12 @@ gets the same muted italic treatment every empty state in the app uses.
 
 ```css
 /*| id: design-interdiff-rows
-.interdiff-empty {
-  padding: var(--space-5);
-  font-style: italic;
-  color: var(--text-muted);
+@layer components {
+  .interdiff-empty {
+    padding: var(--space-5);
+    font-style: italic;
+    color: var(--text-muted);
+  }
 }
 ```
 ## Comparison header
@@ -785,37 +789,39 @@ runs.
 
 ```css
 /*| id: design-comparison-header
-.comparison-header {
-  padding: var(--space-4) var(--space-5);
-  background: var(--surface-sunken);
-  border-bottom: 1px solid var(--border);
-}
+@layer components {
+  .comparison-header {
+    padding: var(--space-4) var(--space-5);
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--border);
+  }
 
-.comparison-header__row {
-  display: flex;
-  white-space: nowrap;
-  overflow: hidden;
-}
+  .comparison-header__row {
+    display: flex;
+    white-space: nowrap;
+    overflow: hidden;
+  }
 
-.comparison-header__caption {
-  width: var(--label-width);
-  flex: none;
-  color: var(--text-faint);
-}
+  .comparison-header__caption {
+    width: var(--label-width);
+    flex: none;
+    color: var(--text-faint);
+  }
 
-.comparison-header__unavailable {
-  font-style: italic;
-  color: var(--text-ghost);
-}
+  .comparison-header__unavailable {
+    font-style: italic;
+    color: var(--text-ghost);
+  }
 
-.comparison-header__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-}
+  .comparison-header__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
 
-.comparison-header__mark-seen {
-  font: inherit;
+  .comparison-header__mark-seen {
+    font: inherit;
+  }
 }
 ```

@@ -153,18 +153,20 @@ than a decision.
 
 ```css
 /*| id: design-app
-body {
-  margin: 0;
-}
+@layer components {
+  body {
+    margin: 0;
+  }
 
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  font-family: var(--font-mono);
-  font-size: var(--text-size);
-  color: var(--text);
-  background: var(--surface);
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    font-family: var(--font-mono);
+    font-size: var(--text-size);
+    color: var(--text);
+    background: var(--surface);
+  }
 }
 ```
 ## Mode tabs
@@ -213,31 +215,33 @@ a tab rather than a link, because choosing a screen changes no address.
 
 ```css
 /*| id: design-mode-tabs
-.tabs {
-  display: flex;
-  flex: none;
-  background: var(--surface-raised);
-  border-bottom: 1px solid var(--border);
-}
+@layer components {
+  .tabs {
+    display: flex;
+    flex: none;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
 
-.tab {
-  padding: var(--space-3) var(--space-6);
-  font: inherit;
-  color: var(--text);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-}
+  .tab {
+    padding: var(--space-3) var(--space-6);
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+  }
 
-.tab:hover {
-  background: var(--surface-sunken);
-}
+  .tab:hover {
+    background: var(--surface-sunken);
+  }
 
-.tab--current {
-  font-weight: bold;
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  .tab--current {
+    font-weight: bold;
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
 }
 ```
 
@@ -270,12 +274,14 @@ modifier that recolours it, leaving the ordinary case as plain body text.
 
 ```css
 /*| id: design-message
-.message {
-  padding: var(--space-5);
-  color: var(--text);
-}
+@layer components {
+  .message {
+    padding: var(--space-5);
+    color: var(--text);
+  }
 
-.message--error {
-  color: var(--danger);
+  .message--error {
+    color: var(--danger);
+  }
 }
 ```

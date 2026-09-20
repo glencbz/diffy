@@ -467,70 +467,72 @@ length declared here that could drift away from the arithmetic.
 
 ```css
 /*| id: design-commit-graph
-.commit-graph__row {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 0;
-  border: none;
-  white-space: nowrap;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  background: transparent;
-}
+@layer components {
+  .commit-graph__row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0;
+    border: none;
+    white-space: nowrap;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+  }
 
-.commit-graph__row--selected {
-  background: var(--surface-selected);
-}
+  .commit-graph__row--selected {
+    background: var(--surface-selected);
+  }
 
-.commit-graph__row--interactive {
-  cursor: pointer;
-}
+  .commit-graph__row--interactive {
+    cursor: pointer;
+  }
 
-.commit-graph__gutter {
-  flex: none;
-}
+  .commit-graph__gutter {
+    flex: none;
+  }
 
-.commit-graph__edge {
-  stroke: currentColor;
-}
+  .commit-graph__edge {
+    stroke: currentColor;
+  }
 
-.commit-graph__node {
-  stroke: currentColor;
-  fill: currentColor;
-}
+  .commit-graph__node {
+    stroke: currentColor;
+    fill: currentColor;
+  }
 
-.commit-graph__node--merge {
-  fill: var(--surface);
-}
+  .commit-graph__node--merge {
+    fill: var(--surface);
+  }
 
-.commit-graph__lane--0 {
-  color: var(--graph-lane-0);
-}
+  .commit-graph__lane--0 {
+    color: var(--graph-lane-0);
+  }
 
-.commit-graph__lane--1 {
-  color: var(--graph-lane-1);
-}
+  .commit-graph__lane--1 {
+    color: var(--graph-lane-1);
+  }
 
-.commit-graph__lane--2 {
-  color: var(--graph-lane-2);
-}
+  .commit-graph__lane--2 {
+    color: var(--graph-lane-2);
+  }
 
-.commit-graph__lane--3 {
-  color: var(--graph-lane-3);
-}
+  .commit-graph__lane--3 {
+    color: var(--graph-lane-3);
+  }
 
-.commit-graph__lane--4 {
-  color: var(--graph-lane-4);
-}
+  .commit-graph__lane--4 {
+    color: var(--graph-lane-4);
+  }
 
-.commit-graph__lane--5 {
-  color: var(--graph-lane-5);
-}
+  .commit-graph__lane--5 {
+    color: var(--graph-lane-5);
+  }
 
-.commit-graph__lane--6 {
-  color: var(--graph-lane-6);
+  .commit-graph__lane--6 {
+    color: var(--graph-lane-6);
+  }
 }
 ```
 
@@ -631,21 +633,23 @@ change id or a stand-in for one.
 
 ```css
 /*| id: design-commit-label
-.commit-label__id {
-  margin-right: var(--space-4);
-  color: var(--text-faint);
-}
+@layer components {
+  .commit-label__id {
+    margin-right: var(--space-4);
+    color: var(--text-faint);
+  }
 
-.commit-label__id--synthetic {
-  font-style: italic;
-}
+  .commit-label__id--synthetic {
+    font-style: italic;
+  }
 
-.commit-label__summary {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  .commit-label__summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
-.commit-label__placeholder {
-  color: var(--text-ghost);
+  .commit-label__placeholder {
+    color: var(--text-ghost);
+  }
 }
 ```

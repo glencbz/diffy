@@ -186,25 +186,38 @@ Allowed import edges:
 
 ## Styling
 
-The stylesheet is read top to bottom as four layers, and each one may only
-name the layer above it.
+The stylesheet is a stack of [cascade layers][layers], and each one may only
+name the layer above it. The `@layer` statement at the top of the sheet
+declares their order once, so a rule's layer decides which wins before
+specificity is consulted at all.
+
+[layers]: https://developer.mozilla.org/en-US/docs/Web/CSS/@layer
 
 **Primitives** are the raw ramps, named for what they are. `--grey-300` says
 nothing about where it is used. Changing one reshades the palette.
 
 **Roles** map a primitive to a job. `--border` is `--grey-300`. This is the
 only layer a component is allowed to name, which is what lets the palette and
-the meaning move independently. Retheming the app is an edit to this layer;
-so is dark mode, which rebinds roles and leaves every rule below untouched.
+the meaning move independently. Retheming the app is an edit to this layer.
 
 **Metrics** are the tunable lengths: the spacing step, the type sizes, and
-the widths of the columns. Responsiveness is an edit to this layer, because a
-breakpoint that only rebinds `--pane-picker-width` cannot accidentally change
-a colour.
+the widths of the columns. A breakpoint that only rebinds
+`--pane-picker-width` cannot accidentally change a colour.
 
 **Components** are the classes the views use. They name roles and metrics and
 never a primitive, so a component rule contains no literal a reviewer has to
 decode.
+
+Three of those have a refinement above them, named for the condition that
+switches it on. `roles-dark` is the whole of dark mode, rebinding roles and
+touching nothing else. `metrics-narrow` retunes the column widths under
+1100px. `components-narrow` is the one rule that contradicts a component
+instead of retuning a length: under 820px the panes stop being columns.
+
+Each refinement gets a layer rather than a position further down its own
+layer, which is what makes the order of the sheet stop mattering. Two rules
+that override each other are now always in different layers, so neither
+depends on being read second.
 
 A change therefore has one address. A new brand colour is a primitive. A
 caption that should be darker is a role. A column that should be wider on
@@ -215,19 +228,32 @@ everything and live in [Design tokens](tokens.md). A component's rules live
 with the component, in the document that holds its markup, because a class and
 the element that carries it are one thing to change and were two files to find.
 
-The stylesheet is assembled here in layer order, so a rule can only be
-overridden by a rule from a layer below it and the cascade agrees with the
-layering. This block is the one place that order is written down, and it is the
-only reason a component's rules can be authored anywhere.
+Each block of rules names its own layer, so the list below is an inventory
+rather than an order. Two component rules meeting on the same element are
+settled by specificity, as they always were, and nothing is settled by which
+line of this block a reference sits on. Adding a component means adding a
+reference here, anywhere.
 
 ```css
 /*| id: stylesheet
 /*| file: src/frontend/styles.css
+@layer primitives,
+  roles,
+  roles-dark,
+  metrics,
+  metrics-narrow,
+  components,
+  components-narrow;
+
 <<design-primitives>>
 
 <<design-roles>>
 
+<<design-dark>>
+
 <<design-metrics>>
+
+<<design-responsive-metrics>>
 
 <<design-app>>
 
@@ -259,11 +285,7 @@ only reason a component's rules can be authored anywhere.
 
 <<design-pull-timeline>>
 
-<<design-responsive-metrics>>
-
 <<design-responsive-panes>>
-
-<<design-dark>>
 ```
 
 ## Async state

@@ -281,42 +281,44 @@ gets in the graph.
 
 ```css
 /*| id: design-pull-list
-.pull-list__item {
-  display: block;
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  border: none;
-  border-bottom: 1px solid var(--border-subtle);
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  background: transparent;
-}
+@layer components {
+  .pull-list__item {
+    display: block;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+  }
 
-.pull-list__item--selected {
-  background: var(--surface-selected);
-}
+  .pull-list__item--selected {
+    background: var(--surface-selected);
+  }
 
-.pull-list__row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
+  .pull-list__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
 
-.pull-list__number {
-  color: var(--text-faint);
-}
+  .pull-list__number {
+    color: var(--text-faint);
+  }
 
-.pull-list__title {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
+  .pull-list__title {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 
-.pull-list__base {
-  color: var(--text-faint);
+  .pull-list__base {
+    color: var(--text-faint);
+  }
 }
 ```
 
@@ -359,29 +361,31 @@ outranks the others.
 
 ```css
 /*| id: design-pull-header
-.pull-header {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-5);
-  padding: var(--space-3) var(--space-5);
-  background: var(--surface-raised);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-}
+@layer components {
+  .pull-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+  }
 
-.pull-header__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  .pull-header__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
-.pull-header__meta {
-  color: var(--text-faint);
-}
+  .pull-header__meta {
+    color: var(--text-faint);
+  }
 
-.pull-header__link {
-  color: var(--accent);
+  .pull-header__link {
+    color: var(--accent);
+  }
 }
 ```
 
@@ -509,57 +513,59 @@ current selection everywhere else in the app.
 
 ```css
 /*| id: design-pull-timeline
-.pull-timeline {
-  flex: none;
-  padding: var(--space-3) var(--space-5);
-  border-bottom: 1px solid var(--border);
-}
+@layer components {
+  .pull-timeline {
+    flex: none;
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
 
-.pull-timeline__row {
-  display: flex;
-  align-items: stretch;
-  gap: var(--space-3);
-  overflow-x: auto;
-}
+  .pull-timeline__row {
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-3);
+    overflow-x: auto;
+  }
 
-.pull-timeline__caption {
-  margin: var(--space-3) 0 0;
-  color: var(--text-faint);
-}
+  .pull-timeline__caption {
+    margin: var(--space-3) 0 0;
+    color: var(--text-faint);
+  }
 
-.pull-chip {
-  flex: none;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-  color: inherit;
-  background: var(--surface);
-}
+  .pull-chip {
+    flex: none;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    background: var(--surface);
+  }
 
-.pull-chip--before {
-  border-color: var(--endpoint-before);
-  color: var(--endpoint-before);
-  background: var(--review-unseen-surface);
-}
+  .pull-chip--before {
+    border-color: var(--endpoint-before);
+    color: var(--endpoint-before);
+    background: var(--review-unseen-surface);
+  }
 
-.pull-chip--after {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--review-unseen-surface);
-}
+  .pull-chip--after {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--review-unseen-surface);
+  }
 
-.pull-chip__caption {
-  display: block;
-  font-weight: bold;
-}
+  .pull-chip__caption {
+    display: block;
+    font-weight: bold;
+  }
 
-.pull-chip__detail {
-  display: block;
-  color: var(--text-faint);
-  font-size: var(--text-size-small);
+  .pull-chip__detail {
+    display: block;
+    color: var(--text-faint);
+    font-size: var(--text-size-small);
+  }
 }
 ```
 
@@ -593,23 +599,25 @@ rather than a colour keyed by string. `--state-open`, `--state-merged`, and
 
 ```css
 /*| id: design-pull-state-chip
-.chip {
-  flex: none;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius);
-  color: var(--text-inverse);
-  font-size: var(--text-size-small);
-}
+@layer components {
+  .chip {
+    flex: none;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    color: var(--text-inverse);
+    font-size: var(--text-size-small);
+  }
 
-.chip--open {
-  background: var(--state-open);
-}
+  .chip--open {
+    background: var(--state-open);
+  }
 
-.chip--merged {
-  background: var(--state-merged);
-}
+  .chip--merged {
+    background: var(--state-merged);
+  }
 
-.chip--closed {
-  background: var(--state-closed);
+  .chip--closed {
+    background: var(--state-closed);
+  }
 }
 ```

@@ -125,20 +125,22 @@ select itself take the rest of the row.
 
 ```css
 /*| id: design-operation-picker
-.operation-picker {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
+@layer components {
+  .operation-picker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
 
-.operation-picker__label {
-  color: var(--text-faint);
-}
+  .operation-picker__label {
+    color: var(--text-faint);
+  }
 
-.operation-picker__select {
-  flex: 1;
-  font: inherit;
+  .operation-picker__select {
+    flex: 1;
+    font: inherit;
+  }
 }
 ```
