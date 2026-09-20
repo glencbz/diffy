@@ -490,6 +490,7 @@ import {
   JjError,
   jjCommits,
   jjDiff,
+  jjDiffBetween,
   jjInterdiff,
   jjLog,
   jjOpLog,
@@ -844,6 +845,45 @@ export function jjInterdiff(
 }
 ```
 
+`jjDiffBetween` is the other comparison, and the two are easy to mix up because
+they take the same pair of revisions. This one compares trees. It answers
+everything that differs between the two revisions, every commit that landed
+between them included. `jjInterdiff` compares changes. It answers what the
+second commit does that the first does not, with whatever both of them sit on
+top of subtracted away.
+
+Which one a caller wants follows from what the two revisions are to each other.
+Two versions of one branch call for the interdiff, because the later version is
+usually the earlier one rebased and the tree diff between them is mostly that
+rebase. A branch against the commit it was cut from calls for the tree diff,
+because there the tree difference is the work the branch adds and there is no
+earlier version of it to subtract.
+
+```ts
+//| id: jj-module
+
+export interface JjDiffBetweenOptions {
+  /** Revision whose tree is the "before" side. */
+  from: string;
+  /** Revision whose tree is the "after" side. */
+  to: string;
+}
+
+export function jjDiffBetween(
+  options: JjDiffBetweenOptions,
+): Promise<JjFileDiff[]> {
+  return diffFiles([
+    "diff",
+    "--git",
+    "--color=never",
+    "--from",
+    options.from,
+    "--to",
+    options.to,
+  ]);
+}
+```
+
 
 #### Test
 
@@ -950,6 +990,57 @@ describe("jjInterdiff", () => {
   test("wraps an unresolvable commit in JjError", async () => {
     // arrange
     const attempt = () => jjInterdiff({ from: "no-such-commit-xyz", to: "@" });
+
+    // act
+    // assert
+    await expect(attempt()).rejects.toBeInstanceOf(JjError);
+    await expect(attempt()).rejects.toThrow(/doesn't exist/);
+  });
+});
+```
+
+A tree diff from a commit to its child is that child's own diff, which is what
+the first case below asserts, and it is the cheapest way to say what "tree
+diff" means without a fixture. The second case runs both comparisons over the
+same pair, because the whole risk with these two functions is a caller reaching
+for the wrong one and getting a plausible answer.
+
+```ts
+//| id: jj-module-test
+
+describe("jjDiffBetween", () => {
+  test("gives a commit's own diff when the before side is its parent", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const files = await jjDiffBetween({ from, to });
+
+    // assert
+    expect(files).toEqual(await jjDiff({ revision: to }));
+  });
+
+  test("answers something other than the interdiff of the same pair", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const [tree, changes] = await Promise.all([
+      jjDiffBetween({ from, to }),
+      jjInterdiff({ from, to }),
+    ]);
+
+    // assert
+    expect(tree.length).toBeGreaterThan(0);
+    expect(tree).not.toEqual(changes);
+  });
+
+  test("wraps an unresolvable revision in JjError", async () => {
+    // arrange
+    const attempt = () =>
+      jjDiffBetween({ from: "no-such-revision-xyz", to: "@" });
 
     // act
     // assert

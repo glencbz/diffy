@@ -7,6 +7,7 @@ import {
   gitHasCommit,
   gitLog,
   gitMaterialize,
+  gitMergeBase,
   parseLogRecord,
   RefPath,
 } from "./git";
@@ -227,6 +228,58 @@ describe("parseLogRecord", () => {
     // act
     // assert
     expect(() => parseLogRecord(raw)).toThrow(/expected 5 fields/);
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/git.md#git-module-test>>[2]
+
+/** Whether `ancestor` is in `descendant`'s history. */
+async function isAncestor(
+  ancestor: string,
+  descendant: string,
+): Promise<boolean> {
+  const args = ["merge-base", "--is-ancestor", ancestor, descendant];
+  return (await $`git ${args}`.quiet().nothrow()).exitCode === 0;
+}
+
+/** Two commits neither of which is the other's ancestor, read off the parents
+ *  of a merge. Any pair along one line of history is ancestor-related. */
+async function divergedPair(): Promise<[GitOid, GitOid]> {
+  const merges = await $`git log --merges --format=%P`.quiet().text();
+  for (const line of merges.split("\n")) {
+    const [left, right] = line.split(" ");
+    if (left === undefined || right === undefined) continue;
+    if (await isAncestor(left, right)) continue;
+    if (await isAncestor(right, left)) continue;
+    return [await oidOf(left), await oidOf(right)];
+  }
+  throw new Error("this repo has no merge of two diverged histories");
+}
+
+describe("gitMergeBase", () => {
+  test("finds the commit two diverged histories share", async () => {
+    // arrange
+    const [left, right] = await gitMaterialize((await divergedPair()).map(pin));
+    if (left === undefined || right === undefined) throw new Error("no oids");
+
+    // act
+    const shared = await gitMergeBase(left, right);
+
+    // assert
+    expect(shared).not.toBe(left);
+    expect(shared).not.toBe(right);
+    expect(await isAncestor(shared, left)).toBe(true);
+    expect(await isAncestor(shared, right)).toBe(true);
+  });
+
+  test("answers the older commit when one is the other's ancestor", async () => {
+    // arrange
+    const [base, head] = await gitMaterialize((await soloCommit()).map(pin));
+    if (base === undefined || head === undefined) throw new Error("no oids");
+
+    // act
+    // assert
+    expect(await gitMergeBase(base, head)).toBe(base);
   });
 });
 // ~/~ end

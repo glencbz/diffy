@@ -5,6 +5,7 @@ import {
   JjError,
   jjCommits,
   jjDiff,
+  jjDiffBetween,
   jjInterdiff,
   jjLog,
   jjOpLog,
@@ -393,6 +394,49 @@ describe("jjInterdiff", () => {
   test("wraps an unresolvable commit in JjError", async () => {
     // arrange
     const attempt = () => jjInterdiff({ from: "no-such-commit-xyz", to: "@" });
+
+    // act
+    // assert
+    await expect(attempt()).rejects.toBeInstanceOf(JjError);
+    await expect(attempt()).rejects.toThrow(/doesn't exist/);
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[3]
+
+describe("jjDiffBetween", () => {
+  test("gives a commit's own diff when the before side is its parent", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const files = await jjDiffBetween({ from, to });
+
+    // assert
+    expect(files).toEqual(await jjDiff({ revision: to }));
+  });
+
+  test("answers something other than the interdiff of the same pair", async () => {
+    // arrange
+    const from = await commitId("root()+");
+    const to = await commitId("root()++");
+
+    // act
+    const [tree, changes] = await Promise.all([
+      jjDiffBetween({ from, to }),
+      jjInterdiff({ from, to }),
+    ]);
+
+    // assert
+    expect(tree.length).toBeGreaterThan(0);
+    expect(tree).not.toEqual(changes);
+  });
+
+  test("wraps an unresolvable revision in JjError", async () => {
+    // arrange
+    const attempt = () =>
+      jjDiffBetween({ from: "no-such-revision-xyz", to: "@" });
 
     // act
     // assert

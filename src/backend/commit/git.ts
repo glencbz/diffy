@@ -185,3 +185,24 @@ export function parseLogRecord(record: string): GitCommit {
   };
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/backend/git.md#git-module>>[4]
+
+/** The commit two heads share, which is where a branch and its base diverged. */
+export async function gitMergeBase(
+  a: LocalOid,
+  b: LocalOid,
+): Promise<LocalOid> {
+  const result = await $`git merge-base ${a} ${b}`.quiet().nothrow();
+  const shared = result.text().trim();
+
+  if (result.exitCode !== 0 || shared === "") {
+    const said = result.stderr.toString().trim();
+    throw new GitError(
+      said || `${a} and ${b} share no ancestor`,
+      result.exitCode,
+    );
+  }
+
+  return GitOid.parse(shared) as LocalOid;
+}
+// ~/~ end
