@@ -332,6 +332,13 @@ than a mock, the same call the [jj tests](jj.md#test) make. What they assert on
 is structural: this repo always has a `HEAD` with an ancestor, and 40 `f`s are
 never an object.
 
+A range needs more care than an ancestor does. `HEAD~1` is the tip's *first*
+parent, so when the tip is a merge the range up to it is the whole branch that
+was merged rather than one commit. A case that counts commits therefore passes
+on a branch, whose tip is an ordinary commit, and fails on `main`, whose tip is
+a merge. `soloCommit` names a commit that has exactly one parent, and that
+parent, which is one commit apart whatever shape the history around it has.
+
 The `gitMaterialize` case is about idempotence. Running it twice over an oid
 that is already present must succeed both times and must not reach the network,
 which is what makes repeat views of a pull request cheap. A fetch test would
@@ -357,6 +364,17 @@ async function oidOf(revision: string): Promise<GitOid> {
   return GitOid.parse(
     (await $`git rev-parse ${revision}`.quiet().text()).trim(),
   );
+}
+
+/** The newest commit with a single parent, and that parent. Exactly one commit
+ *  apart, which `HEAD~1` and `HEAD` are not when the tip is a merge. */
+async function soloCommit(): Promise<[base: GitOid, head: GitOid]> {
+  const head = await oidOf(
+    (
+      await $`git rev-list --no-merges --max-count=1 HEAD`.quiet().text()
+    ).trim(),
+  );
+  return [await oidOf(`${head}~1`), head];
 }
 
 const MISSING = GitOid.parse("f".repeat(40));
@@ -444,10 +462,8 @@ describe("gitMaterialize", () => {
 describe("gitLog", () => {
   test("reads the commits the tip has and the base does not", async () => {
     // arrange
-    const [base, head] = await gitMaterialize([
-      pin(await oidOf("HEAD~1")),
-      pin(await oidOf("HEAD")),
-    ]);
+    const [soloBase, soloHead] = await soloCommit();
+    const [base, head] = await gitMaterialize([pin(soloBase), pin(soloHead)]);
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
