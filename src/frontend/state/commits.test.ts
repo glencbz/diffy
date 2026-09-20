@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-commits-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-state-commits-test>>[init]
 import { afterEach, describe, expect, test } from "bun:test";
 import { GitOid } from "../api";
 import { commitsFrom } from "./commits";

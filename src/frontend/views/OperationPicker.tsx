@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-operation-picker>>[init]
+// ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-view-operation-picker>>[init]
 import type { OpLogEntry } from "../api";
 
 export function OperationPicker({

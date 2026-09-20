@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-comparison-header>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comparison-header>>[init]
 import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
 import type { ReviewedRow, RowReview } from "../state/review";

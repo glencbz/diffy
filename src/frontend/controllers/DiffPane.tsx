@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-controller-diff-pane>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-controller-diff-pane>>[init]
 import { type Comparison, useComparison } from "../state/comparison";
 import { reviewRows } from "../state/review";
 import type { Session } from "../state/session";

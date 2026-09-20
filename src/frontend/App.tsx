@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-app>>[init]
+// ~/~ begin <<docs/architecture/frontend/shell.md#frontend-app>>[init]
 import { useState } from "react";
 import type { JjSource, Source } from "./api";
 import { CommitLog } from "./controllers/CommitLog";

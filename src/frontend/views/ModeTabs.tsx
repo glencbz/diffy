@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-mode-tabs>>[init]
+// ~/~ begin <<docs/architecture/frontend/shell.md#frontend-view-mode-tabs>>[init]
 export type Mode = "local" | "pulls";
 
 const CAPTIONS: Record<Mode, string> = {

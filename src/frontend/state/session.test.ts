@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-state-session-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { SessionDocument } from "./review";
 import { load, save } from "./session";

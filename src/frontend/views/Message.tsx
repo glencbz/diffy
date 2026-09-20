@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-message>>[init]
+// ~/~ begin <<docs/architecture/frontend/shell.md#frontend-view-message>>[init]
 import type { ReactNode } from "react";
 
 export function Message({

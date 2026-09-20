@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend.md#frontend-view-commit-graph>>[init]
+// ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-graph>>[init]
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
