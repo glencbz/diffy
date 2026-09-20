@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { GitHubGraphQL } from "./backend/commit/github";
-import { jjInterdiff, jjLog } from "./backend/commit/jj";
+import { jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -306,9 +306,39 @@ describe("pullDiffResponse", () => {
     });
   }
 
+  /** A base and a head that have diverged, with the commit they share. The
+   *  base must carry something that commit does not, or a diff from the base
+   *  and a diff from the merge base would be the same diff either way. */
+  async function divergedPull(): Promise<{
+    base: string;
+    head: string;
+    mergeBase: string;
+  }> {
+    for (const merge of await jjLog({ revset: "merges()" })) {
+      const [left, right] = merge.parents;
+      if (left === undefined || right === undefined) continue;
+      const [shared] = await jjLog({
+        revset: `heads(::${left} & ::${right})`,
+        limit: 1,
+      });
+      if (shared === undefined) continue;
+
+      const mergeBase = shared.commitId;
+      if (mergeBase === left || mergeBase === right) continue;
+      for (const [base, head] of [
+        [left, right],
+        [right, left],
+      ] as [string, string][]) {
+        const moved = await jjDiffBetween({ from: mergeBase, to: base });
+        if (moved.length > 0) return { base, head, mergeBase };
+      }
+    }
+    throw new Error("this repo has no merge of two diverged histories");
+  }
+
   async function body(res: Response) {
     return (await res.json()) as {
-      from: string;
+      from: { kind: string; head?: string };
       to: string;
       files: { status: string; path?: string; newPath?: string }[];
       error?: string;
@@ -333,7 +363,7 @@ describe("pullDiffResponse", () => {
 
     // assert
     expect(res.status).toBe(200);
-    expect(answer.from).toBe(earlier);
+    expect(answer.from).toEqual({ kind: "version", head: earlier });
     expect(answer.to).toBe(later);
     expect(answer.files).toEqual(
       await jjInterdiff({ from: earlier, to: later }),
@@ -372,6 +402,61 @@ describe("pullDiffResponse", () => {
     // act
     const res = await pullDiffResponse(
       query({ to: heads[1] as string }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+
+  test("diffs the base against a head", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const later = heads.at(-1) as string;
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "base", to: later }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.from).toEqual({ kind: "base" });
+    expect(answer.files).toEqual(
+      await jjDiffBetween({ from: base, to: later }),
+    );
+  });
+
+  test("measures a diverged base from the commit the head grew out of", async () => {
+    // arrange
+    const { base, head, mergeBase } = await divergedPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "base", to: head }),
+      stubHistory(base, [head]),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.files).toEqual(
+      await jjDiffBetween({ from: mergeBase, to: head }),
+    );
+    expect(answer.files).not.toEqual(
+      await jjDiffBetween({ from: base, to: head }),
+    );
+  });
+
+  test("refuses the base as the after end", async () => {
+    // arrange
+    const { heads } = await localPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: heads[0] as string, to: "base" }),
       unreachable,
     );
 

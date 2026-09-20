@@ -254,10 +254,15 @@ The pull request screen calls its endpoints in the order the reader moves
 through them: the repository's pull requests, then one pull request's chain of
 heads, then the diff at or between those heads.
 
-`fetchPullDiff` takes `from` and `to` as two required heads, because the
-route answers one comparison and it needs both ends. The
-[route's own doc](../backend/server.md) says why that comparison is an
-interdiff and not a tree diff against the base branch.
+`fetchPullDiff` needs both ends, and the two ends are not the same kind of
+thing. `to` is always a head. `from` is a `PullBaseline`, either another head
+of the pull request or the branch it targets, and which one it is decides the
+comparison the route runs. The [route's own doc](../backend/server.md) has
+both comparisons and why each end takes what it takes.
+
+A baseline travels as one parameter, the literal `base` or a 40-hex oid.
+Nothing that is 40 hex characters reads as `base`, so the two cannot collide
+and the route parses the choice out of the value itself.
 
 ```ts
 //| id: frontend-api
@@ -305,8 +310,15 @@ export const PullHistory = z.object({
 });
 export type PullHistory = z.infer<typeof PullHistory>;
 
+/** What the after side is measured against. */
+export const PullBaseline = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("base") }),
+  z.object({ kind: z.literal("version"), head: GitOid }),
+]);
+export type PullBaseline = z.infer<typeof PullBaseline>;
+
 const PullDiffResponse = z.object({
-  from: GitOid,
+  from: PullBaseline,
   to: GitOid,
   files: z.array(FileDiff),
 });
@@ -339,13 +351,13 @@ export async function fetchPullDiff(
   repo: string,
   number: number,
   to: GitOid,
-  from: GitOid,
+  from: PullBaseline,
 ): Promise<PullDiffResponse> {
   const params = new URLSearchParams({
     repo,
     number: String(number),
     to,
-    from,
+    from: from.kind === "base" ? "base" : from.head,
   });
   return PullDiffResponse.parse(
     await getJson(

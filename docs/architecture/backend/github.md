@@ -974,6 +974,10 @@ earns its place is the last one. A 40-character hex string that is a real
 object id but not one of this pull request's heads has to be refused, because
 that is the shape a caller reaching for somebody else's commit arrives in.
 
+The base branch tip arrives in that shape as well, and refusing it is why a
+diff against the base is asked for by name rather than by oid. The base never
+comes through this lookup. [The diff route](server.md) tags the two apart.
+
 ```ts
 //| id: github-module-test
 

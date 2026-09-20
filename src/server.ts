@@ -1,13 +1,21 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[init]
 
 import * as z from "zod";
-import { GitError, GitOid, gitLog, gitMaterialize } from "./backend/commit/git";
+import {
+  GitError,
+  GitOid,
+  gitLog,
+  gitMaterialize,
+  gitMergeBase,
+} from "./backend/commit/git";
 import {
   GitHubError,
   type GitHubGraphQL,
   ghCliGraphQL,
   githubPullRequestHistory,
   githubPullRequests,
+  type PullRequestHistory,
+  type PullRequestState,
   parsePullNumber,
   parseRepoRef,
   pullPins,
@@ -19,6 +27,7 @@ import {
   type JjLogEntry,
   jjCommits,
   jjDiff,
+  jjDiffBetween,
   jjInterdiff,
   jjLog,
   jjOpLog,
@@ -189,6 +198,13 @@ export function handleGithubPullDiff(req: Request): Promise<Response> {
   return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
 }
 
+/** `from=base`, or `from=<oid>`. Nothing 40 hex characters long reads as `base`. */
+const PullBaselineParam = z.union([
+  z.literal("base").transform(() => ({ kind: "base" }) as const),
+  GitOid.transform((head) => ({ kind: "version", head }) as const),
+]);
+type PullBaseline = z.infer<typeof PullBaselineParam>;
+
 /** Exported for tests: the pull request diff route, with its transport given. */
 export function pullDiffResponse(
   params: URLSearchParams,
@@ -198,22 +214,35 @@ export function pullDiffResponse(
     const repo = parseRepoRef(params.get("repo") ?? "");
     const number = parsePullNumber(params.get("number"));
     const to = GitOid.parse(params.get("to"));
-    const from = GitOid.parse(params.get("from"));
+    const from = PullBaselineParam.parse(params.get("from"));
 
     const history = await githubPullRequestHistory(repo, number, gh);
     const toState = pullStateAt(history, to);
-    const fromState = pullStateAt(history, from);
 
+    return { from, to, files: await pullDiffFiles(history, toState, from) };
+  });
+}
+
+/** The diff a baseline asks for, fetching what that comparison needs. */
+async function pullDiffFiles(
+  history: PullRequestHistory,
+  toState: PullRequestState,
+  from: PullBaseline,
+): Promise<JjFileDiff[]> {
+  if (from.kind === "version") {
+    const fromState = pullStateAt(history, from.head);
     await gitMaterialize(
       [fromState, toState].flatMap((state) => pullPins(history, state)),
     );
+    return jjInterdiff({ from: fromState.head, to: toState.head });
+  }
 
-    return {
-      from,
-      to,
-      files: await jjInterdiff({ from: fromState.head, to: toState.head }),
-    };
-  });
+  const [base, head] = await gitMaterialize(pullPins(history, toState));
+  if (base === undefined || head === undefined) {
+    throw new Error("gitMaterialize returned fewer oids than asked");
+  }
+
+  return jjDiffBetween({ from: await gitMergeBase(base, head), to: head });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]

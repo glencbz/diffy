@@ -152,11 +152,18 @@ pull request opens on the interdiff across its whole force-push history, v1
 to latest, and a shift-click narrows it to what changed since one particular
 head.
 
+The before end is a `PullBaseline` rather than a head, which is what the
+[diff route](../backend/server.md) takes. The timeline offers heads and
+nothing else, so every baseline this controller holds is a version and the
+screen shows what it showed before. The conversion happens where this
+controller reads and writes that state, which leaves the timeline a view of
+heads.
+
 ```tsx
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
 import { useState } from "react";
-import type { GitOid, PullSummary } from "../api";
+import type { GitOid, PullBaseline, PullSummary } from "../api";
 import { usePullHistory } from "../state/pullHistory";
 import type { Session } from "../state/session";
 import { Message } from "../views/Message";
@@ -176,7 +183,7 @@ export function PullReview({
   session: Session;
 }) {
   const history = usePullHistory(repo, pull.number);
-  const [before, setBefore] = useState<GitOid | null>(null);
+  const [before, setBefore] = useState<PullBaseline | null>(null);
   const [after, setAfter] = useState<GitOid | null>(null);
 
   if (history.status === "loading") {
@@ -193,7 +200,7 @@ export function PullReview({
     return <Message tone="error">This pull request has had no head.</Message>;
   }
 
-  const from = before ?? first.head;
+  const from: PullBaseline = before ?? { kind: "version", head: first.head };
   const to = after ?? latest.head;
   const number = pull.number;
 
@@ -203,11 +210,14 @@ export function PullReview({
       timeline={
         <PullTimeline
           states={states}
-          before={from}
+          // A baseline that is not a head has no chip to mark, and the base
+          // branch tip is never one of the heads.
+          before={from.kind === "version" ? from.head : history.data.baseRefOid}
           after={to}
-          onPick={(head, end) =>
-            (end === "before" ? setBefore : setAfter)(head)
-          }
+          onPick={(head, end) => {
+            if (end === "before") setBefore({ kind: "version", head });
+            else setAfter(head);
+          }}
         />
       }
       commits={

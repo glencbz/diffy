@@ -241,8 +241,15 @@ export const PullHistory = z.object({
 });
 export type PullHistory = z.infer<typeof PullHistory>;
 
+/** What the after side is measured against. */
+export const PullBaseline = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("base") }),
+  z.object({ kind: z.literal("version"), head: GitOid }),
+]);
+export type PullBaseline = z.infer<typeof PullBaseline>;
+
 const PullDiffResponse = z.object({
-  from: GitOid,
+  from: PullBaseline,
   to: GitOid,
   files: z.array(FileDiff),
 });
@@ -275,13 +282,13 @@ export async function fetchPullDiff(
   repo: string,
   number: number,
   to: GitOid,
-  from: GitOid,
+  from: PullBaseline,
 ): Promise<PullDiffResponse> {
   const params = new URLSearchParams({
     repo,
     number: String(number),
     to,
-    from,
+    from: from.kind === "base" ? "base" : from.head,
   });
   return PullDiffResponse.parse(
     await getJson(

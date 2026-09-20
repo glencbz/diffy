@@ -11,8 +11,9 @@ repo, or a pair of heads of one pull request.
 
 Only the jj arm has a "nothing picked yet" state, an empty `from` array,
 which the backend already answers by showing the after side's own diff. The
-pull arm has no such state. Both its ends are required heads, and the
-controller always has one to fall back on, the pull request's first head.
+pull arm has no such state. Its after end is a head and its before end is a
+`PullBaseline`, both required, and the controller always has a value for each
+to fall back on, the pull request's first head.
 
 The hook reloads whenever the question changes and drops a response that lands
 after it has changed again. Both jj selections empty is the one question with
@@ -30,6 +31,7 @@ import {
   fetchPullDiff,
   type GitOid,
   type InterdiffRow,
+  type PullBaseline,
 } from "../api";
 import type { AsyncState } from "./asyncState";
 
@@ -40,8 +42,8 @@ export type Comparison =
       kind: "pull";
       repo: string;
       number: number;
-      /** The earlier head. */
-      from: GitOid;
+      /** What the after side is measured against, a head or the base branch. */
+      from: PullBaseline;
       to: GitOid;
     };
 

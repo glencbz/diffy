@@ -6,6 +6,7 @@ import {
   fetchPullDiff,
   type GitOid,
   type InterdiffRow,
+  type PullBaseline,
 } from "../api";
 import type { AsyncState } from "./asyncState";
 
@@ -16,8 +17,8 @@ export type Comparison =
       kind: "pull";
       repo: string;
       number: number;
-      /** The earlier head. */
-      from: GitOid;
+      /** What the after side is measured against, a head or the base branch. */
+      from: PullBaseline;
       to: GitOid;
     };
 
