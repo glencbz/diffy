@@ -18,6 +18,17 @@ async function oidOf(revision: string): Promise<GitOid> {
   );
 }
 
+/** The newest commit with a single parent, and that parent. Exactly one commit
+ *  apart, which `HEAD~1` and `HEAD` are not when the tip is a merge. */
+async function soloCommit(): Promise<[base: GitOid, head: GitOid]> {
+  const head = await oidOf(
+    (
+      await $`git rev-list --no-merges --max-count=1 HEAD`.quiet().text()
+    ).trim(),
+  );
+  return [await oidOf(`${head}~1`), head];
+}
+
 const MISSING = GitOid.parse("f".repeat(40));
 const SCOPE = RefPath.parse("pull/0");
 
@@ -103,10 +114,8 @@ describe("gitMaterialize", () => {
 describe("gitLog", () => {
   test("reads the commits the tip has and the base does not", async () => {
     // arrange
-    const [base, head] = await gitMaterialize([
-      pin(await oidOf("HEAD~1")),
-      pin(await oidOf("HEAD")),
-    ]);
+    const [soloBase, soloHead] = await soloCommit();
+    const [base, head] = await gitMaterialize([pin(soloBase), pin(soloHead)]);
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
