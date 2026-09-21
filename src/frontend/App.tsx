@@ -7,13 +7,14 @@ import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { useSession } from "./state/session";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
-import { ReviewPanes } from "./views/ReviewPanes";
+import { type Pane, ReviewPanes } from "./views/ReviewPanes";
 
 /** The repository the pull request screen reads. Next up for configuring. */
 const REPO = "glencbz/diffy";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("local");
+  const [pane, setPane] = useState<Pane>("before");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
   const session = useSession();
@@ -35,6 +36,12 @@ export function App() {
               session={session}
             />
           }
+          showing={pane}
+          onShow={setPane}
+          selected={{
+            before: before.commits.length,
+            after: after.commits.length,
+          }}
         />
       ) : (
         <PullRequests repo={REPO} session={session} />

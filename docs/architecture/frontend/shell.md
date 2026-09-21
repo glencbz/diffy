@@ -49,6 +49,11 @@ createRoot(container).render(<App />);
 
 ## App
 
+Which pane a narrow window is showing lives here for the reason `mode` does:
+it is one choice about the whole window, made in a strip above the screen it
+governs, and [`ReviewPanes`](layout.md) is a view and holds no state. On a
+wide screen the value is carried and never read.
+
 `App` calls `useSession()` once, alongside the two `useSide()` calls it
 already owns, and passes it down to whichever `DiffPane` is on screen. One
 session serves both screens, so a mark made on the local history is the same
@@ -69,13 +74,14 @@ import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { useSession } from "./state/session";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
-import { ReviewPanes } from "./views/ReviewPanes";
+import { type Pane, ReviewPanes } from "./views/ReviewPanes";
 
 /** The repository the pull request screen reads. Next up for configuring. */
 const REPO = "glencbz/diffy";
 
 export function App() {
   const [mode, setMode] = useState<Mode>("local");
+  const [pane, setPane] = useState<Pane>("before");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
   const session = useSession();
@@ -97,6 +103,12 @@ export function App() {
               session={session}
             />
           }
+          showing={pane}
+          onShow={setPane}
+          selected={{
+            before: before.commits.length,
+            after: after.commits.length,
+          }}
         />
       ) : (
         <PullRequests repo={REPO} session={session} />

@@ -152,11 +152,13 @@ for slices backed by the server; this one never touches the network.
 
 Changing a side's source also clears its selected commits, since a commit
 listed under one source need not appear under another. `ReviewPanes` handles
-the layout: the two pickers as narrow columns, the diff taking the rest.
+the layout: the two pickers as narrow columns, the diff taking the rest, and
+one of the three at a time when the window is too narrow for all of them.
 
-`App` also holds the mode switch, and the repository the pull request screen
-reads. The repository is one named constant and is the next thing here worth
-making configurable; a view never sees it except as a prop.
+`App` also holds the mode switch, which pane a narrow window is showing, and
+the repository the pull request screen reads. The repository is one named
+constant and is the next thing here worth making configurable; a view never
+sees it except as a prop.
 
 Which head of a pull request is being read is *not* in `App`. Nothing outside
 the pull request pane needs it, and the pane already remounts when the selected
@@ -213,8 +215,9 @@ switches it on. `roles-dark` is the whole of dark mode, rebinding roles and
 touching nothing else. `metrics-narrow` retunes the column widths in the
 band under 1100px where three columns still fit. `components-narrow` is where
 a rule contradicts a component instead of retuning a length: under 1000px the
-panes stop being columns, and a field with nothing left to show gives up its
-room rather than truncating to a fragment.
+panes stop being columns, the pane being read gets the window to itself, and a
+field with nothing left to show gives up its room rather than truncating to a
+fragment.
 
 Each refinement gets a layer rather than a position further down its own
 layer, which is what makes the order of the sheet stop mattering. Two rules
@@ -263,6 +266,8 @@ reference here, anywhere.
 
 <<design-panes>>
 
+<<design-pane-tabs>>
+
 <<design-message>>
 
 <<design-operation-picker>>
@@ -286,6 +291,8 @@ reference here, anywhere.
 <<design-pull-header>>
 
 <<design-pull-comparison-picker>>
+
+<<design-pull-sheet>>
 
 <<design-responsive-panes>>
 ```
