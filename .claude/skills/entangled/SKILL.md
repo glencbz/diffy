@@ -15,9 +15,9 @@ generated files.** Generated files are marked with comments like:
 // ~/~ end
 ```
 
-Currently `justfile` and `src/index.ts` are fully tangled outputs (see
-`entangled status` for the live list of dependent files). Treat any file with
-`~/~ begin/end` markers as generated.
+The `justfile` and everything under `src/` are tangled outputs; run
+`entangled status` for the live doc-to-file dependency tree. Treat any file
+with `~/~ begin/end` markers as generated.
 
 ## Golden rule
 
@@ -36,10 +36,10 @@ back into the markdown — don't let the two drift apart.
    Create a new doc under `docs/` if none fits — it just needs to match the
    `watch_list` glob `docs/**/*.md` in `entangled.toml`.
 2. Add a fenced code block whose language tag is one of the identifiers
-   configured in `entangled.toml` (`[[languages]]`). **Only `ts`/`typescript`
-   and `just` are configured today.** If you need another language (e.g.
-   Python), add a `[[languages]]` entry to `entangled.toml` first — see
-   https://entangled.github.io/ for the identifiers/comment syntax.
+   configured in `entangled.toml` (`[[languages]]`) — read that file for the
+   set it supports today. A language it does not list needs a `[[languages]]`
+   entry of its own first; see https://entangled.github.io/ for the
+   identifiers and comment syntax.
 3. Inside the block, add attributes as a comment on the first line(s), using
    that language's comment prefix + `|`:
    - `#| id: some-unique-id` — every block needs an id.
