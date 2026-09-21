@@ -7,8 +7,8 @@ description: Use whenever writing or modifying code that shells out to the jj (J
 
 Diffy shells out to `jj` (never links a jj library — CLI is the stable
 surface, per `docs/tech-plan.md`). The existing wrapper lives in
-`src/jj.ts` (tangled from `docs/tech/jj.md` — see the `entangled` skill
-before touching it).
+`src/backend/commit/jj.ts`, tangled from `docs/architecture/backend/jj.md`.
+See the `entangled` skill before touching it.
 
 ## Core concepts
 
@@ -31,7 +31,7 @@ reference: `jj help -k templates`). Don't hand-roll delimited output —
 there's a builtin `json(value)` function that serializes jj's own types
 (`Commit`, `Signature`, etc. — anything marked `Serialize: yes` in the
 template docs) with field names that are "usually stable" across versions.
-Pattern used in `src/jj.ts`:
+Pattern used in `src/backend/commit/jj.ts`:
 
 ```sh
 jj log --no-graph -T 'json(self) ++ "\n"'
@@ -41,7 +41,7 @@ jj log --no-graph -T 'json(self) ++ "\n"'
   line — with the graph on, stdout has ASCII-art prefixed onto every line.
 - One `json(self)` per commit, newline-separated → JSONL, trivially parsed
   with `.split("\n").filter(Boolean).map(JSON.parse)`.
-- `json(self)` on a commit yields (empirically, jj 0.40):
+- `json(self)` on a commit yields (empirically, jj 0.45):
   `commit_id`, `change_id`, `description` (empty string if unset, else
   trailing `\n`), `parents` (array of commit_id strings), `author` /
   `committer` (`{ name, email, timestamp }`).
