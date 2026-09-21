@@ -1,14 +1,16 @@
 ---
 name: verify-diffy
-description: Drive diffy's web UI (React commit graph, diff pane, operation picker served by Bun) through Playwright MCP against a throwaway jj fixture repo, and capture screenshots and ARIA snapshots as proof. Use when asked to verify, demo, or screenshot diffy's UI, to reproduce a UI bug, or to prove a frontend or /api change works in the real app rather than only in bun test.
+description: Drive diffy's web UI (React commit graphs, comparison pane, operation pickers served by Bun) through Playwright MCP against a throwaway jj fixture repo, and capture screenshots and ARIA snapshots as proof. Use when asked to verify, demo, or screenshot diffy's UI, to reproduce a UI bug, or to prove a frontend or /api change works in the real app rather than only in bun test.
 ---
 
 # Verify diffy
 
-diffy is a jj-backed code review UI: a Bun server exposes `/api/log`,
-`/api/operations` and `/api/diff` by shelling out to `jj` in its own working
-directory, and serves a React single page that renders a commit graph on the
-left and the selected revision's diff on the right.
+diffy is a jj-backed code review UI: a Bun server answers the page's `/api/*`
+calls by shelling out to `jj` in its own working directory, and serves a React
+single page that renders a commit graph twice, `before` and `after`, and the
+diff between the commit picked on each side. The same app also reviews GitHub
+pull requests, a mode this harness does not reach; see the scope note in
+`features/README.md`.
 
 A verification run starts its own instance on an ephemeral port, pointed at a
 throwaway jj repo with known commits. It never touches port 3000, the repo you
@@ -78,32 +80,35 @@ reaching for a different browser.
 Point it at the URL from `verify.sh url`, then work from an ARIA snapshot:
 
 - `browser_navigate` with the run's `$URL`.
-- `browser_wait_for` with `text` — the page renders `Loading commits...` and
-  `Loading operations...` first, so every drive must wait for real content
+- `browser_wait_for` with `text`, because the page renders `Loading commits...`
+  and `Loading operations...` first, so every drive must wait for real content
   before asserting.
 - `browser_snapshot` for the ARIA tree, or read the `.yml` file that every tool
   result links.
 - `browser_click` with `target` as a snapshot `ref` or a selector.
-- `browser_select_option` with `target: "select"` (the operation picker is the
-  page's only combobox) and the full operation id as the value.
+- `browser_select_option` with the full operation id as the value, scoped to
+  one column: each of `before` and `after` owns an `operation` combobox.
 
 Stable handles in this UI:
 
 | What | Handle |
 | --- | --- |
-| A commit row | `button` named `<changeId8> <description>`, e.g. `button:has-text("fixture: extend the notes file")` |
-| The root commit row | `button` named `<changeId8> (no description)` |
+| One column | `.pane:has(h2:text-is("before"))`, or `"after"` |
+| A commit row | `button` whose name is the whole `jj log` line, so match a fragment: `button:has-text("fixture: extend the notes file")` |
+| The root commit row | `button` named `zzzzzzzz 1970-01-01 00:00:00 00000000 (empty) (no description)` |
 | A merge row | commit row whose lane circle is hollow; confirm merges through `parents` in `/api/log` |
-| The operation picker | `combobox "operation"`, options labelled `<opId8>  <what>  <when>` |
-| A diff file header | text `modified notes.txt`, `added sidecar.txt` |
-| Empty states | `Select a commit to see its diff.`, `No changes in this commit.` |
+| An operation picker | `combobox "operation"` inside a column, options labelled `<opId8>  <what>  <when>` |
+| A comparison section | `section` holding a `.comparison-header` and its files |
+| A diff file header | one node reading `addedsidecar.txt`, `modifiednotes.txt` |
+| A commentable line | `.diff-line--interactive`, a `button` named `<afterLine> <text>` |
+| Empty states | `Select commits on either side to compare them.`, `No changes in this commit.`, `Both commits make the same change.` |
 
 The API is a legitimate second view for proving a side effect, never a substitute
 for driving the UI:
 
 ```sh
 curl -fsS "$URL/api/log"
-curl -fsS "$URL/api/diff?rev=<changeId>"
+curl -fsS "$URL/api/interdiff?from=<commitId>&to=<commitId>"
 curl -fsS "$URL/api/log?op=$(cat /tmp/diffy-verify/default/early-op)"
 ```
 
@@ -140,8 +145,8 @@ Standards for a proof of this app:
   calling `/api/*` alone, proves nothing about the UI.
 - Capture the action and its result: the snapshot after the click that shows
   both the selected row and the diff pane it produced, not just a final screen.
-- Check the side effect in a second view. A diff shown in the UI should match
-  `/api/diff?rev=<changeId>` for the same change id.
+- Check the side effect in a second view. A section shown in the UI should
+  match `/api/interdiff` asked for the same full commit ids.
 - Do not mock `jj`. The fixture repo is the isolation boundary; the server runs
   the real CLI against it.
 - Keep the ARIA snapshot alongside the screenshot. Text assertions belong to the
@@ -163,8 +168,9 @@ run does not strand a server.
 
 `harness/verify.sh` is the only entry point; `{start|doctor|stop|url}` is its
 full surface. It launches `harness/serve.ts`, which imports the real `routes`
-from `src/server.ts` and binds port 0, because `src/server.ts` hardcodes port
-3000 when run directly and cannot host two instances.
+from `src/server.ts` and binds port 0, so the kernel picks a port no other
+session holds. Running `src/server.ts` itself takes `$PORT` or falls back to
+3000, which is the port a developer's own `just run` is already on.
 
 Both files are verification scaffolding under `.claude/`, deliberately outside
 Entangled's `docs/**/*.md` sources. Edit them directly; do not tangle them.
