@@ -324,6 +324,22 @@ gets in the graph.
 }
 ```
 
+A title is how a pull request is told from the others in the list, and the
+part that tells them apart is rarely in the first thirty characters. On a
+narrow screen it wraps onto as many lines as it needs.
+
+```css
+/*| id: design-pull-list
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-list__title {
+      white-space: normal;
+      overflow: visible;
+    }
+  }
+}
+```
+
 ## Pull request header
 
 What is being read, on one line, including a link out to GitHub. The link is
@@ -387,6 +403,30 @@ outranks the others.
 
   .pull-header__link {
     color: var(--accent);
+  }
+}
+```
+
+One line is what a desk has the width for. A phone does not, so the strip
+wraps and the title, the longest string on it, takes a row of its own above
+the small facts. That spends height, which a phone has, to stop spending
+width, which it has not.
+
+```css
+/*| id: design-pull-header
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-header {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .pull-header__title {
+      flex-basis: 100%;
+      overflow: visible;
+    }
   }
 }
 ```

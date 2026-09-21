@@ -238,6 +238,15 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-responsive-metrics>>[1] */
+@layer metrics-narrow {
+  @media (max-width: 480px) {
+    :root {
+      --gutter-width: 28px;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-app>>[init] */
 @layer components {
@@ -248,7 +257,7 @@
   .app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
     font-family: var(--font-mono);
     font-size: var(--text-size);
     color: var(--text);
@@ -384,6 +393,17 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .operation-picker__select {
+      flex: 1;
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-label>>[init] */
 @layer components {
@@ -485,6 +505,28 @@
 
   .commit-marker--hidden {
     color: var(--marker-hidden);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-label>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .commit-label__meta {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .commit-label__author {
+      display: none;
+    }
+  }
+
+  @media (max-width: 360px) {
+    .commit-label__clock {
+      display: none;
+    }
   }
 }
 /* ~/~ end */
@@ -755,6 +797,16 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .diff-line {
+      width: max-content;
+      min-width: 100%;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-state-chip>>[init] */
 @layer components {
@@ -821,6 +873,16 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-list>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-list__title {
+      white-space: normal;
+      overflow: visible;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[init] */
 @layer components {
@@ -847,6 +909,23 @@
 
   .pull-header__link {
     color: var(--accent);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-header {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .pull-header__title {
+      flex-basis: 100%;
+      overflow: visible;
+    }
   }
 }
 /* ~/~ end */
@@ -896,7 +975,7 @@
 
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-responsive-panes>>[init] */
 @layer components-narrow {
-  @media (max-width: 820px) {
+  @media (max-width: 1000px) {
     .panes {
       flex-direction: column;
       overflow: auto;

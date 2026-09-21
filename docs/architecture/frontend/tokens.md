@@ -203,14 +203,14 @@ component, and that is what makes the breakpoints below a two-line change.
 
 ## Responsiveness
 
-A window narrower than about three comfortable columns gets narrower columns.
-That is the `metrics-narrow` layer and nothing else: rebinding the minimum
-widths retunes every pane at once, because no view and no component rule
-holds a width of its own.
+A window too tight for three comfortable columns, and still wide enough to
+keep three, gets narrower ones. That band opens at 1100 pixels and closes just
+under a thousand, where [Layout](layout.md) gives up on columns altogether.
+Rebinding the minimum widths retunes every pane in the band at once, because
+no view and no component rule holds a width of its own.
 
-Narrower again and the columns stop being columns, which changes the layout
-rather than a length. That breakpoint is not a metric and is not here. It
-sits with the panes it rearranges, in [Layout](layout.md).
+The lower breakpoint changes the layout rather than a length, so it is not a
+metric and is not here. It sits with the panes it rearranges.
 
 ```css
 /*| id: design-responsive-metrics
@@ -220,6 +220,22 @@ sits with the panes it rearranges, in [Layout](layout.md).
       --pane-picker-min: 180px;
       --pane-list-min: 160px;
       --pane-commits-width: 260px;
+    }
+  }
+}
+```
+
+A phone is short of width in the same way and has one length left to give.
+Forty pixels stands a line number well clear of the patch, which is worth it
+beside a diff that has the room; twenty-eight still holds the numbers a file
+has and hands the difference to the code, which does not.
+
+```css
+/*| id: design-responsive-metrics
+@layer metrics-narrow {
+  @media (max-width: 480px) {
+    :root {
+      --gutter-width: 28px;
     }
   }
 }

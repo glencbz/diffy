@@ -610,6 +610,26 @@ table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
 }
 ```
 
+A patch line spans the pane even when its text ends early, so a selected line
+carries its background all the way to the right edge. `width: 100%` says that
+while the pane is the wider of the two, and truncates the line to the pane as
+soon as it is not, which on a phone is most lines. `max-content` with a `100%`
+floor says the same thing at both sizes: as wide as the text, or as wide as
+the pane, whichever is more. The sideways scroll `.diff-file__patch` already
+has then reaches the rest.
+
+```css
+/*| id: design-diff-view
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .diff-line {
+      width: max-content;
+      min-width: 100%;
+    }
+  }
+}
+```
+
 ## Interdiff rows
 
 One section per lined-up pair, in the order the backend sent them, which is the

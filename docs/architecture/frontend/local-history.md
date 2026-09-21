@@ -144,3 +144,22 @@ select itself take the rest of the row.
   }
 }
 ```
+
+A `<select>` asks for the width of its longest option, and an option here is
+an id, a description and a timestamp on one line, which is wider than a phone.
+Capping it at the room the row has is the one place the app still shows a
+fragment on purpose: the text a select cuts is a tap from being read in full,
+so nothing is lost by cutting it.
+
+```css
+/*| id: design-operation-picker
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .operation-picker__select {
+      flex: 1;
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
+}
+```

@@ -210,9 +210,11 @@ decode.
 
 Three of those have a refinement above them, named for the condition that
 switches it on. `roles-dark` is the whole of dark mode, rebinding roles and
-touching nothing else. `metrics-narrow` retunes the column widths under
-1100px. `components-narrow` is the one rule that contradicts a component
-instead of retuning a length: under 820px the panes stop being columns.
+touching nothing else. `metrics-narrow` retunes the column widths in the
+band under 1100px where three columns still fit. `components-narrow` is where
+a rule contradicts a component instead of retuning a length: under 1000px the
+panes stop being columns, and a field with nothing left to show gives up its
+room rather than truncating to a fragment.
 
 Each refinement gets a layer rather than a position further down its own
 layer, which is what makes the order of the sheet stop mattering. Two rules

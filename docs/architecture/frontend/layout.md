@@ -175,20 +175,24 @@ that renders it.
 }
 ```
 
-Narrower than about two comfortable columns, a row of panes stops being
-columns at all. This turns it into a stack and caps the pickers at a fraction
-of the viewport so the diff still has somewhere to be. It is the only rule in
-the stylesheet that overrides a component rather than retuning a length, which
-is why it is the whole of the `components-narrow` layer. It sits with the
+Three columns want about 180 pixels for each picker and 680 for the diff, so
+they hold together above roughly 1040 and nowhere below it. Under a thousand a
+row of panes stops being columns at all: it turns into a stack and caps the
+pickers at a fraction of the viewport so the diff still has somewhere to be.
+An iPad held in portrait is 834 pixels wide, so a breakpoint drawn any tighter
+than this leaves the commonest tablet with two pickers eating half the window
+and not one description readable.
+
+A rule that contradicts a component instead of retuning a length belongs to
+the `components-narrow` layer, and it sits in the document that holds the
 component it overrides, so the contradiction is one scroll apart rather than
-two documents.
-The breakpoint above it, which only retunes widths, is a metrics edit and
-lives in [Design tokens](tokens.md).
+two documents. The breakpoint above this one, which only retunes widths, is a
+metrics edit and lives in [Design tokens](tokens.md).
 
 ```css
 /*| id: design-responsive-panes
 @layer components-narrow {
-  @media (max-width: 820px) {
+  @media (max-width: 1000px) {
     .panes {
       flex-direction: column;
       overflow: auto;

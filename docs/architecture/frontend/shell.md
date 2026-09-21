@@ -148,8 +148,14 @@ function SidePicker({ side }: { side: Side<JjSource> }) {
 
 The window is a column: a tab strip that does not scroll, and under it
 whichever screen is chosen. The body's default margin goes, because a
-full-height app measured in `vh` inside an eight-pixel margin is sixteen
-pixels taller than the window and scrolls when it should not.
+full-height app measured against the viewport inside an eight-pixel margin is
+sixteen pixels taller than the window and scrolls when it should not.
+
+The height is `100dvh` and not `100vh`. A mobile browser's address bar and
+toolbar sit inside what `vh` calls the viewport, so on a phone `100vh` is the
+window plus the chrome covering it, and the last rows of the diff spend their
+life underneath it. `dvh` is the window as it currently stands, which is the
+only number a full-height layout can mean.
 
 `min-height: 0` appears here and on every flex ancestor of a scrolling pane,
 because a flex item defaults to `min-height: auto`, which refuses to shrink
@@ -167,7 +173,7 @@ than a decision.
   .app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
     font-family: var(--font-mono);
     font-size: var(--text-size);
     color: var(--text);

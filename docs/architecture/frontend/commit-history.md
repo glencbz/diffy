@@ -637,7 +637,9 @@ because on a git-backed row this is ordinary, not an error.
 
 The `<time>` element carries the full timestamp the backend sent, so the
 offset survives in the markup even though the text is trimmed to the seconds
-`jj log` shows. `REFS` and `MARKERS` are maps from a union to a class name and
+`jj log` shows. It is cut at the `T` into a date and a clock rather than
+printed as one string, because the two are worth different amounts of the
+line and a narrow window keeps only the first. `REFS` and `MARKERS` are maps from a union to a class name and
 a word, matching the rest of the app: a kind jj grows is a row in a table and
 a type error until it has one.
 
@@ -679,7 +681,12 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
         </span>
         <span className="commit-label__author">{commit.author}</span>
         <time className="commit-label__time" dateTime={commit.timestamp}>
-          {commit.timestamp.slice(0, 19).replace("T", " ")}
+          <span className="commit-label__date">
+            {commit.timestamp.slice(0, 10)}
+          </span>{" "}
+          <span className="commit-label__clock">
+            {commit.timestamp.slice(11, 19)}
+          </span>
         </time>
         {commit.refs.map((ref) => (
           <span
@@ -731,6 +738,15 @@ and then a second one for the ellipsis, and `main` becomes `ma…` for a
 rounding error. Only a field long enough to read once truncated can be asked
 to truncate, and `--ref-max-width` caps a name at its own expense rather than
 letting one long bookmark push the line apart.
+
+A phone is that rule with nothing left over. At 390 pixels the two fields
+that were long enough stop being long enough, and the line reads `verif…` and
+`04:…`, which answer nothing and cost the room a whole field would have sat
+in. So the metadata wraps rather than clipping, and where even two lines will
+not do, the fastest-yielding field leaves entirely: the author first, since
+it was always the first to break, and then the clock. A date without its
+clock still places a commit in the history, which is what a picker is asked;
+a clock without its date places nothing.
 
 A name and a standing are each a colour rather than a chip. The line is
 already dense at eleven pixels, and a row of filled pills at that size reads
@@ -843,6 +859,35 @@ at eleven pixels, for a hierarchy their positions already carry.
 
   .commit-marker--hidden {
     color: var(--marker-hidden);
+  }
+}
+```
+
+Below a thousand pixels the label has the window to itself and can spend a
+second line on the metadata, so the clipping stops there. The two widths
+under it are where a second line is not enough either, and each drops the
+field that has the least left to say.
+
+```css
+/*| id: design-commit-label
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .commit-label__meta {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .commit-label__author {
+      display: none;
+    }
+  }
+
+  @media (max-width: 360px) {
+    .commit-label__clock {
+      display: none;
+    }
   }
 }
 ```
