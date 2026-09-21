@@ -33,8 +33,8 @@ type saying where a side's commits come from.
 
 The two screens differ because the two histories do. A jj operation log is deep
 and arbitrary, so picking a point in it wants a dropdown. A pull request has
-had a handful of heads in a known order, so they fit on one line as a timeline
-of chips with both ends of the comparison marked on it at once.
+had a handful of heads in a known order, and choosing between them wants two
+dropdowns of its own, one per end of the comparison.
 
 The tech plan first sketched this in htmx. We went with React instead. The
 pickers carry client-side state. Two selections drive the diff panel, and both
@@ -283,7 +283,7 @@ reference here, anywhere.
 
 <<design-pull-header>>
 
-<<design-pull-timeline>>
+<<design-pull-comparison-picker>>
 
 <<design-responsive-panes>>
 ```

@@ -37,13 +37,21 @@ mapping exists in one place instead of being repeated per handler.
 //| file: src/server.ts
 
 import * as z from "zod";
-import { GitError, GitOid, gitLog, gitMaterialize } from "./backend/commit/git";
+import {
+  GitError,
+  GitOid,
+  gitLog,
+  gitMaterialize,
+  gitMergeBase,
+} from "./backend/commit/git";
 import {
   GitHubError,
   type GitHubGraphQL,
   ghCliGraphQL,
   githubPullRequestHistory,
   githubPullRequests,
+  type PullRequestHistory,
+  type PullRequestState,
   parsePullNumber,
   parseRepoRef,
   pullPins,
@@ -55,6 +63,7 @@ import {
   type JjLogEntry,
   jjCommits,
   jjDiff,
+  jjDiffBetween,
   jjInterdiff,
   jjLog,
   jjOpLog,
@@ -284,26 +293,63 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
 }
 ```
 
-`/api/github/pull/diff` is the review itself. `to` and `from` each name a
-head of the same pull request. Both are head oids rather than version
-numbers, for the reason [`pullStateAt`](github.md) gives. That also makes
-"version 7 of a pull request that now has three versions" a request nobody
-can write, rather than one more thing to reject.
+`/api/github/pull/diff` is the review itself. `to` names a head of the pull
+request. `from` names what that head is measured against, either another head
+or the word `base`, and the two ends are parsed apart at the top of the
+handler so a value that is neither costs a 400 and no API call. A head is
+named by its oid rather than by its version number, for the reason
+[`pullStateAt`](github.md) gives. That also makes "version 7 of a pull request
+that now has three versions" a request nobody can write, rather than one more
+thing to reject.
 
-The comparison is always [`jjInterdiff`](jj.md) between the two heads. The
-later head is usually the earlier one rebased, and interdiff drops what the
-rebase carried along; for pull request #9 of this repository, first head
+Only the before end can be the base, which is why `from` is a `PullBaseline`
+and `to` stays a `GitOid`. The base as the after end is the pull request read
+backwards, and nobody reads it that way. The commit strip beside the diff
+takes the same `to`, and a base branch tip has no list of commits to show for
+a pull request.
+
+Two heads of the same pull request are compared with [`jjInterdiff`](jj.md).
+The later head is usually the earlier one rebased, and interdiff drops what
+the rebase carried along; for pull request #9 of this repository, first head
 against last, that is the difference between three files and forty-seven. A
-tree diff against the base branch reports the rebase itself as a change, and
-it is the comparison GitHub already shows on the pull request page. Offering
-it here as a second mode would leave every reader working out which of two
-answers is on screen.
+tree diff between two heads reports the rebase itself as a change, which is
+the comparison GitHub shows on the pull request page and not the one a
+reviewer of a re-push is asking for.
 
-This handler drops `gitMaterialize`'s return value where the commits route
-above keeps it. The call hands back a `LocalOid` per oid asked, a witness that
-the object is in the store, and `gitLog` takes nothing else. jj takes a plain
-commit id, so all this handler needs from the call is that it returned, since
-`gitMaterialize` throws unless every object landed.
+A head against the base is the other comparison, and it is the three-dot diff,
+[`gitMergeBase`](git.md) and then [`jjDiffBetween`](jj.md). It is not a diff
+from `baseRefOid`. That oid is the base branch's tip now, so a diff from it
+carries every commit the base branch has gained since the branch was cut, in
+reverse, on top of the pull request's own work. On pull request #21 of this
+repository, merged, today's `main` against the final head names fifty-one
+files and the merge base against it names none, which is the truth about a
+pull request whose work is already in `main`.
+
+A second comparison was refused here for as long as it would have gone
+unlabelled, since a reader would then be working out which of two answers is
+in front of them. The comparison picker's caption names which one is on
+screen, so that reader does not exist. Each comparison is worth naming once.
+The interdiff says how the change itself evolved. The base comparison says
+what the pull request introduces. The picker now offers the base as the
+before end, so this is the whole of what the route needs to serve.
+
+The two comparisons use `gitMaterialize` differently, and `pullDiffFiles`
+holds that along with the choice. Comparing two heads needs only that the call
+returned, because jj takes a plain commit id and `gitMaterialize` throws
+unless every object landed. Comparing against the base reads the witnesses it
+hands back, because `gitMergeBase` takes a `LocalOid` on each side.
+[`pullPins`](github.md) already pins the base alongside the head, so that path
+fetches nothing the interdiff path would not have fetched.
+
+The baseline is tagged rather than left as a bare oid the server recognises
+by comparing it against `history.baseRefOid`. That comparison answers the
+wrong thing. The oid is read when the history is fetched and sent back when
+the diff is fetched, so a commit landing on the base branch in between makes
+the equality fail and answers a reviewer who picked the base with a 404. A
+branch force-pushed to exactly the base tip puts that same oid legitimately in
+the chain of heads, where the equality would quietly switch comparisons under
+a reviewer who picked a version. Asking for the base and asking for a version
+are different operations over different commits, and a union is what says so.
 
 The body is exported separately from the handler so the tests can hand it a
 GitHub transport. Its three siblings are pass-throughs, and everything they do
@@ -320,6 +366,13 @@ export function handleGithubPullDiff(req: Request): Promise<Response> {
   return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
 }
 
+/** `from=base`, or `from=<oid>`. Nothing 40 hex characters long reads as `base`. */
+const PullBaselineParam = z.union([
+  z.literal("base").transform(() => ({ kind: "base" }) as const),
+  GitOid.transform((head) => ({ kind: "version", head }) as const),
+]);
+type PullBaseline = z.infer<typeof PullBaselineParam>;
+
 /** Exported for tests: the pull request diff route, with its transport given. */
 export function pullDiffResponse(
   params: URLSearchParams,
@@ -329,22 +382,35 @@ export function pullDiffResponse(
     const repo = parseRepoRef(params.get("repo") ?? "");
     const number = parsePullNumber(params.get("number"));
     const to = GitOid.parse(params.get("to"));
-    const from = GitOid.parse(params.get("from"));
+    const from = PullBaselineParam.parse(params.get("from"));
 
     const history = await githubPullRequestHistory(repo, number, gh);
     const toState = pullStateAt(history, to);
-    const fromState = pullStateAt(history, from);
 
+    return { from, to, files: await pullDiffFiles(history, toState, from) };
+  });
+}
+
+/** The diff a baseline asks for, fetching what that comparison needs. */
+async function pullDiffFiles(
+  history: PullRequestHistory,
+  toState: PullRequestState,
+  from: PullBaseline,
+): Promise<JjFileDiff[]> {
+  if (from.kind === "version") {
+    const fromState = pullStateAt(history, from.head);
     await gitMaterialize(
       [fromState, toState].flatMap((state) => pullPins(history, state)),
     );
+    return jjInterdiff({ from: fromState.head, to: toState.head });
+  }
 
-    return {
-      from,
-      to,
-      files: await jjInterdiff({ from: fromState.head, to: toState.head }),
-    };
-  });
+  const [base, head] = await gitMaterialize(pullPins(history, toState));
+  if (base === undefined || head === undefined) {
+    throw new Error("gitMaterialize returned fewer oids than asked");
+  }
+
+  return jjDiffBetween({ from: await gitMergeBase(base, head), to: head });
 }
 ```
 
@@ -381,7 +447,7 @@ without binding a port.
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
 import type { GitHubGraphQL } from "./backend/commit/github";
-import { jjInterdiff, jjLog } from "./backend/commit/jj";
+import { jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -702,6 +768,16 @@ test is the route's own decisions, and each answer is checked against the jj
 call it should have made rather than against a file count, because a file count
 would still pass if the two diffs were swapped.
 
+`divergedPull` is what separates the merge base from the base branch tip.
+Every other case has a base that is already an ancestor of the head, where the
+diff from the base and the diff from the merge base are the same diff and an
+implementation handing `baseRefOid` straight to `jjDiffBetween` passes. The
+parents of a merge are where this repository keeps a base and a head that have
+genuinely diverged, and the base side also has to carry something the merge
+base does not, which is what makes the two diffs differ at all. That case
+asserts both halves, that the answer is the diff from the commit the two
+share, and that it is not the diff from the base.
+
 ```ts
 //| id: backend-server-test
 
@@ -750,9 +826,39 @@ describe("pullDiffResponse", () => {
     });
   }
 
+  /** A base and a head that have diverged, with the commit they share. The
+   *  base must carry something that commit does not, or a diff from the base
+   *  and a diff from the merge base would be the same diff either way. */
+  async function divergedPull(): Promise<{
+    base: string;
+    head: string;
+    mergeBase: string;
+  }> {
+    for (const merge of await jjLog({ revset: "merges()" })) {
+      const [left, right] = merge.parents;
+      if (left === undefined || right === undefined) continue;
+      const [shared] = await jjLog({
+        revset: `heads(::${left} & ::${right})`,
+        limit: 1,
+      });
+      if (shared === undefined) continue;
+
+      const mergeBase = shared.commitId;
+      if (mergeBase === left || mergeBase === right) continue;
+      for (const [base, head] of [
+        [left, right],
+        [right, left],
+      ] as [string, string][]) {
+        const moved = await jjDiffBetween({ from: mergeBase, to: base });
+        if (moved.length > 0) return { base, head, mergeBase };
+      }
+    }
+    throw new Error("this repo has no merge of two diverged histories");
+  }
+
   async function body(res: Response) {
     return (await res.json()) as {
-      from: string;
+      from: { kind: string; head?: string };
       to: string;
       files: { status: string; path?: string; newPath?: string }[];
       error?: string;
@@ -777,7 +883,7 @@ describe("pullDiffResponse", () => {
 
     // assert
     expect(res.status).toBe(200);
-    expect(answer.from).toBe(earlier);
+    expect(answer.from).toEqual({ kind: "version", head: earlier });
     expect(answer.to).toBe(later);
     expect(answer.files).toEqual(
       await jjInterdiff({ from: earlier, to: later }),
@@ -816,6 +922,61 @@ describe("pullDiffResponse", () => {
     // act
     const res = await pullDiffResponse(
       query({ to: heads[1] as string }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+
+  test("diffs the base against a head", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const later = heads.at(-1) as string;
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "base", to: later }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.from).toEqual({ kind: "base" });
+    expect(answer.files).toEqual(
+      await jjDiffBetween({ from: base, to: later }),
+    );
+  });
+
+  test("measures a diverged base from the commit the head grew out of", async () => {
+    // arrange
+    const { base, head, mergeBase } = await divergedPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "base", to: head }),
+      stubHistory(base, [head]),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.files).toEqual(
+      await jjDiffBetween({ from: mergeBase, to: head }),
+    );
+    expect(answer.files).not.toEqual(
+      await jjDiffBetween({ from: base, to: head }),
+    );
+  });
+
+  test("refuses the base as the after end", async () => {
+    // arrange
+    const { heads } = await localPull();
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: heads[0] as string, to: "base" }),
       unreachable,
     );
 

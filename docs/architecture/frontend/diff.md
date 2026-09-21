@@ -11,8 +11,9 @@ repo, or a pair of heads of one pull request.
 
 Only the jj arm has a "nothing picked yet" state, an empty `from` array,
 which the backend already answers by showing the after side's own diff. The
-pull arm has no such state. Both its ends are required heads, and the
-controller always has one to fall back on, the pull request's first head.
+pull arm has no such state. Its after end is a head and its before end is a
+`PullBaseline`, both required, and the controller has a default for each: the
+base for before and the latest head for after.
 
 The hook reloads whenever the question changes and drops a response that lands
 after it has changed again. Both jj selections empty is the one question with
@@ -30,6 +31,7 @@ import {
   fetchPullDiff,
   type GitOid,
   type InterdiffRow,
+  type PullBaseline,
 } from "../api";
 import type { AsyncState } from "./asyncState";
 
@@ -40,8 +42,8 @@ export type Comparison =
       kind: "pull";
       repo: string;
       number: number;
-      /** The earlier head. */
-      from: GitOid;
+      /** What the after side is measured against, a head or the base branch. */
+      from: PullBaseline;
       to: GitOid;
     };
 
@@ -107,8 +109,8 @@ export function useComparison(
 The diff panel's contents follow from what was asked. A comparison of local
 commits comes back as one row per lined-up pair, and each row needs its own
 header saying which commit faced which. A comparison of pull request heads
-comes back as one patch, and the two versions it compares are already named on
-the timeline above it, so a second header there would be a repetition.
+comes back as one patch, and the two ends it compares are already named by
+the picker above it, so a second header there would be a repetition.
 
 Choosing between the two shapes happens here and nowhere else, which is what
 keeps `DiffView` at "render these files".
@@ -125,6 +127,13 @@ the pair of commits a row lines up, and a pull request diff is one patch
 between two heads with no such row, so it renders read-only until it is given
 an identity of its own. Inventing one here would ship it untested behind a
 conflict resolution.
+
+An empty pull request diff reads differently depending on what the before
+end is. Two versions with no difference between them is "these two versions
+make the same change", but a head against its base with no difference means
+the pull request adds nothing to what it targets, a different fact worth
+saying in its own words. `DiffPane` already holds the whole `comparison`, so
+it branches on `comparison.from.kind` to tell the two apart.
 
 ```tsx
 //| id: frontend-controller-diff-pane
@@ -164,7 +173,13 @@ export function DiffPane({
     );
   }
   if (answer.data.files.length === 0) {
-    return <Message>These two versions make the same change.</Message>;
+    return (
+      <Message>
+        {comparison.kind === "pull" && comparison.from.kind === "base"
+          ? "This pull request introduces no changes over its base."
+          : "These two versions make the same change."}
+      </Message>
+    );
   }
 
   return <DiffView files={answer.data.files} />;

@@ -364,3 +364,26 @@ export function jjInterdiff(
   ]);
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[7]
+
+export interface JjDiffBetweenOptions {
+  /** Revision whose tree is the "before" side. */
+  from: string;
+  /** Revision whose tree is the "after" side. */
+  to: string;
+}
+
+export function jjDiffBetween(
+  options: JjDiffBetweenOptions,
+): Promise<JjFileDiff[]> {
+  return diffFiles([
+    "diff",
+    "--git",
+    "--color=never",
+    "--from",
+    options.from,
+    "--to",
+    options.to,
+  ]);
+}
+// ~/~ end

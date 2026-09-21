@@ -136,8 +136,6 @@ patch to read the way a patch reads everywhere else.
     --state-merged: var(--purple-600);
     --state-closed: var(--red-600);
 
-    --endpoint-before: var(--amber-600);
-
     --ref-bookmark: var(--purple-600);
     --ref-tag: var(--teal-600);
     --ref-working-copy: var(--blue-600);
@@ -278,8 +276,6 @@ lightness that survives a dark surface.
       --state-open: var(--green-300);
       --state-merged: var(--purple-400);
       --state-closed: var(--red-400);
-
-      --endpoint-before: var(--amber-400);
 
       --ref-bookmark: var(--purple-400);
       --ref-tag: var(--teal-400);
