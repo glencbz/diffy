@@ -360,6 +360,49 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pane-tabs>>[init] */
+@layer components {
+  .pane-tabs {
+    display: none;
+    flex: none;
+    flex-direction: column;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pane-tab {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-3) var(--space-6);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-subtle);
+    border-left: var(--border-width-accent) solid transparent;
+  }
+
+  .pane-tab:hover {
+    background: var(--surface-sunken);
+  }
+
+  .pane-tab--current {
+    font-weight: bold;
+    color: var(--accent);
+    border-left-color: var(--accent);
+  }
+
+  .pane-tab__picked {
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-message>>[init] */
 @layer components {
   .message {
@@ -976,27 +1019,46 @@
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-responsive-panes>>[init] */
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .panes {
+    .pane-tabs {
+      display: flex;
+    }
+
+    .panes--review .pane {
+      display: none;
+    }
+
+    .panes--review .pane--showing {
+      display: flex;
+      flex: 1;
+      width: auto;
+      min-width: 0;
+      border-right: none;
+    }
+
+    .panes--review .pane__header {
+      display: none;
+    }
+
+    .panes:not(.panes--review) {
       flex-direction: column;
       overflow: auto;
     }
 
-    .pane {
+    .panes:not(.panes--review) .pane {
       width: auto;
       min-width: 0;
       border-right: none;
       border-bottom: 1px solid var(--border);
     }
 
-    .pane--picker,
-    .pane--list,
-    .pane--commits {
+    .panes:not(.panes--review) .pane--list,
+    .panes:not(.panes--review) .pane--commits {
       width: auto;
       min-width: 0;
       max-height: 30vh;
     }
 
-    .pane--diff {
+    .panes:not(.panes--review) .pane--diff {
       flex: 1 0 auto;
       border-bottom: none;
     }
