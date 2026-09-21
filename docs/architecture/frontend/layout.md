@@ -204,23 +204,71 @@ against everything else. The inner one stacks the header and the comparison
 picker over a narrow commit strip and the diff, which is the part being read
 and so gets the room.
 
+The outer one also carries the bar and the scrim that [the list as a
+sheet](#the-list-as-a-sheet) needs, since both belong to the same choice
+between the list and the review.
+
 ```tsx
 //| id: frontend-view-pull-panes
 //| file: src/frontend/views/PullPanes.tsx
 import type { ReactNode } from "react";
+import type { PullSummary } from "../api";
+import { PullStateChip } from "./PullStateChip";
+
+export type PullChoice =
+  | { phase: "browsing" }
+  | { phase: "reviewing"; pull: PullSummary }
+  | { phase: "picking"; pull: PullSummary };
 
 export function PullPanes({
+  choice,
+  onOpen,
+  onDismiss,
   list,
   review,
 }: {
+  choice: PullChoice;
+  onOpen: () => void;
+  onDismiss: () => void;
   list: ReactNode;
   review: ReactNode;
 }) {
   return (
-    <div className="panes">
-      <div className="pane pane--list">{list}</div>
-      <div className="pane pane--main">{review}</div>
-    </div>
+    <>
+      {choice.phase !== "browsing" && (
+        <button type="button" onClick={onOpen} className="pull-bar">
+          <span className="pull-bar__number">#{choice.pull.number}</span>
+          <PullStateChip state={choice.pull.state} />
+          <span className="pull-bar__title">{choice.pull.title}</span>
+        </button>
+      )}
+      <div className={`panes panes--${choice.phase}`}>
+        <div className="pane pane--list">
+          {choice.phase === "picking" && (
+            <header className="pull-sheet__header">
+              <span className="pull-sheet__caption">pull requests</span>
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="pull-sheet__close"
+              >
+                close
+              </button>
+            </header>
+          )}
+          {list}
+        </div>
+        <div className="pane pane--main">{review}</div>
+      </div>
+      {choice.phase === "picking" && (
+        <button
+          type="button"
+          aria-label="dismiss the pull request list"
+          onClick={onDismiss}
+          className="pull-scrim"
+        />
+      )}
+    </>
   );
 }
 
@@ -245,6 +293,169 @@ export function PullReviewPanes({
       </div>
     </>
   );
+}
+```
+
+## The list as a sheet
+
+A phone has one column of room, and the list and the review both want it.
+Stacked, the list holds the top third of the window for the whole session,
+including long after the reader has finished choosing out of it, and the
+review they opened gets what is left.
+
+The list is modal instead. With nothing chosen it is the window. Choosing a
+pull request collapses it to a bar naming the choice, and the review takes
+everything under the bar. Pressing the bar brings the list back as a sheet
+over the review, and the scrim or the sheet's own close control sends it away
+again.
+
+The screen next door meets the same squeeze with a tab list and this one does
+not, because the two choices are not alike. Flipping between `before` and
+`after` in one rectangle is the comparison that screen exists to make, and a
+reader does it all session. Choosing a pull request is done once, so a control
+for it standing on screen afterwards spends a phone's width on an answered
+question. The bar is what is left of the question: the answer, and a way back.
+
+`PullPanes` is told the phase as one value rather than a summary beside a
+flag, because a flag admits a sheet open over nothing and there is no such
+screen. [The controller](pull-requests.md) holds the same three phases keyed
+by number, and this is that union with the summary looked up, which is what
+the bar needs to name the choice.
+
+The phase lands on the row of panes and not on the list pane, because each of
+the three says how the row is divided: the list has the window, the review has
+it, or the list is over the review. A wide window reads none of it, the way
+`pane--showing` is inert outside the narrow rules.
+
+The bar, the sheet's header and the scrim are drawn whole here and left
+switched off, for the reason the tab list above is: how a component looks
+belongs to the `components` layer, and the narrow rules decide only whether it
+is on screen. The scrim is a `<button>` because it is a control, and a click
+handler on a `<div>` is a control a keyboard cannot reach.
+
+```css
+/*| id: design-pull-sheet
+@layer components {
+  .pull-bar {
+    display: none;
+    flex: none;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: var(--surface-raised);
+    border: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pull-bar__number {
+    color: var(--text-faint);
+  }
+
+  .pull-bar__title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .pull-sheet__header {
+    display: none;
+    position: sticky;
+    top: 0;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pull-sheet__caption {
+    font-weight: bold;
+  }
+
+  .pull-sheet__close {
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .pull-scrim {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: color-mix(in srgb, var(--text) 35%, transparent);
+  }
+}
+```
+
+The sheet slides out of the window rather than hiding, because a pane that is
+`display: none` until it is wanted has nothing to animate from, and a reader
+who just pressed the bar is owed the sight of where the list comes from.
+`visibility` rides along with the transform so a sheet that is away is out of
+the tab order as well as out of sight, and transitioning it is what holds the
+sheet visible until the slide out has finished.
+
+The sheet stops short of the top of the window so a strip of the review shows
+above it. That strip is what says the list is over the review rather than
+instead of it, which is the whole difference between this and giving the list
+the window back.
+
+```css
+/*| id: design-pull-sheet
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-bar,
+    .pull-sheet__header {
+      display: flex;
+    }
+
+    .pull-scrim {
+      display: block;
+    }
+
+    .panes--browsing .pane--main {
+      display: none;
+    }
+
+    .panes--browsing .pane--list {
+      flex: 1;
+    }
+
+    .panes--reviewing .pane--list,
+    .panes--picking .pane--list {
+      position: fixed;
+      z-index: 2;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 85dvh;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: var(--radius-large) var(--radius-large) 0 0;
+      visibility: hidden;
+      transform: translateY(100%);
+      transition:
+        transform 0.2s ease,
+        visibility 0.2s;
+    }
+
+    .panes--picking .pane--list {
+      visibility: visible;
+      transform: translateY(0);
+    }
+  }
 }
 ```
 
@@ -322,7 +533,8 @@ that renders it.
 Three columns want about 180 pixels for each picker and 680 for the diff, so
 they hold together above roughly 1040 and nowhere below it. Under a thousand a
 row of panes stops being columns at all: it turns into a stack and caps the
-pickers at a fraction of the viewport so the diff still has somewhere to be.
+commit strip at a fraction of the viewport so the diff still has somewhere to
+be.
 An iPad held in portrait is 834 pixels wide, so a breakpoint drawn any tighter
 than this leaves the commonest tablet with two pickers eating half the window
 and not one description readable.
@@ -333,12 +545,14 @@ current and already reads `before`, so the header below it is the same word a
 second time. The caption earns its place in columns, where nothing else says
 which of the two a column is.
 
-The pull request screen goes on stacking. Its panes are the list against the
-review, and a header and a timeline over a commit strip and a diff, and
-nothing has offered a reader a way to choose between those, so each rule names
-`.panes--review` or everything that is not it. Scoping the new rules alone and
-leaving the stack as it was would hide the pull request screen outright, since
-none of its panes ever carries `pane--showing`.
+The pull request screen goes on stacking. Its inner panes are a commit strip
+over a diff, and nothing offers a reader a way to choose between those, so
+each rule names `.panes--review` or everything that is not it. Scoping the new
+rules alone and leaving the stack as it was would hide the pull request screen
+outright, since none of its panes ever carries `pane--showing`. Its outer row
+is not a stack any more: the list against the review is the choice [the
+sheet](#the-list-as-a-sheet) takes over, and the commit strip is what is left
+wanting a cap on how much of a phone it may hold.
 
 A rule that contradicts a component instead of retuning a length belongs to
 the `components-narrow` layer, and it sits in the document that holds the
@@ -382,7 +596,6 @@ metrics edit and lives in [Design tokens](tokens.md).
       border-bottom: 1px solid var(--border);
     }
 
-    .panes:not(.panes--review) .pane--list,
     .panes:not(.panes--review) .pane--commits {
       width: auto;
       min-width: 0;

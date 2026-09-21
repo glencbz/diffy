@@ -291,6 +291,8 @@ reference here, anywhere.
 
 <<design-pull-comparison-picker>>
 
+<<design-pull-sheet>>
+
 <<design-responsive-panes>>
 ```
 
