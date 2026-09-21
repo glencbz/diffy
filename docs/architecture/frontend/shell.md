@@ -7,8 +7,10 @@ The page, the root component, and the switch between the two screens.
 The landing page is an [HTML import](https://bun.com/docs/bundler/fullstack).
 Bun's bundler finds the `<script>` and `<link>` tags and bundles them, along
 with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
-The `<link>` is how the [stylesheet](index.md#styling) reaches the page;
-every class the views name is defined there.
+The stylesheet `<link>` is how the [stylesheet](index.md#styling) reaches the
+page; every class the views name is defined there.
+
+The icon is inline so that no route has to serve it.
 
 ```html
 <!--| id: landing-page
@@ -19,6 +21,10 @@ every class the views name is defined there.
     <meta charset="utf-8" />
     <title>Diffy</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='6' rx='2' fill='%23cf222e'/><rect y='10' width='16' height='6' rx='2' fill='%231a7f37'/></svg>"
+    />
   </head>
   <body>
     <div id="root"></div>
