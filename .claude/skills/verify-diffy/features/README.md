@@ -14,16 +14,29 @@ feature file.
 - The `playwright` MCP server from the repo's `.mcp.json` is connected.
 - Never drive an instance this run did not start, and never drive port 3000.
 
+## The screen
+
+`Local history`, the landing tab, is three columns. `before` and `after` each
+carry an `operation` dropdown over a commit log; the third diffs what the two
+select, one section per aligned pair of commits. `Pull requests` is the other
+tab, and the harness cannot reach it; see the scope note at the end.
+
 ## Driving conventions
 
 - Start every recipe from a fresh `browser_navigate` to `$URL` unless the recipe
   says otherwise.
-- Wait for content before asserting. The first paint is `Loading commits...` and
-  `Loading operations...`.
-- Prefer accessible names over CSS position. Commit rows are buttons named
-  `<changeId8> <description>`; the operation picker is the only `combobox`.
-- Read change ids and operation ids from the page or from `/api/*` at drive
-  time. They are regenerated every time the fixture is built.
+- Wait for content before asserting. The first paint is `Loading commits...`,
+  `Loading operations...` and, once a commit is selected, `Loading diff...`.
+- Prefer accessible names over CSS position. A commit row is a button whose name
+  is the whole `jj log` line: change id, author email, committer timestamp, any
+  bookmarks or tags, commit id, markers such as `@` and `(empty)`, then the
+  description. Match on the description, not the whole string.
+- Both columns hold the same rows and both own an `operation` combobox, so an
+  unscoped name or `target: "select"` is ambiguous. Scope with
+  `.pane:has(h2:text-is("before"))`, or click the `ref` the snapshot gives for
+  the column you mean.
+- Read change ids, commit ids and operation ids from the page or from `/api/*` at
+  drive time. They are regenerated every time the fixture is built.
 - Treat commands as literal, including quoted fixture descriptions.
 
 ## Proof and skip reporting
@@ -38,11 +51,22 @@ feature file.
 
 ## Features
 
-- [Commit log](./commit-log.md) covers the graph rows, lanes, merge marker and
-  selection.
-- [Revision diff](./revision-diff.md) covers the diff pane, file statuses,
+- [Commit log](./commit-log.md) covers the rows in each column, their lanes and
+  merge marker, and selecting commits into a side.
+- [Comparison pane](./comparison.md) covers the paired sections, file statuses,
   patch colouring and the empty states.
-- [Operation history](./operation-history.md) covers viewing the log and diff at
-  a past repo operation.
-- [jj-backed API](./jj-api.md) covers the three endpoints the page reads and the
-  single error path they share.
+- [Operation history](./operation-history.md) covers travelling one column to a
+  past repo operation.
+- [Review tracking](./review-tracking.md) covers marking a section seen and the
+  comments written on its lines.
+- [jj-backed API](./jj-api.md) covers the jj-backed endpoints behind those
+  screens and the error path they share.
+
+## Out of scope: pull requests
+
+The `Pull requests` tab reads a real GitHub repository. Under the harness it
+renders `Error: To get started with GitHub CLI, please run: gh auth login`,
+because the fixture has no remote and the harness passes the server no
+`GH_HOST`. Nothing here covers those screens, and clicking the tab proves only
+that the error path renders. To exercise them, start a server by hand with
+`GH_HOST` exported and drive it as a separate run.

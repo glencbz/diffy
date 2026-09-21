@@ -1,6 +1,6 @@
 ---
 name: entangled
-description: Use whenever you are about to write, edit, or generate code, config, or scripts in this repository (diffy) — including source files like src/**, the justfile, or any new file. This project is an Entangled literate-programming project: real source of truth lives in fenced code blocks inside docs/*.md, and files like justfile / src/index.ts are auto-generated ("tangled") from them. Trigger before creating a new source file, before editing an existing generated file, or before adding a new script/recipe.
+description: Use whenever you are about to write, edit, or generate code, config, or scripts in this repository (diffy), including source files like src/**, the justfile, or any new file. This project is an Entangled literate-programming project: real source of truth lives in fenced code blocks inside docs/*.md, and the justfile and everything under src/ are auto-generated ("tangled") from them. Trigger before creating a new source file, before editing an existing generated file, or before adding a new script/recipe.
 ---
 
 # Working with Entangled in this repo
@@ -10,13 +10,13 @@ This repo uses [Entangled](https://entangled.github.io/) (literate programming).
 generated files.** Generated files are marked with comments like:
 
 ```
-// ~/~ begin <<docs/tech/bun.md#demo-bun>>[init]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[init]
 ...
 // ~/~ end
 ```
 
-Currently `justfile` and `src/index.ts` are fully tangled outputs (see
-`entangled status` for the live list of dependent files). Treat any file with
+The `justfile` and every file under `src/` are tangled outputs; run
+`entangled status` for the live list of dependent files. Treat any file with
 `~/~ begin/end` markers as generated.
 
 ## Golden rule
@@ -36,8 +36,9 @@ back into the markdown — don't let the two drift apart.
    Create a new doc under `docs/` if none fits — it just needs to match the
    `watch_list` glob `docs/**/*.md` in `entangled.toml`.
 2. Add a fenced code block whose language tag is one of the identifiers
-   configured in `entangled.toml` (`[[languages]]`). **Only `ts`/`typescript`
-   and `just` are configured today.** If you need another language (e.g.
+   configured in `entangled.toml` (`[[languages]]`). **Read the
+   `[[languages]]` table for what is configured today**, because a language
+   that is missing tangles to nothing. If you need one that is not there (e.g.
    Python), add a `[[languages]]` entry to `entangled.toml` first — see
    https://entangled.github.io/ for the identifiers/comment syntax.
 3. Inside the block, add attributes as a comment on the first line(s), using
