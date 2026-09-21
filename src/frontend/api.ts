@@ -8,11 +8,33 @@ export const GitOid = z
   .brand("GitOid");
 export type GitOid = z.infer<typeof GitOid>;
 
+/** A name a backend prints beside a commit: see `CommitRef` in the jj module. */
+export const CommitRef = z.object({
+  kind: z.enum(["bookmark", "tag", "working-copy"]),
+  name: z.string(),
+});
+export type CommitRef = z.infer<typeof CommitRef>;
+
+export const CommitMarker = z.enum([
+  "working-copy",
+  "empty",
+  "conflict",
+  "divergent",
+  "hidden",
+]);
+export type CommitMarker = z.infer<typeof CommitMarker>;
+
 export const LogEntry = z.object({
   commitId: z.string(),
   changeId: z.string().nullable(),
   description: z.string(),
   parents: z.array(z.string()),
+  /** Whoever the backend names as the author, as it names them. */
+  author: z.string(),
+  /** ISO 8601. The instant the backend dates this commit by. */
+  timestamp: z.string(),
+  refs: z.array(CommitRef),
+  markers: z.array(CommitMarker),
 });
 export type LogEntry = z.infer<typeof LogEntry>;
 

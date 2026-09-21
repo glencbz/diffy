@@ -248,12 +248,23 @@ import type { InterdiffRow, LogEntry } from "../api";
 import { reviewKey, reviewRows, type SessionDocument } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
-  return { changeId, commitId, description: "", parents: [] };
+  return { ...blank, changeId, commitId };
 }
 
 function gitLogEntry(commitId: string): LogEntry {
-  return { changeId: null, commitId, description: "", parents: [] };
+  return { ...blank, changeId: null, commitId };
 }
+
+const blank = {
+  changeId: null,
+  commitId: "",
+  description: "",
+  parents: [],
+  author: "",
+  timestamp: "2026-01-01T00:00:00Z",
+  refs: [],
+  markers: [],
+} satisfies LogEntry;
 
 function pairRow(
   changeId: string,

@@ -64,9 +64,23 @@ object per line (JSONL) and let `JSON.parse` do the work. We keep
 `parents` (the list of parent commit IDs) so the frontend can draw the
 commit graph and mark merges.
 
+A commit carries more than `json(self)` reaches. The names pointing at a
+commit and the standings jj reports about it are keywords of the template
+language rather than fields of the commit, so the template wraps `json(self)`
+in an object of its own and adds one `json(...)` per keyword. jj still does
+every serialization, so no string is escaped by hand.
+
 ```sh
-jj log --no-graph -T 'json(self) ++ "\n"'
+jj log --no-graph -T '"{\"commit\":" ++ json(self) ++ ",\"bookmarks\":" ++ json(bookmarks) ++ "}\n"'
 ```
+
+`bookmarks` and `tags` are the keywords `jj log`'s own default template reads,
+so a tracked remote ref appears only where it has drifted from its local one
+and the log names a commit the way a terminal would. A remote ref serializes
+with a `remote` field alongside its `name`, and `name@remote` is how jj writes
+that pair. `working_copies` serializes a whole commit per workspace, which is
+the commit the row already is, so the template maps it down to the workspace
+name before jj gets to it.
 
 `--no-graph` drops the ASCII-art graph column so each line of stdout is
 exactly one commit's output.
@@ -75,8 +89,46 @@ exactly one commit's output.
 view as it stood just after that operation. It is how the UI shows a
 historical version of the log (see [reading past operations](#reading-past-operations)).
 
+A marker is a boolean keyword. `COMMIT_MARKERS` is the ordered list of them
+and `MARKER_KEYWORDS` says which keyword each one reads, so the template's
+field set, the wire schema's field set and the entry's type all come from the
+same pair and a sixth marker is two lines rather than another branch in the
+parser and another optional field on the entry.
+
+`current_working_copy` is a marker here though `jj log` spends its glyph
+column on it. It is a standing a commit either has or does not, which is what
+the other four are, and the alternative is one boolean threaded to one render
+site for the sake of the placement. `working_copies` is a different question
+and stays a list of names: it answers which workspaces sit here, and jj leaves
+it empty until a repository has more than one.
+
 ```ts
 //| id: jj-module
+
+/** A name `jj log` prints beside a commit. */
+export interface CommitRef {
+  kind: "bookmark" | "tag" | "working-copy";
+  /** The name jj shows: `name`, or `name@remote` for a drifted remote ref. */
+  name: string;
+}
+
+/** The standings `jj log` reports about a commit, in the order jj shows them. */
+export const COMMIT_MARKERS = [
+  "working-copy",
+  "empty",
+  "conflict",
+  "divergent",
+  "hidden",
+] as const;
+export type CommitMarker = (typeof COMMIT_MARKERS)[number];
+
+const MARKER_KEYWORDS = {
+  "working-copy": "current_working_copy",
+  empty: "empty",
+  conflict: "conflict",
+  divergent: "divergent",
+  hidden: "hidden",
+} satisfies Record<CommitMarker, string>;
 
 export interface JjLogEntry {
   commitId: string;
@@ -84,14 +136,42 @@ export interface JjLogEntry {
   description: string;
   /** Parent commit IDs, in jj's order. Empty only for the root commit. */
   parents: string[];
+  /** The author's email, the identity `jj log` prints. */
+  author: string;
+  /** ISO 8601 committer timestamp, the time `jj log` prints. */
+  timestamp: string;
+  /** Bookmarks, then tags, then working copies, as `jj log` orders them. */
+  refs: CommitRef[];
+  markers: CommitMarker[];
 }
 
-const JjLogEntryWire = z.object({
-  commit_id: z.string(),
-  change_id: z.string(),
-  description: z.string(),
-  parents: z.array(z.string()),
+const CommitRefWire = z.object({
+  name: z.string(),
+  remote: z.string().optional(),
 });
+type CommitRefWire = z.infer<typeof CommitRefWire>;
+
+const JjLogEntryWire = z.object({
+  commit: z.object({
+    commit_id: z.string(),
+    change_id: z.string(),
+    description: z.string(),
+    parents: z.array(z.string()),
+    author: z.object({ email: z.string() }),
+    committer: z.object({ timestamp: z.string() }),
+  }),
+  bookmarks: z.array(CommitRefWire),
+  tags: z.array(CommitRefWire),
+  working_copies: z.array(z.string()),
+  markers: z.object({
+    "working-copy": z.boolean(),
+    empty: z.boolean(),
+    conflict: z.boolean(),
+    divergent: z.boolean(),
+    hidden: z.boolean(),
+  }),
+});
+type JjLogEntryWire = z.infer<typeof JjLogEntryWire>;
 
 export interface JjLogOptions {
   revset?: string;
@@ -100,7 +180,35 @@ export interface JjLogOptions {
   atOperation?: string;
 }
 
-const LOG_TEMPLATE = 'json(self) ++ "\n"';
+const LOG_TEMPLATE = [
+  '"{\\"commit\\":" ++ json(self)',
+  '++ ",\\"bookmarks\\":" ++ json(bookmarks)',
+  '++ ",\\"tags\\":" ++ json(tags)',
+  '++ ",\\"working_copies\\":" ++ json(working_copies.map(|wc| wc.name()))',
+  '++ ",\\"markers\\":{"',
+  COMMIT_MARKERS.map(
+    (marker) => `++ "\\"${marker}\\":" ++ json(${MARKER_KEYWORDS[marker]})`,
+  ).join(' ++ "," '),
+  '++ "}}\\n"',
+].join(" ");
+
+function refName(ref: CommitRefWire): string {
+  return ref.remote === undefined ? ref.name : `${ref.name}@${ref.remote}`;
+}
+
+function refsOf(entry: JjLogEntryWire): CommitRef[] {
+  return [
+    ...entry.bookmarks.map((ref) => ({
+      kind: "bookmark" as const,
+      name: refName(ref),
+    })),
+    ...entry.tags.map((ref) => ({ kind: "tag" as const, name: refName(ref) })),
+    ...entry.working_copies.map((name) => ({
+      kind: "working-copy" as const,
+      name,
+    })),
+  ];
+}
 
 export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
   const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
@@ -112,21 +220,24 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 
   const output = await runJj(args);
 
-  return Promise.all(
-    output
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .map(async (line) => {
-        const commit = await JjLogEntryWire.parseAsync(JSON.parse(line));
+  return output
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const entry = JjLogEntryWire.parse(JSON.parse(line));
+      const { commit } = entry;
 
-        return {
-          commitId: commit.commit_id,
-          changeId: commit.change_id,
-          description: commit.description,
-          parents: commit.parents,
-        };
-      }),
-  );
+      return {
+        commitId: commit.commit_id,
+        changeId: commit.change_id,
+        description: commit.description,
+        parents: commit.parents,
+        author: commit.author.email,
+        timestamp: commit.committer.timestamp,
+        refs: refsOf(entry),
+        markers: COMMIT_MARKERS.filter((marker) => entry.markers[marker]),
+      };
+    });
 }
 ```
 
@@ -375,6 +486,7 @@ specific commit history: the root commit always exists, always sorts last in
 //| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
 import {
+  COMMIT_MARKERS,
   JjError,
   jjCommits,
   jjDiff,
@@ -397,11 +509,46 @@ describe("jjLog", () => {
       expect(typeof entry.changeId).toBe("string");
       expect(typeof entry.description).toBe("string");
       expect(Array.isArray(entry.parents)).toBe(true);
+      expect(typeof entry.author).toBe("string");
+      expect(Number.isNaN(Date.parse(entry.timestamp))).toBe(false);
+      for (const ref of entry.refs) expect(typeof ref.name).toBe("string");
+      for (const marker of entry.markers) {
+        expect(COMMIT_MARKERS).toContain(marker);
+      }
     }
 
     const root = entries.at(-1);
     expect(root?.commitId).toBe("0".repeat(40));
     expect(root?.changeId).toBe("z".repeat(32));
+    expect(root?.markers).toEqual(["empty"]);
+    expect(root?.refs).toEqual([]);
+  });
+
+  test("marks the working copy and nothing else", async () => {
+    // arrange
+    // act
+    const entries = await jjLog({ revset: "all()" });
+
+    // assert
+    const here = entries.filter((entry) =>
+      entry.markers.includes("working-copy"),
+    );
+    expect(here).toHaveLength(1);
+    expect(here[0]?.commitId).toBe(
+      (await jjLog({ revset: "@" }))[0]?.commitId as string,
+    );
+  });
+
+  test("names the bookmarks pointing at a commit", async () => {
+    // arrange
+    // act
+    const entries = await jjLog({ revset: "bookmarks()" });
+
+    // assert
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.refs.some((ref) => ref.kind === "bookmark")).toBe(true);
+    }
   });
 
   test("respects the limit option", async () => {
