@@ -238,6 +238,15 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/tokens.md#design-responsive-metrics>>[1] */
+@layer metrics-narrow {
+  @media (max-width: 480px) {
+    :root {
+      --gutter-width: 28px;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-app>>[init] */
 @layer components {
@@ -248,7 +257,7 @@
   .app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
     font-family: var(--font-mono);
     font-size: var(--text-size);
     color: var(--text);
@@ -351,6 +360,49 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pane-tabs>>[init] */
+@layer components {
+  .pane-tabs {
+    display: none;
+    flex: none;
+    flex-direction: column;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pane-tab {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-3) var(--space-6);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-subtle);
+    border-left: var(--border-width-accent) solid transparent;
+  }
+
+  .pane-tab:hover {
+    background: var(--surface-sunken);
+  }
+
+  .pane-tab--current {
+    font-weight: bold;
+    color: var(--accent);
+    border-left-color: var(--accent);
+  }
+
+  .pane-tab__picked {
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-message>>[init] */
 @layer components {
   .message {
@@ -381,6 +433,17 @@
   .operation-picker__select {
     flex: 1;
     font: inherit;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .operation-picker__select {
+      flex: 1;
+      min-width: 0;
+      max-width: 100%;
+    }
   }
 }
 /* ~/~ end */
@@ -485,6 +548,28 @@
 
   .commit-marker--hidden {
     color: var(--marker-hidden);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-label>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .commit-label__meta {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .commit-label__author {
+      display: none;
+    }
+  }
+
+  @media (max-width: 360px) {
+    .commit-label__clock {
+      display: none;
+    }
   }
 }
 /* ~/~ end */
@@ -755,6 +840,16 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .diff-line {
+      width: max-content;
+      min-width: 100%;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-state-chip>>[init] */
 @layer components {
@@ -821,6 +916,16 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-list>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-list__title {
+      white-space: normal;
+      overflow: visible;
+    }
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[init] */
 @layer components {
@@ -847,6 +952,23 @@
 
   .pull-header__link {
     color: var(--accent);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-header {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .pull-header__title {
+      flex-basis: 100%;
+      overflow: visible;
+    }
   }
 }
 /* ~/~ end */
@@ -894,30 +1016,159 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[init] */
+@layer components {
+  .pull-bar {
+    display: none;
+    flex: none;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: var(--surface-raised);
+    border: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pull-bar__number {
+    color: var(--text-faint);
+  }
+
+  .pull-bar__title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .pull-sheet__header {
+    display: none;
+    position: sticky;
+    top: 0;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pull-sheet__caption {
+    font-weight: bold;
+  }
+
+  .pull-sheet__close {
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .pull-scrim {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: color-mix(in srgb, var(--text) 35%, transparent);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-bar,
+    .pull-sheet__header {
+      display: flex;
+    }
+
+    .pull-scrim {
+      display: block;
+    }
+
+    .panes--browsing .pane--main {
+      display: none;
+    }
+
+    .panes--browsing .pane--list {
+      flex: 1;
+    }
+
+    .panes--reviewing .pane--list,
+    .panes--picking .pane--list {
+      position: fixed;
+      z-index: 2;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 85dvh;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: var(--radius-large) var(--radius-large) 0 0;
+      visibility: hidden;
+      transform: translateY(100%);
+      transition:
+        transform 0.2s ease,
+        visibility 0.2s;
+    }
+
+    .panes--picking .pane--list {
+      visibility: visible;
+      transform: translateY(0);
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-responsive-panes>>[init] */
 @layer components-narrow {
-  @media (max-width: 820px) {
-    .panes {
+  @media (max-width: 1000px) {
+    .pane-tabs {
+      display: flex;
+    }
+
+    .panes--review .pane {
+      display: none;
+    }
+
+    .panes--review .pane--showing {
+      display: flex;
+      flex: 1;
+      width: auto;
+      min-width: 0;
+      border-right: none;
+    }
+
+    .panes--review .pane__header {
+      display: none;
+    }
+
+    .panes:not(.panes--review) {
       flex-direction: column;
       overflow: auto;
     }
 
-    .pane {
+    .panes:not(.panes--review) .pane {
       width: auto;
       min-width: 0;
       border-right: none;
       border-bottom: 1px solid var(--border);
     }
 
-    .pane--picker,
-    .pane--list,
-    .pane--commits {
+    .panes:not(.panes--review) .pane--commits {
       width: auto;
       min-width: 0;
       max-height: 30vh;
     }
 
-    .pane--diff {
+    .panes:not(.panes--review) .pane--diff {
       flex: 1 0 auto;
       border-bottom: none;
     }

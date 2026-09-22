@@ -79,9 +79,26 @@ export function usePullHistory(
 ```
 ## Pull requests controller
 
-The list, and whichever pull request is picked out of it. The selected number
-lives here rather than in `App` because the list is the only other thing that
-reads it, and the summary it selects is what the header needs.
+The list, and whichever pull request is picked out of it. What the screen is
+doing lives here rather than in `App` because the list is the only other thing
+that reads it, and the summary it selects is what the header needs.
+
+One `Screen` says which of three things a reader is in the middle of: browsing
+the list, reading a review, or picking a different pull request over the one
+they are reading. A number beside a flag would say the same until the flag
+said a sheet was open with nothing under it, and [the layout](layout.md) has
+no such screen to draw. Opening and dismissing are whole functions of the
+screen they are handed, so a press that lands in the wrong phase gives that
+phase back rather than inventing one.
+
+Only a narrow window puts those three anywhere, since a wide one shows the
+list and the review side by side and has nothing to collapse.
+
+A pull request the list no longer holds reads as none at all, which is the
+one place `chosen` can answer something the reader did not ask for. The list
+is reloaded per repository and a number is kept across that, so the choice can
+outlive the row it came from, and dropping back to browsing is the only answer
+that leaves a screen a reader can act on.
 
 `PullReview` is keyed by the pull request number, so picking a different one
 remounts it and the two ends of the comparison start again at "the first head
@@ -92,12 +109,18 @@ out, with a way to forget a field.
 //| id: frontend-controller-pull-requests
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
+import type { PullSummary } from "../api";
 import { usePulls } from "../state/pulls";
 import type { Session } from "../state/session";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
-import { PullPanes } from "../views/PullPanes";
+import { type PullChoice, PullPanes } from "../views/PullPanes";
 import { PullReview } from "./PullReview";
+
+type Screen =
+  | { phase: "browsing" }
+  | { phase: "reviewing"; pull: number }
+  | { phase: "picking"; pull: number };
 
 export function PullRequests({
   repo,
@@ -107,7 +130,7 @@ export function PullRequests({
   session: Session;
 }) {
   const pulls = usePulls(repo);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [screen, setScreen] = useState<Screen>({ phase: "browsing" });
 
   if (pulls.status === "loading") {
     return <Message>Loading pull requests...</Message>;
@@ -116,31 +139,51 @@ export function PullRequests({
     return <Message tone="error">{pulls.message}</Message>;
   }
 
-  const pull = pulls.data.find((candidate) => candidate.number === selected);
+  const choice = chosen(screen, pulls.data);
 
   return (
     <PullPanes
+      choice={choice}
+      onOpen={() => setScreen(openList)}
+      onDismiss={() => setScreen(dismissList)}
       list={
         <PullList
           pulls={pulls.data}
-          selected={selected}
-          onSelect={setSelected}
+          selected={choice.phase === "browsing" ? null : choice.pull.number}
+          onSelect={(pull) => setScreen({ phase: "reviewing", pull })}
         />
       }
       review={
-        pull === undefined ? (
+        choice.phase === "browsing" ? (
           <Message>Select a pull request to review it.</Message>
         ) : (
           <PullReview
-            key={pull.number}
+            key={choice.pull.number}
             repo={repo}
-            pull={pull}
+            pull={choice.pull}
             session={session}
           />
         )
       }
     />
   );
+}
+
+function chosen(screen: Screen, pulls: PullSummary[]): PullChoice {
+  if (screen.phase === "browsing") return screen;
+  const pull = pulls.find((candidate) => candidate.number === screen.pull);
+  if (pull === undefined) return { phase: "browsing" };
+  return { phase: screen.phase, pull };
+}
+
+function openList(screen: Screen): Screen {
+  if (screen.phase !== "reviewing") return screen;
+  return { phase: "picking", pull: screen.pull };
+}
+
+function dismissList(screen: Screen): Screen {
+  if (screen.phase !== "picking") return screen;
+  return { phase: "reviewing", pull: screen.pull };
 }
 ```
 
@@ -324,6 +367,22 @@ gets in the graph.
 }
 ```
 
+A title is how a pull request is told from the others in the list, and the
+part that tells them apart is rarely in the first thirty characters. On a
+narrow screen it wraps onto as many lines as it needs.
+
+```css
+/*| id: design-pull-list
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-list__title {
+      white-space: normal;
+      overflow: visible;
+    }
+  }
+}
+```
+
 ## Pull request header
 
 What is being read, on one line, including a link out to GitHub. The link is
@@ -387,6 +446,30 @@ outranks the others.
 
   .pull-header__link {
     color: var(--accent);
+  }
+}
+```
+
+One line is what a desk has the width for. A phone does not, so the strip
+wraps and the title, the longest string on it, takes a row of its own above
+the small facts. That spends height, which a phone has, to stop spending
+width, which it has not.
+
+```css
+/*| id: design-pull-header
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-header {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .pull-header__title {
+      flex-basis: 100%;
+      overflow: visible;
+    }
   }
 }
 ```

@@ -34,7 +34,12 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
         </span>
         <span className="commit-label__author">{commit.author}</span>
         <time className="commit-label__time" dateTime={commit.timestamp}>
-          {commit.timestamp.slice(0, 19).replace("T", " ")}
+          <span className="commit-label__date">
+            {commit.timestamp.slice(0, 10)}
+          </span>{" "}
+          <span className="commit-label__clock">
+            {commit.timestamp.slice(11, 19)}
+          </span>
         </time>
         {commit.refs.map((ref) => (
           <span
