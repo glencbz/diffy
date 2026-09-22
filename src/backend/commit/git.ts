@@ -49,6 +49,10 @@ export interface GitCommit {
   author: string;
   /** ISO 8601 author date. */
   authoredAt: string;
+  /** What lines this commit up against another across a rewrite. Git records
+   *  nothing durable here, so it is derived from the subject line, and it is
+   *  null when there is no subject. */
+  changeId: string | null;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/git.md#git-module>>[1]
@@ -163,6 +167,13 @@ export async function gitLog(range: GitLogRange): Promise<GitCommit[]> {
     .map(parseLogRecord);
 }
 
+/** The subject line, the closest thing to a stable identity git offers.
+ *  Null when the commit has no subject to derive one from. */
+export function subjectIdentity(description: string): string | null {
+  const subject = description.split("\n")[0]?.trim() ?? "";
+  return subject === "" ? null : subject;
+}
+
 /** Exported for unit tests: turn one NUL-terminated log record into a commit. */
 export function parseLogRecord(record: string): GitCommit {
   const fields = record.split("\x1f");
@@ -172,16 +183,18 @@ export function parseLogRecord(record: string): GitCommit {
     );
   }
   const [commitId = "", parents = "", author = "", authoredAt = ""] = fields;
+  // The body is last, so a separator inside a commit message rejoins here
+  // rather than failing the whole record.
+  const description = fields.slice(4).join("\x1f");
 
   return {
     commitId: GitOid.parse(commitId),
     parents:
       parents === "" ? [] : parents.split(" ").map((p) => GitOid.parse(p)),
-    // The body is last, so a separator inside a commit message rejoins here
-    // rather than failing the whole record.
-    description: fields.slice(4).join("\x1f"),
+    description,
     author,
     authoredAt,
+    changeId: subjectIdentity(description),
   };
 }
 // ~/~ end
