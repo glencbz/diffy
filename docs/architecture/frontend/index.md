@@ -300,6 +300,8 @@ reference here, anywhere.
 
 <<design-pull-sheet>>
 
+<<design-commit-stack>>
+
 <<design-responsive-panes>>
 ```
 
