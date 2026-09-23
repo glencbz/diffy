@@ -219,6 +219,7 @@
     --pane-list-width: 22%;
     --pane-list-min: 220px;
     --pane-commits-width: 360px;
+    --pane-paired-width: 640px;
     --gutter-width: 40px;
     --label-width: 56px;
     --ref-max-width: 14em;
@@ -234,6 +235,7 @@
       --pane-picker-min: 180px;
       --pane-list-min: 160px;
       --pane-commits-width: 260px;
+      --pane-paired-width: 460px;
     }
   }
 }
@@ -728,6 +730,187 @@
 
   .commit-graph__lane--6 {
     color: var(--graph-lane-6);
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/paired-graph.md#design-paired-graph>>[init] */
+@layer components {
+  /* The commits pane is sized for one lane. A paired graph draws two, so
+     the pane it sits in takes the wider metric. Sizing the grid alone would
+     leave it scrolling one of its two lanes out of sight inside a pane that
+     never grew. */
+  .pane--commits:has(.paired-graph) {
+    width: var(--pane-paired-width);
+  }
+
+  .paired-graph {
+    display: grid;
+    /* `minmax(0, 1fr)` and not `1fr`. A bare `1fr` refuses to shrink below
+       its content, so one long subject on the left would push the other
+       lane off the pane. */
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: var(--space-2);
+    width: 100%;
+  }
+
+  .paired-graph__label {
+    padding: var(--space-3) var(--space-4);
+    font-weight: bold;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .paired-graph__rail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 var(--space-3);
+    color: var(--text-faint);
+    font-weight: bold;
+  }
+
+  .paired-graph__rail--added {
+    color: var(--diff-added);
+  }
+
+  .paired-graph__rail--dropped {
+    color: var(--diff-removed);
+  }
+
+  .paired-graph__card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  /* A subject is longer than half a pane and every commit here starts with
+     the same area prefix, so the end of the line is what tells two apart.
+     It wraps rather than truncating. */
+  .paired-graph__open {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .paired-graph__card--current {
+    border-color: var(--accent);
+    background: var(--surface-selected);
+  }
+
+  .paired-graph__card-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    gap: var(--space-1);
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  .paired-graph__card-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
+  .paired-graph__card-subject {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .paired-graph__card-nudges {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .paired-graph__nudge {
+    padding: 0 var(--space-2);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .paired-graph__nudge:hover {
+    color: var(--accent);
+  }
+
+  .paired-graph__blank {
+    min-height: var(--space-7);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--border-subtle) 0 var(--space-1),
+      transparent var(--space-1) var(--space-4)
+    );
+  }
+
+  .paired-graph__blank--legal {
+    border-color: var(--accent);
+    border-style: solid;
+    background-color: var(--surface-selected);
+    background-image: none;
+  }
+
+  .paired-graph__footer {
+    grid-column: 1 / -1;
+    padding: var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  .paired-graph__reset {
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .paired-graph__reset:disabled {
+    color: var(--text-ghost);
+    cursor: default;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/paired-graph.md#design-paired-graph>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .paired-graph {
+      gap: var(--space-1);
+    }
+
+    .paired-graph__card {
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-3);
+    }
+
+    .paired-graph__card-id {
+      display: none;
+    }
+
+    .paired-graph__nudge {
+      padding: 0 var(--space-1);
+    }
+
+    .paired-graph__rail {
+      padding: 0 var(--space-2);
+    }
   }
 }
 /* ~/~ end */

@@ -284,6 +284,8 @@ reference here, anywhere.
 
 <<design-commit-graph>>
 
+<<design-paired-graph>>
+
 <<design-interdiff-rows>>
 
 <<design-diff-view>>
