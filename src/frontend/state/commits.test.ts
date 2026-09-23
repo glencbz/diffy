@@ -71,6 +71,7 @@ describe("commitsFrom", () => {
           description: "frontend: give the graph side-by-side branch lanes",
           author: "glencbz",
           authoredAt: "2026-09-10T09:00:00Z",
+          changeId: "frontend: give the graph side-by-side branch lanes",
         },
       ],
     });

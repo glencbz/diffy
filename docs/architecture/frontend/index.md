@@ -176,6 +176,10 @@ Allowed import edges:
 
 - `api.ts` imports Zod only.
 - `state/` imports React and `api.ts`.
+- `state/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
+  `../../backend/commit/series`. `alignSeries` is a pure function with no
+  transport and no React, so importing it needs no running server to test,
+  which is what this rule exists to protect.
 - `views/` imports React, other `views/`, and *types* from `api.ts` and
   `state/`. A view is written against a view model, `ReviewedRow` or
   `RowReview`, as often as against a wire type, and a type-only import erases

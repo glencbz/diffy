@@ -12,6 +12,9 @@ import type { AsyncState } from "./asyncState";
 function asLogEntry(commit: GitCommit): LogEntry {
   return {
     commitId: commit.commitId,
+    // A GitCommit carries an identity, but it is a subject line, and
+    // `changeId` on a LogEntry is what the graph prints as the commit's id.
+    // The pairing reads the identity off the GitCommit instead.
     changeId: null,
     description: commit.description,
     parents: commit.parents,

@@ -171,6 +171,10 @@ export const GitCommit = z.object({
   description: z.string(),
   author: z.string(),
   authoredAt: z.string(),
+  /** What lines this commit up against another across a force push. The
+   *  backend derives it from the subject line, since git records nothing
+   *  durable of its own. */
+  changeId: z.string().nullable(),
 });
 export type GitCommit = z.infer<typeof GitCommit>;
 
