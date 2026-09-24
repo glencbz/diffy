@@ -28,10 +28,10 @@ describe("readPatch", () => {
         header: "@@ -10,3 +10,3 @@ function f() {",
         newStart: 10,
         lines: [
-          { kind: "context", code: "keep", oldLine: 10, newLine: 10 },
+          { kind: "context", code: "keep", newLine: 10 },
           { kind: "removed", code: "old", oldLine: 11 },
           { kind: "added", code: "new", newLine: 11 },
-          { kind: "context", code: "keep", oldLine: 12, newLine: 12 },
+          { kind: "context", code: "keep", newLine: 12 },
         ],
       },
     ]);
@@ -70,7 +70,7 @@ describe("readPatch", () => {
       { kind: "removed", code: "a", oldLine: 1 },
       { kind: "note", text: "\\ No newline at end of file" },
       { kind: "added", code: "a", newLine: 1 },
-      { kind: "context", code: "b", oldLine: 2, newLine: 2 },
+      { kind: "context", code: "b", newLine: 2 },
     ]);
   });
 

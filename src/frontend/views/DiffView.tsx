@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
-import { useState } from "react";
-import type { FileDiff, SourceFile, SyntaxToken } from "../api";
+import { useContext, useState } from "react";
+import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
+import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
@@ -110,26 +111,55 @@ function FileRow({
   sides: FileSides;
   review?: FileReview;
 }) {
-  const [shown, setShown] = useState<ReadonlySet<number>>(new Set());
+  const defaultMode = useContext(DiffModeDefault);
+  const [chosen, setChosen] = useState<DiffMode | null>(null);
+  const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
+    { structural: new Set(), line: new Set() },
+  );
+
+  const structural =
+    file.structural.kind === "structural" ? file.structural : null;
+  const mode = structural === null ? "line" : (chosen ?? defaultMode);
+  const body =
+    structural !== null && mode === "structural"
+      ? structuralBody(structural)
+      : patchBody(file.patch);
+  const shown = shownIn[mode];
 
   return (
     <section className="diff-file">
       <header className="diff-file__header">
         <span className="diff-file__status">{file.status}</span>
         {pathOf(file)}
+        {!file.binary && (
+          <DiffModeSwitch
+            mode={mode}
+            unavailable={
+              file.structural.kind === "unavailable"
+                ? file.structural.reason
+                : null
+            }
+            onChoose={setChosen}
+          />
+        )}
       </header>
       {file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(readPatch(file.patch), sides, shown).map((line, index) =>
+          {drawnLines(body, sides, shown).map((line, index) =>
             line.kind === "gap" ? (
               <button
                 // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
                 key={index}
                 type="button"
                 className="diff-line diff-line--gap"
-                onClick={() => setShown((now) => new Set(now).add(line.gap))}
+                onClick={() =>
+                  setShownIn((all) => ({
+                    ...all,
+                    [mode]: new Set(all[mode]).add(line.gap),
+                  }))
+                }
               >
                 <span className="diff-line__gutter">⋯</span>
                 <span>
@@ -170,6 +200,44 @@ function FileRow({
         </div>
       )}
     </section>
+  );
+}
+
+const DIFF_MODES: { value: DiffMode; caption: string }[] = [
+  { value: "structural", caption: "structural" },
+  { value: "line", caption: "lines" },
+];
+
+/** Which view one file is drawn in. The structural button is off, with the
+ *  reason as its title, when difftastic has nothing for the file. */
+function DiffModeSwitch({
+  mode,
+  unavailable,
+  onChoose,
+}: {
+  mode: DiffMode;
+  unavailable: string | null;
+  onChoose: (mode: DiffMode) => void;
+}) {
+  return (
+    <fieldset className="diff-file__modes" aria-label="Diff view">
+      {DIFF_MODES.map(({ value, caption }) => {
+        const off = value === "structural" && unavailable !== null;
+        return (
+          <button
+            key={value}
+            type="button"
+            className="diff-file__mode"
+            aria-pressed={mode === value}
+            disabled={off}
+            title={off ? `No structural diff: ${unavailable}` : undefined}
+            onClick={() => onChoose(value)}
+          >
+            {caption}
+          </button>
+        );
+      })}
+    </fieldset>
   );
 }
 
@@ -334,8 +402,47 @@ type DrawnLine =
       afterLine: number | null;
     };
 
+/** What a file's lines are drawn from: hunks, and each hunk's changed
+ *  ranges by line index. */
+interface Body {
+  patch: Patch;
+  changed: Map<number, Range[]>[];
+}
+
+function patchBody(text: string): Body {
+  const patch = readPatch(text);
+  return {
+    patch,
+    changed: patch.hunks.map((hunk) => changedLines(hunk.lines)),
+  };
+}
+
+/** Difftastic's hunks, with a note in place of them when it found the
+ *  change was only layout. */
+function structuralBody(
+  diff: Extract<StructuralDiff, { kind: "structural" }>,
+): Body {
+  return {
+    patch: {
+      header:
+        diff.hunks.length === 0
+          ? ["No syntactic change. The line view shows the layout edits."]
+          : [],
+      hunks: diff.hunks,
+    },
+    changed: diff.hunks.map(
+      (hunk) =>
+        new Map(
+          hunk.lines.flatMap((line, index) =>
+            line.kind === "context" ? [] : [[index, line.changes]],
+          ),
+        ),
+    ),
+  };
+}
+
 function drawnLines(
-  patch: Patch,
+  { patch, changed: changedIn }: Body,
   sides: FileSides,
   shown: ReadonlySet<number>,
 ): DrawnLine[] {
@@ -359,7 +466,7 @@ function drawnLines(
   return [
     ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
     ...patch.hunks.flatMap((hunk, index) => {
-      const changed = changedLines(hunk.lines);
+      const changed = changedIn[index] ?? new Map<number, Range[]>();
       return [
         ...hidden(index),
         ...(shown.has(index)

@@ -327,6 +327,10 @@
     border-radius: var(--radius);
   }
 
+  .settings__section + .settings__section {
+    margin-top: var(--space-5);
+  }
+
   .settings__section legend {
     padding: 0 var(--space-3);
     color: var(--text-muted);
@@ -1033,9 +1037,43 @@
   }
 
   .diff-file__header {
+    display: flex;
+    align-items: baseline;
     padding: var(--space-2) var(--space-4);
     font-weight: bold;
     background: var(--surface-raised);
+  }
+
+  .diff-file__modes {
+    display: flex;
+    margin: 0 0 0 auto;
+    padding: 0;
+    border: none;
+    font-weight: normal;
+  }
+
+  .diff-file__mode {
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .diff-file__mode + .diff-file__mode {
+    border-left: none;
+  }
+
+  .diff-file__mode[aria-pressed="true"] {
+    background: var(--surface-sunken);
+    color: inherit;
+  }
+
+  .diff-file__mode:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 
   .diff-file__status {

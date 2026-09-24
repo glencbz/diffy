@@ -172,6 +172,31 @@ thread whose `commitId` matches neither side of the row says it is stale in
 place, because the line number next to it may no longer be the line the
 comment was written about.
 
+A file is drawn one of two ways. The structural view draws the hunks
+[difftastic](../backend/difft.md) read out of the change, which ignore a
+reformat and mark the tokens that changed rather than the words. The line
+view draws the `git` patch. Both arrive with every file, so switching costs
+no request. Each file has its own switch in its header. Until the reader
+uses it, a file starts in the [default from Settings](settings.md#display),
+read from context. The switch is `useState` in the file's row, like its
+hidden lines, so it lasts as long as the file is on screen.
+
+The two views are the same drawing over different hunks. Difftastic's hunks
+come in the shape a patch reads into, numbered the same way, so the gutter,
+the composer, and hidden lines treat them exactly as they treat a patch's.
+The only difference is where the changed ranges come from: difftastic names
+them, and a patch's are [worked out here](#changed-words). A file difftastic
+has nothing for, such as an added file or one too large to parse, is drawn
+from its patch, and its switch says why the structural view is off.
+
+Comments do not depend on the view. A comment is pinned to a line of the
+after side, and both views number the after side's lines the same way, so a
+comment left in one view names the same line in the other, and its thread
+sits under the file in both. A line difftastic calls unchanged, such as one
+a reformat moved, is context in the structural view, still numbered and
+still commentable. Which lines are shown differs between the two views,
+so gaps opened in one view are kept apart from gaps opened in the other.
+
 All of that hangs off one optional `DiffReview` rather than four optional
 props, which could not be supplied half-filled. A diff either carries review
 memory or it does not, and a diff without it offers no commentable line, so a
@@ -180,9 +205,10 @@ read-only diff cannot advertise an affordance that records nothing.
 ```tsx
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
-import { useState } from "react";
-import type { FileDiff, SourceFile, SyntaxToken } from "../api";
+import { useContext, useState } from "react";
+import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
+import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
@@ -291,26 +317,55 @@ function FileRow({
   sides: FileSides;
   review?: FileReview;
 }) {
-  const [shown, setShown] = useState<ReadonlySet<number>>(new Set());
+  const defaultMode = useContext(DiffModeDefault);
+  const [chosen, setChosen] = useState<DiffMode | null>(null);
+  const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
+    { structural: new Set(), line: new Set() },
+  );
+
+  const structural =
+    file.structural.kind === "structural" ? file.structural : null;
+  const mode = structural === null ? "line" : (chosen ?? defaultMode);
+  const body =
+    structural !== null && mode === "structural"
+      ? structuralBody(structural)
+      : patchBody(file.patch);
+  const shown = shownIn[mode];
 
   return (
     <section className="diff-file">
       <header className="diff-file__header">
         <span className="diff-file__status">{file.status}</span>
         {pathOf(file)}
+        {!file.binary && (
+          <DiffModeSwitch
+            mode={mode}
+            unavailable={
+              file.structural.kind === "unavailable"
+                ? file.structural.reason
+                : null
+            }
+            onChoose={setChosen}
+          />
+        )}
       </header>
       {file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(readPatch(file.patch), sides, shown).map((line, index) =>
+          {drawnLines(body, sides, shown).map((line, index) =>
             line.kind === "gap" ? (
               <button
                 // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
                 key={index}
                 type="button"
                 className="diff-line diff-line--gap"
-                onClick={() => setShown((now) => new Set(now).add(line.gap))}
+                onClick={() =>
+                  setShownIn((all) => ({
+                    ...all,
+                    [mode]: new Set(all[mode]).add(line.gap),
+                  }))
+                }
               >
                 <span className="diff-line__gutter">⋯</span>
                 <span>
@@ -351,6 +406,44 @@ function FileRow({
         </div>
       )}
     </section>
+  );
+}
+
+const DIFF_MODES: { value: DiffMode; caption: string }[] = [
+  { value: "structural", caption: "structural" },
+  { value: "line", caption: "lines" },
+];
+
+/** Which view one file is drawn in. The structural button is off, with the
+ *  reason as its title, when difftastic has nothing for the file. */
+function DiffModeSwitch({
+  mode,
+  unavailable,
+  onChoose,
+}: {
+  mode: DiffMode;
+  unavailable: string | null;
+  onChoose: (mode: DiffMode) => void;
+}) {
+  return (
+    <fieldset className="diff-file__modes" aria-label="Diff view">
+      {DIFF_MODES.map(({ value, caption }) => {
+        const off = value === "structural" && unavailable !== null;
+        return (
+          <button
+            key={value}
+            type="button"
+            className="diff-file__mode"
+            aria-pressed={mode === value}
+            disabled={off}
+            title={off ? `No structural diff: ${unavailable}` : undefined}
+            onClick={() => onChoose(value)}
+          >
+            {caption}
+          </button>
+        );
+      })}
+    </fieldset>
   );
 }
 
@@ -515,8 +608,47 @@ type DrawnLine =
       afterLine: number | null;
     };
 
+/** What a file's lines are drawn from: hunks, and each hunk's changed
+ *  ranges by line index. */
+interface Body {
+  patch: Patch;
+  changed: Map<number, Range[]>[];
+}
+
+function patchBody(text: string): Body {
+  const patch = readPatch(text);
+  return {
+    patch,
+    changed: patch.hunks.map((hunk) => changedLines(hunk.lines)),
+  };
+}
+
+/** Difftastic's hunks, with a note in place of them when it found the
+ *  change was only layout. */
+function structuralBody(
+  diff: Extract<StructuralDiff, { kind: "structural" }>,
+): Body {
+  return {
+    patch: {
+      header:
+        diff.hunks.length === 0
+          ? ["No syntactic change. The line view shows the layout edits."]
+          : [],
+      hunks: diff.hunks,
+    },
+    changed: diff.hunks.map(
+      (hunk) =>
+        new Map(
+          hunk.lines.flatMap((line, index) =>
+            line.kind === "context" ? [] : [[index, line.changes]],
+          ),
+        ),
+    ),
+  };
+}
+
 function drawnLines(
-  patch: Patch,
+  { patch, changed: changedIn }: Body,
   sides: FileSides,
   shown: ReadonlySet<number>,
 ): DrawnLine[] {
@@ -540,7 +672,7 @@ function drawnLines(
   return [
     ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
     ...patch.hunks.flatMap((hunk, index) => {
-      const changed = changedLines(hunk.lines);
+      const changed = changedIn[index] ?? new Map<number, Range[]>();
       return [
         ...hidden(index),
         ...(shown.has(index)
@@ -625,9 +757,43 @@ tint of the same colour.
   }
 
   .diff-file__header {
+    display: flex;
+    align-items: baseline;
     padding: var(--space-2) var(--space-4);
     font-weight: bold;
     background: var(--surface-raised);
+  }
+
+  .diff-file__modes {
+    display: flex;
+    margin: 0 0 0 auto;
+    padding: 0;
+    border: none;
+    font-weight: normal;
+  }
+
+  .diff-file__mode {
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .diff-file__mode + .diff-file__mode {
+    border-left: none;
+  }
+
+  .diff-file__mode[aria-pressed="true"] {
+    background: var(--surface-sunken);
+    color: inherit;
+  }
+
+  .diff-file__mode:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 
   .diff-file__status {
@@ -758,10 +924,14 @@ has then reaches the rest.
 
 `readPatch` turns one file's patch into the lines above its first hunk and
 the hunks themselves. Each hunk line carries the line number it has on each
-side where it has one, counted from its `@@ -a,b +c,d @@` header. A context
-line is on both sides, a removed line only on the before side, and an added
-line only on the after side. The union says so, which leaves no line whose
-missing number a reader has to guess the meaning of.
+side the view reads it from, counted from its `@@ -a,b +c,d @@` header. A
+removed line is read from the before side and every other line from the
+after side, so a removed line carries its before-side number and the rest
+their after-side one. The union says so, which leaves no line whose missing
+number a reader has to guess the meaning of. A context line is on both sides
+of a patch, but its before-side number is left off, because nothing draws
+it, and a [structural diff](../backend/difft.md#from-chunks-to-hunks) has
+context lines that have no before side at all.
 
 git's `\ No newline at end of file` is a note about the line above it rather
 than a line of the file, so it is a kind of its own, with no numbers and no
@@ -791,7 +961,7 @@ export interface Hunk {
 /** A line inside a hunk. `code` is the line without its `+`, `-`, or space,
  *  and line numbers count from 1, as each side's file has them. */
 export type HunkLine =
-  | { kind: "context"; code: string; oldLine: number; newLine: number }
+  | { kind: "context"; code: string; newLine: number }
   | { kind: "removed"; code: string; oldLine: number }
   | { kind: "added"; code: string; newLine: number }
   | { kind: "note"; text: string };
@@ -836,12 +1006,8 @@ export function readPatch(patch: string): Patch {
     } else if (text.startsWith("\\")) {
       hunk.lines.push({ kind: "note", text });
     } else {
-      hunk.lines.push({
-        kind: "context",
-        code,
-        oldLine: oldLine++,
-        newLine: newLine++,
-      });
+      oldLine++;
+      hunk.lines.push({ kind: "context", code, newLine: newLine++ });
     }
   }
 
@@ -883,10 +1049,10 @@ describe("readPatch", () => {
         header: "@@ -10,3 +10,3 @@ function f() {",
         newStart: 10,
         lines: [
-          { kind: "context", code: "keep", oldLine: 10, newLine: 10 },
+          { kind: "context", code: "keep", newLine: 10 },
           { kind: "removed", code: "old", oldLine: 11 },
           { kind: "added", code: "new", newLine: 11 },
-          { kind: "context", code: "keep", oldLine: 12, newLine: 12 },
+          { kind: "context", code: "keep", newLine: 12 },
         ],
       },
     ]);
@@ -925,7 +1091,7 @@ describe("readPatch", () => {
       { kind: "removed", code: "a", oldLine: 1 },
       { kind: "note", text: "\\ No newline at end of file" },
       { kind: "added", code: "a", newLine: 1 },
-      { kind: "context", code: "b", oldLine: 2, newLine: 2 },
+      { kind: "context", code: "b", newLine: 2 },
     ]);
   });
 
@@ -1267,7 +1433,7 @@ describe("changedLines", () => {
   test("pairs removed lines with the added run after them, in order", () => {
     // arrange
     const lines: HunkLine[] = [
-      { kind: "context", code: "keep", oldLine: 1, newLine: 1 },
+      { kind: "context", code: "keep", newLine: 1 },
       { kind: "removed", code: "let a = 1;", oldLine: 2 },
       { kind: "removed", code: "let b = 2;", oldLine: 3 },
       { kind: "added", code: "let a = 10;", newLine: 2 },
@@ -1289,7 +1455,7 @@ describe("changedLines", () => {
     // arrange
     const lines: HunkLine[] = [
       { kind: "removed", code: "let a = 1;", oldLine: 1 },
-      { kind: "context", code: "keep", oldLine: 2, newLine: 1 },
+      { kind: "context", code: "keep", newLine: 1 },
       { kind: "added", code: "let a = 2;", newLine: 2 },
     ];
 
