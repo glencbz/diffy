@@ -116,20 +116,23 @@ export function DiffPane({
 
 ## Diff view
 
-Renders each file's verbatim `git`-format patch. The one thing it adds is
-color. `+` lines green, `-` lines red, `@@` hunk headers blue, file headers
-grey. A binary file gets a placeholder in place of a patch body. The caller
-always hands it a real `files` array. The controller deals with anything that
-is not a rendered diff.
+Renders each file's `git`-format patch. The one thing it adds is colour:
+`+` lines green, `-` lines red, `@@` hunk headers blue, file headers grey. A
+binary file gets a placeholder in place of a patch body. The caller always
+hands it a real `files` array. The controller deals with anything that is not
+a rendered diff.
+
+The patch is not drawn as text. [`readPatch`](#reading-a-patch) reads it into
+a header and hunks first, and every drawn line comes from a hunk line that
+already knows its kind and its line numbers.
 
 A left gutter adds the after-side line number to each rendered line, because
 that is what a comment's `line` field means: the line as it reads in the
-version being approved, not an offset into the raw patch text. `gutterLines`
-walks the patch once and carries a running counter, seeded by each `@@
--a,b +c,d @@` header's `c`. `diff --git`, `index `, `---`, `+++`, and hunk
-header lines never had an after-side line, and a `-` line was removed, so it
-has none either. Both show a blank gutter and are not clickable, because there
-is nothing on that line in the version a comment would be anchored to.
+version being approved, not an offset into the raw patch text. Header lines,
+hunk headers, and git's `\ No newline at end of file` note never had an
+after-side line, and a `-` line was removed, so it has none either. They show
+a blank gutter and are not clickable, because there is nothing on that line in
+the version a comment would be anchored to.
 
 Clicking a commentable line opens a composer for it, a plain `<form>` with one
 `useState<{path, line} | null>` for which line's composer is open, closed again
@@ -152,6 +155,7 @@ read-only diff cannot advertise an affordance that records nothing.
 import { useState } from "react";
 import type { FileDiff } from "../api";
 import type { RowComment } from "../state/review";
+import { type HunkLine, type Patch, readPatch } from "./patch";
 
 /** Review memory for the files on screen. A diff that has one lets every
  * after-side line be commented on; a diff that has none renders read-only. */
@@ -230,12 +234,11 @@ function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {gutterLines(file.patch).map(({ text, afterLine }, index) => (
+          {drawnLines(readPatch(file.patch)).map((line, index) => (
             <PatchLine
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
               key={index}
-              text={text}
-              afterLine={afterLine}
+              line={line}
               onOpenComposer={review?.onOpenComposer}
             />
           ))}
@@ -347,15 +350,13 @@ function CommentThread({
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
  *  line static. */
 function PatchLine({
-  text,
-  afterLine,
+  line,
   onOpenComposer,
 }: {
-  text: string;
-  afterLine: number | null;
+  line: DrawnLine;
   onOpenComposer?: (line: number) => void;
 }) {
-  const kind = lineKind(text);
+  const { text, kind, afterLine } = line;
   const body = (
     <>
       <span className="diff-line__gutter">{afterLine ?? ""}</span>
@@ -386,49 +387,37 @@ function pathOf(file: FileDiff): string {
 
 type DiffLineKind = "meta" | "hunk" | "added" | "removed";
 
-function lineKind(line: string): DiffLineKind | null {
-  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "meta";
-  if (line.startsWith("diff --git ") || line.startsWith("index "))
-    return "meta";
-  if (line.startsWith("@@")) return "hunk";
-  if (line.startsWith("+")) return "added";
-  if (line.startsWith("-")) return "removed";
-  return null;
-}
-
-interface GutterLine {
+/** One line as drawn: its text, its colour, and its after-side line number,
+ *  or null where it has none. */
+interface DrawnLine {
   text: string;
+  kind: DiffLineKind | null;
   afterLine: number | null;
 }
 
-/** After-side line number per rendered patch line, or null where none applies. */
-function gutterLines(patch: string): GutterLine[] {
-  let afterLine: number | null = null;
+function drawnLines(patch: Patch): DrawnLine[] {
+  return [
+    ...patch.header.map(
+      (text): DrawnLine => ({ text, kind: "meta", afterLine: null }),
+    ),
+    ...patch.hunks.flatMap((hunk) => [
+      { text: hunk.header, kind: "hunk" as const, afterLine: null },
+      ...hunk.lines.map(drawnHunkLine),
+    ]),
+  ];
+}
 
-  return patch.split("\n").map((text) => {
-    if (
-      text === "" ||
-      text.startsWith("diff --git ") ||
-      text.startsWith("index ") ||
-      text.startsWith("--- ") ||
-      text.startsWith("+++ ")
-    ) {
-      return { text, afterLine: null };
-    }
-
-    const hunk = text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk !== null) {
-      afterLine = Number(hunk[1]);
-      return { text, afterLine: null };
-    }
-
-    if (text.startsWith("-")) return { text, afterLine: null };
-
-    if (afterLine === null) return { text, afterLine: null };
-    const line = afterLine;
-    afterLine += 1;
-    return { text, afterLine: line };
-  });
+function drawnHunkLine(line: HunkLine): DrawnLine {
+  switch (line.kind) {
+    case "context":
+      return { text: ` ${line.code}`, kind: null, afterLine: line.newLine };
+    case "added":
+      return { text: `+${line.code}`, kind: "added", afterLine: line.newLine };
+    case "removed":
+      return { text: `-${line.code}`, kind: "removed", afterLine: null };
+    case "note":
+      return { text: line.text, kind: "meta", afterLine: null };
+  }
 }
 ```
 
@@ -556,6 +545,188 @@ has then reaches the rest.
     }
   }
 }
+```
+
+## Reading a patch
+
+`readPatch` turns one file's patch into the lines above its first hunk and
+the hunks themselves. Each hunk line carries the line number it has on each
+side where it has one, counted from its `@@ -a,b +c,d @@` header. A context
+line is on both sides, a removed line only on the before side, and an added
+line only on the after side. The union says so, which leaves no line whose
+missing number a reader has to guess the meaning of.
+
+git's `\ No newline at end of file` is a note about the line above it rather
+than a line of the file, so it is a kind of its own, with no numbers and no
+prefix to strip. The patch's trailing newline would otherwise read as one more
+empty line at the bottom of the last hunk, so it is dropped before reading.
+
+```ts
+//| id: frontend-view-patch
+//| file: src/frontend/views/patch.ts
+/** A file's patch read into the hunks it is made of. */
+export interface Patch {
+  /** Everything above the first hunk: `diff --git`, `index`, `---`, `+++`,
+   *  and any mode or rename lines. */
+  header: string[];
+  hunks: Hunk[];
+}
+
+export interface Hunk {
+  /** The `@@ -a,b +c,d @@` line, with whatever context git printed after it. */
+  header: string;
+  lines: HunkLine[];
+}
+
+/** A line inside a hunk. `code` is the line without its `+`, `-`, or space,
+ *  and line numbers count from 1, as each side's file has them. */
+export type HunkLine =
+  | { kind: "context"; code: string; oldLine: number; newLine: number }
+  | { kind: "removed"; code: string; oldLine: number }
+  | { kind: "added"; code: string; newLine: number }
+  | { kind: "note"; text: string };
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+export function readPatch(patch: string): Patch {
+  const header: string[] = [];
+  const hunks: Hunk[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+
+  const lines = patch.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+
+  for (const text of lines) {
+    const start = text.match(HUNK_HEADER);
+    if (start !== null) {
+      oldLine = Number(start[1]);
+      newLine = Number(start[2]);
+      hunks.push({ header: text, lines: [] });
+      continue;
+    }
+
+    const hunk = hunks.at(-1);
+    if (hunk === undefined) {
+      header.push(text);
+      continue;
+    }
+
+    const code = text.slice(1);
+    if (text.startsWith("+")) {
+      hunk.lines.push({ kind: "added", code, newLine: newLine++ });
+    } else if (text.startsWith("-")) {
+      hunk.lines.push({ kind: "removed", code, oldLine: oldLine++ });
+    } else if (text.startsWith("\\")) {
+      hunk.lines.push({ kind: "note", text });
+    } else {
+      hunk.lines.push({
+        kind: "context",
+        code,
+        oldLine: oldLine++,
+        newLine: newLine++,
+      });
+    }
+  }
+
+  return { header, hunks };
+}
+```
+
+### Test
+
+```ts
+//| id: frontend-view-patch-test
+//| file: src/frontend/views/patch.test.ts
+import { describe, expect, test } from "bun:test";
+import { readPatch } from "./patch";
+
+describe("readPatch", () => {
+  test("numbers each line on the sides it is on", () => {
+    // arrange
+    const patch = [
+      "diff --git a/f.ts b/f.ts",
+      "index 1111111..2222222 100644",
+      "--- a/f.ts",
+      "+++ b/f.ts",
+      "@@ -10,3 +10,3 @@ function f() {",
+      " keep",
+      "-old",
+      "+new",
+      " keep",
+      "",
+    ].join("\n");
+
+    // act
+    const { header, hunks } = readPatch(patch);
+
+    // assert
+    expect(header).toHaveLength(4);
+    expect(hunks).toEqual([
+      {
+        header: "@@ -10,3 +10,3 @@ function f() {",
+        lines: [
+          { kind: "context", code: "keep", oldLine: 10, newLine: 10 },
+          { kind: "removed", code: "old", oldLine: 11 },
+          { kind: "added", code: "new", newLine: 11 },
+          { kind: "context", code: "keep", oldLine: 12, newLine: 12 },
+        ],
+      },
+    ]);
+  });
+
+  test("restarts the count at every hunk header", () => {
+    // arrange
+    const patch = ["@@ -1 +1 @@", "-a", "+b", "@@ -40,0 +41 @@", "+c"].join(
+      "\n",
+    );
+
+    // act
+    const { hunks } = readPatch(patch);
+
+    // assert
+    expect(hunks[1]?.lines).toEqual([
+      { kind: "added", code: "c", newLine: 41 },
+    ]);
+  });
+
+  test("gives a missing-newline note no line of its own", () => {
+    // arrange
+    const patch = [
+      "@@ -1 +1 @@",
+      "-a",
+      "\\ No newline at end of file",
+      "+a",
+      " b",
+    ].join("\n");
+
+    // act
+    const lines = readPatch(patch).hunks[0]?.lines;
+
+    // assert
+    expect(lines).toEqual([
+      { kind: "removed", code: "a", oldLine: 1 },
+      { kind: "note", text: "\\ No newline at end of file" },
+      { kind: "added", code: "a", newLine: 1 },
+      { kind: "context", code: "b", oldLine: 2, newLine: 2 },
+    ]);
+  });
+
+  test("reads a patch with no hunks as all header", () => {
+    // arrange
+    const patch = "diff --git a/b.bin b/b.bin\nBinary files differ\n";
+
+    // act
+    const { header, hunks } = readPatch(patch);
+
+    // assert
+    expect(header).toEqual([
+      "diff --git a/b.bin b/b.bin",
+      "Binary files differ",
+    ]);
+    expect(hunks).toEqual([]);
+  });
+});
 ```
 
 ## Interdiff rows

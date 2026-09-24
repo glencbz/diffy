@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { FileDiff } from "../api";
 import type { RowComment } from "../state/review";
+import { type HunkLine, type Patch, readPatch } from "./patch";
 
 /** Review memory for the files on screen. A diff that has one lets every
  * after-side line be commented on; a diff that has none renders read-only. */
@@ -80,12 +81,11 @@ function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {gutterLines(file.patch).map(({ text, afterLine }, index) => (
+          {drawnLines(readPatch(file.patch)).map((line, index) => (
             <PatchLine
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
               key={index}
-              text={text}
-              afterLine={afterLine}
+              line={line}
               onOpenComposer={review?.onOpenComposer}
             />
           ))}
@@ -197,15 +197,13 @@ function CommentThread({
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
  *  line static. */
 function PatchLine({
-  text,
-  afterLine,
+  line,
   onOpenComposer,
 }: {
-  text: string;
-  afterLine: number | null;
+  line: DrawnLine;
   onOpenComposer?: (line: number) => void;
 }) {
-  const kind = lineKind(text);
+  const { text, kind, afterLine } = line;
   const body = (
     <>
       <span className="diff-line__gutter">{afterLine ?? ""}</span>
@@ -236,48 +234,36 @@ function pathOf(file: FileDiff): string {
 
 type DiffLineKind = "meta" | "hunk" | "added" | "removed";
 
-function lineKind(line: string): DiffLineKind | null {
-  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "meta";
-  if (line.startsWith("diff --git ") || line.startsWith("index "))
-    return "meta";
-  if (line.startsWith("@@")) return "hunk";
-  if (line.startsWith("+")) return "added";
-  if (line.startsWith("-")) return "removed";
-  return null;
-}
-
-interface GutterLine {
+/** One line as drawn: its text, its colour, and its after-side line number,
+ *  or null where it has none. */
+interface DrawnLine {
   text: string;
+  kind: DiffLineKind | null;
   afterLine: number | null;
 }
 
-/** After-side line number per rendered patch line, or null where none applies. */
-function gutterLines(patch: string): GutterLine[] {
-  let afterLine: number | null = null;
+function drawnLines(patch: Patch): DrawnLine[] {
+  return [
+    ...patch.header.map(
+      (text): DrawnLine => ({ text, kind: "meta", afterLine: null }),
+    ),
+    ...patch.hunks.flatMap((hunk) => [
+      { text: hunk.header, kind: "hunk" as const, afterLine: null },
+      ...hunk.lines.map(drawnHunkLine),
+    ]),
+  ];
+}
 
-  return patch.split("\n").map((text) => {
-    if (
-      text === "" ||
-      text.startsWith("diff --git ") ||
-      text.startsWith("index ") ||
-      text.startsWith("--- ") ||
-      text.startsWith("+++ ")
-    ) {
-      return { text, afterLine: null };
-    }
-
-    const hunk = text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk !== null) {
-      afterLine = Number(hunk[1]);
-      return { text, afterLine: null };
-    }
-
-    if (text.startsWith("-")) return { text, afterLine: null };
-
-    if (afterLine === null) return { text, afterLine: null };
-    const line = afterLine;
-    afterLine += 1;
-    return { text, afterLine: line };
-  });
+function drawnHunkLine(line: HunkLine): DrawnLine {
+  switch (line.kind) {
+    case "context":
+      return { text: ` ${line.code}`, kind: null, afterLine: line.newLine };
+    case "added":
+      return { text: `+${line.code}`, kind: "added", afterLine: line.newLine };
+    case "removed":
+      return { text: `-${line.code}`, kind: "removed", afterLine: null };
+    case "note":
+      return { text: line.text, kind: "meta", afterLine: null };
+  }
 }
 // ~/~ end
