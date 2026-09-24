@@ -168,6 +168,9 @@ named sizes instead of a typed-in number.
 The column widths are metrics rather than numbers buried in a layout
 component, and that is what makes the breakpoints below a two-line change.
 
+`--text-size` is 12 pixels, the size GitHub.com draws diff code at. A reader
+can move it from [Settings](settings.md#display).
+
 ```css
 /*| id: design-metrics
 @layer metrics {
@@ -181,7 +184,7 @@ component, and that is what makes the breakpoints below a two-line change.
     --space-7: 24px;
 
     --font-mono: ui-monospace, monospace;
-    --text-size: 13px;
+    --text-size: 12px;
     --text-size-small: 11px;
     --text-line-height: 1.4;
 

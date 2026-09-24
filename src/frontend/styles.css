@@ -4,6 +4,7 @@
   roles-dark,
   metrics,
   metrics-narrow,
+  settings,
   components,
   components-narrow;
 
@@ -207,7 +208,7 @@
     --space-7: 24px;
 
     --font-mono: ui-monospace, monospace;
-    --text-size: 13px;
+    --text-size: 12px;
     --text-size-small: 11px;
     --text-line-height: 1.4;
 
@@ -250,6 +251,25 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/settings.md#design-text-size>>[init] */
+@layer settings {
+  :root[data-text-size="small"] {
+    --text-size: 11px;
+    --text-size-small: 10px;
+  }
+
+  :root[data-text-size="large"] {
+    --text-size: 14px;
+    --text-size-small: 12px;
+  }
+
+  :root[data-text-size="larger"] {
+    --text-size: 16px;
+    --text-size-small: 14px;
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-app>>[init] */
 @layer components {
   body {
@@ -268,19 +288,54 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/settings.md#design-settings>>[init] */
+@layer components {
+  .settings {
+    padding: var(--space-6);
+  }
+
+  .settings__section {
+    margin: 0;
+    padding: var(--space-5);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .settings__section legend {
+    padding: 0 var(--space-3);
+    color: var(--text-muted);
+  }
+
+  .settings__option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-3);
+    cursor: pointer;
+  }
+
+  .settings__option + .settings__option {
+    border-top: 1px solid var(--border-subtle);
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-mode-tabs>>[init] */
 @layer components {
   .tabs {
     display: flex;
     flex: none;
+    overflow-x: auto;
     background: var(--surface-raised);
     border-bottom: 1px solid var(--border);
   }
 
   .tab {
+    flex: none;
     padding: var(--space-3) var(--space-6);
     font: inherit;
     color: var(--text);
+    white-space: nowrap;
     cursor: pointer;
     background: transparent;
     border: none;
@@ -295,6 +350,14 @@
     font-weight: bold;
     color: var(--accent);
     border-bottom-color: var(--accent);
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 480px) {
+    .tab {
+      padding-inline: var(--space-4);
+    }
   }
 }
 /* ~/~ end */
@@ -670,6 +733,7 @@
     display: flex;
     align-items: center;
     width: 100%;
+    min-height: calc(40 / 12 * 1em);
     padding: 0 var(--space-4) 0 0;
     border: none;
     white-space: nowrap;
@@ -689,6 +753,8 @@
 
   .commit-graph__gutter {
     flex: none;
+    align-self: stretch;
+    contain: size;
   }
 
   .commit-graph__edge {

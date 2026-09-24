@@ -249,9 +249,11 @@ already points at a parent absorbs the incoming branch instead of doubling up,
 which is how a side branch collapses back into its base.
 
 `layoutGraph` is the whole algorithm, and it is pure, commits in, lanes and
-edges out. The view just turns each row into an `<svg>` gutter, whose height
-is the row's: `ROW_HEIGHT` is the one place a row's height is written, and it
-has to clear the two lines the label stacks beside it. Lane colour is
+edges out. The view turns each row into an `<svg>` gutter as tall as the
+row. A row's height follows its label, and the label grows with
+`--text-size`, so the gutter draws in
+percentages of its height and never in pixels. A fixed-height gutter beside
+a taller label leaves a gap in every lane. Lane colour is
 cycled by index so parallel branches stay distinct, and lane zero stays grey,
 so a linear history looks the same as `jj log`.
 
@@ -277,7 +279,6 @@ control that changes nothing.
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const ROW_HEIGHT = 40;
 const LANE_WIDTH = 24;
 const LANE_CLASS_COUNT = 7;
 
@@ -435,22 +436,16 @@ export function CommitGraph({
 
 function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
   const x = (lane: number) => lane * LANE_WIDTH + LANE_WIDTH / 2;
-  const middle = ROW_HEIGHT / 2;
 
   return (
-    <svg
-      width={width}
-      height={ROW_HEIGHT}
-      className="commit-graph__gutter"
-      aria-hidden="true"
-    >
+    <svg width={width} className="commit-graph__gutter" aria-hidden="true">
       {row.incoming.map((edge) => (
         <line
           key={`in-${edge.from}-${edge.to}`}
           x1={x(edge.from)}
-          y1={0}
+          y1="0"
           x2={x(edge.to)}
-          y2={middle}
+          y2="50%"
           className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
@@ -458,15 +453,15 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
         <line
           key={`out-${edge.from}-${edge.to}`}
           x1={x(edge.from)}
-          y1={middle}
+          y1="50%"
           x2={x(edge.to)}
-          y2={ROW_HEIGHT}
+          y2="100%"
           className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
       <circle
         cx={x(row.lane)}
-        cy={middle}
+        cy="50%"
         r={4}
         className={`commit-graph__node ${laneClass(row.lane)}${
           row.isMerge ? " commit-graph__node--merge" : ""
@@ -485,10 +480,12 @@ draw in `currentColor`, so an edge always agrees with the node it meets.
 The gutter is the one width the stylesheet does not set. It depends on how many
 lanes a history happens to use, and the `<svg>` already carries that number
 in its own `width` attribute, so a rule here would be a second copy of a
-figure the markup has. The row height is the same story in reverse: the
-graphic is drawn against a row height the component computes its geometry
-from, and the row takes its height from the graphic rather than from a
-length declared here that could drift away from the arithmetic.
+figure the markup has. The height is the stylesheet's. The gutter stretches
+to the row, and the row has a floor of forty pixels at the standard text
+size, written in `em` so the floor grows with the text. An `<svg>` with no
+height of its own claims 150 pixels, which would make every row that tall.
+`contain: size` withdraws that claim, so only the label decides how tall a
+row is.
 
 ```css
 /*| id: design-commit-graph
@@ -497,6 +494,7 @@ length declared here that could drift away from the arithmetic.
     display: flex;
     align-items: center;
     width: 100%;
+    min-height: calc(40 / 12 * 1em);
     padding: 0 var(--space-4) 0 0;
     border: none;
     white-space: nowrap;
@@ -516,6 +514,8 @@ length declared here that could drift away from the arithmetic.
 
   .commit-graph__gutter {
     flex: none;
+    align-self: stretch;
+    contain: size;
   }
 
   .commit-graph__edge {

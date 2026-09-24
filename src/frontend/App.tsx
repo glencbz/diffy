@@ -6,8 +6,10 @@ import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { useSession } from "./state/session";
+import { useSettings } from "./state/settings";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { type Pane, ReviewPanes } from "./views/ReviewPanes";
+import { SettingsScreen } from "./views/SettingsScreen";
 
 /** The repository the pull request screen reads. Next up for configuring. */
 const REPO = "glencbz/diffy";
@@ -18,11 +20,12 @@ export function App() {
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
   const session = useSession();
+  const { settings, setTextSize } = useSettings();
 
   return (
     <div className="app">
       <ModeTabs mode={mode} onSelect={setMode} />
-      {mode === "local" ? (
+      {mode === "local" && (
         <ReviewPanes
           before={<SidePicker side={before} />}
           after={<SidePicker side={after} />}
@@ -39,8 +42,10 @@ export function App() {
             after: after.commits.length,
           }}
         />
-      ) : (
-        <PullRequests repo={REPO} />
+      )}
+      {mode === "pulls" && <PullRequests repo={REPO} />}
+      {mode === "settings" && (
+        <SettingsScreen settings={settings} onSetTextSize={setTextSize} />
       )}
     </div>
   );
