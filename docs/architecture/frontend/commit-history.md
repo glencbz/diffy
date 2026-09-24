@@ -494,7 +494,7 @@ row is.
     display: flex;
     align-items: center;
     width: 100%;
-    min-height: calc(40 / 13 * 1em);
+    min-height: calc(40 / 12 * 1em);
     padding: 0 var(--space-4) 0 0;
     border: none;
     white-space: nowrap;

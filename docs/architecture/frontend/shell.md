@@ -70,6 +70,10 @@ mean threading it through `CommitLog` and `CommitGraph` too, for a graph that
 shows nothing about review state and has no requested feature that would use
 it.
 
+`App` also calls [`useSettings`](settings.md#display), because a text size
+governs the whole window. Calling it inside `SettingsScreen` would apply the
+reader's size only while that screen is open.
+
 ```tsx
 //| id: frontend-app
 //| file: src/frontend/App.tsx
@@ -80,8 +84,10 @@ import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { useSession } from "./state/session";
+import { useSettings } from "./state/settings";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { type Pane, ReviewPanes } from "./views/ReviewPanes";
+import { SettingsScreen } from "./views/SettingsScreen";
 
 /** The repository the pull request screen reads. Next up for configuring. */
 const REPO = "glencbz/diffy";
@@ -92,11 +98,12 @@ export function App() {
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
   const session = useSession();
+  const { settings, setTextSize } = useSettings();
 
   return (
     <div className="app">
       <ModeTabs mode={mode} onSelect={setMode} />
-      {mode === "local" ? (
+      {mode === "local" && (
         <ReviewPanes
           before={<SidePicker side={before} />}
           after={<SidePicker side={after} />}
@@ -113,8 +120,10 @@ export function App() {
             after: after.commits.length,
           }}
         />
-      ) : (
-        <PullRequests repo={REPO} />
+      )}
+      {mode === "pulls" && <PullRequests repo={REPO} />}
+      {mode === "settings" && (
+        <SettingsScreen settings={settings} onSetTextSize={setTextSize} />
       )}
     </div>
   );
@@ -204,11 +213,12 @@ make is which history is being read, and that governs the whole window.
 ```tsx
 //| id: frontend-view-mode-tabs
 //| file: src/frontend/views/ModeTabs.tsx
-export type Mode = "local" | "pulls";
+export type Mode = "local" | "pulls" | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
   local: "Local history",
   pulls: "Pull requests",
+  settings: "Settings",
 };
 
 export function ModeTabs({
@@ -240,20 +250,27 @@ The strip takes its own height and no more, so the screen under it gets
 everything left over however tall the window is. A tab is a button dressed as
 a tab rather than a link, because choosing a screen changes no address.
 
+On a phone the tabs' side padding halves, which keeps all three on a
+390-pixel screen at every text size. A narrower screen scrolls the strip
+sideways, and no tab shrinks or wraps its caption.
+
 ```css
 /*| id: design-mode-tabs
 @layer components {
   .tabs {
     display: flex;
     flex: none;
+    overflow-x: auto;
     background: var(--surface-raised);
     border-bottom: 1px solid var(--border);
   }
 
   .tab {
+    flex: none;
     padding: var(--space-3) var(--space-6);
     font: inherit;
     color: var(--text);
+    white-space: nowrap;
     cursor: pointer;
     background: transparent;
     border: none;
@@ -268,6 +285,14 @@ a tab rather than a link, because choosing a screen changes no address.
     font-weight: bold;
     color: var(--accent);
     border-bottom-color: var(--accent);
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 480px) {
+    .tab {
+      padding-inline: var(--space-4);
+    }
   }
 }
 ```

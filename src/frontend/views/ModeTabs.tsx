@@ -1,9 +1,10 @@
 // ~/~ begin <<docs/architecture/frontend/shell.md#frontend-view-mode-tabs>>[init]
-export type Mode = "local" | "pulls";
+export type Mode = "local" | "pulls" | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
   local: "Local history",
   pulls: "Pull requests",
+  settings: "Settings",
 };
 
 export function ModeTabs({

@@ -209,6 +209,10 @@ the meaning move independently. Retheming the app is an edit to this layer.
 the widths of the columns. A breakpoint that only rebinds
 `--pane-picker-width` cannot accidentally change a colour.
 
+**Settings** rebinds metrics to the values a reader
+[chose](settings.md#display). It sits above `metrics-narrow`, so a reader's
+choice wins over a breakpoint's default.
+
 **Components** are the classes the views use. They name roles and metrics and
 never a primitive, so a component rule contains no literal a reviewer has to
 decode.
@@ -250,6 +254,7 @@ reference here, anywhere.
   roles-dark,
   metrics,
   metrics-narrow,
+  settings,
   components,
   components-narrow;
 
@@ -263,7 +268,11 @@ reference here, anywhere.
 
 <<design-responsive-metrics>>
 
+<<design-text-size>>
+
 <<design-app>>
+
+<<design-settings>>
 
 <<design-mode-tabs>>
 
