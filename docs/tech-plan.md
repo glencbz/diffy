@@ -20,6 +20,45 @@ operation it is looking at, so a commit can be compared against its own
 earlier self. Lining up two series is its own problem and has its own module,
 [architecture/backend/series.md](architecture/backend/series.md).
 
+### Planned improvements
+
+These are review features GitHub and GitLab both have that diffy lacks.
+
+#### Essential
+
+* [ ] Collapse a file's diff, and start large, generated, and lock files
+  collapsed.
+* [ ] Comment on a removed line. Only lines on the after side take a comment
+  today.
+* [ ] Keep the pull request, head, commit, file, and line in the URL, so a
+  link can be shared and a reload keeps the place.
+* [ ] Show a file tree beside the diff to jump to a file, with each file's
+  added and removed line counts and a filter by path.
+
+#### Good to have
+
+* [ ] Show a summary of files changed and lines added and removed for a
+  commit and for a pull request.
+* [ ] Show a side-by-side diff as well as the unified one.
+* [ ] Mark a single file as viewed, fold it when it is marked, and count the
+  files viewed so far.
+* [ ] Show images before and after, and render Markdown and SVG, instead of
+  "Binary file, no textual diff."
+* [ ] Comment on a whole file or on the whole comparison, not only on a
+  line.
+* [ ] Remember the head a reader last reviewed, and open a pull request on
+  the changes since that head.
+
+#### Publishing to GitHub
+
+A future extension, because GitHub is a metadata oracle today and nothing
+written in diffy leaves the browser.
+
+* [ ] Post comments to the pull request, and show the comments already on
+  it.
+* [ ] Keep comments and viewed marks on the pull request screen, as the local
+  history screen does.
+
 ## Architecture
 
 ### Web frontend
