@@ -137,6 +137,9 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 ## GitHub workflow
 
 - Finish every requested change on a dedicated branch, commit it, push it, and open a GitHub pull request. Do not commit directly to `main`.
+- Open or update every pull request through the `submit-for-review` skill,
+  including when nobody asked for a review. It is the only way a PR here gets
+  its preview servers and the URLs that go in its body.
 
 ## Commit messages
 

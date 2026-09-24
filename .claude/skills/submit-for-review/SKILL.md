@@ -1,11 +1,13 @@
 ---
 name: submit-for-review
 description: >
-  Use when a change in this repo is ready for review: "submit this for review",
-  "put this up", "ready for review", "open a PR for this", or as the last step
-  of finishing a piece of work. Pushes the change, opens a pull request if
-  there is not one already, serves this workspace's app and docs on ports of
-  their own, and reports the URLs and the commands that expose them.
+  Use every time you open a pull request in this repo, or push to one that
+  exists, whether or not anyone asked for a review: "submit this for review",
+  "put this up", "open a PR for this", or finishing a change, which in this
+  repo always ends in a PR. Never create a PR without it. Pushes the change,
+  opens a pull request if there is not one already, serves this workspace's
+  app and docs on ports of their own, and reports the URLs and the commands
+  that expose them.
 ---
 
 # Submitting work for review
