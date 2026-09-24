@@ -40,7 +40,7 @@ describe("changedLines", () => {
   test("pairs removed lines with the added run after them, in order", () => {
     // arrange
     const lines: HunkLine[] = [
-      { kind: "context", code: "keep", oldLine: 1, newLine: 1 },
+      { kind: "context", code: "keep", newLine: 1 },
       { kind: "removed", code: "let a = 1;", oldLine: 2 },
       { kind: "removed", code: "let b = 2;", oldLine: 3 },
       { kind: "added", code: "let a = 10;", newLine: 2 },
@@ -62,7 +62,7 @@ describe("changedLines", () => {
     // arrange
     const lines: HunkLine[] = [
       { kind: "removed", code: "let a = 1;", oldLine: 1 },
-      { kind: "context", code: "keep", oldLine: 2, newLine: 1 },
+      { kind: "context", code: "keep", newLine: 1 },
       { kind: "added", code: "let a = 2;", newLine: 2 },
     ];
 

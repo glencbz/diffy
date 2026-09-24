@@ -25,6 +25,17 @@ blob, or nothing at all. `localStorage` is per browser, so a phone keeps its
 own size and a laptop keeps the default, which is the split the setting
 exists for.
 
+A diff is drawn [structurally or line by line](diff.md#diff-view), and the
+reader picks which one files start in. Structural is the default because it
+is the one that hides layout noise. The choice is only a starting point,
+since each file has its own switch. The default reaches the diff view through
+`DiffModeDefault`, a context, since the diffs sit several screens and
+controllers below `App` and none of those layers has any use for it.
+
+`diffMode` parses with a default of its own. Settings saved before the
+choice existed have no `diffMode`, and without the default they would fail
+to parse and reset the reader's text size along with it.
+
 The size is written to the page in a layout effect, not a plain effect. A
 plain effect runs after the browser paints, so a reader who chose a larger
 size would see every load flash at the standard size first.
@@ -32,19 +43,30 @@ size would see every load flash at the standard size first.
 ```ts
 //| id: frontend-state-settings
 //| file: src/frontend/state/settings.ts
-import { useCallback, useLayoutEffect, useState } from "react";
+import { createContext, useCallback, useLayoutEffect, useState } from "react";
 import * as z from "zod";
 
 export const TextSize = z.enum(["small", "standard", "large", "larger"]);
 export type TextSize = z.infer<typeof TextSize>;
 
+export const DiffMode = z.enum(["structural", "line"]);
+export type DiffMode = z.infer<typeof DiffMode>;
+
 export const Settings = z.object({
-  display: z.object({ textSize: TextSize }),
+  display: z.object({
+    textSize: TextSize,
+    diffMode: DiffMode.default("structural"),
+  }),
 });
 export type Settings = z.infer<typeof Settings>;
 
 const STORAGE_KEY = "diffy.settings.v1";
-const DEFAULT_SETTINGS: Settings = { display: { textSize: "standard" } };
+const DEFAULT_SETTINGS: Settings = {
+  display: { textSize: "standard", diffMode: "structural" },
+};
+
+/** The view a file's diff starts in until the reader switches that file. */
+export const DiffModeDefault = createContext<DiffMode>("structural");
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -74,6 +96,7 @@ export function save(settings: Settings): void {
 export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
+  setDiffMode: (diffMode: DiffMode) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -83,18 +106,26 @@ export function useSettings(): SettingsHandle {
     document.documentElement.dataset.textSize = settings.display.textSize;
   }, [settings.display.textSize]);
 
-  const setTextSize = useCallback((textSize: TextSize) => {
+  const setDisplay = useCallback((change: Partial<Settings["display"]>) => {
     setSettings((current) => {
       const next: Settings = {
         ...current,
-        display: { ...current.display, textSize },
+        display: { ...current.display, ...change },
       };
       save(next);
       return next;
     });
   }, []);
+  const setTextSize = useCallback(
+    (textSize: TextSize) => setDisplay({ textSize }),
+    [setDisplay],
+  );
+  const setDiffMode = useCallback(
+    (diffMode: DiffMode) => setDisplay({ diffMode }),
+    [setDisplay],
+  );
 
-  return { settings, setTextSize };
+  return { settings, setTextSize, setDiffMode };
 }
 ```
 
@@ -122,7 +153,9 @@ beforeEach(() => {
 describe("load", () => {
   test("round-trips settings through save", () => {
     // arrange
-    const settings: Settings = { display: { textSize: "large" } };
+    const settings: Settings = {
+      display: { textSize: "large", diffMode: "line" },
+    };
 
     // act
     save(settings);
@@ -135,7 +168,23 @@ describe("load", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({ display: { textSize: "standard" } });
+    expect(load()).toEqual({
+      display: { textSize: "standard", diffMode: "structural" },
+    });
+  });
+
+  test("keeps a text size saved before diff modes existed", () => {
+    // arrange
+    localStorage.setItem(
+      "diffy.settings.v1",
+      JSON.stringify({ display: { textSize: "large" } }),
+    );
+
+    // act
+    // assert
+    expect(load()).toEqual({
+      display: { textSize: "large", diffMode: "structural" },
+    });
   });
 
   test("loads the defaults when the stored value is not JSON", () => {
@@ -144,7 +193,9 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ display: { textSize: "standard" } });
+    expect(load()).toEqual({
+      display: { textSize: "standard", diffMode: "structural" },
+    });
   });
 
   test("loads the defaults when the stored value has the wrong shape", () => {
@@ -153,7 +204,9 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ display: { textSize: "standard" } });
+    expect(load()).toEqual({
+      display: { textSize: "standard", diffMode: "structural" },
+    });
   });
 });
 
@@ -169,7 +222,9 @@ describe("save", () => {
 
     // act
     // assert
-    expect(() => save({ display: { textSize: "standard" } })).not.toThrow();
+    expect(() =>
+      save({ display: { textSize: "standard", diffMode: "structural" } }),
+    ).not.toThrow();
   });
 });
 ```
@@ -202,10 +257,11 @@ size the reader picked beats any default a breakpoint sets.
 
 ## Settings screen
 
-One section today, so one `<fieldset>`. A radio group is the right control
-for a size: the choices are mutually exclusive, there are few enough to show
-all at once, and a native `<input type="radio">` gets keyboard and screen
-reader behaviour for free that a row of buttons would have to reimplement.
+One `<fieldset>` per choice. A radio group is the right control for both a
+size and a diff view: the choices are mutually exclusive, there are few
+enough to show all at once, and a native `<input type="radio">` gets
+keyboard and screen reader behaviour for free that a row of buttons would
+have to reimplement.
 
 The captions are drawn at the current size, not each at the size it names.
 The whole page resizes the moment a radio is picked, which is a better
@@ -215,7 +271,7 @@ repeat every pixel value in a second set of rules.
 ```tsx
 //| id: frontend-view-settings-screen
 //| file: src/frontend/views/SettingsScreen.tsx
-import type { Settings, TextSize } from "../state/settings";
+import type { DiffMode, Settings, TextSize } from "../state/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
   { value: "small", caption: "Small" },
@@ -224,17 +280,24 @@ const TEXT_SIZES: { value: TextSize; caption: string }[] = [
   { value: "larger", caption: "Larger" },
 ];
 
+const DIFF_MODES: { value: DiffMode; caption: string }[] = [
+  { value: "structural", caption: "Structural, with difftastic" },
+  { value: "line", caption: "Line by line" },
+];
+
 export function SettingsScreen({
   settings,
   onSetTextSize,
+  onSetDiffMode,
 }: {
   settings: Settings;
   onSetTextSize: (textSize: TextSize) => void;
+  onSetDiffMode: (diffMode: DiffMode) => void;
 }) {
   return (
     <div className="settings">
       <fieldset className="settings__section">
-        <legend>Display</legend>
+        <legend>Text size</legend>
         {TEXT_SIZES.map(({ value, caption }) => (
           <label key={value} className="settings__option">
             <input
@@ -243,6 +306,21 @@ export function SettingsScreen({
               value={value}
               checked={settings.display.textSize === value}
               onChange={() => onSetTextSize(value)}
+            />
+            {caption}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="settings__section">
+        <legend>Diffs start as</legend>
+        {DIFF_MODES.map(({ value, caption }) => (
+          <label key={value} className="settings__option">
+            <input
+              type="radio"
+              name="diff-mode"
+              value={value}
+              checked={settings.display.diffMode === value}
+              onChange={() => onSetDiffMode(value)}
             />
             {caption}
           </label>
@@ -268,6 +346,10 @@ draws on its own, which is what makes each one comfortable to hit on a phone.
     padding: var(--space-5);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+
+  .settings__section + .settings__section {
+    margin-top: var(--space-5);
   }
 
   .settings__section legend {

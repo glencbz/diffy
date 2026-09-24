@@ -1,17 +1,28 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-state-settings>>[init]
-import { useCallback, useLayoutEffect, useState } from "react";
+import { createContext, useCallback, useLayoutEffect, useState } from "react";
 import * as z from "zod";
 
 export const TextSize = z.enum(["small", "standard", "large", "larger"]);
 export type TextSize = z.infer<typeof TextSize>;
 
+export const DiffMode = z.enum(["structural", "line"]);
+export type DiffMode = z.infer<typeof DiffMode>;
+
 export const Settings = z.object({
-  display: z.object({ textSize: TextSize }),
+  display: z.object({
+    textSize: TextSize,
+    diffMode: DiffMode.default("structural"),
+  }),
 });
 export type Settings = z.infer<typeof Settings>;
 
 const STORAGE_KEY = "diffy.settings.v1";
-const DEFAULT_SETTINGS: Settings = { display: { textSize: "standard" } };
+const DEFAULT_SETTINGS: Settings = {
+  display: { textSize: "standard", diffMode: "structural" },
+};
+
+/** The view a file's diff starts in until the reader switches that file. */
+export const DiffModeDefault = createContext<DiffMode>("structural");
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -41,6 +52,7 @@ export function save(settings: Settings): void {
 export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
+  setDiffMode: (diffMode: DiffMode) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -50,17 +62,25 @@ export function useSettings(): SettingsHandle {
     document.documentElement.dataset.textSize = settings.display.textSize;
   }, [settings.display.textSize]);
 
-  const setTextSize = useCallback((textSize: TextSize) => {
+  const setDisplay = useCallback((change: Partial<Settings["display"]>) => {
     setSettings((current) => {
       const next: Settings = {
         ...current,
-        display: { ...current.display, textSize },
+        display: { ...current.display, ...change },
       };
       save(next);
       return next;
     });
   }, []);
+  const setTextSize = useCallback(
+    (textSize: TextSize) => setDisplay({ textSize }),
+    [setDisplay],
+  );
+  const setDiffMode = useCallback(
+    (diffMode: DiffMode) => setDisplay({ diffMode }),
+    [setDisplay],
+  );
 
-  return { settings, setTextSize };
+  return { settings, setTextSize, setDiffMode };
 }
 // ~/~ end

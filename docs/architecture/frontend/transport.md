@@ -84,6 +84,48 @@ export type OpLogEntry = z.infer<typeof OpLogEntry>;
 
 const OpLogResponse = z.array(OpLogEntry);
 
+/** A token difftastic says changed, in UTF-16 code units of its line. */
+const ChangedRange = z.object({ start: z.number(), end: z.number() });
+
+/** A file as [difftastic](../backend/difft.md) reads it: hunks in the same
+ *  shape a patch reads into, with each changed line's ranges, or why the
+ *  file has none. */
+export const StructuralDiff = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("structural"),
+    language: z.string(),
+    hunks: z.array(
+      z.object({
+        header: z.string(),
+        newStart: z.number(),
+        lines: z.array(
+          z.discriminatedUnion("kind", [
+            z.object({
+              kind: z.literal("context"),
+              code: z.string(),
+              newLine: z.number(),
+            }),
+            z.object({
+              kind: z.literal("removed"),
+              code: z.string(),
+              oldLine: z.number(),
+              changes: z.array(ChangedRange),
+            }),
+            z.object({
+              kind: z.literal("added"),
+              code: z.string(),
+              newLine: z.number(),
+              changes: z.array(ChangedRange),
+            }),
+          ]),
+        ),
+      }),
+    ),
+  }),
+  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
+]);
+export type StructuralDiff = z.infer<typeof StructuralDiff>;
+
 const fileDiffFields = {
   binary: z.boolean(),
   /** The blob each side is stored under, for `fetchSource`. Null for a side
@@ -91,6 +133,7 @@ const fileDiffFields = {
   oldBlob: z.string().nullable(),
   newBlob: z.string().nullable(),
   patch: z.string(),
+  structural: StructuralDiff,
 };
 
 export const FileDiff = z.discriminatedUnion("status", [

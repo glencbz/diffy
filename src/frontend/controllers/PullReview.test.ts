@@ -76,6 +76,7 @@ describe("stackRows", () => {
         oldBlob: null,
         newBlob: null,
         patch: "@@ -1 +1 @@\n-a\n+b",
+        structural: { kind: "unavailable", reason: "not diffed" },
       },
     ];
     const diffs = new Map<string, AsyncState<FileDiff[]>>([
@@ -127,6 +128,7 @@ describe("stackRows", () => {
       oldBlob: null,
       newBlob: null,
       patch: "@@ -1 +1 @@\n-old subject\n+new subject",
+      structural: { kind: "unavailable", reason: "not diffed" },
     };
     const diffs = new Map<string, AsyncState<FileDiff[]>>([
       [key, { status: "ready", data: [message] }],
@@ -153,6 +155,7 @@ describe("stackRows", () => {
         oldBlob: null,
         newBlob: null,
         patch: "@@ -1 +1 @@\n-old subject\n+new subject",
+        structural: { kind: "unavailable", reason: "not diffed" },
       },
       {
         status: "modified",
@@ -161,6 +164,7 @@ describe("stackRows", () => {
         oldBlob: null,
         newBlob: null,
         patch: "@@ -1 +1 @@\n-a\n+b",
+        structural: { kind: "unavailable", reason: "not diffed" },
       },
     ];
     const diffs = new Map<string, AsyncState<FileDiff[]>>([

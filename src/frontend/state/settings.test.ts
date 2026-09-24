@@ -20,7 +20,9 @@ beforeEach(() => {
 describe("load", () => {
   test("round-trips settings through save", () => {
     // arrange
-    const settings: Settings = { display: { textSize: "large" } };
+    const settings: Settings = {
+      display: { textSize: "large", diffMode: "line" },
+    };
 
     // act
     save(settings);
@@ -33,7 +35,23 @@ describe("load", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({ display: { textSize: "standard" } });
+    expect(load()).toEqual({
+      display: { textSize: "standard", diffMode: "structural" },
+    });
+  });
+
+  test("keeps a text size saved before diff modes existed", () => {
+    // arrange
+    localStorage.setItem(
+      "diffy.settings.v1",
+      JSON.stringify({ display: { textSize: "large" } }),
+    );
+
+    // act
+    // assert
+    expect(load()).toEqual({
+      display: { textSize: "large", diffMode: "structural" },
+    });
   });
 
   test("loads the defaults when the stored value is not JSON", () => {
@@ -42,7 +60,9 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ display: { textSize: "standard" } });
+    expect(load()).toEqual({
+      display: { textSize: "standard", diffMode: "structural" },
+    });
   });
 
   test("loads the defaults when the stored value has the wrong shape", () => {
@@ -51,7 +71,9 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ display: { textSize: "standard" } });
+    expect(load()).toEqual({
+      display: { textSize: "standard", diffMode: "structural" },
+    });
   });
 });
 
@@ -67,7 +89,9 @@ describe("save", () => {
 
     // act
     // assert
-    expect(() => save({ display: { textSize: "standard" } })).not.toThrow();
+    expect(() =>
+      save({ display: { textSize: "standard", diffMode: "structural" } }),
+    ).not.toThrow();
   });
 });
 // ~/~ end

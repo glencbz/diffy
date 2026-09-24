@@ -19,7 +19,7 @@ export interface Hunk {
 /** A line inside a hunk. `code` is the line without its `+`, `-`, or space,
  *  and line numbers count from 1, as each side's file has them. */
 export type HunkLine =
-  | { kind: "context"; code: string; oldLine: number; newLine: number }
+  | { kind: "context"; code: string; newLine: number }
   | { kind: "removed"; code: string; oldLine: number }
   | { kind: "added"; code: string; newLine: number }
   | { kind: "note"; text: string };
@@ -64,12 +64,8 @@ export function readPatch(patch: string): Patch {
     } else if (text.startsWith("\\")) {
       hunk.lines.push({ kind: "note", text });
     } else {
-      hunk.lines.push({
-        kind: "context",
-        code,
-        oldLine: oldLine++,
-        newLine: newLine++,
-      });
+      oldLine++;
+      hunk.lines.push({ kind: "context", code, newLine: newLine++ });
     }
   }
 

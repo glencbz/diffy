@@ -906,6 +906,7 @@ describe("countLines", () => {
         oldBlob: null,
         newBlob: null,
         patch: "--- a/a.ts\n+++ b/a.ts\n+added line\n-removed line\n context",
+        structural: { kind: "unavailable", reason: "not diffed" },
       },
     ];
 

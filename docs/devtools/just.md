@@ -13,6 +13,8 @@ _default:
   <<just-uv-install>>
   <<just-bun-install>>
 
+<<just-nix>>
+
 <<just-entangled>>
 
 <<just-docs>>

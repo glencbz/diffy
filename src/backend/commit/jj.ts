@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[init]
 import { $ } from "bun";
 import * as z from "zod";
+import { type StructuralDiff, StructuralDiffs } from "./difft";
 
 /** The `jj` CLI ran and exited non-zero, usually an unresolvable revset. */
 export class JjError extends Error {
@@ -230,8 +231,8 @@ export async function jjOpLog(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[4]
 
-/** How one file changed between a revision and its parent. */
-export type JjFileDiff = (
+/** How one file changed between a revision and its parent, as its patch says. */
+export type JjPatchFile = (
   | { status: "added" | "deleted" | "modified"; path: string }
   | { status: "renamed" | "copied"; oldPath: string; newPath: string }
 ) & {
@@ -246,6 +247,10 @@ export type JjFileDiff = (
   patch: string;
 };
 
+/** A file's patch, and the same change as difftastic reads it or why it
+ *  cannot. */
+export type JjFileDiff = JjPatchFile & { structural: StructuralDiff };
+
 export interface JjDiffOptions {
   /** Revision to diff against its parent(s). Defaults to `@`. */
   revision?: string;
@@ -255,7 +260,7 @@ export interface JjDiffOptions {
 
 export function jjDiff(options: JjDiffOptions = {}): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
-  const args = ["diff", "--git", "--color=never", "-r", revision];
+  const args = ["diff", "-r", revision];
   if (options.atOperation !== undefined) {
     args.push("--at-operation", options.atOperation);
   }
@@ -273,12 +278,65 @@ function splitFileDiffs(diff: string): string[] {
   );
 }
 
-/** Run a jj command that prints a `git`-format diff, parsed one file at a time. */
+/** Run a jj diff command both ways, one file at a time: as a `git`-format
+ *  patch, and through difftastic. */
 async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
-  return splitFileDiffs(await runJj(args)).map(parseFileDiff);
+  const [patch, structural] = await Promise.all([
+    runJj([...args, "--git", "--color=never"]),
+    structuralDiffs(args),
+  ]);
+
+  return splitFileDiffs(patch).map((text) => {
+    const file = parseFileDiff(text);
+    return { ...file, structural: structuralFor(file, structural) };
+  });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[5]
+
+const DIFFT_TOOL = `${import.meta.dir}/difft.ts`;
+
+/** Every changed file as difftastic reads it, by path, or why there is
+ *  nothing to read. */
+async function structuralDiffs(
+  args: string[],
+): Promise<Record<string, StructuralDiff> | string> {
+  const output = await runJj([
+    ...args,
+    "--tool",
+    "diffy-difft",
+    "--config",
+    `merge-tools.diffy-difft.program=${JSON.stringify(process.execPath)}`,
+    "--config",
+    `merge-tools.diffy-difft.diff-args=${JSON.stringify([DIFFT_TOOL, "$left", "$right"])}`,
+  ]);
+
+  try {
+    return StructuralDiffs.parse(JSON.parse(output));
+  } catch {
+    return "difftastic's answer could not be read";
+  }
+}
+
+function structuralFor(
+  file: JjPatchFile,
+  answer: Record<string, StructuralDiff> | string,
+): StructuralDiff {
+  const unavailable = (reason: string) =>
+    ({ kind: "unavailable", reason }) as const;
+
+  if (typeof answer === "string") return unavailable(answer);
+  if (file.binary) return unavailable("binary file");
+  if (!("path" in file)) return unavailable(`${file.status} file`);
+  if (file.status !== "modified") {
+    return unavailable(`${file.status} file`);
+  }
+  return (
+    answer[file.path] ?? unavailable("jj did not hand this file to difftastic")
+  );
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[6]
 
 /** `a/foo` / `b/foo` -> `foo`; `/dev/null` -> `null`. */
 function stripPrefix(raw: string): string | null {
@@ -298,11 +356,11 @@ function blobOf(id: string | undefined): string | null {
 }
 
 /** Exported for unit tests: turn one file's `git`-format patch into metadata. */
-export function parseFileDiff(patch: string): JjFileDiff {
+export function parseFileDiff(patch: string): JjPatchFile {
   const lines = patch.split("\n");
   const header = lines[0]?.match(DIFF_GIT_HEADER);
 
-  let kind: JjFileDiff["status"] = "modified";
+  let kind: JjPatchFile["status"] = "modified";
   let oldPath: string | null = null;
   let newPath: string | null = null;
   let binary = false;
@@ -358,7 +416,7 @@ export function parseFileDiff(patch: string): JjFileDiff {
   return { status: kind, path, binary, oldBlob, newBlob, patch };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[6]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[7]
 
 export interface JjInterdiffOptions {
   /** Commit id whose change is the "before" side. */
@@ -370,18 +428,10 @@ export interface JjInterdiffOptions {
 export function jjInterdiff(
   options: JjInterdiffOptions,
 ): Promise<JjFileDiff[]> {
-  return diffFiles([
-    "interdiff",
-    "--git",
-    "--color=never",
-    "--from",
-    options.from,
-    "--to",
-    options.to,
-  ]);
+  return diffFiles(["interdiff", "--from", options.from, "--to", options.to]);
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[7]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[8]
 
 export interface JjDiffBetweenOptions {
   /** Revision whose tree is the "before" side. */
@@ -393,14 +443,6 @@ export interface JjDiffBetweenOptions {
 export function jjDiffBetween(
   options: JjDiffBetweenOptions,
 ): Promise<JjFileDiff[]> {
-  return diffFiles([
-    "diff",
-    "--git",
-    "--color=never",
-    "--from",
-    options.from,
-    "--to",
-    options.to,
-  ]);
+  return diffFiles(["diff", "--from", options.from, "--to", options.to]);
 }
 // ~/~ end
