@@ -8,10 +8,12 @@ export function CommitLog({
   source,
   selected,
   onSelect,
+  oldestFirst = false,
 }: {
   source: Source;
   selected: string[];
   onSelect?: ((commitIds: string[]) => void) | undefined;
+  oldestFirst?: boolean;
 }) {
   const log = useCommits(source);
 
@@ -21,7 +23,12 @@ export function CommitLog({
   }
 
   return (
-    <CommitGraph commits={log.data} selected={selected} onSelect={onSelect} />
+    <CommitGraph
+      commits={log.data}
+      selected={selected}
+      onSelect={onSelect}
+      oldestFirst={oldestFirst}
+    />
   );
 }
 // ~/~ end

@@ -38,9 +38,9 @@ function commitById(commits: GitCommit[], id: string | null): GitCommit | null {
 }
 
 export interface PairedGraphProps {
-  /** The older version's commits, newest first. */
+  /** The older version's commits, oldest first. */
   before: GitCommit[];
-  /** The newer version's commits, newest first. */
+  /** The newer version's commits, oldest first. */
   after: GitCommit[];
   pairing: Pairing;
   beforeLabel: string;

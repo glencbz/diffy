@@ -86,6 +86,13 @@ hook for the pairing would read back exactly the field it strips.
 pairing sees the guess GitHub's subject line encodes instead of the null the
 graph's own model has no room for.
 
+`usePullCommits` also turns the backend's newest-first list around, so every
+lane, row, and section on this screen reads oldest first. A pull request is
+read as a sequence, each commit building on the one before it, and a reader
+going top to bottom should meet a commit before the ones that depend on it.
+Reversing here rather than in each view means the pairing, the paired graph,
+and the commit stack cannot disagree about which end is up.
+
 ```tsx
 //| id: frontend-state-pull-commits
 //| file: src/frontend/state/pullCommits.ts
@@ -93,8 +100,8 @@ import { useEffect, useState } from "react";
 import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
 import type { AsyncState } from "./asyncState";
 
-/** One version's commits, as the pull request's own, so the pairing can read
- *  the identity the graph deliberately drops. */
+/** One version's commits, oldest first, as the pull request's own, so the
+ *  pairing can read the identity the graph deliberately drops. */
 export function usePullCommits(
   repo: string,
   number: number,
@@ -115,7 +122,9 @@ export function usePullCommits(
     setState({ status: "loading" });
     fetchPullCommits(repo, number, head)
       .then((data) => {
-        if (live) setState({ status: "ready", data: data.commits });
+        if (live) {
+          setState({ status: "ready", data: [...data.commits].reverse() });
+        }
       })
       .catch((err: unknown) => {
         if (live) setState({ status: "error", message: String(err) });
@@ -363,7 +372,16 @@ other way round.
 
 What the reader picks in the graph is a commit, not a row. Moving a card
 renumbers the rows around it, and a picked index would then point at
-whichever commit slid into its place.
+whichever commit slid into its place. Both graphs pick, the paired one and
+the single lane a base comparison draws, and either way the stack scrolls to
+that commit's section.
+
+The single lane is `CommitGraph`, which hands back a whole selection because
+the local history screen picks a series. This screen wants one commit, so
+`pickedFrom` reads the click out of that selection: the commit that was not
+already current, or the current one again when the click toggled it off.
+Giving `CommitGraph` a second, single-pick callback would add a mode to the
+graph that only this screen uses.
 
 A base comparison has one version on screen, not two, so there is nothing for
 a graph to pair against. `usePairing` still runs against an empty before
@@ -513,6 +531,13 @@ function versionLabel(states: PullVersion[], head: GitOid): string {
   return `${versionName(states, head)} · ${head.slice(0, 7)}`;
 }
 
+/** The commit a click on the single-lane graph picked, read off the
+ *  selection it hands back. A click on the current commit toggles it out of
+ *  that selection, and still means that commit. */
+function pickedFrom(selection: string[], current: string | null): string {
+  return selection.find((id) => id !== current) ?? current ?? "";
+}
+
 function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
   const next = new Set(set);
   if (next.has(key)) next.delete(key);
@@ -533,6 +558,7 @@ export function PullReview({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [current, setCurrent] = useState<string | null>(null);
+  const [picks, setPicks] = useState(0);
 
   const latest =
     history.status === "ready" ? history.data.states.at(-1) : undefined;
@@ -584,6 +610,11 @@ export function PullReview({
         ? afterState.message
         : null;
 
+  const pick = (commitId: string) => {
+    setCurrent(commitId);
+    setPicks((now) => now + 1);
+  };
+
   const currentKey =
     rows.find(
       (row) => row.commit.commitId === current || row.was?.commitId === current,
@@ -614,12 +645,14 @@ export function PullReview({
             beforeLabel={versionLabel(history.data.states, from.head)}
             afterLabel={versionLabel(history.data.states, to)}
             current={current}
-            onSelect={setCurrent}
+            onSelect={pick}
           />
         ) : (
           <CommitLog
             source={{ kind: "pull", repo, number, head: to }}
-            selected={[]}
+            selected={current === null ? [] : [current]}
+            onSelect={(selection) => pick(pickedFrom(selection, current))}
+            oldestFirst
           />
         )
       }
@@ -637,6 +670,7 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
+            picks={picks}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

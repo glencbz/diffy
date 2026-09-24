@@ -131,6 +131,13 @@ function versionLabel(states: PullVersion[], head: GitOid): string {
   return `${versionName(states, head)} · ${head.slice(0, 7)}`;
 }
 
+/** The commit a click on the single-lane graph picked, read off the
+ *  selection it hands back. A click on the current commit toggles it out of
+ *  that selection, and still means that commit. */
+function pickedFrom(selection: string[], current: string | null): string {
+  return selection.find((id) => id !== current) ?? current ?? "";
+}
+
 function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
   const next = new Set(set);
   if (next.has(key)) next.delete(key);
@@ -151,6 +158,7 @@ export function PullReview({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [current, setCurrent] = useState<string | null>(null);
+  const [picks, setPicks] = useState(0);
 
   const latest =
     history.status === "ready" ? history.data.states.at(-1) : undefined;
@@ -202,6 +210,11 @@ export function PullReview({
         ? afterState.message
         : null;
 
+  const pick = (commitId: string) => {
+    setCurrent(commitId);
+    setPicks((now) => now + 1);
+  };
+
   const currentKey =
     rows.find(
       (row) => row.commit.commitId === current || row.was?.commitId === current,
@@ -232,12 +245,14 @@ export function PullReview({
             beforeLabel={versionLabel(history.data.states, from.head)}
             afterLabel={versionLabel(history.data.states, to)}
             current={current}
-            onSelect={setCurrent}
+            onSelect={pick}
           />
         ) : (
           <CommitLog
             source={{ kind: "pull", repo, number, head: to }}
-            selected={[]}
+            selected={current === null ? [] : [current]}
+            onSelect={(selection) => pick(pickedFrom(selection, current))}
+            oldestFirst
           />
         )
       }
@@ -255,6 +270,7 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
+            picks={picks}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

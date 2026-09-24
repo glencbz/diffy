@@ -176,6 +176,9 @@ export interface CommitStackProps {
   onExpand: (key: string) => void;
   /** The row the graph pane last picked, brought into view when it changes. */
   current: string | null;
+  /** How many picks the graph pane has made, so picking the current row
+   *  again brings it back into view too. */
+  picks: number;
   /** The older version every non-plain row is read against, as its chip
    *  names it: `v5`. */
   since: string;
@@ -219,6 +222,7 @@ export function CommitStack({
   expanded,
   onExpand,
   current,
+  picks,
   since,
 }: CommitStackProps): ReactElement {
   return (
@@ -233,6 +237,7 @@ export function CommitStack({
           isExpanded={expanded.has(row.key)}
           onExpand={() => onExpand(row.key)}
           isCurrent={current === row.key}
+          picks={picks}
           since={since}
         />
       ))}
@@ -248,6 +253,7 @@ function StackSection({
   isExpanded,
   onExpand,
   isCurrent,
+  picks,
   since,
 }: {
   row: StackRow;
@@ -257,12 +263,14 @@ function StackSection({
   isExpanded: boolean;
   onExpand: () => void;
   isCurrent: boolean;
+  picks: number;
   since: string;
 }) {
   const section = useRef<HTMLElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: picks is the trigger, not a value read
   useEffect(() => {
     if (isCurrent) section.current?.scrollIntoView({ block: "start" });
-  }, [isCurrent]);
+  }, [isCurrent, picks]);
 
   return (
     <section

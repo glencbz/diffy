@@ -783,6 +783,10 @@
     contain: size;
   }
 
+  .commit-graph__gutter--flipped {
+    transform: scaleY(-1);
+  }
+
   .commit-graph__edge {
     stroke: currentColor;
   }

@@ -98,14 +98,17 @@ export function layoutGraph(commits: LogEntry[]): GraphLayout {
 }
 
 export function CommitGraph({
-  commits,
+  commits: newestFirst,
   selected,
   onSelect,
+  oldestFirst = false,
 }: {
   commits: LogEntry[];
   selected: string[];
   /** Omit to draw a graph that is read but not picked from. */
   onSelect?: ((commitIds: string[]) => void) | undefined;
+  /** Draw the oldest commit at the top rather than the newest. */
+  oldestFirst?: boolean;
 }) {
   const chosen = new Set(selected);
 
@@ -121,8 +124,10 @@ export function CommitGraph({
     );
   }
 
-  const { rows, laneCount } = layoutGraph(commits);
-  const gutterWidth = laneCount * LANE_WIDTH;
+  const layout = layoutGraph(newestFirst);
+  const commits = oldestFirst ? [...newestFirst].reverse() : newestFirst;
+  const rows = oldestFirst ? [...layout.rows].reverse() : layout.rows;
+  const gutterWidth = layout.laneCount * LANE_WIDTH;
 
   return (
     <div>
@@ -133,7 +138,7 @@ export function CommitGraph({
         }`;
         const content = (
           <>
-            <RowGraphic row={row} width={gutterWidth} />
+            <RowGraphic row={row} width={gutterWidth} flipped={oldestFirst} />
             <CommitLabel commit={commit} />
           </>
         );
@@ -157,11 +162,25 @@ export function CommitGraph({
   );
 }
 
-function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
+function RowGraphic({
+  row,
+  width,
+  flipped,
+}: {
+  row: GraphRow;
+  width: number;
+  flipped: boolean;
+}) {
   const x = (lane: number) => lane * LANE_WIDTH + LANE_WIDTH / 2;
 
   return (
-    <svg width={width} className="commit-graph__gutter" aria-hidden="true">
+    <svg
+      width={width}
+      className={`commit-graph__gutter${
+        flipped ? " commit-graph__gutter--flipped" : ""
+      }`}
+      aria-hidden="true"
+    >
       {row.incoming.map((edge) => (
         <line
           key={`in-${edge.from}-${edge.to}`}

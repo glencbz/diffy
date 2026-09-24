@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
 import type { AsyncState } from "./asyncState";
 
-/** One version's commits, as the pull request's own, so the pairing can read
- *  the identity the graph deliberately drops. */
+/** One version's commits, oldest first, as the pull request's own, so the
+ *  pairing can read the identity the graph deliberately drops. */
 export function usePullCommits(
   repo: string,
   number: number,
@@ -25,7 +25,9 @@ export function usePullCommits(
     setState({ status: "loading" });
     fetchPullCommits(repo, number, head)
       .then((data) => {
-        if (live) setState({ status: "ready", data: data.commits });
+        if (live) {
+          setState({ status: "ready", data: [...data.commits].reverse() });
+        }
       })
       .catch((err: unknown) => {
         if (live) setState({ status: "error", message: String(err) });

@@ -10,11 +10,10 @@ import {
   type Slot,
 } from "./pairing";
 
-/** `"a b c"` -> that series, newest first, each commit its own version. */
+/** `"a b c"` -> that series, oldest first, each commit its own version. */
 function series(changes: string, version = "1"): SeriesCommit[] {
   return changes
     .split(" ")
-    .reverse()
     .map((changeId) => ({ changeId, commitId: `${changeId}${version}` }));
 }
 
@@ -40,9 +39,9 @@ describe("heuristicSlots", () => {
 
     // assert
     expect(slots).toEqual([
-      { left: "c1", right: "c2" },
-      { left: "b1", right: "b2" },
       { left: "a1", right: "a2" },
+      { left: "b1", right: "b2" },
+      { left: "c1", right: "c2" },
     ]);
   });
 

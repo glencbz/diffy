@@ -11,15 +11,18 @@ export interface Slot {
   right: string | null;
 }
 
-/** The heuristic pairing, read off `alignSeries` by commit id. */
+/** The heuristic pairing, read off `alignSeries` by commit id. Both series
+ *  and the slots run oldest first. */
 export function heuristicSlots(
   before: SeriesCommit[],
   after: SeriesCommit[],
 ): Slot[] {
-  return alignSeries(before, after).map((pair) => ({
-    left: pair.from?.commitId ?? null,
-    right: pair.to?.commitId ?? null,
-  }));
+  return alignSeries([...before].reverse(), [...after].reverse())
+    .reverse()
+    .map((pair) => ({
+      left: pair.from?.commitId ?? null,
+      right: pair.to?.commitId ?? null,
+    }));
 }
 
 function hasCard(slots: Slot[], side: Side, row: number): boolean {
