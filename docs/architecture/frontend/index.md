@@ -298,6 +298,8 @@ reference here, anywhere.
 
 <<design-file-tree>>
 
+<<design-file-navigator>>
+
 <<design-diff-view>>
 
 <<design-syntax>>

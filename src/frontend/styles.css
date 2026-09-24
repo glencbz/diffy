@@ -1171,6 +1171,187 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-navigator>>[init] */
+@layer components {
+  .file-navigator {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex: none;
+  }
+
+  .pane--diff:has(> .file-navigator) {
+    --file-navigator-height: calc(
+      var(--text-size) *
+      var(--text-line-height) +
+      2 *
+      var(--space-3) +
+      1px
+    );
+    --diff-sticky-top: var(--file-navigator-height);
+  }
+
+  .file-navigator__bar {
+    box-sizing: border-box;
+    height: var(--file-navigator-height);
+    display: flex;
+    align-items: stretch;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-navigator__step {
+    flex: none;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    font-size: 14px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__step:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__open:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__pos {
+    flex: none;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file-navigator__path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    font-weight: bold;
+  }
+
+  .file-navigator__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .file-navigator__sheet {
+    position: absolute;
+    z-index: 4;
+    top: 36px;
+    left: var(--space-5);
+    width: 380px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .file-navigator__sheet-handle {
+    display: none;
+  }
+
+  .file-navigator__sheet-head {
+    flex: none;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .file-navigator__filter {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .file-navigator__sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2) 0 var(--space-4);
+  }
+
+  .file-navigator__group-label {
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    color: var(--text-faint);
+    font-size: var(--text-size-small);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-navigator>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .file-navigator {
+      order: 2;
+      top: auto;
+      bottom: 0;
+    }
+
+    .pane--diff:has(> .file-navigator) {
+      --diff-sticky-top: 0;
+    }
+
+    .file-navigator__bar {
+      height: 52px;
+      border-bottom: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .file-navigator__sheet {
+      top: auto;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      width: auto;
+      max-height: 80dvh;
+      border-width: 1px 0 0;
+      border-radius: var(--radius-large) var(--radius-large) 0 0;
+    }
+
+    .file-navigator__sheet-handle {
+      display: block;
+      width: 36px;
+      height: 4px;
+      margin: var(--space-4) auto 0;
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .file-navigator__scrim {
+      background: color-mix(in srgb, var(--text) 35%, transparent);
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[init] */
 @layer components {
   .diff-view {
@@ -1236,6 +1417,7 @@
   .diff-file {
     margin-bottom: var(--space-6);
     border: 1px solid var(--border);
+    scroll-margin-top: var(--diff-sticky-top, 0);
   }
 
   .diff-file__header {

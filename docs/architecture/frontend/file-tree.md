@@ -732,3 +732,449 @@ the minimum an accessibility guideline signs off on.
   }
 }
 ```
+
+## Stepping through files
+
+The [summary card](diff.md#diff-view) says what changed; it does not help a
+reader who is mid-patch and wants the next file without scrolling back up
+for it. `FileNavigator` is a bar [`DiffPane`](diff.md#diff-pane-controller)
+renders alongside `InterdiffRows`, once the comparison has more than one
+file across every row put together: a step back, a step forward, and a
+middle button that opens the same kind of tree the summary draws, this time
+grouped by row.
+
+A comparison's own files already have anchors, [scoped per row](#folding-a-diffs-files-into-a-tree)
+the same way `DiffView` scopes them, so the navigator is handed the same
+`ChangedFile[]` per row rather than the raw `FileDiff[]` it would otherwise
+have to re-derive. `DiffPane` builds that list once, keyed by `rowKey`, the
+same key `InterdiffRows` already scopes each row's `DiffView` under, so a
+file the navigator names and the file its click lands on are always the
+same section.
+
+```tsx
+//| id: frontend-view-file-navigator
+//| file: src/frontend/views/FileNavigator.tsx
+import { type RefObject, useEffect, useRef, useState } from "react";
+import { type ChangedFile, fileTree } from "./changedFiles";
+import { FileTree } from "./FileTree";
+
+/** One row's files, headed by its own label once there is more than one
+ *  row to tell apart. */
+export interface FileNavigatorGroup {
+  label: string | null;
+  files: ChangedFile[];
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function matches(file: ChangedFile, query: string): boolean {
+  return query === "" || file.path.toLowerCase().includes(query.toLowerCase());
+}
+
+export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
+  const root = useRef<HTMLDivElement>(null);
+  const [current, setCurrent] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+
+  const files = groups.flatMap((group) => group.files);
+  const index = Math.max(
+    0,
+    files.findIndex((file) => file.anchor === current),
+  );
+  const currentFile = files[index] ?? null;
+
+  useCurrentFile(root, files, setCurrent);
+  useCloseOnEscape(open, () => setOpen(false));
+
+  const jumpTo = (file: ChangedFile) => {
+    document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
+    setOpen(false);
+  };
+  const step = (delta: number) => {
+    const next = files[clamp(index + delta, 0, files.length - 1)];
+    if (next !== undefined) jumpTo(next);
+  };
+
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      files: group.files.filter((file) => matches(file, filter)),
+    }))
+    .filter((group) => group.files.length > 0);
+
+  return (
+    <div className="file-navigator" ref={root}>
+      <div className="file-navigator__bar">
+        <button
+          type="button"
+          className="file-navigator__step"
+          aria-label="Previous file"
+          onClick={() => step(-1)}
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          className="file-navigator__open"
+          aria-label="Show changed files"
+          aria-expanded={open}
+          onClick={() => setOpen((was) => !was)}
+        >
+          <span className="file-navigator__pos">
+            {files.length === 0 ? "0 / 0" : `${index + 1} / ${files.length}`}
+          </span>
+          <span className="file-navigator__path">
+            {`\u200e${currentFile?.path ?? ""}`}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="file-navigator__step"
+          aria-label="Next file"
+          onClick={() => step(1)}
+        >
+          ›
+        </button>
+      </div>
+      {open && (
+        <>
+          <button
+            type="button"
+            className="file-navigator__scrim"
+            aria-label="Close changed files"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="file-navigator__sheet"
+            role="dialog"
+            aria-label="Changed files"
+          >
+            <div className="file-navigator__sheet-handle" />
+            <div className="file-navigator__sheet-head">
+              <input
+                type="text"
+                className="file-navigator__filter"
+                placeholder="Filter files…"
+                aria-label="Filter files"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              />
+            </div>
+            <div className="file-navigator__sheet-body">
+              {visibleGroups.map((group, at) => (
+                <div key={group.label ?? at} className="file-navigator__group">
+                  {group.label !== null && (
+                    <div className="file-navigator__group-label">
+                      {group.label}
+                    </div>
+                  )}
+                  <FileTree
+                    nodes={fileTree(group.files)}
+                    current={current}
+                    onPick={jumpTo}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+The current file is the last one whose top has scrolled above a reading
+line near the top of the scroll container, and at the very bottom of the
+scroll the last file is current outright, since a short final file might
+never cross the line on its own. One scroll listener does this for the
+whole bar: a `ref` on the bar's own wrapper finds `.pane--diff`, [the flex
+column `.pane--diff` already scrolls as](layout.md#the-pane-rules), by
+walking up from an element the effect actually has a handle on, rather than
+assuming a container the bar never renders. The listener is attached to
+`document` with capture on, because a `scroll` event does not bubble but a
+capturing listener still sees it on the way down regardless, and a
+`requestAnimationFrame` throttle keeps a fast scroll from recomputing every
+file's position on every event.
+
+```tsx
+//| id: frontend-view-file-navigator
+
+const READING_LINE = 60;
+
+function useCurrentFile(
+  root: RefObject<HTMLDivElement | null>,
+  files: ChangedFile[],
+  setCurrent: (anchor: string | null) => void,
+) {
+  useEffect(() => {
+    const container = root.current?.closest(".pane--diff");
+    if (!(container instanceof HTMLElement)) return;
+
+    let frame: number | null = null;
+    const recompute = () => {
+      frame = null;
+      const elements = files
+        .map((file) => document.getElementById(file.anchor))
+        .filter((element): element is HTMLElement => element !== null);
+      if (elements.length === 0) return;
+
+      const containerTop = container.getBoundingClientRect().top;
+      let at = 0;
+      elements.forEach((element, position) => {
+        if (
+          element.getBoundingClientRect().top - containerTop <=
+          READING_LINE
+        ) {
+          at = position;
+        }
+      });
+      if (
+        container.scrollTop + container.clientHeight >=
+        container.scrollHeight - 2
+      ) {
+        at = elements.length - 1;
+      }
+      setCurrent(files[at]?.anchor ?? null);
+    };
+
+    const onScroll = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(recompute);
+    };
+
+    recompute();
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [root, files, setCurrent]);
+}
+
+function useCloseOnEscape(open: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+}
+```
+
+The middle button opens the same list either as a popover or as a bottom
+sheet, and which one it is is a media query, not a branch: both are the one
+`.file-navigator__sheet`, and the narrow rule repositions it instead of a
+second component drawing it a second way. On a wide screen the bar sits
+above the diff, sticky to the top of `.pane--diff`; on a phone it moves to
+the bottom edge, in thumb reach, by giving it `order: 2` in the same flex
+column and switching `top: 0` for `bottom: 0`. `DiffPane` renders the bar
+once, before `InterdiffRows`, and the two rules are what move it without
+either component knowing the other exists.
+
+The path is truncated from the left, so the file's own name survives a long
+directory and not the other way around. `direction: rtl` truncates that
+end, and a leading left-to-right mark keeps the path itself reading
+forwards despite the container's direction, the same trick a phone's URL
+bar uses to keep a domain visible ahead of a long path.
+
+On a wide pane the bar holds the top of `.pane--diff`, so a jump to a file
+has to stop below it rather than put the file's first lines under it. The
+bar has a fixed height, and a pane holding a navigator hands that height to
+the diff as `--diff-sticky-top`, which `.diff-file` takes as its
+`scroll-margin-top`. The [summary card](diff.md#diff-view) jumps to the
+same sections and stops at the same offset. On a phone the bar is at the
+bottom, so the offset is zero.
+
+```css
+/*| id: design-file-navigator
+@layer components {
+  .file-navigator {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex: none;
+  }
+
+  .pane--diff:has(> .file-navigator) {
+    --file-navigator-height: calc(
+      var(--text-size) *
+      var(--text-line-height) +
+      2 *
+      var(--space-3) +
+      1px
+    );
+    --diff-sticky-top: var(--file-navigator-height);
+  }
+
+  .file-navigator__bar {
+    box-sizing: border-box;
+    height: var(--file-navigator-height);
+    display: flex;
+    align-items: stretch;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-navigator__step {
+    flex: none;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    font-size: 14px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__step:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__open:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__pos {
+    flex: none;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file-navigator__path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    font-weight: bold;
+  }
+
+  .file-navigator__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .file-navigator__sheet {
+    position: absolute;
+    z-index: 4;
+    top: 36px;
+    left: var(--space-5);
+    width: 380px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .file-navigator__sheet-handle {
+    display: none;
+  }
+
+  .file-navigator__sheet-head {
+    flex: none;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .file-navigator__filter {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .file-navigator__sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2) 0 var(--space-4);
+  }
+
+  .file-navigator__group-label {
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    color: var(--text-faint);
+    font-size: var(--text-size-small);
+  }
+}
+```
+
+Under the narrow breakpoint the bar changes edge and the sheet changes
+shape, and nothing else about either moves: the same elements, the same
+handlers, two rules apart.
+
+```css
+/*| id: design-file-navigator
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .file-navigator {
+      order: 2;
+      top: auto;
+      bottom: 0;
+    }
+
+    .pane--diff:has(> .file-navigator) {
+      --diff-sticky-top: 0;
+    }
+
+    .file-navigator__bar {
+      height: 52px;
+      border-bottom: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .file-navigator__sheet {
+      top: auto;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      width: auto;
+      max-height: 80dvh;
+      border-width: 1px 0 0;
+      border-radius: var(--radius-large) var(--radius-large) 0 0;
+    }
+
+    .file-navigator__sheet-handle {
+      display: block;
+      width: 36px;
+      height: 4px;
+      margin: var(--space-4) auto 0;
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .file-navigator__scrim {
+      background: color-mix(in srgb, var(--text) 35%, transparent);
+    }
+  }
+}
+```
