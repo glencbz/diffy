@@ -219,10 +219,12 @@ export function CommitLog({
   source,
   selected,
   onSelect,
+  oldestFirst = false,
 }: {
   source: Source;
   selected: string[];
   onSelect?: ((commitIds: string[]) => void) | undefined;
+  oldestFirst?: boolean;
 }) {
   const log = useCommits(source);
 
@@ -232,7 +234,12 @@ export function CommitLog({
   }
 
   return (
-    <CommitGraph commits={log.data} selected={selected} onSelect={onSelect} />
+    <CommitGraph
+      commits={log.data}
+      selected={selected}
+      onSelect={onSelect}
+      oldestFirst={oldestFirst}
+    />
   );
 }
 ```
@@ -272,6 +279,15 @@ whatever sequence the reader happened to click.
 rather than picked from, which is what the pull request screen needs. Its two
 ends are chosen in the comparison picker, so a clickable row would be a
 control that changes nothing.
+
+The pull request screen also draws its graph oldest first, the order its
+commits are meant to be read in. `layoutGraph` still runs over the backend's
+newest-first order, and `oldestFirst` reverses the rows it hands back and
+mirrors each row's gutter top to bottom. Every edge a row draws runs from its
+top edge to its middle or from its middle to its bottom, so the mirror image of
+a row is exactly the row the reversed history needs, lane colours included. A
+second layout pass that walked parents before children would be a second
+algorithm to keep agreeing with the first.
 
 ```tsx
 //| id: frontend-view-commit-graph
@@ -375,14 +391,17 @@ export function layoutGraph(commits: LogEntry[]): GraphLayout {
 }
 
 export function CommitGraph({
-  commits,
+  commits: newestFirst,
   selected,
   onSelect,
+  oldestFirst = false,
 }: {
   commits: LogEntry[];
   selected: string[];
   /** Omit to draw a graph that is read but not picked from. */
   onSelect?: ((commitIds: string[]) => void) | undefined;
+  /** Draw the oldest commit at the top rather than the newest. */
+  oldestFirst?: boolean;
 }) {
   const chosen = new Set(selected);
 
@@ -398,8 +417,10 @@ export function CommitGraph({
     );
   }
 
-  const { rows, laneCount } = layoutGraph(commits);
-  const gutterWidth = laneCount * LANE_WIDTH;
+  const layout = layoutGraph(newestFirst);
+  const commits = oldestFirst ? [...newestFirst].reverse() : newestFirst;
+  const rows = oldestFirst ? [...layout.rows].reverse() : layout.rows;
+  const gutterWidth = layout.laneCount * LANE_WIDTH;
 
   return (
     <div>
@@ -410,7 +431,7 @@ export function CommitGraph({
         }`;
         const content = (
           <>
-            <RowGraphic row={row} width={gutterWidth} />
+            <RowGraphic row={row} width={gutterWidth} flipped={oldestFirst} />
             <CommitLabel commit={commit} />
           </>
         );
@@ -434,11 +455,25 @@ export function CommitGraph({
   );
 }
 
-function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
+function RowGraphic({
+  row,
+  width,
+  flipped,
+}: {
+  row: GraphRow;
+  width: number;
+  flipped: boolean;
+}) {
   const x = (lane: number) => lane * LANE_WIDTH + LANE_WIDTH / 2;
 
   return (
-    <svg width={width} className="commit-graph__gutter" aria-hidden="true">
+    <svg
+      width={width}
+      className={`commit-graph__gutter${
+        flipped ? " commit-graph__gutter--flipped" : ""
+      }`}
+      aria-hidden="true"
+    >
       {row.incoming.map((edge) => (
         <line
           key={`in-${edge.from}-${edge.to}`}
@@ -516,6 +551,10 @@ row is.
     flex: none;
     align-self: stretch;
     contain: size;
+  }
+
+  .commit-graph__gutter--flipped {
+    transform: scaleY(-1);
   }
 
   .commit-graph__edge {

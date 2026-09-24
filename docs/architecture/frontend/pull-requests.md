@@ -86,6 +86,13 @@ hook for the pairing would read back exactly the field it strips.
 pairing sees the guess GitHub's subject line encodes instead of the null the
 graph's own model has no room for.
 
+`usePullCommits` also turns the backend's newest-first list around, so every
+lane, row, and section on this screen reads oldest first. A pull request is
+read as a sequence, each commit building on the one before it, and a reader
+going top to bottom should meet a commit before the ones that depend on it.
+Reversing here rather than in each view means the pairing, the paired graph,
+and the commit stack cannot disagree about which end is up.
+
 ```tsx
 //| id: frontend-state-pull-commits
 //| file: src/frontend/state/pullCommits.ts
@@ -93,8 +100,8 @@ import { useEffect, useState } from "react";
 import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
 import type { AsyncState } from "./asyncState";
 
-/** One version's commits, as the pull request's own, so the pairing can read
- *  the identity the graph deliberately drops. */
+/** One version's commits, oldest first, as the pull request's own, so the
+ *  pairing can read the identity the graph deliberately drops. */
 export function usePullCommits(
   repo: string,
   number: number,
@@ -115,7 +122,9 @@ export function usePullCommits(
     setState({ status: "loading" });
     fetchPullCommits(repo, number, head)
       .then((data) => {
-        if (live) setState({ status: "ready", data: data.commits });
+        if (live) {
+          setState({ status: "ready", data: [...data.commits].reverse() });
+        }
       })
       .catch((err: unknown) => {
         if (live) setState({ status: "error", message: String(err) });
@@ -620,6 +629,7 @@ export function PullReview({
           <CommitLog
             source={{ kind: "pull", repo, number, head: to }}
             selected={[]}
+            oldestFirst
           />
         )
       }

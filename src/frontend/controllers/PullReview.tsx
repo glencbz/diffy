@@ -238,6 +238,7 @@ export function PullReview({
           <CommitLog
             source={{ kind: "pull", repo, number, head: to }}
             selected={[]}
+            oldestFirst
           />
         )
       }

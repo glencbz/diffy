@@ -44,7 +44,10 @@ on every call.
 ## Recomputing the heuristic
 
 `heuristicSlots` calls `alignSeries` and reads `commitId` off each side of
-its answer. It is not a new algorithm, because `alignSeries` already answers
+its answer. A pairing runs oldest first, the order the pull request screen
+reads in, and `alignSeries` keeps `jj log`'s newest-first convention, so
+`heuristicSlots` turns both series around on the way in and the answer
+around on the way out. It is not a new algorithm, because `alignSeries` already answers
 the question this heuristic needs answered, over the same two lists, and it
 is already tested against the reorders, drops, and inserts a pull request's
 history actually produces. A second heuristic here would mean keeping two
@@ -74,15 +77,18 @@ export interface Slot {
   right: string | null;
 }
 
-/** The heuristic pairing, read off `alignSeries` by commit id. */
+/** The heuristic pairing, read off `alignSeries` by commit id. Both series
+ *  and the slots run oldest first. */
 export function heuristicSlots(
   before: SeriesCommit[],
   after: SeriesCommit[],
 ): Slot[] {
-  return alignSeries(before, after).map((pair) => ({
-    left: pair.from?.commitId ?? null,
-    right: pair.to?.commitId ?? null,
-  }));
+  return alignSeries([...before].reverse(), [...after].reverse())
+    .reverse()
+    .map((pair) => ({
+      left: pair.from?.commitId ?? null,
+      right: pair.to?.commitId ?? null,
+    }));
 }
 
 function hasCard(slots: Slot[], side: Side, row: number): boolean {
@@ -263,11 +269,10 @@ import {
   type Slot,
 } from "./pairing";
 
-/** `"a b c"` -> that series, newest first, each commit its own version. */
+/** `"a b c"` -> that series, oldest first, each commit its own version. */
 function series(changes: string, version = "1"): SeriesCommit[] {
   return changes
     .split(" ")
-    .reverse()
     .map((changeId) => ({ changeId, commitId: `${changeId}${version}` }));
 }
 
@@ -293,9 +298,9 @@ describe("heuristicSlots", () => {
 
     // assert
     expect(slots).toEqual([
-      { left: "c1", right: "c2" },
-      { left: "b1", right: "b2" },
       { left: "a1", right: "a2" },
+      { left: "b1", right: "b2" },
+      { left: "c1", right: "c2" },
     ]);
   });
 
