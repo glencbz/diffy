@@ -219,3 +219,18 @@ export async function gitMergeBase(
   return GitOid.parse(shared) as LocalOid;
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/backend/git.md#git-module>>[5]
+
+/** A git blob id, whole or abbreviated the way a patch's `index` line prints it. */
+export const BlobId = z
+  .string()
+  .regex(/^[0-9a-f]{4,64}$/, "expected a hex git blob id")
+  .brand("BlobId");
+export type BlobId = z.infer<typeof BlobId>;
+
+/** A blob's contents as text, or null when the store has no one blob by that id. */
+export async function gitBlob(id: BlobId): Promise<string | null> {
+  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
+  return result.exitCode === 0 ? result.text() : null;
+}
+// ~/~ end

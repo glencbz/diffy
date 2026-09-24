@@ -38,8 +38,10 @@ mapping exists in one place instead of being repeated per handler.
 
 import * as z from "zod";
 import {
+  BlobId,
   GitError,
   GitOid,
+  gitBlob,
   gitLog,
   gitMaterialize,
   gitMergeBase,
@@ -69,6 +71,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -166,6 +169,47 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
   return lone === null
     ? Promise.resolve([])
     : jjDiff({ revision: lone.commitId });
+}
+```
+
+### Reading a file's source
+
+`/api/source` answers one side of one file, whole and
+[highlighted](syntax.md), for the diff view to lay over the hunks it already
+has. It takes the blob id off the patch's `index` line rather than a commit
+and a path, because an interdiff's before side is a tree jj builds for the
+comparison, which no commit id names, and the blob is the one name every kind
+of diff hands out. The path only chooses the language.
+
+The blob is read out of git's object store, so this route reads the same for
+a local commit and a pull request's, and never touches jj. An id that names
+nothing is a 404, which a reader holding an id from a diff it was just handed
+should only see for a blob jj computed for an interdiff and never wrote down.
+
+```ts
+//| id: backend-server
+
+export async function handleSource(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  const blob = BlobId.safeParse(params.get("blob"));
+  const path = params.get("path");
+
+  if (!blob.success || path === null || path === "") {
+    return Response.json(
+      { error: "source needs a blob id and a path" },
+      { status: 400 },
+    );
+  }
+
+  const text = await gitBlob(blob.data);
+  if (text === null) {
+    return Response.json(
+      { error: `no blob ${blob.data} in the object store` },
+      { status: 404 },
+    );
+  }
+
+  return Response.json(await highlightSource(text, path));
 }
 ```
 
@@ -481,6 +525,7 @@ export const routes = {
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
+  "/api/source": handleSource,
   "/api/github/pulls": handleGithubPulls,
   "/api/github/pull/history": handleGithubPullHistory,
   "/api/github/pull/commits": handleGithubPullCommits,
@@ -502,6 +547,7 @@ without binding a port.
 //| id: backend-server-test
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
+import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
@@ -512,6 +558,7 @@ import {
   handleInterdiff,
   handleLog,
   handleOperations,
+  handleSource,
   pullDiffResponse,
 } from "./server";
 
@@ -600,6 +647,47 @@ describe("handleDiff", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
+  });
+});
+
+describe("handleSource", () => {
+  const source = (params: Record<string, string>) =>
+    handleSource(
+      new Request(`http://test/api/source?${new URLSearchParams(params)}`),
+    );
+
+  test("answers a blob's lines, highlighted as its path says", async () => {
+    // arrange
+    const blob = (
+      await $`git rev-parse HEAD:package.json`.quiet().text()
+    ).trim();
+
+    // act
+    const res = await source({ blob, path: "package.json" });
+    const body = (await res.json()) as { language: string; lines: unknown[] };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.language).toBe("json");
+    expect(body.lines.length).toBeGreaterThan(0);
+  });
+
+  test("reports a blob the store does not hold as 404", async () => {
+    // arrange
+    // act
+    const res = await source({ blob: "f".repeat(40), path: "a.ts" });
+
+    // assert
+    expect(res.status).toBe(404);
+  });
+
+  test("reports a request without a usable blob id as 400", async () => {
+    // arrange
+    // act
+    const res = await source({ blob: "HEAD", path: "a.ts" });
+
+    // assert
+    expect(res.status).toBe(400);
   });
 });
 

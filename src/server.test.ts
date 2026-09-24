@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
 import { describe, expect, test } from "bun:test";
+import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
@@ -10,6 +11,7 @@ import {
   handleInterdiff,
   handleLog,
   handleOperations,
+  handleSource,
   pullDiffResponse,
 } from "./server";
 
@@ -98,6 +100,47 @@ describe("handleDiff", () => {
     // assert
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/doesn't exist/);
+  });
+});
+
+describe("handleSource", () => {
+  const source = (params: Record<string, string>) =>
+    handleSource(
+      new Request(`http://test/api/source?${new URLSearchParams(params)}`),
+    );
+
+  test("answers a blob's lines, highlighted as its path says", async () => {
+    // arrange
+    const blob = (
+      await $`git rev-parse HEAD:package.json`.quiet().text()
+    ).trim();
+
+    // act
+    const res = await source({ blob, path: "package.json" });
+    const body = (await res.json()) as { language: string; lines: unknown[] };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.language).toBe("json");
+    expect(body.lines.length).toBeGreaterThan(0);
+  });
+
+  test("reports a blob the store does not hold as 404", async () => {
+    // arrange
+    // act
+    const res = await source({ blob: "f".repeat(40), path: "a.ts" });
+
+    // assert
+    expect(res.status).toBe(404);
+  });
+
+  test("reports a request without a usable blob id as 400", async () => {
+    // arrange
+    // act
+    const res = await source({ blob: "HEAD", path: "a.ts" });
+
+    // assert
+    expect(res.status).toBe(400);
   });
 });
 

@@ -356,6 +356,11 @@ export type JjFileDiff = (
 ) & {
   /** True when jj emitted "Binary files ... differ" in place of a text hunk. */
   binary: boolean;
+  /** The git blob each side's contents are stored under, as abbreviated on
+   *  the `index` line. Null for a side that does not exist, and for both
+   *  sides when the patch has no `index` line at all. */
+  oldBlob: string | null;
+  newBlob: string | null;
   /** The verbatim `git`-format unified diff for just this file. */
   patch: string;
 };
@@ -401,6 +406,12 @@ that has none, a mode-only change. `/dev/null` on a side means that side
 doesn't exist. A patch we can't pull a path from is a parser bug, not a jj
 failure, so it throws a plain `Error` (a 500) rather than guessing.
 
+The `index <old>..<new>` line names the blob each side's contents are stored
+under, which is all a reader needs to fetch the [whole file](git.md#reading-a-files-contents)
+a hunk was cut from. An id of all zeros stands for the side that does not
+exist. A pure rename or a mode change has no `index` line and no contents
+worth fetching, so both blobs stay null.
+
 ```ts
 //| id: jj-module
 
@@ -414,6 +425,12 @@ function stripPrefix(raw: string): string | null {
 // " b/" boundary; it only misfires if a path literally contains " b/".
 const DIFF_GIT_HEADER = /^diff --git a\/(.+?) b\/(.+)$/;
 const BINARY_FILES = /^Binary files (.+) and (.+) differ$/;
+const INDEX = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/;
+
+/** A blob id off the `index` line, or null for the all-zeros missing side. */
+function blobOf(id: string | undefined): string | null {
+  return id === undefined || /^0+$/.test(id) ? null : id;
+}
 
 /** Exported for unit tests: turn one file's `git`-format patch into metadata. */
 export function parseFileDiff(patch: string): JjFileDiff {
@@ -424,6 +441,8 @@ export function parseFileDiff(patch: string): JjFileDiff {
   let oldPath: string | null = null;
   let newPath: string | null = null;
   let binary = false;
+  let oldBlob: string | null = null;
+  let newBlob: string | null = null;
 
   for (const line of lines) {
     if (line.startsWith("new file mode")) kind = "added";
@@ -444,6 +463,10 @@ export function parseFileDiff(patch: string): JjFileDiff {
       oldPath = stripPrefix(line.slice("--- ".length));
     } else if (line.startsWith("+++ ")) {
       newPath = stripPrefix(line.slice("+++ ".length));
+    } else if (line.startsWith("index ")) {
+      const ids = line.match(INDEX);
+      oldBlob = blobOf(ids?.[1]);
+      newBlob = blobOf(ids?.[2]);
     } else if (line.startsWith("Binary files ")) {
       binary = true;
       const paths = line.match(BINARY_FILES);
@@ -460,14 +483,14 @@ export function parseFileDiff(patch: string): JjFileDiff {
     if (oldPath === null || newPath === null) {
       throw new Error(`jjDiff: can't parse rename paths from: ${lines[0]}`);
     }
-    return { status: kind, oldPath, newPath, binary, patch };
+    return { status: kind, oldPath, newPath, binary, oldBlob, newBlob, patch };
   }
 
   const path = kind === "deleted" ? oldPath : newPath;
   if (path === null) {
     throw new Error(`jjDiff: can't parse a path from: ${lines[0]}`);
   }
-  return { status: kind, path, binary, patch };
+  return { status: kind, path, binary, oldBlob, newBlob, patch };
 }
 ```
 
@@ -653,6 +676,8 @@ describe("parseFileDiff", () => {
       status: "added",
       path: "add.txt",
       binary: false,
+      oldBlob: null,
+      newBlob: "d5a09df94c",
     });
   });
 
@@ -674,6 +699,8 @@ describe("parseFileDiff", () => {
       status: "deleted",
       path: "del.txt",
       binary: false,
+      oldBlob: "de980441c3",
+      newBlob: null,
     });
   });
 
@@ -695,6 +722,8 @@ describe("parseFileDiff", () => {
       status: "modified",
       path: "mod.txt",
       binary: false,
+      oldBlob: "04ec35a6dc",
+      newBlob: "0722639108",
     });
   });
 
@@ -713,6 +742,8 @@ describe("parseFileDiff", () => {
       oldPath: "t.txt",
       newPath: "renamed.txt",
       binary: false,
+      oldBlob: null,
+      newBlob: null,
       patch,
     });
   });
