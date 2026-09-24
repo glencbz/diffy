@@ -8,7 +8,7 @@ A just rule runs the backend:
 #| id: just-bun
 # Run the app
 @run port="3000":
-  PORT={{port}} bun run src/server.ts
+  PORT={{port}} {{nix_runtime}} bun run src/server.ts
 
 ```
 
@@ -868,7 +868,7 @@ describe("the GitHub routes", () => {
 #| id: just-bun-test
 # Run tests
 @test:
-  bun test
+  {{nix_runtime}} bun test
 ```
 
 ### Typechecking

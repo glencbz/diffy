@@ -30,3 +30,8 @@ comment = { open = "/*", close = "*/" }
 name = "HTML"
 identifiers = ["html"]
 comment = { open = "<!--", close = "-->" }
+
+[[languages]]
+name = "Nix"
+identifiers = ["nix"]
+comment = { open = "#" }

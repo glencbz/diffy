@@ -11,6 +11,11 @@ _default:
   bun install
   # ~/~ end
 
+# ~/~ begin <<docs/devtools/nix.md#just-nix>>[init]
+# Run a command with diffy's runtime dependencies on PATH
+nix_runtime := "nix --extra-experimental-features 'nix-command flakes' develop path:" + justfile_directory() / "nix#runtime -c"
+# ~/~ end
+
 # ~/~ begin <<docs/devtools/entangled.md#just-entangled>>[init]
 # Sync from docs to code or vice-versa
 @en-sync:
@@ -34,7 +39,7 @@ _default:
 # ~/~ begin <<docs/architecture/backend/server.md#just-bun>>[init]
 # Run the app
 @run port="3000":
-  PORT={{port}} bun run src/server.ts
+  PORT={{port}} {{nix_runtime}} bun run src/server.ts
 
 # ~/~ end
 
@@ -112,7 +117,7 @@ _free-port start:
 # ~/~ begin <<docs/architecture/backend/server.md#just-bun-test>>[init]
 # Run tests
 @test:
-  bun test
+  {{nix_runtime}} bun test
 # ~/~ end
 
 # ~/~ begin <<docs/architecture/backend/server.md#just-bun-typecheck>>[init]
