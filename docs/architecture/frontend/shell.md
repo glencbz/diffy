@@ -12,6 +12,12 @@ page; every class the views name is defined there.
 
 The icon is inline so that no route has to serve it.
 
+The viewport tag is what makes a phone a narrow window. Without it a mobile
+browser lays the page out 980 pixels wide and shrinks the result to fit the
+screen, so 13-pixel text reaches the reader at about five pixels and the phone
+breakpoints never match. `width=device-width` lays the page out at the width
+of the screen.
+
 ```html
 <!--| id: landing-page
 <!--| file: src/frontend/index.html
@@ -19,6 +25,7 @@ The icon is inline so that no route has to serve it.
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Diffy</title>
     <link rel="stylesheet" href="./styles.css" />
     <link
