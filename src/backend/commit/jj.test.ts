@@ -283,6 +283,25 @@ describe("jjDiff", () => {
     }
   });
 
+  test("reads every modified file through difftastic as well", async () => {
+    // arrange
+    // act
+    const files = await jjDiff({ revision: "root()++" });
+
+    // assert
+    const modified = files.filter((file) => file.status === "modified");
+    expect(modified.length).toBeGreaterThan(0);
+    for (const file of modified) {
+      expect(file.structural.kind).toBe("structural");
+    }
+    for (const file of files.filter((file) => file.status === "added")) {
+      expect(file.structural).toEqual({
+        kind: "unavailable",
+        reason: "added file",
+      });
+    }
+  });
+
   test("returns an empty list for a commit with no changes", async () => {
     // arrange
     // act
