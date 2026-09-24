@@ -2,7 +2,6 @@
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const ROW_HEIGHT = 40;
 const LANE_WIDTH = 24;
 const LANE_CLASS_COUNT = 7;
 
@@ -160,22 +159,16 @@ export function CommitGraph({
 
 function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
   const x = (lane: number) => lane * LANE_WIDTH + LANE_WIDTH / 2;
-  const middle = ROW_HEIGHT / 2;
 
   return (
-    <svg
-      width={width}
-      height={ROW_HEIGHT}
-      className="commit-graph__gutter"
-      aria-hidden="true"
-    >
+    <svg width={width} className="commit-graph__gutter" aria-hidden="true">
       {row.incoming.map((edge) => (
         <line
           key={`in-${edge.from}-${edge.to}`}
           x1={x(edge.from)}
-          y1={0}
+          y1="0"
           x2={x(edge.to)}
-          y2={middle}
+          y2="50%"
           className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
@@ -183,15 +176,15 @@ function RowGraphic({ row, width }: { row: GraphRow; width: number }) {
         <line
           key={`out-${edge.from}-${edge.to}`}
           x1={x(edge.from)}
-          y1={middle}
+          y1="50%"
           x2={x(edge.to)}
-          y2={ROW_HEIGHT}
+          y2="100%"
           className={`commit-graph__edge ${laneClass(edge.to)}`}
         />
       ))}
       <circle
         cx={x(row.lane)}
-        cy={middle}
+        cy="50%"
         r={4}
         className={`commit-graph__node ${laneClass(row.lane)}${
           row.isMerge ? " commit-graph__node--merge" : ""
