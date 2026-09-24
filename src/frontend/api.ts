@@ -52,6 +52,10 @@ const OpLogResponse = z.array(OpLogEntry);
 
 const fileDiffFields = {
   binary: z.boolean(),
+  /** The blob each side is stored under, for `fetchSource`. Null for a side
+   *  that does not exist. */
+  oldBlob: z.string().nullable(),
+  newBlob: z.string().nullable(),
   patch: z.string(),
 };
 
@@ -313,6 +317,43 @@ export async function fetchPullDiff(
       `/api/github/pull/diff?${params}`,
       "GET /api/github/pull/diff",
     ),
+  );
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[3]
+
+export const SyntaxKind = z.enum([
+  "keyword",
+  "string",
+  "string-expression",
+  "comment",
+  "constant",
+  "function",
+  "parameter",
+  "punctuation",
+  "link",
+]);
+export type SyntaxKind = z.infer<typeof SyntaxKind>;
+
+export const SyntaxToken = z.object({
+  text: z.string(),
+  kind: SyntaxKind.nullable(),
+});
+export type SyntaxToken = z.infer<typeof SyntaxToken>;
+
+export const SourceFile = z.object({
+  language: z.string().nullable(),
+  lines: z.array(z.array(SyntaxToken)),
+});
+export type SourceFile = z.infer<typeof SourceFile>;
+
+export async function fetchSource(
+  blob: string,
+  path: string,
+): Promise<SourceFile> {
+  const params = new URLSearchParams({ blob, path });
+  return SourceFile.parse(
+    await getJson(`/api/source?${params}`, "GET /api/source"),
   );
 }
 // ~/~ end

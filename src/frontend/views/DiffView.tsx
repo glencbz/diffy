@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
 import { useState } from "react";
-import type { FileDiff } from "../api";
+import type { FileDiff, SourceFile, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
+import type { SourceLookup } from "../state/source";
 import { type HunkLine, type Patch, readPatch } from "./patch";
 
 /** Review memory for the files on screen. A diff that has one lets every
@@ -15,9 +16,11 @@ export interface DiffReview {
 
 export function DiffView({
   files,
+  sources,
   review,
 }: {
   files: FileDiff[];
+  sources?: SourceLookup;
   review?: DiffReview;
 }) {
   const [composer, setComposer] = useState<{
@@ -33,6 +36,7 @@ export function DiffView({
           <FileRow
             key={path}
             file={file}
+            sides={sidesOf(file, sources)}
             review={
               review === undefined
                 ? undefined
@@ -70,7 +74,36 @@ interface FileReview {
   onDropComment: (id: string) => void;
 }
 
-function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
+/** Each side of one file, whole, where it has loaded. */
+interface FileSides {
+  old: SourceFile | null;
+  new: SourceFile | null;
+}
+
+function sidesOf(file: FileDiff, sources?: SourceLookup): FileSides {
+  const oldPath = "path" in file ? file.path : file.oldPath;
+  const newPath = "path" in file ? file.path : file.newPath;
+  return {
+    old:
+      sources === undefined || file.oldBlob === null
+        ? null
+        : sources(file.oldBlob, oldPath),
+    new:
+      sources === undefined || file.newBlob === null
+        ? null
+        : sources(file.newBlob, newPath),
+  };
+}
+
+function FileRow({
+  file,
+  sides,
+  review,
+}: {
+  file: FileDiff;
+  sides: FileSides;
+  review?: FileReview;
+}) {
   return (
     <section className="diff-file">
       <header className="diff-file__header">
@@ -81,7 +114,7 @@ function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(readPatch(file.patch)).map((line, index) => (
+          {drawnLines(readPatch(file.patch), sides).map((line, index) => (
             <PatchLine
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
               key={index}
@@ -203,25 +236,43 @@ function PatchLine({
   line: DrawnLine;
   onOpenComposer?: (line: number) => void;
 }) {
-  const { text, kind, afterLine } = line;
+  const afterLine = "afterLine" in line ? line.afterLine : null;
   const body = (
     <>
       <span className="diff-line__gutter">{afterLine ?? ""}</span>
-      <span className={kind === null ? undefined : `diff-line__text--${kind}`}>
-        {text === "" ? " " : text}
-      </span>
+      {"text" in line ? (
+        <span className={`diff-line__text--${line.kind}`}>
+          {line.text === "" ? " " : line.text}
+        </span>
+      ) : (
+        <span>
+          <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+          {line.tokens.map((token, index) => (
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
+              key={index}
+              className={
+                token.kind === null ? undefined : `syntax--${token.kind}`
+              }
+            >
+              {token.text}
+            </span>
+          ))}
+        </span>
+      )}
     </>
   );
+  const className = `diff-line diff-line--${line.kind}`;
 
   if (afterLine === null || onOpenComposer === undefined) {
-    return <div className="diff-line">{body}</div>;
+    return <div className={className}>{body}</div>;
   }
 
   return (
     <button
       type="button"
       onClick={() => onOpenComposer(afterLine)}
-      className="diff-line diff-line--interactive"
+      className={`${className} diff-line--interactive`}
     >
       {body}
     </button>
@@ -232,38 +283,70 @@ function pathOf(file: FileDiff): string {
   return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
 }
 
-type DiffLineKind = "meta" | "hunk" | "added" | "removed";
+type CodeKind = "context" | "added" | "removed";
 
-/** One line as drawn: its text, its colour, and its after-side line number,
- *  or null where it has none. */
-interface DrawnLine {
-  text: string;
-  kind: DiffLineKind | null;
-  afterLine: number | null;
-}
+const SIGNS: Record<CodeKind, string> = {
+  context: " ",
+  added: "+",
+  removed: "-",
+};
 
-function drawnLines(patch: Patch): DrawnLine[] {
+/** One line as drawn. Header lines, hunk headers, and notes are text in one
+ *  colour. A line of the file is its tokens, and its after-side line number
+ *  where it has one. */
+type DrawnLine =
+  | { kind: "meta" | "hunk"; text: string }
+  | {
+      kind: CodeKind;
+      tokens: SyntaxToken[];
+      afterLine: number | null;
+    };
+
+function drawnLines(patch: Patch, sides: FileSides): DrawnLine[] {
   return [
-    ...patch.header.map(
-      (text): DrawnLine => ({ text, kind: "meta", afterLine: null }),
-    ),
+    ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
     ...patch.hunks.flatMap((hunk) => [
-      { text: hunk.header, kind: "hunk" as const, afterLine: null },
-      ...hunk.lines.map(drawnHunkLine),
+      { kind: "hunk" as const, text: hunk.header },
+      ...hunk.lines.map((line) => drawnHunkLine(line, sides)),
     ]),
   ];
 }
 
-function drawnHunkLine(line: HunkLine): DrawnLine {
+function drawnHunkLine(line: HunkLine, sides: FileSides): DrawnLine {
   switch (line.kind) {
     case "context":
-      return { text: ` ${line.code}`, kind: null, afterLine: line.newLine };
+      return {
+        kind: "context",
+        tokens: tokensAt(sides.new, line.newLine, line.code),
+        afterLine: line.newLine,
+      };
     case "added":
-      return { text: `+${line.code}`, kind: "added", afterLine: line.newLine };
+      return {
+        kind: "added",
+        tokens: tokensAt(sides.new, line.newLine, line.code),
+        afterLine: line.newLine,
+      };
     case "removed":
-      return { text: `-${line.code}`, kind: "removed", afterLine: null };
+      return {
+        kind: "removed",
+        tokens: tokensAt(sides.old, line.oldLine, line.code),
+        afterLine: null,
+      };
     case "note":
-      return { text: line.text, kind: "meta", afterLine: null };
+      return { kind: "meta", text: line.text };
   }
+}
+
+/** The highlighted tokens for line `number` of a side, or the code as one
+ *  plain token when the side has not loaded or does not say the same thing
+ *  the patch does. */
+function tokensAt(
+  side: SourceFile | null,
+  number: number,
+  code: string,
+): SyntaxToken[] {
+  const tokens = side?.lines[number - 1];
+  if (tokens?.map((token) => token.text).join("") === code) return tokens;
+  return [{ text: code, kind: null }];
 }
 // ~/~ end

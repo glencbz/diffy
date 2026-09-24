@@ -298,6 +298,8 @@ reference here, anywhere.
 
 <<design-diff-view>>
 
+<<design-syntax>>
+
 <<design-pull-state-chip>>
 
 <<design-pull-list>>

@@ -2,6 +2,7 @@
 import { type Comparison, useComparison } from "../state/comparison";
 import { reviewRows } from "../state/review";
 import type { Session } from "../state/session";
+import { useSources } from "../state/source";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
@@ -13,6 +14,9 @@ export function DiffPane({
   session: Session;
 }) {
   const answer = useComparison(comparison);
+  const sources = useSources(
+    answer?.status === "ready" ? answer.data.flatMap((row) => row.files) : [],
+  );
 
   if (answer === null) {
     return <Message>Select commits on either side to compare them.</Message>;
@@ -25,6 +29,7 @@ export function DiffPane({
   return (
     <InterdiffRows
       rows={reviewRows(answer.data, session.document)}
+      sources={sources}
       onMarkSeen={session.markSeen}
       onAddComment={session.addComment}
       onResolveComment={session.resolveComment}

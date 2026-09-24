@@ -137,6 +137,8 @@ describe("countLines", () => {
         status: "modified",
         path: "a.ts",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "--- a/a.ts\n+++ b/a.ts\n+added line\n-removed line\n context",
       },
     ];

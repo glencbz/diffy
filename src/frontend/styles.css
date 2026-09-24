@@ -96,6 +96,17 @@
     --diff-removed: var(--red-600);
     --diff-meta: var(--grey-700);
     --diff-hunk: var(--blue-600);
+    --diff-added-surface: var(--green-100);
+    --diff-removed-surface: var(--red-100);
+
+    --syntax-keyword: var(--purple-600);
+    --syntax-string: var(--teal-600);
+    --syntax-comment: var(--grey-600);
+    --syntax-constant: var(--amber-800);
+    --syntax-function: var(--blue-600);
+    --syntax-parameter: var(--grey-900);
+    --syntax-punctuation: var(--grey-700);
+    --syntax-link: var(--blue-600);
 
     --review-open: var(--red-800);
     --review-resolved: var(--green-400);
@@ -158,6 +169,17 @@
       --diff-removed: var(--red-400);
       --diff-meta: var(--grey-600);
       --diff-hunk: var(--blue-400);
+      --diff-added-surface: var(--green-900);
+      --diff-removed-surface: var(--red-900);
+
+      --syntax-keyword: var(--purple-400);
+      --syntax-string: var(--teal-400);
+      --syntax-comment: var(--grey-600);
+      --syntax-constant: var(--amber-400);
+      --syntax-function: var(--blue-400);
+      --syntax-parameter: var(--grey-100);
+      --syntax-punctuation: var(--grey-500);
+      --syntax-link: var(--blue-400);
 
       --review-open: var(--red-400);
       --review-resolved: var(--green-300);
@@ -1041,6 +1063,22 @@
     cursor: pointer;
   }
 
+  .diff-line--added {
+    background: var(--diff-added-surface);
+  }
+
+  .diff-line--removed {
+    background: var(--diff-removed-surface);
+  }
+
+  .diff-line--added .diff-line__sign {
+    color: var(--diff-added);
+  }
+
+  .diff-line--removed .diff-line__sign {
+    color: var(--diff-removed);
+  }
+
   .diff-line__gutter {
     width: var(--gutter-width);
     flex: none;
@@ -1056,14 +1094,6 @@
 
   .diff-line__text--hunk {
     color: var(--diff-hunk);
-  }
-
-  .diff-line__text--added {
-    color: var(--diff-added);
-  }
-
-  .diff-line__text--removed {
-    color: var(--diff-removed);
   }
 
   .comment-composer {
@@ -1096,6 +1126,44 @@
       width: max-content;
       min-width: 100%;
     }
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/syntax.md#design-syntax>>[init] */
+@layer components {
+  .syntax--keyword {
+    color: var(--syntax-keyword);
+  }
+
+  .syntax--string,
+  .syntax--string-expression {
+    color: var(--syntax-string);
+  }
+
+  .syntax--comment {
+    color: var(--syntax-comment);
+  }
+
+  .syntax--constant {
+    color: var(--syntax-constant);
+  }
+
+  .syntax--function {
+    color: var(--syntax-function);
+  }
+
+  .syntax--parameter {
+    color: var(--syntax-parameter);
+  }
+
+  .syntax--punctuation {
+    color: var(--syntax-punctuation);
+  }
+
+  .syntax--link {
+    color: var(--syntax-link);
+    text-decoration: underline;
   }
 }
 /* ~/~ end */

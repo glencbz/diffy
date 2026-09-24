@@ -13,6 +13,7 @@ import { type Slot, usePairing } from "../state/pairing";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
+import { useSources } from "../state/source";
 import {
   CommitStack,
   type StackRow,
@@ -170,6 +171,12 @@ export function PullReview({
 
   const pairing = usePairing(beforeCommits, afterCommits);
   const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
+  const sources = useSources(
+    [...open].flatMap((key) => {
+      const files = diffs.get(key);
+      return files?.status === "ready" ? files.data : [];
+    }),
+  );
 
   if (history.status === "loading") {
     return <Message>Loading versions...</Message>;
@@ -242,6 +249,7 @@ export function PullReview({
         ) : (
           <CommitStack
             rows={rows}
+            sources={sources}
             open={open}
             onToggle={(key) => setOpen((now) => toggled(now, key))}
             expanded={expanded}

@@ -69,6 +69,11 @@ export function useComparison(
 A comparison of local commits comes back as one row per lined-up pair, and
 each row carries its own header saying which commit faced which.
 
+It also loads [both sides of every file](syntax.md#loading-each-side) in the
+comparison once it lands, for the diff to colour. That hook sits above the
+early returns with an empty list to begin with, because hooks run on every
+render or on none.
+
 Takes a `session` prop rather than calling `useSession` itself, since `App`
 owns the one session for the whole page and other readers will want it. The
 existing null/loading/error branches on the comparison fetch are untouched,
@@ -82,6 +87,7 @@ props already in hand rather than fetching.
 import { type Comparison, useComparison } from "../state/comparison";
 import { reviewRows } from "../state/review";
 import type { Session } from "../state/session";
+import { useSources } from "../state/source";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
@@ -93,6 +99,9 @@ export function DiffPane({
   session: Session;
 }) {
   const answer = useComparison(comparison);
+  const sources = useSources(
+    answer?.status === "ready" ? answer.data.flatMap((row) => row.files) : [],
+  );
 
   if (answer === null) {
     return <Message>Select commits on either side to compare them.</Message>;
@@ -105,6 +114,7 @@ export function DiffPane({
   return (
     <InterdiffRows
       rows={reviewRows(answer.data, session.document)}
+      sources={sources}
       onMarkSeen={session.markSeen}
       onAddComment={session.addComment}
       onResolveComment={session.resolveComment}
@@ -116,15 +126,25 @@ export function DiffPane({
 
 ## Diff view
 
-Renders each file's `git`-format patch. The one thing it adds is colour:
-`+` lines green, `-` lines red, `@@` hunk headers blue, file headers grey. A
-binary file gets a placeholder in place of a patch body. The caller always
+Renders each file's `git`-format patch, in colour. `+` lines sit on green and
+`-` lines on red, `@@` hunk headers are blue, and file headers grey. The code
+on each line is coloured by its language, taken from whichever side of the
+file the line belongs to through the `sources` lookup a
+[controller loads](syntax.md#loading-each-side). A binary file gets a
+placeholder in place of a patch body. The caller always
 hands it a real `files` array. The controller deals with anything that is not
 a rendered diff.
 
 The patch is not drawn as text. [`readPatch`](#reading-a-patch) reads it into
 a header and hunks first, and every drawn line comes from a hunk line that
-already knows its kind and its line numbers.
+already knows its kind and its line numbers. A removed line is looked up on the
+before side by its old number, and every other line on the after side by its
+new one. The lookup is checked against the patch: when the highlighted line
+does not read the same as the patch's, or its side has not loaded, the line is
+drawn as one plain token. A patch is always right about its own text, so a
+side that disagrees with it loses its colours rather than changing what the
+reader sees. `sources` is optional for the same reason, and a diff without it
+reads exactly as it would have with every side still loading.
 
 A left gutter adds the after-side line number to each rendered line, because
 that is what a comment's `line` field means: the line as it reads in the
@@ -153,8 +173,9 @@ read-only diff cannot advertise an affordance that records nothing.
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
 import { useState } from "react";
-import type { FileDiff } from "../api";
+import type { FileDiff, SourceFile, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
+import type { SourceLookup } from "../state/source";
 import { type HunkLine, type Patch, readPatch } from "./patch";
 
 /** Review memory for the files on screen. A diff that has one lets every
@@ -168,9 +189,11 @@ export interface DiffReview {
 
 export function DiffView({
   files,
+  sources,
   review,
 }: {
   files: FileDiff[];
+  sources?: SourceLookup;
   review?: DiffReview;
 }) {
   const [composer, setComposer] = useState<{
@@ -186,6 +209,7 @@ export function DiffView({
           <FileRow
             key={path}
             file={file}
+            sides={sidesOf(file, sources)}
             review={
               review === undefined
                 ? undefined
@@ -223,7 +247,36 @@ interface FileReview {
   onDropComment: (id: string) => void;
 }
 
-function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
+/** Each side of one file, whole, where it has loaded. */
+interface FileSides {
+  old: SourceFile | null;
+  new: SourceFile | null;
+}
+
+function sidesOf(file: FileDiff, sources?: SourceLookup): FileSides {
+  const oldPath = "path" in file ? file.path : file.oldPath;
+  const newPath = "path" in file ? file.path : file.newPath;
+  return {
+    old:
+      sources === undefined || file.oldBlob === null
+        ? null
+        : sources(file.oldBlob, oldPath),
+    new:
+      sources === undefined || file.newBlob === null
+        ? null
+        : sources(file.newBlob, newPath),
+  };
+}
+
+function FileRow({
+  file,
+  sides,
+  review,
+}: {
+  file: FileDiff;
+  sides: FileSides;
+  review?: FileReview;
+}) {
   return (
     <section className="diff-file">
       <header className="diff-file__header">
@@ -234,7 +287,7 @@ function FileRow({ file, review }: { file: FileDiff; review?: FileReview }) {
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(readPatch(file.patch)).map((line, index) => (
+          {drawnLines(readPatch(file.patch), sides).map((line, index) => (
             <PatchLine
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
               key={index}
@@ -356,25 +409,43 @@ function PatchLine({
   line: DrawnLine;
   onOpenComposer?: (line: number) => void;
 }) {
-  const { text, kind, afterLine } = line;
+  const afterLine = "afterLine" in line ? line.afterLine : null;
   const body = (
     <>
       <span className="diff-line__gutter">{afterLine ?? ""}</span>
-      <span className={kind === null ? undefined : `diff-line__text--${kind}`}>
-        {text === "" ? " " : text}
-      </span>
+      {"text" in line ? (
+        <span className={`diff-line__text--${line.kind}`}>
+          {line.text === "" ? " " : line.text}
+        </span>
+      ) : (
+        <span>
+          <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+          {line.tokens.map((token, index) => (
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
+              key={index}
+              className={
+                token.kind === null ? undefined : `syntax--${token.kind}`
+              }
+            >
+              {token.text}
+            </span>
+          ))}
+        </span>
+      )}
     </>
   );
+  const className = `diff-line diff-line--${line.kind}`;
 
   if (afterLine === null || onOpenComposer === undefined) {
-    return <div className="diff-line">{body}</div>;
+    return <div className={className}>{body}</div>;
   }
 
   return (
     <button
       type="button"
       onClick={() => onOpenComposer(afterLine)}
-      className="diff-line diff-line--interactive"
+      className={`${className} diff-line--interactive`}
     >
       {body}
     </button>
@@ -385,47 +456,80 @@ function pathOf(file: FileDiff): string {
   return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
 }
 
-type DiffLineKind = "meta" | "hunk" | "added" | "removed";
+type CodeKind = "context" | "added" | "removed";
 
-/** One line as drawn: its text, its colour, and its after-side line number,
- *  or null where it has none. */
-interface DrawnLine {
-  text: string;
-  kind: DiffLineKind | null;
-  afterLine: number | null;
-}
+const SIGNS: Record<CodeKind, string> = {
+  context: " ",
+  added: "+",
+  removed: "-",
+};
 
-function drawnLines(patch: Patch): DrawnLine[] {
+/** One line as drawn. Header lines, hunk headers, and notes are text in one
+ *  colour. A line of the file is its tokens, and its after-side line number
+ *  where it has one. */
+type DrawnLine =
+  | { kind: "meta" | "hunk"; text: string }
+  | {
+      kind: CodeKind;
+      tokens: SyntaxToken[];
+      afterLine: number | null;
+    };
+
+function drawnLines(patch: Patch, sides: FileSides): DrawnLine[] {
   return [
-    ...patch.header.map(
-      (text): DrawnLine => ({ text, kind: "meta", afterLine: null }),
-    ),
+    ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
     ...patch.hunks.flatMap((hunk) => [
-      { text: hunk.header, kind: "hunk" as const, afterLine: null },
-      ...hunk.lines.map(drawnHunkLine),
+      { kind: "hunk" as const, text: hunk.header },
+      ...hunk.lines.map((line) => drawnHunkLine(line, sides)),
     ]),
   ];
 }
 
-function drawnHunkLine(line: HunkLine): DrawnLine {
+function drawnHunkLine(line: HunkLine, sides: FileSides): DrawnLine {
   switch (line.kind) {
     case "context":
-      return { text: ` ${line.code}`, kind: null, afterLine: line.newLine };
+      return {
+        kind: "context",
+        tokens: tokensAt(sides.new, line.newLine, line.code),
+        afterLine: line.newLine,
+      };
     case "added":
-      return { text: `+${line.code}`, kind: "added", afterLine: line.newLine };
+      return {
+        kind: "added",
+        tokens: tokensAt(sides.new, line.newLine, line.code),
+        afterLine: line.newLine,
+      };
     case "removed":
-      return { text: `-${line.code}`, kind: "removed", afterLine: null };
+      return {
+        kind: "removed",
+        tokens: tokensAt(sides.old, line.oldLine, line.code),
+        afterLine: null,
+      };
     case "note":
-      return { text: line.text, kind: "meta", afterLine: null };
+      return { kind: "meta", text: line.text };
   }
+}
+
+/** The highlighted tokens for line `number` of a side, or the code as one
+ *  plain token when the side has not loaded or does not say the same thing
+ *  the patch does. */
+function tokensAt(
+  side: SourceFile | null,
+  number: number,
+  code: string,
+): SyntaxToken[] {
+  const tokens = side?.lines[number - 1];
+  if (tokens?.map((token) => token.text).join("") === code) return tokens;
+  return [{ text: code, kind: null }];
 }
 ```
 
-A patch line's colour is chosen from the same fixed set a unified diff
-always has — added, removed, a hunk header, or file-level meta — so DiffView
-maps a line's text to one of four modifier classes instead of a lookup
-table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
-`--diff-meta` are the only place those colours live.
+A patch line's kind is one of the fixed set a unified diff always has, so
+each drawn line carries it as a modifier class instead of a lookup table of
+colours. Header lines and hunk headers are coloured text. An added or removed
+line is tinted behind its text and only its sign takes the line's colour,
+because the text is [coloured by its syntax](syntax.md#colours) and green or
+red text would drown that out.
 
 ```css
 /*| id: design-diff-view
@@ -478,6 +582,22 @@ table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
     cursor: pointer;
   }
 
+  .diff-line--added {
+    background: var(--diff-added-surface);
+  }
+
+  .diff-line--removed {
+    background: var(--diff-removed-surface);
+  }
+
+  .diff-line--added .diff-line__sign {
+    color: var(--diff-added);
+  }
+
+  .diff-line--removed .diff-line__sign {
+    color: var(--diff-removed);
+  }
+
   .diff-line__gutter {
     width: var(--gutter-width);
     flex: none;
@@ -493,14 +613,6 @@ table of colours, and `--diff-added`, `--diff-removed`, `--diff-hunk`, and
 
   .diff-line__text--hunk {
     color: var(--diff-hunk);
-  }
-
-  .diff-line__text--added {
-    color: var(--diff-added);
-  }
-
-  .diff-line__text--removed {
-    color: var(--diff-removed);
   }
 
   .comment-composer {
@@ -751,17 +863,20 @@ not a unique React key even though it now sits on the row.
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
 import type { ReviewedRow } from "../state/review";
+import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
 
 export function InterdiffRows({
   rows,
+  sources,
   onMarkSeen,
   onAddComment,
   onResolveComment,
   onDropComment,
 }: {
   rows: ReviewedRow[];
+  sources: SourceLookup;
   onMarkSeen: (row: ReviewedRow) => void;
   onAddComment: (
     row: ReviewedRow,
@@ -786,6 +901,7 @@ export function InterdiffRows({
           ) : (
             <DiffView
               files={row.files}
+              sources={sources}
               review={{
                 comments: row.comments,
                 onAddComment: (path, line, body) =>
