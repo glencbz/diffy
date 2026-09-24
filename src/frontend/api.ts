@@ -171,6 +171,10 @@ export const GitCommit = z.object({
   description: z.string(),
   author: z.string(),
   authoredAt: z.string(),
+  /** What lines this commit up against another across a force push. The
+   *  backend derives it from the subject line, since git records nothing
+   *  durable of its own. */
+  changeId: z.string().nullable(),
 });
 export type GitCommit = z.infer<typeof GitCommit>;
 
@@ -278,11 +282,19 @@ export async function fetchPullHistory(
   );
 }
 
+/** The one commit, or the pair across two versions, to diff inside the heads
+ *  `from`/`to` resolve. The backend's `DiffScope` also has a whole-head
+ *  shape, which no screen asks for. */
+export type PullDiffScope =
+  | { kind: "commit"; commit: GitOid }
+  | { kind: "pair"; from: GitOid; to: GitOid };
+
 export async function fetchPullDiff(
   repo: string,
   number: number,
   to: GitOid,
   from: PullBaseline,
+  scope: PullDiffScope,
 ): Promise<PullDiffResponse> {
   const params = new URLSearchParams({
     repo,
@@ -290,6 +302,12 @@ export async function fetchPullDiff(
     to,
     from: from.kind === "base" ? "base" : from.head,
   });
+  if (scope.kind === "pair") {
+    params.set("fromCommit", scope.from);
+    params.set("toCommit", scope.to);
+  } else {
+    params.set("toCommit", scope.commit);
+  }
   return PullDiffResponse.parse(
     await getJson(
       `/api/github/pull/diff?${params}`,

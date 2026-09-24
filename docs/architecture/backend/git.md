@@ -85,6 +85,10 @@ export interface GitCommit {
   author: string;
   /** ISO 8601 author date. */
   authoredAt: string;
+  /** What lines this commit up against another across a rewrite. Git records
+   *  nothing durable here, so it is derived from the subject line, and it is
+   *  null when there is no subject. */
+  changeId: string | null;
 }
 ```
 
@@ -268,6 +272,14 @@ UI. `from` is an exclusive lower bound, so the range is `git log <from>..<to>`,
 the commits `to` has and `from` does not, which is exactly the contents of a
 pull request measured against its base.
 
+Git keeps no durable identity for a commit, unlike jj's change id, so
+`changeId` has to be derived rather than read off the object. The subject
+line is what survives an amend, and lining up a pull request's old head
+against its new one after an amend is the case this comparison exists to
+show. A reword breaks the pairing instead, but that is the lesser failure.
+A wrong pairing the reader can see and correct costs little, while a wrong
+pairing that looks right and is not costs far more.
+
 ```ts
 //| id: git-module
 
@@ -302,6 +314,13 @@ export async function gitLog(range: GitLogRange): Promise<GitCommit[]> {
     .map(parseLogRecord);
 }
 
+/** The subject line, the closest thing to a stable identity git offers.
+ *  Null when the commit has no subject to derive one from. */
+export function subjectIdentity(description: string): string | null {
+  const subject = description.split("\n")[0]?.trim() ?? "";
+  return subject === "" ? null : subject;
+}
+
 /** Exported for unit tests: turn one NUL-terminated log record into a commit. */
 export function parseLogRecord(record: string): GitCommit {
   const fields = record.split("\x1f");
@@ -311,16 +330,18 @@ export function parseLogRecord(record: string): GitCommit {
     );
   }
   const [commitId = "", parents = "", author = "", authoredAt = ""] = fields;
+  // The body is last, so a separator inside a commit message rejoins here
+  // rather than failing the whole record.
+  const description = fields.slice(4).join("\x1f");
 
   return {
     commitId: GitOid.parse(commitId),
     parents:
       parents === "" ? [] : parents.split(" ").map((p) => GitOid.parse(p)),
-    // The body is last, so a separator inside a commit message rejoins here
-    // rather than failing the whole record.
-    description: fields.slice(4).join("\x1f"),
+    description,
     author,
     authoredAt,
+    changeId: subjectIdentity(description),
   };
 }
 ```
@@ -358,6 +379,7 @@ import {
   gitMergeBase,
   parseLogRecord,
   RefPath,
+  subjectIdentity,
 } from "./git";
 
 /** The oid `revision` names, as this repo's git store has it. */
@@ -529,7 +551,23 @@ describe("parseLogRecord", () => {
       description: "subject\n",
       author: "Glen",
       authoredAt: "2026-09-10T11:08:01+00:00",
+      changeId: "subject",
     });
+  });
+
+  test("carries the subject line as its changeId", () => {
+    // arrange
+    const raw = record([
+      a,
+      b,
+      "Glen",
+      "2026-09-10T11:08:01+00:00",
+      "subject line\n\nbody\n",
+    ]);
+
+    // act
+    // assert
+    expect(parseLogRecord(raw).changeId).toBe("subject line");
   });
 
   test("keeps a multi-line body whole", () => {
@@ -582,6 +620,40 @@ describe("parseLogRecord", () => {
     // act
     // assert
     expect(() => parseLogRecord(raw)).toThrow(/expected 5 fields/);
+  });
+});
+
+describe("subjectIdentity", () => {
+  test("takes the subject line as the identity", () => {
+    // arrange
+    const description = "subject line\n\nbody line one\nbody line two\n";
+
+    // act
+    // assert
+    expect(subjectIdentity(description)).toBe("subject line");
+  });
+
+  test("trims surrounding whitespace", () => {
+    // arrange
+    const description = "  subject line with padding  \n";
+
+    // act
+    // assert
+    expect(subjectIdentity(description)).toBe("subject line with padding");
+  });
+
+  test("has no identity for an empty message", () => {
+    // arrange
+    // act
+    // assert
+    expect(subjectIdentity("")).toBe(null);
+  });
+
+  test("has no identity for a message that is only blank lines", () => {
+    // arrange
+    // act
+    // assert
+    expect(subjectIdentity("\n\n")).toBe(null);
   });
 });
 ```

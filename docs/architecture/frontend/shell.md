@@ -55,9 +55,9 @@ governs, and [`ReviewPanes`](layout.md) is a view and holds no state. On a
 wide screen the value is carried and never read.
 
 `App` calls `useSession()` once, alongside the two `useSide()` calls it
-already owns, and passes it down to whichever `DiffPane` is on screen. One
-session serves both screens, so a mark made on the local history is the same
-record the pull request screen reads. `useSide` and
+already owns, and passes it down to the local history's `DiffPane`. The pull
+request screen reads commit by commit and keeps no marks yet, so it is not
+handed a session it would not read. `useSide` and
 `SidePicker` are untouched. Wiring review state into the commit pickers would
 mean threading it through `CommitLog` and `CommitGraph` too, for a graph that
 shows nothing about review state and has no requested feature that would use
@@ -95,11 +95,7 @@ export function App() {
           after={<SidePicker side={after} />}
           diff={
             <DiffPane
-              comparison={{
-                kind: "jj",
-                from: before.commits,
-                to: after.commits,
-              }}
+              comparison={{ from: before.commits, to: after.commits }}
               session={session}
             />
           }
@@ -111,7 +107,7 @@ export function App() {
           }}
         />
       ) : (
-        <PullRequests repo={REPO} session={session} />
+        <PullRequests repo={REPO} />
       )}
     </div>
   );

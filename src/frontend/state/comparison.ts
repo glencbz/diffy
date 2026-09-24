@@ -1,60 +1,22 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-state-comparison>>[init]
 import { useEffect, useState } from "react";
-import {
-  type FileDiff,
-  fetchInterdiff,
-  fetchPullDiff,
-  type GitOid,
-  type InterdiffRow,
-  type PullBaseline,
-} from "../api";
+import { fetchInterdiff, type InterdiffRow } from "../api";
 import type { AsyncState } from "./asyncState";
 
 /** What the diff panel is being asked for. */
-export type Comparison =
-  | { kind: "jj"; from: string[]; to: string[] }
-  | {
-      kind: "pull";
-      repo: string;
-      number: number;
-      /** What the after side is measured against, a head or the base branch. */
-      from: PullBaseline;
-      to: GitOid;
-    };
-
-/** The answer, shaped by what was asked. */
-export type ComparisonFiles =
-  | { kind: "jj"; rows: InterdiffRow[] }
-  | { kind: "pull"; files: FileDiff[] };
-
-async function compare(question: Comparison): Promise<ComparisonFiles> {
-  if (question.kind === "jj") {
-    const { rows } = await fetchInterdiff(question.from, question.to);
-    return { kind: "jj", rows };
-  }
-
-  const { files } = await fetchPullDiff(
-    question.repo,
-    question.number,
-    question.to,
-    question.from,
-  );
-  return { kind: "pull", files };
-}
-
-function hasNothingToAsk(question: Comparison): boolean {
-  return (
-    question.kind === "jj" &&
-    question.from.length === 0 &&
-    question.to.length === 0
-  );
+export interface Comparison {
+  from: string[];
+  to: string[];
 }
 
 export function useComparison(
   question: Comparison,
-): AsyncState<ComparisonFiles> | null {
-  const [state, setState] = useState<AsyncState<ComparisonFiles> | null>(null);
-  const key = hasNothingToAsk(question) ? "" : JSON.stringify(question);
+): AsyncState<InterdiffRow[]> | null {
+  const [state, setState] = useState<AsyncState<InterdiffRow[]> | null>(null);
+  const key =
+    question.from.length === 0 && question.to.length === 0
+      ? ""
+      : JSON.stringify(question);
 
   useEffect(() => {
     if (key === "") {
@@ -64,9 +26,10 @@ export function useComparison(
 
     let live = true;
     setState({ status: "loading" });
-    compare(JSON.parse(key) as Comparison)
-      .then((data) => {
-        if (live) setState({ status: "ready", data });
+    const { from, to } = JSON.parse(key) as Comparison;
+    fetchInterdiff(from, to)
+      .then(({ rows }) => {
+        if (live) setState({ status: "ready", data: rows });
       })
       .catch((err: unknown) => {
         if (live) setState({ status: "error", message: String(err) });

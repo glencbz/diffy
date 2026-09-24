@@ -28,11 +28,7 @@ export function App() {
           after={<SidePicker side={after} />}
           diff={
             <DiffPane
-              comparison={{
-                kind: "jj",
-                from: before.commits,
-                to: after.commits,
-              }}
+              comparison={{ from: before.commits, to: after.commits }}
               session={session}
             />
           }
@@ -44,7 +40,7 @@ export function App() {
           }}
         />
       ) : (
-        <PullRequests repo={REPO} session={session} />
+        <PullRequests repo={REPO} />
       )}
     </div>
   );

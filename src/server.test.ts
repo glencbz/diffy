@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { GitHubGraphQL } from "./backend/commit/github";
-import { jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -369,6 +369,83 @@ describe("pullDiffResponse", () => {
       await jjInterdiff({ from: earlier, to: later }),
     );
     expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
+  });
+
+  test("leaves the whole-head diff untouched when no commit scope is given", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const later = heads.at(-1) as string;
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: "base", to: later }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.files).toEqual(
+      await jjDiffBetween({ from: base, to: later }),
+    );
+  });
+
+  test("fromCommit and toCommit together interdiff those two commits", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const [earlier, later] = heads as [string, string];
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: earlier, to: later, fromCommit: base, toCommit: earlier }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.files).toEqual(
+      await jjInterdiff({ from: base, to: earlier }),
+    );
+    expect(answer.files).not.toEqual(
+      await jjInterdiff({ from: earlier, to: later }),
+    );
+  });
+
+  test("toCommit alone answers that one commit's own diff", async () => {
+    // arrange
+    const { base, heads } = await localPull();
+    const [earlier, later] = heads as [string, string];
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: earlier, to: later, toCommit: earlier }),
+      stubHistory(base, heads),
+    );
+    const answer = await body(res);
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(answer.files).toEqual(await jjDiff({ revision: earlier }));
+    expect(answer.files).not.toEqual(
+      await jjInterdiff({ from: earlier, to: later }),
+    );
+  });
+
+  test("reports a malformed toCommit the same way as a malformed to", async () => {
+    // arrange
+    const { heads } = await localPull();
+    const [earlier, later] = heads as [string, string];
+
+    // act
+    const res = await pullDiffResponse(
+      query({ from: earlier, to: later, toCommit: "nope" }),
+      unreachable,
+    );
+
+    // assert
+    expect(res.status).toBe(400);
+    expect((await body(res)).error).toMatch(/40-character/);
   });
 
   test("reports a head that is not a 40-hex oid as 400, before asking GitHub", async () => {

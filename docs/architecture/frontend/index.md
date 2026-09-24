@@ -129,8 +129,7 @@ has no markup of its own.
 When there is no diff to show yet, the controller decides what goes on screen,
 so `DiffView` stays at "render these files" with no null checks and one panel's
 branching sits in one file. `OperationLog` drives `OperationPicker`. `CommitLog`
-drives `CommitGraph`. `DiffPane` drives whichever of `InterdiffRows` and
-`DiffView` the answer it got calls for.
+drives `CommitGraph`. `DiffPane` drives `InterdiffRows`.
 
 `PullReview` bends the one-hook-one-view rule and is the only thing that does.
 It mounts the commit list and the diff panel itself, because neither can be
@@ -176,6 +175,10 @@ Allowed import edges:
 
 - `api.ts` imports Zod only.
 - `state/` imports React and `api.ts`.
+- `state/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
+  `../../backend/commit/series`. `alignSeries` is a pure function with no
+  transport and no React, so importing it needs no running server to test,
+  which is what this rule exists to protect.
 - `views/` imports React, other `views/`, and *types* from `api.ts` and
   `state/`. A view is written against a view model, `ReviewedRow` or
   `RowReview`, as often as against a wire type, and a type-only import erases
@@ -280,6 +283,8 @@ reference here, anywhere.
 
 <<design-commit-graph>>
 
+<<design-paired-graph>>
+
 <<design-interdiff-rows>>
 
 <<design-diff-view>>
@@ -293,6 +298,8 @@ reference here, anywhere.
 <<design-pull-comparison-picker>>
 
 <<design-pull-sheet>>
+
+<<design-commit-stack>>
 
 <<design-responsive-panes>>
 ```

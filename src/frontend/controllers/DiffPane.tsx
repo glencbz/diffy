@@ -2,7 +2,6 @@
 import { type Comparison, useComparison } from "../state/comparison";
 import { reviewRows } from "../state/review";
 import type { Session } from "../state/session";
-import { DiffView } from "../views/DiffView";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
@@ -22,27 +21,15 @@ export function DiffPane({
   if (answer.status === "error") {
     return <Message tone="error">{answer.message}</Message>;
   }
-  if (answer.data.kind === "jj") {
-    return (
-      <InterdiffRows
-        rows={reviewRows(answer.data.rows, session.document)}
-        onMarkSeen={session.markSeen}
-        onAddComment={session.addComment}
-        onResolveComment={session.resolveComment}
-        onDropComment={session.dropComment}
-      />
-    );
-  }
-  if (answer.data.files.length === 0) {
-    return (
-      <Message>
-        {comparison.kind === "pull" && comparison.from.kind === "base"
-          ? "This pull request introduces no changes over its base."
-          : "These two versions make the same change."}
-      </Message>
-    );
-  }
 
-  return <DiffView files={answer.data.files} />;
+  return (
+    <InterdiffRows
+      rows={reviewRows(answer.data, session.document)}
+      onMarkSeen={session.markSeen}
+      onAddComment={session.addComment}
+      onResolveComment={session.resolveComment}
+      onDropComment={session.dropComment}
+    />
+  );
 }
 // ~/~ end

@@ -10,6 +10,7 @@ import {
   gitMergeBase,
   parseLogRecord,
   RefPath,
+  subjectIdentity,
 } from "./git";
 
 /** The oid `revision` names, as this repo's git store has it. */
@@ -175,7 +176,23 @@ describe("parseLogRecord", () => {
       description: "subject\n",
       author: "Glen",
       authoredAt: "2026-09-10T11:08:01+00:00",
+      changeId: "subject",
     });
+  });
+
+  test("carries the subject line as its changeId", () => {
+    // arrange
+    const raw = record([
+      a,
+      b,
+      "Glen",
+      "2026-09-10T11:08:01+00:00",
+      "subject line\n\nbody\n",
+    ]);
+
+    // act
+    // assert
+    expect(parseLogRecord(raw).changeId).toBe("subject line");
   });
 
   test("keeps a multi-line body whole", () => {
@@ -228,6 +245,40 @@ describe("parseLogRecord", () => {
     // act
     // assert
     expect(() => parseLogRecord(raw)).toThrow(/expected 5 fields/);
+  });
+});
+
+describe("subjectIdentity", () => {
+  test("takes the subject line as the identity", () => {
+    // arrange
+    const description = "subject line\n\nbody line one\nbody line two\n";
+
+    // act
+    // assert
+    expect(subjectIdentity(description)).toBe("subject line");
+  });
+
+  test("trims surrounding whitespace", () => {
+    // arrange
+    const description = "  subject line with padding  \n";
+
+    // act
+    // assert
+    expect(subjectIdentity(description)).toBe("subject line with padding");
+  });
+
+  test("has no identity for an empty message", () => {
+    // arrange
+    // act
+    // assert
+    expect(subjectIdentity("")).toBe(null);
+  });
+
+  test("has no identity for a message that is only blank lines", () => {
+    // arrange
+    // act
+    // assert
+    expect(subjectIdentity("\n\n")).toBe(null);
   });
 });
 // ~/~ end

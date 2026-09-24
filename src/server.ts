@@ -215,12 +215,63 @@ export function pullDiffResponse(
     const number = parsePullNumber(params.get("number"));
     const to = GitOid.parse(params.get("to"));
     const from = PullBaselineParam.parse(params.get("from"));
+    const scope = parseDiffScope(params);
 
     const history = await githubPullRequestHistory(repo, number, gh);
     const toState = pullStateAt(history, to);
 
-    return { from, to, files: await pullDiffFiles(history, toState, from) };
+    return {
+      from,
+      to,
+      files: await pullDiffFiles(history, toState, from, scope),
+    };
   });
+}
+
+/**
+ * What to diff inside the head a baseline already resolved. `heads` is the
+ * whole head, which is what a reader sees before they pick a commit out of
+ * it.
+ */
+type DiffScope =
+  | { kind: "heads" }
+  | { kind: "commit"; commit: GitOid }
+  | { kind: "pair"; from: GitOid; to: GitOid };
+
+/** Either commit alone reduces to that commit's own diff, the same rule
+ *  `/api/interdiff` uses when one side of a row is empty. */
+function parseDiffScope(params: URLSearchParams): DiffScope {
+  const fromCommit = params.get("fromCommit");
+  const toCommit = params.get("toCommit");
+  if (fromCommit !== null && toCommit !== null) {
+    return {
+      kind: "pair",
+      from: GitOid.parse(fromCommit),
+      to: GitOid.parse(toCommit),
+    };
+  }
+  if (toCommit !== null) {
+    return { kind: "commit", commit: GitOid.parse(toCommit) };
+  }
+  if (fromCommit !== null) {
+    return { kind: "commit", commit: GitOid.parse(fromCommit) };
+  }
+  return { kind: "heads" };
+}
+
+/** The diff a scope asks for, once materialization already ran. */
+function diffForScope(
+  scope: DiffScope,
+  heads: () => Promise<JjFileDiff[]>,
+): Promise<JjFileDiff[]> {
+  switch (scope.kind) {
+    case "commit":
+      return jjDiff({ revision: scope.commit });
+    case "pair":
+      return jjInterdiff({ from: scope.from, to: scope.to });
+    case "heads":
+      return heads();
+  }
 }
 
 /** The diff a baseline asks for, fetching what that comparison needs. */
@@ -228,13 +279,16 @@ async function pullDiffFiles(
   history: PullRequestHistory,
   toState: PullRequestState,
   from: PullBaseline,
+  scope: DiffScope,
 ): Promise<JjFileDiff[]> {
   if (from.kind === "version") {
     const fromState = pullStateAt(history, from.head);
     await gitMaterialize(
       [fromState, toState].flatMap((state) => pullPins(history, state)),
     );
-    return jjInterdiff({ from: fromState.head, to: toState.head });
+    return diffForScope(scope, () =>
+      jjInterdiff({ from: fromState.head, to: toState.head }),
+    );
   }
 
   const [base, head] = await gitMaterialize(pullPins(history, toState));
@@ -242,7 +296,9 @@ async function pullDiffFiles(
     throw new Error("gitMaterialize returned fewer oids than asked");
   }
 
-  return jjDiffBetween({ from: await gitMergeBase(base, head), to: head });
+  return diffForScope(scope, async () =>
+    jjDiffBetween({ from: await gitMergeBase(base, head), to: head }),
+  );
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]

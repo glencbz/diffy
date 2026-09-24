@@ -77,6 +77,58 @@ export function usePullHistory(
   return state;
 }
 ```
+
+The graph draws a commit by its id and never needs a real change id, so
+[`useCommits`](commit-history.md) maps every pull request commit through
+`asLogEntry`, which sets `changeId` to null on the way there. Reusing that
+hook for the pairing would read back exactly the field it strips.
+`usePullCommits` loads the same commits straight off `GitCommit`, so the
+pairing sees the guess GitHub's subject line encodes instead of the null the
+graph's own model has no room for.
+
+```tsx
+//| id: frontend-state-pull-commits
+//| file: src/frontend/state/pullCommits.ts
+import { useEffect, useState } from "react";
+import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
+import type { AsyncState } from "./asyncState";
+
+/** One version's commits, as the pull request's own, so the pairing can read
+ *  the identity the graph deliberately drops. */
+export function usePullCommits(
+  repo: string,
+  number: number,
+  head: GitOid | null,
+): AsyncState<GitCommit[]> {
+  const [state, setState] = useState<AsyncState<GitCommit[]>>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let live = true;
+
+    if (head === null) {
+      setState({ status: "ready", data: [] });
+      return;
+    }
+
+    setState({ status: "loading" });
+    fetchPullCommits(repo, number, head)
+      .then((data) => {
+        if (live) setState({ status: "ready", data: data.commits });
+      })
+      .catch((err: unknown) => {
+        if (live) setState({ status: "error", message: String(err) });
+      });
+
+    return () => {
+      live = false;
+    };
+  }, [repo, number, head]);
+
+  return state;
+}
+```
 ## Pull requests controller
 
 The list, and whichever pull request is picked out of it. What the screen is
@@ -111,7 +163,6 @@ out, with a way to forget a field.
 import { useState } from "react";
 import type { PullSummary } from "../api";
 import { usePulls } from "../state/pulls";
-import type { Session } from "../state/session";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { type PullChoice, PullPanes } from "../views/PullPanes";
@@ -122,13 +173,7 @@ type Screen =
   | { phase: "reviewing"; pull: number }
   | { phase: "picking"; pull: number };
 
-export function PullRequests({
-  repo,
-  session,
-}: {
-  repo: string;
-  session: Session;
-}) {
+export function PullRequests({ repo }: { repo: string }) {
   const pulls = usePulls(repo);
   const [screen, setScreen] = useState<Screen>({ phase: "browsing" });
 
@@ -157,12 +202,7 @@ export function PullRequests({
         choice.phase === "browsing" ? (
           <Message>Select a pull request to review it.</Message>
         ) : (
-          <PullReview
-            key={choice.pull.number}
-            repo={repo}
-            pull={choice.pull}
-            session={session}
-          />
+          <PullReview key={choice.pull.number} repo={repo} pull={choice.pull} />
         )
       }
     />
@@ -187,6 +227,117 @@ function dismissList(screen: Screen): Screen {
 }
 ```
 
+## Row comparisons
+
+Every row in the stack is a comparison between one commit and another, or a
+commit on its own, and that comparison is the one thing on the row the
+backend has to be asked for. `useRowDiffs` keys each fetch the same way
+`stackRows` keys its rows, so an answer and the row that wants it agree on
+which slot it belongs to without either side recomputing the other's key.
+
+A card moving to a new slot only changes what surrounds it. The two commits
+it names, and so the comparison behind it, do not change with it. Refetching
+every row on every move would ask the backend the same question it already
+answered, once per row, for no new information. `useRowDiffs` keeps every
+answer it has fetched in a cache, keyed by slot, and only asks for a key it
+has not seen. The cache clears when the repository, the pull request, or
+either end of the comparison changes, because those are the only changes
+that make an old answer wrong.
+
+A request is asked once, so its answer has to land. Moving a card mid-flight
+is exactly when a row is waiting on one, and an effect that discarded its
+own requests on every move would leave that row loading for good. An answer
+is dropped only when the comparison it was asked for is no longer the one
+on screen, which `asked` records alongside the keys it has sent.
+
+```tsx
+//| id: frontend-state-row-diffs
+//| file: src/frontend/state/rowDiffs.ts
+import { useEffect, useRef, useState } from "react";
+import {
+  type FileDiff,
+  fetchPullDiff,
+  GitOid,
+  type PullBaseline,
+  type PullDiffScope,
+} from "../api";
+import type { AsyncState } from "./asyncState";
+import type { Slot } from "./pairing";
+
+/** The key a slot is addressed by. A fetched comparison and the row that
+ *  shows it agree on this, so neither has to look the other up by anything
+ *  else. */
+export function slotKey(slot: Slot): string {
+  return `${slot.left ?? ""}:${slot.right ?? ""}`;
+}
+
+function slotScope(slot: Slot): PullDiffScope | null {
+  if (slot.left !== null && slot.right !== null) {
+    return {
+      kind: "pair",
+      from: GitOid.parse(slot.left),
+      to: GitOid.parse(slot.right),
+    };
+  }
+  if (slot.right !== null) {
+    return { kind: "commit", commit: GitOid.parse(slot.right) };
+  }
+  if (slot.left !== null) {
+    return { kind: "commit", commit: GitOid.parse(slot.left) };
+  }
+  return null;
+}
+
+export type RowDiffs = Map<string, AsyncState<FileDiff[]>>;
+
+const NO_DIFFS: RowDiffs = new Map();
+
+/** The comparison behind each row, keyed the way a row is keyed. */
+export function useRowDiffs(
+  repo: string,
+  number: number,
+  from: PullBaseline,
+  to: GitOid,
+  slots: Slot[],
+): RowDiffs {
+  const of = `${repo}#${number}:${from.kind === "base" ? "base" : from.head}:${to}`;
+  const [state, setState] = useState<{ of: string; cache: RowDiffs }>({
+    of,
+    cache: new Map(),
+  });
+  const asked = useRef<{ of: string; keys: Set<string> }>({
+    of,
+    keys: new Set(),
+  });
+
+  useEffect(() => {
+    if (asked.current.of !== of) asked.current = { of, keys: new Set() };
+    const { keys } = asked.current;
+
+    for (const slot of slots) {
+      const key = slotKey(slot);
+      const scope = slotScope(slot);
+      if (scope === null || keys.has(key)) continue;
+      keys.add(key);
+
+      const put = (value: AsyncState<FileDiff[]>) => {
+        if (asked.current.of !== of) return;
+        setState((now) => ({
+          of,
+          cache: new Map(now.of === of ? now.cache : []).set(key, value),
+        }));
+      };
+      fetchPullDiff(repo, number, to, from, scope).then(
+        (answer) => put({ status: "ready", data: answer.files }),
+        (err: unknown) => put({ status: "error", message: String(err) }),
+      );
+    }
+  }, [of, repo, number, from, to, slots]);
+
+  return state.of === of ? state.cache : NO_DIFFS;
+}
+```
+
 ## Pull review controller
 
 One pull request, head by head. The before end defaults to the base and the
@@ -201,32 +352,202 @@ The before end is a `PullBaseline` rather than a head, which is what the
 directly, so this controller passes what it is given straight through
 instead of converting a head into a baseline itself.
 
+The graph pane is where a reader corrects a guess. `usePairing` lives above
+both panes in `PullReview`, but only `PairedGraph` gives the reader anything
+to drag or nudge, so it is the one place a reorder can start. The diff pane
+has no control of its own that lets a reader move a row. It only has rows to
+show. Reading the pairing straight into `stackRows` keeps that direction one
+way. A card moved in the graph changes which two commits a row compares, and
+the diff pane draws whatever that turns out to be. It never happens the
+other way round.
+
+What the reader picks in the graph is a commit, not a row. Moving a card
+renumbers the rows around it, and a picked index would then point at
+whichever commit slid into its place.
+
+A base comparison has one version on screen, not two, so there is nothing for
+a graph to pair against. `usePairing` still runs against an empty before
+side, because every hook downstream of it is called on every render no
+matter which comparison is open, but its answer is the wrong shape to draw
+there. Every row would read as added, which is true of nothing a reviewer
+asked to see plain. `CommitLog` already draws one lane well, so a base
+comparison keeps that lane and builds its stack rows straight from the
+commit list instead of from a pairing with nothing on one side.
+
 ```tsx
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
 import { useState } from "react";
-import type { GitOid, PullBaseline, PullSummary } from "../api";
+import type {
+  FileDiff,
+  GitCommit,
+  GitOid,
+  PullBaseline,
+  PullSummary,
+  PullVersion,
+} from "../api";
+import type { AsyncState } from "../state/asyncState";
+import { type Slot, usePairing } from "../state/pairing";
+import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
-import type { Session } from "../state/session";
+import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
+import {
+  CommitStack,
+  type StackRow,
+  type StackRowKind,
+} from "../views/CommitStack";
 import { Message } from "../views/Message";
+import { PairedGraph } from "../views/PairedGraph";
 import { PullComparisonPicker } from "../views/PullComparisonPicker";
 import { PullHeader } from "../views/PullHeader";
 import { PullReviewPanes } from "../views/PullPanes";
 import { CommitLog } from "./CommitLog";
-import { DiffPane } from "./DiffPane";
+
+/** One array for every version that has not arrived. `usePairing` recomputes
+ *  when its series change identity, so handing it a fresh `[]` each render
+ *  would ask it to recompute forever. */
+const NO_COMMITS: GitCommit[] = [];
+
+/** A row whose comparison has not been asked for yet reads the same as one
+ *  still waiting on it, because to the reader it is the same wait. */
+const LOADING: AsyncState<FileDiff[]> = { status: "loading" };
+
+function commitMap(commits: GitCommit[]): Map<string, GitCommit> {
+  const map = new Map<string, GitCommit>();
+  for (const commit of commits) map.set(commit.commitId, commit);
+  return map;
+}
+
+/** The file `jj interdiff` writes a changed commit message into. */
+const DESCRIPTION_FILE = "JJ-COMMIT-DESCRIPTION";
+
+function pairedKind(files: AsyncState<FileDiff[]>): StackRowKind {
+  // Nothing is known about a pair until its comparison lands, and a
+  // comparison that failed says nothing either.
+  if (files.status !== "ready") return "plain";
+  const isMessage = (file: FileDiff) =>
+    "path" in file && file.path === DESCRIPTION_FILE;
+  if (!files.data.every(isMessage)) {
+    return "amended";
+  }
+  return files.data.length > 0 ? "reworded" : "unchanged";
+}
+
+/** One row per slot. A slot with only one side is added or dropped. A slot
+ *  with both sides is amended, reworded, or unchanged, by what the
+ *  comparison behind it says once it lands. A slot naming a commit that is
+ *  not actually in the list it points at is a bug, not a state, so it is
+ *  skipped rather than given a row of its own. */
+export function stackRows(
+  slots: Slot[],
+  before: GitCommit[],
+  after: GitCommit[],
+  diffs: RowDiffs,
+): StackRow[] {
+  const beforeById = commitMap(before);
+  const afterById = commitMap(after);
+  const rows: StackRow[] = [];
+
+  for (const slot of slots) {
+    const key = slotKey(slot);
+    const files = diffs.get(key) ?? LOADING;
+
+    if (slot.left === null) {
+      if (slot.right === null) continue;
+      const commit = afterById.get(slot.right);
+      if (commit === undefined) continue;
+      rows.push({ key, kind: "added", commit, was: null, files });
+      continue;
+    }
+
+    if (slot.right === null) {
+      const commit = beforeById.get(slot.left);
+      if (commit === undefined) continue;
+      rows.push({ key, kind: "dropped", commit, was: null, files });
+      continue;
+    }
+
+    const commit = afterById.get(slot.right);
+    const was = beforeById.get(slot.left);
+    if (commit === undefined || was === undefined) continue;
+
+    rows.push({
+      key,
+      kind: pairedKind(files),
+      commit,
+      was,
+      files,
+    });
+  }
+
+  return rows;
+}
+
+/** One row per commit in a base comparison, always plain. There is no older
+ *  version behind a base comparison, so added, dropped, and amended would
+ *  each claim a history this comparison does not have. */
+export function baseStackRows(after: GitCommit[], diffs: RowDiffs): StackRow[] {
+  return after.map((commit) => {
+    const key = slotKey({ left: null, right: commit.commitId });
+    return {
+      key,
+      kind: "plain" as const,
+      commit,
+      was: null,
+      files: diffs.get(key) ?? LOADING,
+    };
+  });
+}
+
+function versionName(states: PullVersion[], head: GitOid): string {
+  const state = states.find((candidate) => candidate.head === head);
+  return state === undefined ? "?" : `v${state.version}`;
+}
+
+function versionLabel(states: PullVersion[], head: GitOid): string {
+  return `${versionName(states, head)} · ${head.slice(0, 7)}`;
+}
+
+function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+}
 
 export function PullReview({
   repo,
   pull,
-  session,
 }: {
   repo: string;
   pull: PullSummary;
-  session: Session;
 }) {
   const history = usePullHistory(repo, pull.number);
   const [from, setFrom] = useState<PullBaseline>({ kind: "base" });
   const [pickedTo, setPickedTo] = useState<GitOid | null>(null);
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [current, setCurrent] = useState<string | null>(null);
+
+  const latest =
+    history.status === "ready" ? history.data.states.at(-1) : undefined;
+  const beforeHead = from.kind === "version" ? from.head : null;
+  // Falls back to the pull's own head so there is always a real oid to read
+  // here, even on the render before the history request comes back. Every
+  // hook below runs on every render, loading or not, so there is no point
+  // in this function where "not loaded yet" can mean "call fewer hooks".
+  const to = pickedTo ?? latest?.head ?? pull.headRefOid;
+  const number = pull.number;
+
+  const beforeState = usePullCommits(repo, number, beforeHead);
+  const afterState = usePullCommits(repo, number, to);
+  const beforeCommits =
+    beforeState.status === "ready" ? beforeState.data : NO_COMMITS;
+  const afterCommits =
+    afterState.status === "ready" ? afterState.data : NO_COMMITS;
+
+  const pairing = usePairing(beforeCommits, afterCommits);
+  const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
 
   if (history.status === "loading") {
     return <Message>Loading versions...</Message>;
@@ -234,14 +555,28 @@ export function PullReview({
   if (history.status === "error") {
     return <Message tone="error">{history.message}</Message>;
   }
-
-  const latest = history.data.states.at(-1);
   if (latest === undefined) {
     return <Message tone="error">This pull request has had no head.</Message>;
   }
 
-  const to = pickedTo ?? latest.head;
-  const number = pull.number;
+  const rows =
+    from.kind === "base"
+      ? baseStackRows(afterCommits, diffs)
+      : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
+
+  const commitsLoading =
+    beforeState.status === "loading" || afterState.status === "loading";
+  const commitsError =
+    beforeState.status === "error"
+      ? beforeState.message
+      : afterState.status === "error"
+        ? afterState.message
+        : null;
+
+  const currentKey =
+    rows.find(
+      (row) => row.commit.commitId === current || row.was?.commitId === current,
+    )?.key ?? null;
 
   return (
     <PullReviewPanes
@@ -256,20 +591,279 @@ export function PullReview({
         />
       }
       commits={
-        <CommitLog
-          source={{ kind: "pull", repo, number, head: to }}
-          selected={[]}
-        />
+        commitsError !== null ? (
+          <Message tone="error">{commitsError}</Message>
+        ) : commitsLoading ? (
+          <Message>Loading commits...</Message>
+        ) : from.kind === "version" ? (
+          <PairedGraph
+            before={beforeCommits}
+            after={afterCommits}
+            pairing={pairing}
+            beforeLabel={versionLabel(history.data.states, from.head)}
+            afterLabel={versionLabel(history.data.states, to)}
+            current={current}
+            onSelect={setCurrent}
+          />
+        ) : (
+          <CommitLog
+            source={{ kind: "pull", repo, number, head: to }}
+            selected={[]}
+          />
+        )
       }
       diff={
-        <DiffPane
-          comparison={{ kind: "pull", repo, number, from, to }}
-          session={session}
-        />
+        commitsError !== null ? (
+          <Message tone="error">{commitsError}</Message>
+        ) : commitsLoading ? (
+          <Message>Loading commits...</Message>
+        ) : (
+          <CommitStack
+            rows={rows}
+            open={open}
+            onToggle={(key) => setOpen((now) => toggled(now, key))}
+            expanded={expanded}
+            onExpand={(key) => setExpanded((now) => toggled(now, key))}
+            current={currentKey}
+            since={
+              from.kind === "version"
+                ? versionName(history.data.states, from.head)
+                : "the base"
+            }
+          />
+        )
       }
     />
   );
 }
+```
+
+## Tests
+
+`stackRows` and `baseStackRows` carry every branching decision in this
+screen, so they are what gets pinned, the way `heuristicSlots` is pinned in
+[pairing.md](pairing.md) without rendering anything.
+
+```ts
+//| id: frontend-controller-pull-review-test
+//| file: src/frontend/controllers/PullReview.test.ts
+import { describe, expect, test } from "bun:test";
+import { type FileDiff, type GitCommit, GitOid } from "../api";
+import type { AsyncState } from "../state/asyncState";
+import type { Slot } from "../state/pairing";
+import { baseStackRows, stackRows } from "./PullReview";
+
+function oid(ch: string): GitOid {
+  return GitOid.parse(ch.repeat(40));
+}
+
+function commit(ch: string, description: string): GitCommit {
+  return {
+    commitId: oid(ch),
+    parents: [],
+    description,
+    author: "someone@example.com",
+    authoredAt: "2026-01-01T00:00:00Z",
+    changeId: null,
+  };
+}
+
+describe("stackRows", () => {
+  test("gives an added row to a slot with nothing on the old side", () => {
+    // arrange
+    const added = commit("b", "add a thing");
+    const slots: Slot[] = [{ left: null, right: added.commitId }];
+    const diffs = new Map<string, AsyncState<FileDiff[]>>();
+
+    // act
+    const rows = stackRows(slots, [], [added], diffs);
+
+    // assert
+    expect(rows).toEqual([
+      {
+        key: `:${added.commitId}`,
+        kind: "added",
+        commit: added,
+        was: null,
+        files: { status: "loading" },
+      },
+    ]);
+  });
+
+  test("gives a dropped row to a slot with nothing on the new side", () => {
+    // arrange
+    const dropped = commit("a", "remove a thing");
+    const slots: Slot[] = [{ left: dropped.commitId, right: null }];
+    const diffs = new Map<string, AsyncState<FileDiff[]>>();
+
+    // act
+    const rows = stackRows(slots, [dropped], [], diffs);
+
+    // assert
+    expect(rows).toEqual([
+      {
+        key: `${dropped.commitId}:`,
+        kind: "dropped",
+        commit: dropped,
+        was: null,
+        files: { status: "loading" },
+      },
+    ]);
+  });
+
+  test("reads a paired slot as amended when the comparison finds a diff", () => {
+    // arrange
+    const was = commit("a", "subject");
+    const now = commit("b", "subject");
+    const key = `${was.commitId}:${now.commitId}`;
+    const files: FileDiff[] = [
+      {
+        status: "modified",
+        path: "a.ts",
+        binary: false,
+        patch: "@@ -1 +1 @@\n-a\n+b",
+      },
+    ];
+    const diffs = new Map<string, AsyncState<FileDiff[]>>([
+      [key, { status: "ready", data: files }],
+    ]);
+    const slots: Slot[] = [{ left: was.commitId, right: now.commitId }];
+
+    // act
+    const rows = stackRows(slots, [was], [now], diffs);
+
+    // assert
+    expect(rows).toEqual([
+      {
+        key,
+        kind: "amended",
+        commit: now,
+        was,
+        files: { status: "ready", data: files },
+      },
+    ]);
+  });
+
+  test("reads a paired slot as unchanged when the comparison is empty", () => {
+    // arrange
+    const was = commit("a", "subject");
+    const now = commit("b", "subject");
+    const key = `${was.commitId}:${now.commitId}`;
+    const diffs = new Map<string, AsyncState<FileDiff[]>>([
+      [key, { status: "ready", data: [] }],
+    ]);
+    const slots: Slot[] = [{ left: was.commitId, right: now.commitId }];
+
+    // act
+    const rows = stackRows(slots, [was], [now], diffs);
+
+    // assert
+    expect(rows[0]?.kind).toBe("unchanged");
+  });
+
+  test("reads a paired slot as reworded when only the message moved", () => {
+    // arrange
+    const was = commit("a", "old subject");
+    const now = commit("b", "new subject");
+    const key = `${was.commitId}:${now.commitId}`;
+    const message: FileDiff = {
+      status: "modified",
+      path: "JJ-COMMIT-DESCRIPTION",
+      binary: false,
+      patch: "@@ -1 +1 @@\n-old subject\n+new subject",
+    };
+    const diffs = new Map<string, AsyncState<FileDiff[]>>([
+      [key, { status: "ready", data: [message] }],
+    ]);
+    const slots: Slot[] = [{ left: was.commitId, right: now.commitId }];
+
+    // act
+    const rows = stackRows(slots, [was], [now], diffs);
+
+    // assert
+    expect(rows[0]?.kind).toBe("reworded");
+  });
+
+  test("reads a paired slot as amended when the message and the code both moved", () => {
+    // arrange
+    const was = commit("a", "old subject");
+    const now = commit("b", "new subject");
+    const key = `${was.commitId}:${now.commitId}`;
+    const files: FileDiff[] = [
+      {
+        status: "modified",
+        path: "JJ-COMMIT-DESCRIPTION",
+        binary: false,
+        patch: "@@ -1 +1 @@\n-old subject\n+new subject",
+      },
+      {
+        status: "modified",
+        path: "a.ts",
+        binary: false,
+        patch: "@@ -1 +1 @@\n-a\n+b",
+      },
+    ];
+    const diffs = new Map<string, AsyncState<FileDiff[]>>([
+      [key, { status: "ready", data: files }],
+    ]);
+    const slots: Slot[] = [{ left: was.commitId, right: now.commitId }];
+
+    // act
+    const rows = stackRows(slots, [was], [now], diffs);
+
+    // assert
+    expect(rows[0]?.kind).toBe("amended");
+  });
+
+  test("reads a paired slot as plain while its comparison is still loading", () => {
+    // arrange
+    const was = commit("a", "subject");
+    const now = commit("b", "subject");
+    const key = `${was.commitId}:${now.commitId}`;
+    const diffs = new Map<string, AsyncState<FileDiff[]>>([
+      [key, { status: "loading" }],
+    ]);
+    const slots: Slot[] = [{ left: was.commitId, right: now.commitId }];
+
+    // act
+    const rows = stackRows(slots, [was], [now], diffs);
+
+    // assert
+    expect(rows[0]?.kind).toBe("plain");
+  });
+});
+
+describe("baseStackRows", () => {
+  test("gives one plain row per commit, keyed the way a slot with no old side is", () => {
+    // arrange
+    const one = commit("a", "first");
+    const two = commit("b", "second");
+    const diffs = new Map<string, AsyncState<FileDiff[]>>([
+      [`:${one.commitId}`, { status: "ready", data: [] }],
+    ]);
+
+    // act
+    const rows = baseStackRows([one, two], diffs);
+
+    // assert
+    expect(rows).toEqual([
+      {
+        key: `:${one.commitId}`,
+        kind: "plain",
+        commit: one,
+        was: null,
+        files: { status: "ready", data: [] },
+      },
+      {
+        key: `:${two.commitId}`,
+        kind: "plain",
+        commit: two,
+        was: null,
+        files: { status: "loading" },
+      },
+    ]);
+  });
+});
 ```
 
 ## Pull request list
