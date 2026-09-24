@@ -282,10 +282,10 @@ export async function fetchPullHistory(
   );
 }
 
-/** What to diff inside the head `from`/`to` already resolved. The backend's
- *  `DiffScope` has the same shape; this file cannot import that type. */
+/** The one commit, or the pair across two versions, to diff inside the heads
+ *  `from`/`to` resolve. The backend's `DiffScope` also has a whole-head
+ *  shape, which no screen asks for. */
 export type PullDiffScope =
-  | { kind: "heads" }
   | { kind: "commit"; commit: GitOid }
   | { kind: "pair"; from: GitOid; to: GitOid };
 
@@ -294,7 +294,7 @@ export async function fetchPullDiff(
   number: number,
   to: GitOid,
   from: PullBaseline,
-  scope?: PullDiffScope,
+  scope: PullDiffScope,
 ): Promise<PullDiffResponse> {
   const params = new URLSearchParams({
     repo,
@@ -302,14 +302,11 @@ export async function fetchPullDiff(
     to,
     from: from.kind === "base" ? "base" : from.head,
   });
-  switch (scope?.kind) {
-    case "commit":
-      params.set("toCommit", scope.commit);
-      break;
-    case "pair":
-      params.set("fromCommit", scope.from);
-      params.set("toCommit", scope.to);
-      break;
+  if (scope.kind === "pair") {
+    params.set("fromCommit", scope.from);
+    params.set("toCommit", scope.to);
+  } else {
+    params.set("toCommit", scope.commit);
   }
   return PullDiffResponse.parse(
     await getJson(

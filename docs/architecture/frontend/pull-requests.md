@@ -163,7 +163,6 @@ out, with a way to forget a field.
 import { useState } from "react";
 import type { PullSummary } from "../api";
 import { usePulls } from "../state/pulls";
-import type { Session } from "../state/session";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { type PullChoice, PullPanes } from "../views/PullPanes";
@@ -174,13 +173,7 @@ type Screen =
   | { phase: "reviewing"; pull: number }
   | { phase: "picking"; pull: number };
 
-export function PullRequests({
-  repo,
-  session,
-}: {
-  repo: string;
-  session: Session;
-}) {
+export function PullRequests({ repo }: { repo: string }) {
   const pulls = usePulls(repo);
   const [screen, setScreen] = useState<Screen>({ phase: "browsing" });
 
@@ -209,12 +202,7 @@ export function PullRequests({
         choice.phase === "browsing" ? (
           <Message>Select a pull request to review it.</Message>
         ) : (
-          <PullReview
-            key={choice.pull.number}
-            repo={repo}
-            pull={choice.pull}
-            session={session}
-          />
+          <PullReview key={choice.pull.number} repo={repo} pull={choice.pull} />
         )
       }
     />
@@ -403,7 +391,6 @@ import { type Slot, usePairing } from "../state/pairing";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
-import type { Session } from "../state/session";
 import {
   CommitStack,
   type StackRow,
@@ -531,13 +518,9 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
 export function PullReview({
   repo,
   pull,
-  session: _session,
 }: {
   repo: string;
   pull: PullSummary;
-  // Kept for the shape every pane in this screen takes. CommitStack renders
-  // read only today. Marks on a pull request row are still to come.
-  session: Session;
 }) {
   const history = usePullHistory(repo, pull.number);
   const [from, setFrom] = useState<PullBaseline>({ kind: "base" });

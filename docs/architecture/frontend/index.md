@@ -129,8 +129,7 @@ has no markup of its own.
 When there is no diff to show yet, the controller decides what goes on screen,
 so `DiffView` stays at "render these files" with no null checks and one panel's
 branching sits in one file. `OperationLog` drives `OperationPicker`. `CommitLog`
-drives `CommitGraph`. `DiffPane` drives whichever of `InterdiffRows` and
-`DiffView` the answer it got calls for.
+drives `CommitGraph`. `DiffPane` drives `InterdiffRows`.
 
 `PullReview` bends the one-hook-one-view rule and is the only thing that does.
 It mounts the commit list and the diff panel itself, because neither can be

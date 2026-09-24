@@ -6,80 +6,39 @@ commit's diff or a whole series lined up as an interdiff.
 ## Choosing what to compare
 
 `useComparison` owns the diff panel's contents. A `Comparison` is the question,
-and it has one arm per screen: a pair of commit selections out of the local
-repo, or a pair of heads of one pull request.
+a pair of commit selections out of the local repo. A pull request is read
+commit by commit on [its own screen](pull-requests.md#row-comparisons), which
+asks the backend one row at a time and never comes through here.
 
-Only the jj arm has a "nothing picked yet" state, an empty `from` array,
-which the backend already answers by showing the after side's own diff. The
-pull arm has no such state. Its after end is a head and its before end is a
-`PullBaseline`, both required, and the controller has a default for each: the
-base for before and the latest head for after.
-
-The hook reloads whenever the question changes and drops a response that lands
-after it has changed again. Both jj selections empty is the one question with
-no answer, so the hook reports `null` without a request. A comparison is a
-fresh object every render, so the effect depends on its JSON the same way
-`useCommits` depends on a source's.
+An empty `from` array is the "nothing picked yet" state, which the backend
+already answers by showing the after side's own diff. The hook reloads
+whenever the question changes and drops a response that lands after it has
+changed again. Both selections empty is the one question with no answer, so
+the hook reports `null` without a request. A comparison is a fresh object
+every render, so the effect depends on its JSON the same way `useCommits`
+depends on a source's.
 
 ```tsx
 //| id: frontend-state-comparison
 //| file: src/frontend/state/comparison.ts
 import { useEffect, useState } from "react";
-import {
-  type FileDiff,
-  fetchInterdiff,
-  fetchPullDiff,
-  type GitOid,
-  type InterdiffRow,
-  type PullBaseline,
-} from "../api";
+import { fetchInterdiff, type InterdiffRow } from "../api";
 import type { AsyncState } from "./asyncState";
 
 /** What the diff panel is being asked for. */
-export type Comparison =
-  | { kind: "jj"; from: string[]; to: string[] }
-  | {
-      kind: "pull";
-      repo: string;
-      number: number;
-      /** What the after side is measured against, a head or the base branch. */
-      from: PullBaseline;
-      to: GitOid;
-    };
-
-/** The answer, shaped by what was asked. */
-export type ComparisonFiles =
-  | { kind: "jj"; rows: InterdiffRow[] }
-  | { kind: "pull"; files: FileDiff[] };
-
-async function compare(question: Comparison): Promise<ComparisonFiles> {
-  if (question.kind === "jj") {
-    const { rows } = await fetchInterdiff(question.from, question.to);
-    return { kind: "jj", rows };
-  }
-
-  const { files } = await fetchPullDiff(
-    question.repo,
-    question.number,
-    question.to,
-    question.from,
-  );
-  return { kind: "pull", files };
-}
-
-function hasNothingToAsk(question: Comparison): boolean {
-  return (
-    question.kind === "jj" &&
-    question.from.length === 0 &&
-    question.to.length === 0
-  );
+export interface Comparison {
+  from: string[];
+  to: string[];
 }
 
 export function useComparison(
   question: Comparison,
-): AsyncState<ComparisonFiles> | null {
-  const [state, setState] = useState<AsyncState<ComparisonFiles> | null>(null);
-  const key = hasNothingToAsk(question) ? "" : JSON.stringify(question);
+): AsyncState<InterdiffRow[]> | null {
+  const [state, setState] = useState<AsyncState<InterdiffRow[]> | null>(null);
+  const key =
+    question.from.length === 0 && question.to.length === 0
+      ? ""
+      : JSON.stringify(question);
 
   useEffect(() => {
     if (key === "") {
@@ -89,9 +48,10 @@ export function useComparison(
 
     let live = true;
     setState({ status: "loading" });
-    compare(JSON.parse(key) as Comparison)
-      .then((data) => {
-        if (live) setState({ status: "ready", data });
+    const { from, to } = JSON.parse(key) as Comparison;
+    fetchInterdiff(from, to)
+      .then(({ rows }) => {
+        if (live) setState({ status: "ready", data: rows });
       })
       .catch((err: unknown) => {
         if (live) setState({ status: "error", message: String(err) });
@@ -106,14 +66,8 @@ export function useComparison(
 ```
 ## Diff pane controller
 
-The diff panel's contents follow from what was asked. A comparison of local
-commits comes back as one row per lined-up pair, and each row needs its own
-header saying which commit faced which. A comparison of pull request heads
-comes back as one patch, and the two ends it compares are already named by
-the picker above it, so a second header there would be a repetition.
-
-Choosing between the two shapes happens here and nowhere else, which is what
-keeps `DiffView` at "render these files".
+A comparison of local commits comes back as one row per lined-up pair, and
+each row carries its own header saying which commit faced which.
 
 Takes a `session` prop rather than calling `useSession` itself, since `App`
 owns the one session for the whole page and other readers will want it. The
@@ -122,26 +76,12 @@ because a synchronous local store adds nothing to them. `reviewRows` runs
 below those early returns as a plain function call, since it derives from
 props already in hand rather than fetching.
 
-Review memory reaches the jj branch alone. A mark and a comment are keyed by
-the pair of commits a row lines up, and a pull request diff is one patch
-between two heads with no such row, so it renders read-only until it is given
-an identity of its own. Inventing one here would ship it untested behind a
-conflict resolution.
-
-An empty pull request diff reads differently depending on what the before
-end is. Two versions with no difference between them is "these two versions
-make the same change", but a head against its base with no difference means
-the pull request adds nothing to what it targets, a different fact worth
-saying in its own words. `DiffPane` already holds the whole `comparison`, so
-it branches on `comparison.from.kind` to tell the two apart.
-
 ```tsx
 //| id: frontend-controller-diff-pane
 //| file: src/frontend/controllers/DiffPane.tsx
 import { type Comparison, useComparison } from "../state/comparison";
 import { reviewRows } from "../state/review";
 import type { Session } from "../state/session";
-import { DiffView } from "../views/DiffView";
 import { InterdiffRows } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
@@ -161,28 +101,16 @@ export function DiffPane({
   if (answer.status === "error") {
     return <Message tone="error">{answer.message}</Message>;
   }
-  if (answer.data.kind === "jj") {
-    return (
-      <InterdiffRows
-        rows={reviewRows(answer.data.rows, session.document)}
-        onMarkSeen={session.markSeen}
-        onAddComment={session.addComment}
-        onResolveComment={session.resolveComment}
-        onDropComment={session.dropComment}
-      />
-    );
-  }
-  if (answer.data.files.length === 0) {
-    return (
-      <Message>
-        {comparison.kind === "pull" && comparison.from.kind === "base"
-          ? "This pull request introduces no changes over its base."
-          : "These two versions make the same change."}
-      </Message>
-    );
-  }
 
-  return <DiffView files={answer.data.files} />;
+  return (
+    <InterdiffRows
+      rows={reviewRows(answer.data, session.document)}
+      onMarkSeen={session.markSeen}
+      onAddComment={session.addComment}
+      onResolveComment={session.resolveComment}
+      onDropComment={session.dropComment}
+    />
+  );
 }
 ```
 

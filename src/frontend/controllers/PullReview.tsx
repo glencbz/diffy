@@ -13,7 +13,6 @@ import { type Slot, usePairing } from "../state/pairing";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
-import type { Session } from "../state/session";
 import {
   CommitStack,
   type StackRow,
@@ -141,13 +140,9 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
 export function PullReview({
   repo,
   pull,
-  session: _session,
 }: {
   repo: string;
   pull: PullSummary;
-  // Kept for the shape every pane in this screen takes. CommitStack renders
-  // read only today. Marks on a pull request row are still to come.
-  session: Session;
 }) {
   const history = usePullHistory(repo, pull.number);
   const [from, setFrom] = useState<PullBaseline>({ kind: "base" });
