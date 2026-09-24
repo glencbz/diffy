@@ -2,7 +2,9 @@
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
 import {
+  BlobId,
   GitOid,
+  gitBlob,
   gitForget,
   gitHasCommit,
   gitLog,
@@ -331,6 +333,30 @@ describe("gitMergeBase", () => {
     // act
     // assert
     expect(await gitMergeBase(base, head)).toBe(base);
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/git.md#git-module-test>>[3]
+
+describe("gitBlob", () => {
+  test("reads a file back by the blob id a tree holds it under", async () => {
+    // arrange
+    const id = BlobId.parse(
+      (await $`git rev-parse HEAD:package.json`.quiet().text()).trim(),
+    );
+
+    // act
+    const text = await gitBlob(id);
+
+    // assert
+    expect(text).toBe(await $`git show HEAD:package.json`.quiet().text());
+  });
+
+  test("answers null for an id that names nothing", async () => {
+    // arrange
+    // act
+    // assert
+    expect(await gitBlob(BlobId.parse("f".repeat(40)))).toBeNull();
   });
 });
 // ~/~ end

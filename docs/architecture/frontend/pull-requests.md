@@ -374,6 +374,10 @@ asked to see plain. `CommitLog` already draws one lane well, so a base
 comparison keeps that lane and builds its stack rows straight from the
 commit list instead of from a pairing with nothing on one side.
 
+Only an open row draws its diff, so only an open row's files are handed to
+[`useSources`](syntax.md#loading-each-side) to load. A stack of twenty commits
+then costs nothing extra until someone opens one of them.
+
 ```tsx
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
@@ -391,6 +395,7 @@ import { type Slot, usePairing } from "../state/pairing";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
+import { useSources } from "../state/source";
 import {
   CommitStack,
   type StackRow,
@@ -548,6 +553,12 @@ export function PullReview({
 
   const pairing = usePairing(beforeCommits, afterCommits);
   const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
+  const sources = useSources(
+    [...open].flatMap((key) => {
+      const files = diffs.get(key);
+      return files?.status === "ready" ? files.data : [];
+    }),
+  );
 
   if (history.status === "loading") {
     return <Message>Loading versions...</Message>;
@@ -620,6 +631,7 @@ export function PullReview({
         ) : (
           <CommitStack
             rows={rows}
+            sources={sources}
             open={open}
             onToggle={(key) => setOpen((now) => toggled(now, key))}
             expanded={expanded}
@@ -721,6 +733,8 @@ describe("stackRows", () => {
         status: "modified",
         path: "a.ts",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "@@ -1 +1 @@\n-a\n+b",
       },
     ];
@@ -770,6 +784,8 @@ describe("stackRows", () => {
       status: "modified",
       path: "JJ-COMMIT-DESCRIPTION",
       binary: false,
+      oldBlob: null,
+      newBlob: null,
       patch: "@@ -1 +1 @@\n-old subject\n+new subject",
     };
     const diffs = new Map<string, AsyncState<FileDiff[]>>([
@@ -794,12 +810,16 @@ describe("stackRows", () => {
         status: "modified",
         path: "JJ-COMMIT-DESCRIPTION",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "@@ -1 +1 @@\n-old subject\n+new subject",
       },
       {
         status: "modified",
         path: "a.ts",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "@@ -1 +1 @@\n-a\n+b",
       },
     ];

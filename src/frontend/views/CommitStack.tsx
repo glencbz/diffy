@@ -2,6 +2,7 @@
 import { type ReactElement, useEffect, useRef } from "react";
 import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../state/asyncState";
+import type { SourceLookup } from "../state/source";
 import { DiffView } from "./DiffView";
 
 /** The opening of a commit body, its first paragraph or its first six
@@ -165,6 +166,8 @@ export interface StackRow {
 
 export interface CommitStackProps {
   rows: StackRow[];
+  /** Each side of each file, for an open row's diff to colour. */
+  sources: SourceLookup;
   /** Rows whose contents are open. */
   open: ReadonlySet<string>;
   onToggle: (key: string) => void;
@@ -210,6 +213,7 @@ const KIND_TONE: Record<Exclude<StackRowKind, "plain">, ChipTone> = {
 
 export function CommitStack({
   rows,
+  sources,
   open,
   onToggle,
   expanded,
@@ -223,6 +227,7 @@ export function CommitStack({
         <StackSection
           key={row.key}
           row={row}
+          sources={sources}
           isOpen={open.has(row.key)}
           onToggle={() => onToggle(row.key)}
           isExpanded={expanded.has(row.key)}
@@ -237,6 +242,7 @@ export function CommitStack({
 
 function StackSection({
   row,
+  sources,
   isOpen,
   onToggle,
   isExpanded,
@@ -245,6 +251,7 @@ function StackSection({
   since,
 }: {
   row: StackRow;
+  sources: SourceLookup;
   isOpen: boolean;
   onToggle: () => void;
   isExpanded: boolean;
@@ -277,7 +284,12 @@ function StackSection({
             isExpanded={isExpanded}
             onExpand={onExpand}
           />
-          <StackContents row={row} isOpen={isOpen} onToggle={onToggle} />
+          <StackContents
+            row={row}
+            sources={sources}
+            isOpen={isOpen}
+            onToggle={onToggle}
+          />
         </>
       )}
     </section>
@@ -426,10 +438,12 @@ export function countLines(files: FileDiff[]): {
 
 function StackContents({
   row,
+  sources,
   isOpen,
   onToggle,
 }: {
   row: StackRow;
+  sources: SourceLookup;
   isOpen: boolean;
   onToggle: () => void;
 }) {
@@ -462,7 +476,7 @@ function StackContents({
           {contentsCaption(row.kind)}
         </span>
       </button>
-      {isOpen && <DiffView files={files} />}
+      {isOpen && <DiffView files={files} sources={sources} />}
     </div>
   );
 }

@@ -161,6 +161,8 @@ describe("parseFileDiff", () => {
       status: "added",
       path: "add.txt",
       binary: false,
+      oldBlob: null,
+      newBlob: "d5a09df94c",
     });
   });
 
@@ -182,6 +184,8 @@ describe("parseFileDiff", () => {
       status: "deleted",
       path: "del.txt",
       binary: false,
+      oldBlob: "de980441c3",
+      newBlob: null,
     });
   });
 
@@ -203,6 +207,8 @@ describe("parseFileDiff", () => {
       status: "modified",
       path: "mod.txt",
       binary: false,
+      oldBlob: "04ec35a6dc",
+      newBlob: "0722639108",
     });
   });
 
@@ -221,6 +227,8 @@ describe("parseFileDiff", () => {
       oldPath: "t.txt",
       newPath: "renamed.txt",
       binary: false,
+      oldBlob: null,
+      newBlob: null,
       patch,
     });
   });

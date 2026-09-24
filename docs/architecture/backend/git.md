@@ -371,7 +371,9 @@ need a remote and would prove less.
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
 import {
+  BlobId,
   GitOid,
+  gitBlob,
   gitForget,
   gitHasCommit,
   gitLog,
@@ -759,6 +761,66 @@ describe("gitMergeBase", () => {
     // act
     // assert
     expect(await gitMergeBase(base, head)).toBe(base);
+  });
+});
+```
+
+### Reading a file's contents
+
+A diff shows a file only in the hunks that changed, and some of what a reader
+wants needs the rest of it: syntax colours for a line depend on what came
+before it, and context around a hunk is lines the patch left out. The `index`
+line of every [`git`-format patch](jj.md#reading-a-commits-diff) names the
+blob each side is stored under, and in a colocated repo those blobs are in
+git's object store, whether jj wrote them or a
+[pull request fetch](#fetching-a-commit-nothing-points-at) brought them.
+
+`BlobId` takes an id as short as git itself will resolve, because the `index`
+line abbreviates. An id that names nothing, or names more than one object, is
+an ordinary answer for a reader holding an id out of someone else's patch, so
+`gitBlob` answers null rather than throwing.
+
+```ts
+//| id: git-module
+
+/** A git blob id, whole or abbreviated the way a patch's `index` line prints it. */
+export const BlobId = z
+  .string()
+  .regex(/^[0-9a-f]{4,64}$/, "expected a hex git blob id")
+  .brand("BlobId");
+export type BlobId = z.infer<typeof BlobId>;
+
+/** A blob's contents as text, or null when the store has no one blob by that id. */
+export async function gitBlob(id: BlobId): Promise<string | null> {
+  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
+  return result.exitCode === 0 ? result.text() : null;
+}
+```
+
+#### Test
+
+```ts
+//| id: git-module-test
+
+describe("gitBlob", () => {
+  test("reads a file back by the blob id a tree holds it under", async () => {
+    // arrange
+    const id = BlobId.parse(
+      (await $`git rev-parse HEAD:package.json`.quiet().text()).trim(),
+    );
+
+    // act
+    const text = await gitBlob(id);
+
+    // assert
+    expect(text).toBe(await $`git show HEAD:package.json`.quiet().text());
+  });
+
+  test("answers null for an id that names nothing", async () => {
+    // arrange
+    // act
+    // assert
+    expect(await gitBlob(BlobId.parse("f".repeat(40)))).toBeNull();
   });
 });
 ```

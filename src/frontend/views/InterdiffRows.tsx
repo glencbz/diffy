@@ -1,16 +1,19 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import type { ReviewedRow } from "../state/review";
+import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
 
 export function InterdiffRows({
   rows,
+  sources,
   onMarkSeen,
   onAddComment,
   onResolveComment,
   onDropComment,
 }: {
   rows: ReviewedRow[];
+  sources: SourceLookup;
   onMarkSeen: (row: ReviewedRow) => void;
   onAddComment: (
     row: ReviewedRow,
@@ -35,6 +38,7 @@ export function InterdiffRows({
           ) : (
             <DiffView
               files={row.files}
+              sources={sources}
               review={{
                 comments: row.comments,
                 onAddComment: (path, line, body) =>

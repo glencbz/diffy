@@ -73,6 +73,8 @@ describe("stackRows", () => {
         status: "modified",
         path: "a.ts",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "@@ -1 +1 @@\n-a\n+b",
       },
     ];
@@ -122,6 +124,8 @@ describe("stackRows", () => {
       status: "modified",
       path: "JJ-COMMIT-DESCRIPTION",
       binary: false,
+      oldBlob: null,
+      newBlob: null,
       patch: "@@ -1 +1 @@\n-old subject\n+new subject",
     };
     const diffs = new Map<string, AsyncState<FileDiff[]>>([
@@ -146,12 +150,16 @@ describe("stackRows", () => {
         status: "modified",
         path: "JJ-COMMIT-DESCRIPTION",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "@@ -1 +1 @@\n-old subject\n+new subject",
       },
       {
         status: "modified",
         path: "a.ts",
         binary: false,
+        oldBlob: null,
+        newBlob: null,
         patch: "@@ -1 +1 @@\n-a\n+b",
       },
     ];

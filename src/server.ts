@@ -2,8 +2,10 @@
 
 import * as z from "zod";
 import {
+  BlobId,
   GitError,
   GitOid,
+  gitBlob,
   gitLog,
   gitMaterialize,
   gitMergeBase,
@@ -33,6 +35,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -113,6 +116,31 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[2]
 
+export async function handleSource(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  const blob = BlobId.safeParse(params.get("blob"));
+  const path = params.get("path");
+
+  if (!blob.success || path === null || path === "") {
+    return Response.json(
+      { error: "source needs a blob id and a path" },
+      { status: 400 },
+    );
+  }
+
+  const text = await gitBlob(blob.data);
+  if (text === null) {
+    return Response.json(
+      { error: `no blob ${blob.data} in the object store` },
+      { status: 404 },
+    );
+  }
+
+  return Response.json(await highlightSource(text, path));
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[3]
+
 /** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
 async function githubJson(build: () => Promise<unknown>): Promise<Response> {
   try {
@@ -134,7 +162,7 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[3]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
 
 const PullsQuery = z.object({
   state: z.enum(["open", "closed", "merged", "all"]).optional(),
@@ -165,7 +193,7 @@ export function handleGithubPullHistory(req: Request): Promise<Response> {
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
 
 export function handleGithubPullCommits(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
@@ -192,7 +220,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
   });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
 
 export function handleGithubPullDiff(req: Request): Promise<Response> {
   return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
@@ -301,7 +329,7 @@ async function pullDiffFiles(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
 export const routes = {
   "/": index,
@@ -309,6 +337,7 @@ export const routes = {
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
+  "/api/source": handleSource,
   "/api/github/pulls": handleGithubPulls,
   "/api/github/pull/history": handleGithubPullHistory,
   "/api/github/pull/commits": handleGithubPullCommits,

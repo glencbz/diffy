@@ -95,6 +95,11 @@ Added-line green and open-comment red are the app's vocabulary, not its
 chrome, and a theme that wanted a colder interface would still want the
 patch to read the way a patch reads everywhere else.
 
+Code colours are roles for the same reason, one per [kind of
+token](syntax.md#colours). An added or removed line is tinted behind its
+text rather than coloured in it, since the text now carries the code's own
+colours and a green keyword would say nothing about either.
+
 ```css
 /*| id: design-roles
 @layer roles {
@@ -120,6 +125,19 @@ patch to read the way a patch reads everywhere else.
     --diff-removed: var(--red-600);
     --diff-meta: var(--grey-700);
     --diff-hunk: var(--blue-600);
+    --diff-added-surface: var(--green-100);
+    --diff-removed-surface: var(--red-100);
+    --diff-added-emphasis: var(--green-200);
+    --diff-removed-emphasis: var(--red-200);
+
+    --syntax-keyword: var(--purple-600);
+    --syntax-string: var(--teal-600);
+    --syntax-comment: var(--grey-600);
+    --syntax-constant: var(--amber-800);
+    --syntax-function: var(--blue-600);
+    --syntax-parameter: var(--grey-900);
+    --syntax-punctuation: var(--grey-700);
+    --syntax-link: var(--blue-600);
 
     --review-open: var(--red-800);
     --review-resolved: var(--green-400);
@@ -282,6 +300,19 @@ lightness that survives a dark surface.
       --diff-removed: var(--red-400);
       --diff-meta: var(--grey-600);
       --diff-hunk: var(--blue-400);
+      --diff-added-surface: var(--green-900);
+      --diff-removed-surface: var(--red-900);
+      --diff-added-emphasis: var(--green-800);
+      --diff-removed-emphasis: var(--red-800);
+
+      --syntax-keyword: var(--purple-400);
+      --syntax-string: var(--teal-400);
+      --syntax-comment: var(--grey-600);
+      --syntax-constant: var(--amber-400);
+      --syntax-function: var(--blue-400);
+      --syntax-parameter: var(--grey-100);
+      --syntax-punctuation: var(--grey-500);
+      --syntax-link: var(--blue-400);
 
       --review-open: var(--red-400);
       --review-resolved: var(--green-300);
