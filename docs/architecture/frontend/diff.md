@@ -146,6 +146,14 @@ side that disagrees with it loses its colours rather than changing what the
 reader sees. `sources` is optional for the same reason, and a diff without it
 reads exactly as it would have with every side still loading.
 
+Around each hunk, a row stands in for the unchanged lines the patch
+[left out](#hidden-lines), once the after side has loaded and says how long
+the file is. Clicking it draws those lines from the after side as context,
+numbered and commentable like any other. A hunk header only says where the
+next hunk jumps to, so once the lines above it are drawn there is no jump and
+the header goes. Which gaps are shown is `useState` in the file's own row,
+since nothing outside that file cares.
+
 A left gutter adds the after-side line number to each rendered line, because
 that is what a comment's `line` field means: the line as it reads in the
 version being approved, not an offset into the raw patch text. Header lines,
@@ -176,7 +184,7 @@ import { useState } from "react";
 import type { FileDiff, SourceFile, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
 import type { SourceLookup } from "../state/source";
-import { type HunkLine, type Patch, readPatch } from "./patch";
+import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
   changedLines,
   type PaintedToken,
@@ -283,6 +291,8 @@ function FileRow({
   sides: FileSides;
   review?: FileReview;
 }) {
+  const [shown, setShown] = useState<ReadonlySet<number>>(new Set());
+
   return (
     <section className="diff-file">
       <header className="diff-file__header">
@@ -293,14 +303,30 @@ function FileRow({
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(readPatch(file.patch), sides).map((line, index) => (
-            <PatchLine
-              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-              key={index}
-              line={line}
-              onOpenComposer={review?.onOpenComposer}
-            />
-          ))}
+          {drawnLines(readPatch(file.patch), sides, shown).map((line, index) =>
+            line.kind === "gap" ? (
+              <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
+                key={index}
+                type="button"
+                className="diff-line diff-line--gap"
+                onClick={() => setShown((now) => new Set(now).add(line.gap))}
+              >
+                <span className="diff-line__gutter">⋯</span>
+                <span>
+                  show {line.count} unchanged{" "}
+                  {line.count === 1 ? "line" : "lines"}
+                </span>
+              </button>
+            ) : (
+              <PatchLine
+                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
+                key={index}
+                line={line}
+                onOpenComposer={review?.onOpenComposer}
+              />
+            ),
+          )}
         </pre>
       )}
       {review !== undefined && review.composerLine !== null && (
@@ -412,7 +438,7 @@ function PatchLine({
   line,
   onOpenComposer,
 }: {
-  line: DrawnLine;
+  line: Exclude<DrawnLine, { kind: "gap" }>;
   onOpenComposer?: (line: number) => void;
 }) {
   const afterLine = "afterLine" in line ? line.afterLine : null;
@@ -478,27 +504,54 @@ const SIGNS: Record<CodeKind, string> = {
 
 /** One line as drawn. Header lines, hunk headers, and notes are text in one
  *  colour. A line of the file is its tokens, and its after-side line number
- *  where it has one. */
+ *  where it has one. A gap stands in for the lines `gapsOf` numbered `gap`
+ *  until it is shown. */
 type DrawnLine =
   | { kind: "meta" | "hunk"; text: string }
+  | { kind: "gap"; gap: number; count: number }
   | {
       kind: CodeKind;
       tokens: PaintedToken[];
       afterLine: number | null;
     };
 
-function drawnLines(patch: Patch, sides: FileSides): DrawnLine[] {
+function drawnLines(
+  patch: Patch,
+  sides: FileSides,
+  shown: ReadonlySet<number>,
+): DrawnLine[] {
+  const gaps =
+    sides.new === null || patch.hunks.length === 0
+      ? []
+      : gapsOf(patch, sides.new.lines.length);
+
+  const hidden = (index: number): DrawnLine[] => {
+    const gap = gaps[index];
+    if (gap === undefined || gap.count === 0) return [];
+    if (!shown.has(index))
+      return [{ kind: "gap", gap: index, count: gap.count }];
+    return Array.from({ length: gap.count }, (_, offset) => ({
+      kind: "context" as const,
+      tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
+      afterLine: gap.start + offset,
+    }));
+  };
+
   return [
     ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
-    ...patch.hunks.flatMap((hunk) => {
+    ...patch.hunks.flatMap((hunk, index) => {
       const changed = changedLines(hunk.lines);
       return [
-        { kind: "hunk" as const, text: hunk.header },
-        ...hunk.lines.map((line, index) =>
-          drawnHunkLine(line, sides, changed.get(index) ?? []),
+        ...hidden(index),
+        ...(shown.has(index)
+          ? []
+          : [{ kind: "hunk" as const, text: hunk.header }]),
+        ...hunk.lines.map((line, at) =>
+          drawnHunkLine(line, sides, changed.get(at) ?? []),
         ),
       ];
     }),
+    ...hidden(patch.hunks.length),
   ];
 }
 
@@ -618,6 +671,12 @@ tint of the same colour.
     background: var(--diff-removed-surface);
   }
 
+  .diff-line--gap {
+    color: var(--diff-hunk);
+    background: var(--surface-sunken);
+    cursor: pointer;
+  }
+
   .diff-line--added .diff-line__changed {
     background: var(--diff-added-emphasis);
   }
@@ -723,6 +782,9 @@ export interface Patch {
 export interface Hunk {
   /** The `@@ -a,b +c,d @@` line, with whatever context git printed after it. */
   header: string;
+  /** The after-side number of the hunk's first line, or of the line that
+   *  would follow it when the hunk only removes. */
+  newStart: number;
   lines: HunkLine[];
 }
 
@@ -734,7 +796,13 @@ export type HunkLine =
   | { kind: "added"; code: string; newLine: number }
   | { kind: "note"; text: string };
 
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+/** Where a side's count starts. A side with no lines in the hunk names the
+ *  line before the hunk, so its next line is one further on. */
+function firstLine(start: string | undefined, count: string | undefined) {
+  return Number(start) + (count === "0" ? 1 : 0);
+}
 
 export function readPatch(patch: string): Patch {
   const header: string[] = [];
@@ -748,9 +816,9 @@ export function readPatch(patch: string): Patch {
   for (const text of lines) {
     const start = text.match(HUNK_HEADER);
     if (start !== null) {
-      oldLine = Number(start[1]);
-      newLine = Number(start[2]);
-      hunks.push({ header: text, lines: [] });
+      oldLine = firstLine(start[1], start[2]);
+      newLine = firstLine(start[3], start[4]);
+      hunks.push({ header: text, newStart: newLine, lines: [] });
       continue;
     }
 
@@ -787,7 +855,7 @@ export function readPatch(patch: string): Patch {
 //| id: frontend-view-patch-test
 //| file: src/frontend/views/patch.test.ts
 import { describe, expect, test } from "bun:test";
-import { readPatch } from "./patch";
+import { gapsOf, readPatch } from "./patch";
 
 describe("readPatch", () => {
   test("numbers each line on the sides it is on", () => {
@@ -813,6 +881,7 @@ describe("readPatch", () => {
     expect(hunks).toEqual([
       {
         header: "@@ -10,3 +10,3 @@ function f() {",
+        newStart: 10,
         lines: [
           { kind: "context", code: "keep", oldLine: 10, newLine: 10 },
           { kind: "removed", code: "old", oldLine: 11 },
@@ -873,6 +942,101 @@ describe("readPatch", () => {
       "Binary files differ",
     ]);
     expect(hunks).toEqual([]);
+  });
+});
+```
+
+### Hidden lines
+
+A patch keeps three lines of context around each change and leaves the rest
+of the file out. `gapsOf` names what it left out, on the after side: the
+lines before each hunk that the hunk above it did not show, and the lines
+after the last hunk, down to the end of the file. The after side is enough
+because a hidden line is unchanged, so it reads the same on both sides, and
+the after side is the one a comment is anchored to.
+
+A gap is only known once the length of the after side is, which is when its
+source has loaded. A side whose length falls short of what the hunks
+already show says nothing true about what lies between them, so a gap is
+never negative, only empty.
+
+```ts
+//| id: frontend-view-patch
+
+/** Unchanged after-side lines the patch left out, `count` of them from line
+ *  `start` on. */
+export interface Gap {
+  start: number;
+  count: number;
+}
+
+/** One gap before each hunk and one after the last, empty where the hunks
+ *  already meet or reach the end, for an after side `length` lines long. */
+export function gapsOf(patch: Patch, length: number): Gap[] {
+  const gaps: Gap[] = [];
+  let next = 1;
+
+  for (const hunk of patch.hunks) {
+    gaps.push({ start: next, count: Math.max(0, hunk.newStart - next) });
+    next =
+      hunk.newStart + hunk.lines.filter((line) => "newLine" in line).length;
+  }
+  gaps.push({ start: next, count: Math.max(0, length - next + 1) });
+
+  return gaps;
+}
+```
+
+```ts
+//| id: frontend-view-patch-test
+
+describe("gapsOf", () => {
+  test("names the lines before, between, and after the hunks", () => {
+    // arrange
+    const patch = readPatch(
+      [
+        "@@ -4,2 +4,2 @@",
+        " a",
+        "-b",
+        "+c",
+        "@@ -20,1 +20,2 @@",
+        " d",
+        "+e",
+      ].join("\n"),
+    );
+
+    // act
+    const gaps = gapsOf(patch, 30);
+
+    // assert
+    expect(gaps).toEqual([
+      { start: 1, count: 3 },
+      { start: 6, count: 14 },
+      { start: 22, count: 9 },
+    ]);
+  });
+
+  test("resumes after a hunk that only removes", () => {
+    // arrange
+    const patch = readPatch(["@@ -5,2 +4,0 @@", "-a", "-b"].join("\n"));
+
+    // act
+    const gaps = gapsOf(patch, 10);
+
+    // assert
+    expect(gaps).toEqual([
+      { start: 1, count: 4 },
+      { start: 5, count: 6 },
+    ]);
+  });
+
+  test("finds nothing hidden in a file the hunk covers whole", () => {
+    // arrange
+    const patch = readPatch(["@@ -0,0 +1,2 @@", "+a", "+b"].join("\n"));
+
+    // act
+    // assert
+    expect(gapsOf(patch, 2).map((gap) => gap.count)).toEqual([0, 0]);
   });
 });
 ```

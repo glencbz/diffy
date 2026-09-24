@@ -1075,6 +1075,12 @@
     background: var(--diff-removed-surface);
   }
 
+  .diff-line--gap {
+    color: var(--diff-hunk);
+    background: var(--surface-sunken);
+    cursor: pointer;
+  }
+
   .diff-line--added .diff-line__changed {
     background: var(--diff-added-emphasis);
   }

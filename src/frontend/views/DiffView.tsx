@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { FileDiff, SourceFile, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
 import type { SourceLookup } from "../state/source";
-import { type HunkLine, type Patch, readPatch } from "./patch";
+import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
   changedLines,
   type PaintedToken,
@@ -110,6 +110,8 @@ function FileRow({
   sides: FileSides;
   review?: FileReview;
 }) {
+  const [shown, setShown] = useState<ReadonlySet<number>>(new Set());
+
   return (
     <section className="diff-file">
       <header className="diff-file__header">
@@ -120,14 +122,30 @@ function FileRow({
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(readPatch(file.patch), sides).map((line, index) => (
-            <PatchLine
-              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-              key={index}
-              line={line}
-              onOpenComposer={review?.onOpenComposer}
-            />
-          ))}
+          {drawnLines(readPatch(file.patch), sides, shown).map((line, index) =>
+            line.kind === "gap" ? (
+              <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
+                key={index}
+                type="button"
+                className="diff-line diff-line--gap"
+                onClick={() => setShown((now) => new Set(now).add(line.gap))}
+              >
+                <span className="diff-line__gutter">⋯</span>
+                <span>
+                  show {line.count} unchanged{" "}
+                  {line.count === 1 ? "line" : "lines"}
+                </span>
+              </button>
+            ) : (
+              <PatchLine
+                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
+                key={index}
+                line={line}
+                onOpenComposer={review?.onOpenComposer}
+              />
+            ),
+          )}
         </pre>
       )}
       {review !== undefined && review.composerLine !== null && (
@@ -239,7 +257,7 @@ function PatchLine({
   line,
   onOpenComposer,
 }: {
-  line: DrawnLine;
+  line: Exclude<DrawnLine, { kind: "gap" }>;
   onOpenComposer?: (line: number) => void;
 }) {
   const afterLine = "afterLine" in line ? line.afterLine : null;
@@ -305,27 +323,54 @@ const SIGNS: Record<CodeKind, string> = {
 
 /** One line as drawn. Header lines, hunk headers, and notes are text in one
  *  colour. A line of the file is its tokens, and its after-side line number
- *  where it has one. */
+ *  where it has one. A gap stands in for the lines `gapsOf` numbered `gap`
+ *  until it is shown. */
 type DrawnLine =
   | { kind: "meta" | "hunk"; text: string }
+  | { kind: "gap"; gap: number; count: number }
   | {
       kind: CodeKind;
       tokens: PaintedToken[];
       afterLine: number | null;
     };
 
-function drawnLines(patch: Patch, sides: FileSides): DrawnLine[] {
+function drawnLines(
+  patch: Patch,
+  sides: FileSides,
+  shown: ReadonlySet<number>,
+): DrawnLine[] {
+  const gaps =
+    sides.new === null || patch.hunks.length === 0
+      ? []
+      : gapsOf(patch, sides.new.lines.length);
+
+  const hidden = (index: number): DrawnLine[] => {
+    const gap = gaps[index];
+    if (gap === undefined || gap.count === 0) return [];
+    if (!shown.has(index))
+      return [{ kind: "gap", gap: index, count: gap.count }];
+    return Array.from({ length: gap.count }, (_, offset) => ({
+      kind: "context" as const,
+      tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
+      afterLine: gap.start + offset,
+    }));
+  };
+
   return [
     ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
-    ...patch.hunks.flatMap((hunk) => {
+    ...patch.hunks.flatMap((hunk, index) => {
       const changed = changedLines(hunk.lines);
       return [
-        { kind: "hunk" as const, text: hunk.header },
-        ...hunk.lines.map((line, index) =>
-          drawnHunkLine(line, sides, changed.get(index) ?? []),
+        ...hidden(index),
+        ...(shown.has(index)
+          ? []
+          : [{ kind: "hunk" as const, text: hunk.header }]),
+        ...hunk.lines.map((line, at) =>
+          drawnHunkLine(line, sides, changed.get(at) ?? []),
         ),
       ];
     }),
+    ...hidden(patch.hunks.length),
   ];
 }
 
