@@ -101,6 +101,9 @@
     --diff-added-emphasis: var(--green-200);
     --diff-removed-emphasis: var(--red-200);
 
+    --status-modified: var(--amber-800);
+    --status-renamed: var(--purple-600);
+
     --syntax-keyword: var(--purple-600);
     --syntax-string: var(--teal-600);
     --syntax-comment: var(--grey-600);
@@ -175,6 +178,9 @@
       --diff-removed-surface: var(--red-900);
       --diff-added-emphasis: var(--green-800);
       --diff-removed-emphasis: var(--red-800);
+
+      --status-modified: var(--amber-400);
+      --status-renamed: var(--purple-400);
 
       --syntax-keyword: var(--purple-400);
       --syntax-string: var(--teal-400);
@@ -1025,10 +1031,206 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-tree>>[init] */
+@layer components {
+  .file-tree,
+  .file-tree ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .file-tree__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 26px;
+    padding: 0 var(--space-4) 0
+      calc(var(--space-4) + var(--file-tree-depth, 0) * 14px);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-left: var(--border-width-accent) solid transparent;
+  }
+
+  .file-tree__row:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-tree__row--current {
+    background: var(--surface-selected);
+    border-left-color: var(--accent);
+  }
+
+  .file-tree__row--current:hover {
+    background: var(--surface-selected);
+  }
+
+  .file-tree__twisty {
+    width: 10px;
+    flex: none;
+    color: var(--text-faint);
+    transition: transform 0.12s;
+  }
+
+  .file-tree__row--folder[aria-expanded="false"] .file-tree__twisty {
+    transform: rotate(-90deg);
+  }
+
+  .file-tree__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-tree__name--deleted {
+    color: var(--text-faint);
+    text-decoration: line-through;
+  }
+
+  .file-tree__row--folder .file-tree__name {
+    color: var(--text-muted);
+  }
+
+  .file-tree__row--folder .file-tree__name::after {
+    content: "/";
+    color: var(--text-ghost);
+  }
+
+  .file-tree__from {
+    color: var(--text-faint);
+  }
+
+  .file-tree__status {
+    width: 12px;
+    flex: none;
+    text-align: center;
+    font-weight: bold;
+  }
+
+  .file-tree__status--added {
+    color: var(--diff-added);
+  }
+
+  .file-tree__status--deleted {
+    color: var(--diff-removed);
+  }
+
+  .file-tree__status--modified {
+    color: var(--status-modified);
+  }
+
+  .file-tree__status--renamed,
+  .file-tree__status--copied {
+    color: var(--status-renamed);
+  }
+
+  .file-tree__badge {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: var(--text-size-small);
+    color: var(--review-open);
+    background: var(--review-open-surface);
+  }
+
+  .file-tree__stat {
+    flex: none;
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--text-size-small);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file-tree__stat-added {
+    color: var(--diff-added);
+  }
+
+  .file-tree__stat-removed {
+    color: var(--diff-removed);
+  }
+
+  .file-tree__stat-bin {
+    color: var(--text-faint);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-tree>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .file-tree__row {
+      min-height: 40px;
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[init] */
 @layer components {
   .diff-view {
     padding: var(--space-5);
+  }
+
+  .file-summary {
+    margin: 0 0 var(--space-6);
+    border: 1px solid var(--border);
+  }
+
+  .file-summary__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-5);
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-summary__title {
+    margin-right: auto;
+  }
+
+  .file-summary__totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    align-items: center;
+    font-size: var(--text-size-small);
+  }
+
+  .file-summary__added {
+    color: var(--diff-added);
+  }
+
+  .file-summary__removed {
+    color: var(--diff-removed);
+  }
+
+  .file-summary__bar {
+    display: flex;
+    height: 4px;
+    width: 100px;
+    background: var(--border-subtle);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .file-summary__bar-added {
+    background: var(--diff-added);
+  }
+
+  .file-summary__bar-removed {
+    background: var(--diff-removed);
+  }
+
+  .file-summary__tree {
+    padding: var(--space-2) 0;
   }
 
   .diff-file {

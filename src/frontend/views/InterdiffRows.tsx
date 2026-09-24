@@ -39,6 +39,7 @@ export function InterdiffRows({
             <DiffView
               files={row.files}
               sources={sources}
+              scope={rowKey(row)}
               review={{
                 comments: row.comments,
                 onAddComment: (path, line, body) =>
@@ -54,7 +55,9 @@ export function InterdiffRows({
   );
 }
 
-function rowKey(row: ReviewedRow): string {
+/** Also the scope [`DiffView` anchors](file-tree.md#folding-a-diffs-files-into-a-tree)
+ *  its files under, so two rows never collide on the same file's id. */
+export function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
 }
 // ~/~ end

@@ -484,7 +484,9 @@ function StackContents({
           {contentsCaption(row.kind)}
         </span>
       </button>
-      {isOpen && <DiffView files={files} sources={sources} />}
+      {isOpen && (
+        <DiffView files={files} sources={sources} scope={row.commit.commitId} />
+      )}
     </div>
   );
 }

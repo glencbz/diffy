@@ -392,3 +392,343 @@ describe("shownPathOf", () => {
   });
 });
 ```
+
+## The tree view
+
+`FileTree` draws the shape `fileTree` built: a folder is a row that toggles
+its own children, a file is a row that reports itself picked. Neither reads
+the diff or the page around it, so the same component draws
+[the summary card above a diff](diff.md#diff-view) and
+[the navigator's own list](#stepping-through-files) without either caring
+that the other exists.
+
+A folder starts open, because a reader who has not yet folded anything
+should see everything a diff touched, not a tree they must unfold one
+level at a time before they can tell what changed. Each folder owns its own
+`open` state rather than reading it from a set the caller holds, since
+nothing outside one row's own disclosure cares whether it is open.
+
+```tsx
+//| id: frontend-view-file-tree
+//| file: src/frontend/views/FileTree.tsx
+import { type CSSProperties, useState } from "react";
+import type { FileDiff } from "../api";
+import type { ChangedFile, TreeNode } from "./changedFiles";
+
+const STATUS_LETTER: Record<FileDiff["status"], string> = {
+  added: "A",
+  deleted: "D",
+  modified: "M",
+  renamed: "R",
+  copied: "C",
+};
+
+export function FileTree({
+  nodes,
+  current,
+  onPick,
+}: {
+  nodes: TreeNode[];
+  /** The anchor of the file to highlight, or null to highlight none. */
+  current: string | null;
+  onPick: (file: ChangedFile) => void;
+}) {
+  return (
+    <ul className="file-tree">
+      {nodes.map((node) => (
+        <TreeRow
+          key={`${node.kind}:${node.name}`}
+          node={node}
+          depth={0}
+          current={current}
+          onPick={onPick}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function TreeRow({
+  node,
+  depth,
+  current,
+  onPick,
+}: {
+  node: TreeNode;
+  depth: number;
+  current: string | null;
+  onPick: (file: ChangedFile) => void;
+}) {
+  const [open, setOpen] = useState(true);
+
+  if (node.kind === "file") {
+    return (
+      <li>
+        <FileRow
+          name={node.name}
+          file={node.file}
+          depth={depth}
+          isCurrent={node.file.anchor === current}
+          onPick={onPick}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        className="file-tree__row file-tree__row--folder"
+        style={depthStyle(depth)}
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span className="file-tree__twisty" aria-hidden="true">
+          ▾
+        </span>
+        <span className="file-tree__name">{node.name}</span>
+      </button>
+      {open && (
+        <ul>
+          {node.children.map((child) => (
+            <TreeRow
+              key={`${child.kind}:${child.name}`}
+              node={child}
+              depth={depth + 1}
+              current={current}
+              onPick={onPick}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function FileRow({
+  name,
+  file,
+  depth,
+  isCurrent,
+  onPick,
+}: {
+  name: string;
+  file: ChangedFile;
+  depth: number;
+  isCurrent: boolean;
+  onPick: (file: ChangedFile) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={
+        isCurrent
+          ? "file-tree__row file-tree__row--file file-tree__row--current"
+          : "file-tree__row file-tree__row--file"
+      }
+      style={depthStyle(depth)}
+      title={file.path}
+      onClick={() => onPick(file)}
+    >
+      <span
+        className={`file-tree__status file-tree__status--${file.status}`}
+        title={file.status}
+      >
+        {STATUS_LETTER[file.status]}
+      </span>
+      <span
+        className={
+          file.status === "deleted"
+            ? "file-tree__name file-tree__name--deleted"
+            : "file-tree__name"
+        }
+      >
+        {name}
+        {file.from !== null && (
+          <span className="file-tree__from">
+            {" "}
+            ← {file.from.split("/").at(-1)}
+          </span>
+        )}
+      </span>
+      {file.openComments > 0 && (
+        <span className="file-tree__badge">{file.openComments}</span>
+      )}
+      <span className="file-tree__stat">
+        {file.binary ? (
+          <span className="file-tree__stat-bin">bin</span>
+        ) : (
+          <>
+            {file.added > 0 && (
+              <span className="file-tree__stat-added">+{file.added}</span>
+            )}
+            {file.removed > 0 && (
+              <span className="file-tree__stat-removed">−{file.removed}</span>
+            )}
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function depthStyle(depth: number): CSSProperties {
+  return { "--file-tree-depth": depth } as CSSProperties;
+}
+```
+
+A row indents by its depth through a custom property rather than a nesting
+selector, because the tree's own `<ul>`s already nest one per folder and a
+selector keyed to nesting depth would have to repeat itself once per level
+the tree could ever reach. Renamed-file colour and deleted-file colour are
+role tokens, `--status-renamed` and `--diff-removed`, the same way every
+other colour in the app names a role rather than a shade.
+
+```css
+/*| id: design-file-tree
+@layer components {
+  .file-tree,
+  .file-tree ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .file-tree__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 26px;
+    padding: 0 var(--space-4) 0
+      calc(var(--space-4) + var(--file-tree-depth, 0) * 14px);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-left: var(--border-width-accent) solid transparent;
+  }
+
+  .file-tree__row:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-tree__row--current {
+    background: var(--surface-selected);
+    border-left-color: var(--accent);
+  }
+
+  .file-tree__row--current:hover {
+    background: var(--surface-selected);
+  }
+
+  .file-tree__twisty {
+    width: 10px;
+    flex: none;
+    color: var(--text-faint);
+    transition: transform 0.12s;
+  }
+
+  .file-tree__row--folder[aria-expanded="false"] .file-tree__twisty {
+    transform: rotate(-90deg);
+  }
+
+  .file-tree__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-tree__name--deleted {
+    color: var(--text-faint);
+    text-decoration: line-through;
+  }
+
+  .file-tree__row--folder .file-tree__name {
+    color: var(--text-muted);
+  }
+
+  .file-tree__row--folder .file-tree__name::after {
+    content: "/";
+    color: var(--text-ghost);
+  }
+
+  .file-tree__from {
+    color: var(--text-faint);
+  }
+
+  .file-tree__status {
+    width: 12px;
+    flex: none;
+    text-align: center;
+    font-weight: bold;
+  }
+
+  .file-tree__status--added {
+    color: var(--diff-added);
+  }
+
+  .file-tree__status--deleted {
+    color: var(--diff-removed);
+  }
+
+  .file-tree__status--modified {
+    color: var(--status-modified);
+  }
+
+  .file-tree__status--renamed,
+  .file-tree__status--copied {
+    color: var(--status-renamed);
+  }
+
+  .file-tree__badge {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: var(--text-size-small);
+    color: var(--review-open);
+    background: var(--review-open-surface);
+  }
+
+  .file-tree__stat {
+    flex: none;
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--text-size-small);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file-tree__stat-added {
+    color: var(--diff-added);
+  }
+
+  .file-tree__stat-removed {
+    color: var(--diff-removed);
+  }
+
+  .file-tree__stat-bin {
+    color: var(--text-faint);
+  }
+}
+```
+
+A row is a touch target as much as it is a click target, and 26px is
+comfortable for a mouse but not for a thumb. Under the narrow breakpoint
+[Layout](layout.md) already draws the whole page at, a row grows to 40px,
+the minimum an accessibility guideline signs off on.
+
+```css
+/*| id: design-file-tree
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .file-tree__row {
+      min-height: 40px;
+    }
+  }
+}
+```
