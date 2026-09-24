@@ -372,7 +372,16 @@ other way round.
 
 What the reader picks in the graph is a commit, not a row. Moving a card
 renumbers the rows around it, and a picked index would then point at
-whichever commit slid into its place.
+whichever commit slid into its place. Both graphs pick, the paired one and
+the single lane a base comparison draws, and either way the stack scrolls to
+that commit's section.
+
+The single lane is `CommitGraph`, which hands back a whole selection because
+the local history screen picks a series. This screen wants one commit, so
+`pickedFrom` reads the click out of that selection: the commit that was not
+already current, or the current one again when the click toggled it off.
+Giving `CommitGraph` a second, single-pick callback would add a mode to the
+graph that only this screen uses.
 
 A base comparison has one version on screen, not two, so there is nothing for
 a graph to pair against. `usePairing` still runs against an empty before
@@ -522,6 +531,13 @@ function versionLabel(states: PullVersion[], head: GitOid): string {
   return `${versionName(states, head)} · ${head.slice(0, 7)}`;
 }
 
+/** The commit a click on the single-lane graph picked, read off the
+ *  selection it hands back. A click on the current commit toggles it out of
+ *  that selection, and still means that commit. */
+function pickedFrom(selection: string[], current: string | null): string {
+  return selection.find((id) => id !== current) ?? current ?? "";
+}
+
 function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
   const next = new Set(set);
   if (next.has(key)) next.delete(key);
@@ -542,6 +558,7 @@ export function PullReview({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [current, setCurrent] = useState<string | null>(null);
+  const [picks, setPicks] = useState(0);
 
   const latest =
     history.status === "ready" ? history.data.states.at(-1) : undefined;
@@ -593,6 +610,11 @@ export function PullReview({
         ? afterState.message
         : null;
 
+  const pick = (commitId: string) => {
+    setCurrent(commitId);
+    setPicks((now) => now + 1);
+  };
+
   const currentKey =
     rows.find(
       (row) => row.commit.commitId === current || row.was?.commitId === current,
@@ -623,12 +645,13 @@ export function PullReview({
             beforeLabel={versionLabel(history.data.states, from.head)}
             afterLabel={versionLabel(history.data.states, to)}
             current={current}
-            onSelect={setCurrent}
+            onSelect={pick}
           />
         ) : (
           <CommitLog
             source={{ kind: "pull", repo, number, head: to }}
-            selected={[]}
+            selected={current === null ? [] : [current]}
+            onSelect={(selection) => pick(pickedFrom(selection, current))}
             oldestFirst
           />
         )
@@ -647,6 +670,7 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
+            picks={picks}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

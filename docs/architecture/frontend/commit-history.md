@@ -276,9 +276,7 @@ the order is. Click order would line a series up against the other side in
 whatever sequence the reader happened to click.
 
 `onSelect` is optional. Without it the same graph draws a history that is read
-rather than picked from, which is what the pull request screen needs. Its two
-ends are chosen in the comparison picker, so a clickable row would be a
-control that changes nothing.
+rather than picked from.
 
 The pull request screen also draws its graph oldest first, the order its
 commits are meant to be read in. `layoutGraph` still runs over the backend's
