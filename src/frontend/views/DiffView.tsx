@@ -4,6 +4,12 @@ import type { FileDiff, SourceFile, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import { type HunkLine, type Patch, readPatch } from "./patch";
+import {
+  changedLines,
+  type PaintedToken,
+  paintWords,
+  type Range,
+} from "./words";
 
 /** Review memory for the files on screen. A diff that has one lets every
  * after-side line be commented on; a diff that has none renders read-only. */
@@ -251,9 +257,7 @@ function PatchLine({
             <span
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
               key={index}
-              className={
-                token.kind === null ? undefined : `syntax--${token.kind}`
-              }
+              className={tokenClass(token)}
             >
               {token.text}
             </span>
@@ -279,6 +283,14 @@ function PatchLine({
   );
 }
 
+function tokenClass(token: PaintedToken): string | undefined {
+  const classes = [
+    token.kind === null ? null : `syntax--${token.kind}`,
+    token.changed ? "diff-line__changed" : null,
+  ].filter((name) => name !== null);
+  return classes.length === 0 ? undefined : classes.join(" ");
+}
+
 function pathOf(file: FileDiff): string {
   return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
 }
@@ -298,38 +310,53 @@ type DrawnLine =
   | { kind: "meta" | "hunk"; text: string }
   | {
       kind: CodeKind;
-      tokens: SyntaxToken[];
+      tokens: PaintedToken[];
       afterLine: number | null;
     };
 
 function drawnLines(patch: Patch, sides: FileSides): DrawnLine[] {
   return [
     ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
-    ...patch.hunks.flatMap((hunk) => [
-      { kind: "hunk" as const, text: hunk.header },
-      ...hunk.lines.map((line) => drawnHunkLine(line, sides)),
-    ]),
+    ...patch.hunks.flatMap((hunk) => {
+      const changed = changedLines(hunk.lines);
+      return [
+        { kind: "hunk" as const, text: hunk.header },
+        ...hunk.lines.map((line, index) =>
+          drawnHunkLine(line, sides, changed.get(index) ?? []),
+        ),
+      ];
+    }),
   ];
 }
 
-function drawnHunkLine(line: HunkLine, sides: FileSides): DrawnLine {
+function drawnHunkLine(
+  line: HunkLine,
+  sides: FileSides,
+  changed: Range[],
+): DrawnLine {
   switch (line.kind) {
     case "context":
       return {
         kind: "context",
-        tokens: tokensAt(sides.new, line.newLine, line.code),
+        tokens: paintWords(tokensAt(sides.new, line.newLine, line.code), []),
         afterLine: line.newLine,
       };
     case "added":
       return {
         kind: "added",
-        tokens: tokensAt(sides.new, line.newLine, line.code),
+        tokens: paintWords(
+          tokensAt(sides.new, line.newLine, line.code),
+          changed,
+        ),
         afterLine: line.newLine,
       };
     case "removed":
       return {
         kind: "removed",
-        tokens: tokensAt(sides.old, line.oldLine, line.code),
+        tokens: paintWords(
+          tokensAt(sides.old, line.oldLine, line.code),
+          changed,
+        ),
         afterLine: null,
       };
     case "note":

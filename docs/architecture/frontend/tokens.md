@@ -127,6 +127,8 @@ colours and a green keyword would say nothing about either.
     --diff-hunk: var(--blue-600);
     --diff-added-surface: var(--green-100);
     --diff-removed-surface: var(--red-100);
+    --diff-added-emphasis: var(--green-200);
+    --diff-removed-emphasis: var(--red-200);
 
     --syntax-keyword: var(--purple-600);
     --syntax-string: var(--teal-600);
@@ -300,6 +302,8 @@ lightness that survives a dark surface.
       --diff-hunk: var(--blue-400);
       --diff-added-surface: var(--green-900);
       --diff-removed-surface: var(--red-900);
+      --diff-added-emphasis: var(--green-800);
+      --diff-removed-emphasis: var(--red-800);
 
       --syntax-keyword: var(--purple-400);
       --syntax-string: var(--teal-400);
