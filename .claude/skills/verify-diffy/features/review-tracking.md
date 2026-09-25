@@ -61,9 +61,13 @@ Preconditions:
 
 ## Gotchas
 
-- Only after-side lines can be commented on. An added or context line is a
-  `button`; a removal or a patch header is a static `div` and clicking it does
-  nothing.
+- Only after-side lines can be commented on, in either diff view. An added or
+  context line is a `button`; a removal or a patch header is a static `div` and
+  clicking it does nothing. The `show N unchanged lines` gap is also a
+  `button`, but it expands context rather than opening a composer.
+- A folded file draws no lines at all. Unfold it from its header before
+  looking for a line to comment on; a file with an open comment never starts
+  folded.
 - The composer's textarea has no accessible name. Address it as the section's
   `textbox`, or by `.comment-composer__input`.
 - An empty or whitespace-only body is rejected silently: the form stays open

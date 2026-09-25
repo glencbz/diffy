@@ -45,7 +45,7 @@ Preconditions:
   file`, and the root. Nothing about sidecars, the extension or the merge is
   present.
 - **Confirm the other column held.** The `after` column still reads
-  `latest (current)`, still lists six rows, and still holds whatever was
+  `latest (current)`, still lists eight rows, and still holds whatever was
   selected in it.
 - **Confirm the selection cleared.** Select a row in `before` before
   travelling; afterwards no row in that column is selected and the comparison

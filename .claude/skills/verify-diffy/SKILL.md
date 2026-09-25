@@ -8,8 +8,9 @@ description: Drive diffy's web UI (React commit graphs, comparison pane, operati
 diffy is a jj-backed code review UI: a Bun server answers the page's `/api/*`
 calls by shelling out to `jj` in its own working directory, and serves a React
 single page that renders a commit graph twice, `before` and `after`, and the
-diff between the commit picked on each side. The same app also reviews GitHub
-pull requests, a mode this harness does not reach; see the scope note in
+diff between the commit picked on each side, with a settings tab and a
+one-pane layout for narrow screens. The same app also reviews GitHub pull
+requests, a mode this harness does not reach; see the scope note in
 `features/README.md`.
 
 A verification run starts its own instance on an ephemeral port, pointed at a
@@ -39,13 +40,20 @@ with `DIFFY_VERIFY_RUN_ID` to run two instances side by side). Its history is
 fixed, so every run can assert on the same commit descriptions:
 
 ```
-fixture: an empty change        working copy, no file changes
-fixture: merge the two topics   merge commit, two parents, no file changes
-fixture: add a sidecar file     adds sidecar.txt
-fixture: extend the notes file  modifies notes.txt, one added line
-fixture: add the notes file     adds notes.txt
-(no description)                jj's root commit
+fixture: edit the long file and the script         edits long.txt at both ends,
+                                                   edits greet.js, deletes bun.lock
+fixture: add a long file, a lock file and a script adds long.txt (60 lines),
+                                                   bun.lock and greet.js; off the root
+fixture: an empty change                           working copy, no file changes
+fixture: merge the two topics                      merge commit, two parents, no file changes
+fixture: add a sidecar file                        adds sidecar.txt
+fixture: extend the notes file                     modifies notes.txt, one added line
+fixture: add the notes file                        adds notes.txt
+(no description)                                   jj's root commit
 ```
+
+That is the order `/api/log` and the page list them. The two long-file commits
+are a second topic off the root, apart from the merge.
 
 Change ids are random per fixture build, so read them from the page or from
 `/api/log` — never hardcode one.
@@ -99,8 +107,14 @@ Stable handles in this UI:
 | A merge row | commit row whose lane circle is hollow; confirm merges through `parents` in `/api/log` |
 | An operation picker | `combobox "operation"` inside a column, options labelled `<opId8>  <what>  <when>` |
 | A comparison section | `section` holding a `.comparison-header` and its files |
-| A diff file header | one node reading `addedsidecar.txt`, `modifiednotes.txt` |
+| A diff file header | a fold `button` named `added sidecar.txt`, `[expanded]` when open |
+| A file's diff view | `group "Diff view"` holding `button "structural"` and `button "lines"` |
+| A context gap | `button` named `⋯ show N unchanged lines` |
 | A commentable line | `.diff-line--interactive`, a `button` named `<afterLine> <text>` |
+| File summary | `region "Files changed"`, rows named `<status letter> <path> <counts>` |
+| File navigator | `button "Previous file"`, `"Show changed files"`, `"Next file"`; `dialog "Changed files"` |
+| Top tabs | `nav button:text-is("Settings")`, or `"Local history"`, `"Pull requests"` |
+| Narrow pane tabs | `button "before <what it holds>"`, `"after ..."`, `"diff"`, below 1000px |
 | Empty states | `Select commits on either side to compare them.`, `No changes in this commit.`, `Both commits make the same change.` |
 
 The API is a legitimate second view for proving a side effect, never a substitute
@@ -169,8 +183,11 @@ run does not strand a server.
 `harness/verify.sh` is the only entry point; `{start|doctor|stop|url}` is its
 full surface. It launches `harness/serve.ts`, which imports the real `routes`
 from `src/server.ts` and binds port 0, so the kernel picks a port no other
-session holds. Running `src/server.ts` itself takes `$PORT` or falls back to
-3000, which is the port a developer's own `just run` is already on.
+session holds. It runs the server inside the pinned `nix#runtime` shell, the
+same one `just run` uses, because difftastic is only on the `PATH` there; a
+server without it disables every file's `structural` view. Running
+`src/server.ts` itself takes `$PORT` or falls back to 3000, which is the port a
+developer's own `just run` is already on.
 
 Both files are verification scaffolding under `.claude/`, deliberately outside
 Entangled's `docs/**/*.md` sources. Edit them directly; do not tangle them.

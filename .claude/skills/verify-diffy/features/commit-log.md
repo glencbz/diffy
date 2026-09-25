@@ -36,8 +36,8 @@ Preconditions:
 - Both pickers read `latest (current)`.
 
 - **Load the log.** `browser_navigate` to `$URL`, then `browser_wait_for` with
-  `text: "fixture: merge the two topics"`. Each column lists six buttons, from
-  `fixture: an empty change` down to the root row named
+  `text: "fixture: merge the two topics"`. Each column lists eight buttons, from
+  `fixture: edit the long file and the script` down to the root row named
   `zzzzzzzz 1970-01-01 00:00:00 00000000 (empty) (no description)` with an
   `emphasis` node.
 - **Address one column.** Every row name appears in both columns, so scope the
