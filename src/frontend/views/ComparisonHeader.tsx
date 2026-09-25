@@ -8,9 +8,11 @@ import { fileVersionOf } from "./changedFiles";
 export function ComparisonHeader({
   row,
   onMarkSeen,
+  onComment,
 }: {
   row: ReviewedRow;
   onMarkSeen: () => void;
+  onComment: () => void;
 }) {
   const openComments = row.comments.filter(
     (comment) => !comment.resolved,
@@ -37,6 +39,13 @@ export function ComparisonHeader({
           className="comparison-header__mark-seen"
         >
           {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+        </button>
+        <button
+          type="button"
+          onClick={onComment}
+          className="comparison-header__comment"
+        >
+          comment on comparison
         </button>
       </div>
     </header>

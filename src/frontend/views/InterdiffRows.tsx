@@ -1,8 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
-import type { FileVersion, LineAnchor, ReviewedRow } from "../model/review";
+import { useState } from "react";
+import type { Anchor, FileVersion, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
-import { DiffView } from "./DiffView";
+import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 
 export function InterdiffRows({
   rows,
@@ -16,21 +17,39 @@ export function InterdiffRows({
   rows: ReviewedRow[];
   sources: SourceLookup;
   onMarkSeen: (row: ReviewedRow) => void;
-  onAddComment: (
-    row: ReviewedRow,
-    path: string,
-    anchor: LineAnchor,
-    body: string,
-  ) => void;
+  onAddComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onToggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }) {
+  const [composing, setComposing] = useState<string | null>(null);
+
   return (
     <div>
       {rows.map((row) => (
         <section key={rowKey(row)}>
-          <ComparisonHeader row={row} onMarkSeen={() => onMarkSeen(row)} />
+          <ComparisonHeader
+            row={row}
+            onMarkSeen={() => onMarkSeen(row)}
+            onComment={() => setComposing(rowKey(row))}
+          />
+          {composing === rowKey(row) && (
+            <CommentComposer
+              anchor={{ kind: "comparison" }}
+              onCancel={() => setComposing(null)}
+              onSubmit={(anchor, body) => {
+                onAddComment(row, anchor, body);
+                setComposing(null);
+              }}
+            />
+          )}
+          <CommentThreads
+            comments={row.comments.filter(
+              (comment) => comment.kind === "comparison",
+            )}
+            onResolveComment={onResolveComment}
+            onDropComment={onDropComment}
+          />
           {row.files.length === 0 ? (
             <p className="interdiff-empty">
               {row.from !== null && row.to !== null
@@ -44,8 +63,7 @@ export function InterdiffRows({
               scope={rowKey(row)}
               review={{
                 comments: row.comments,
-                onAddComment: (path, anchor, body) =>
-                  onAddComment(row, path, anchor, body),
+                onAddComment: (anchor, body) => onAddComment(row, anchor, body),
                 onResolveComment,
                 onDropComment,
                 viewed: row.viewed,

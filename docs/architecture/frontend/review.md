@@ -59,18 +59,33 @@ insert half (`from: null, to: A`) neither share a side nor fill the same
 slots, so a mark on one leaves the other `unseen`. The insert is a comparison
 the reader has never looked at.
 
-A comment's `stale` flag asks whether one line still means what it meant when
-the note was written, a narrower question than a mark's `changed` state. A
-comment is pinned to a line on one `side` of the file, and its `commitId`
-names the version that line number was read against. It is stale when neither
-of the row's current sides is that commit.
+A comment is about one of three things, and its `Anchor` says which: a line
+on one `side` of a file, a whole file, or the whole comparison the row stands
+for. The anchor's fields sit on the comment itself rather than under a field
+of their own, so a line comment stored before files and comparisons took
+comments is still a valid line comment: the `kind` it lacks defaults to
+`line`, the way its missing `side` defaults to `after`. Nesting the anchor
+would need a migration written in front of the schema, and a document that
+fails to parse is [replaced with an empty one](#storage), so a bug in that
+migration would cost every reader every comment.
+
+A comment's `stale` flag asks whether what the note is about still reads as
+it did when the note was written, a narrower question than a mark's `changed`
+state. Its `commitId` names the version it was read against, and it is stale
+when neither of the row's current sides is that commit. The rule is the same
+for every anchor. A file comment could instead stay fresh until the file's own
+blob changed, which would spare it a rewrite that touched only other files,
+but a line comment already goes stale on any rewrite of its commit, and a
+second rule would need a second id on every comment to mean something
+slightly different by the same word.
 
 Which commit that is depends on the row. A paired row compares two commits, so
 the after side is `to` and the before side is `from`. A lone row is one
 commit's own diff against its parent, so that commit is the one version the
-row names and it stands for both sides. `addComment` picks `to ?? from` for an
-after-side line and `from ?? to` for a before-side one, and the stale rule
-needs no side of its own: a rewrite of either commit moves it off the row.
+row names and it stands for both sides. `addComment` picks `from ?? to` for a
+before-side line and `to ?? from` for everything else, since a file or a
+comparison is read as the version being approved. The stale rule needs no side
+of its own: a rewrite of either commit moves it off the row.
 
 A viewed mark says the reader is done with one file of a row, as that file
 reads now. It is filed under the row's review key, so it follows a change
@@ -111,25 +126,39 @@ export type Mark = z.infer<typeof Mark>;
 export const Side = z.enum(["before", "after"]);
 export type Side = z.infer<typeof Side>;
 
-/** Where on a file a comment is pinned: a line number on one side of it. */
+/** Where on a file a line comment is pinned: a line number on one side. */
 export interface LineAnchor {
   side: Side;
   line: number;
 }
 
-export const Comment = z.object({
-  id: z.string(),
-  reviewKey: z.string(),
-  path: z.string(),
-  /** A stored comment with no side is an after-side one. Defaulting it keeps
-   *  `load` from discarding a whole document written before the field. */
-  side: Side.default("after"),
-  line: z.number().int(),
-  commitId: z.string(),
-  body: z.string(),
-  resolved: z.boolean(),
-  createdAt: z.string(),
-});
+/** What a comment is about: one line of a file, a whole file, or the whole
+ *  comparison. A stored comment with no kind is a line comment, and one with
+ *  no side is on the after side. Defaulting both keeps `load` from
+ *  discarding a whole document written before either field. */
+export const Anchor = z.union([
+  z.object({
+    kind: z.literal("line").default("line"),
+    path: z.string(),
+    side: Side.default("after"),
+    line: z.number().int(),
+  }),
+  z.object({ kind: z.literal("file"), path: z.string() }),
+  z.object({ kind: z.literal("comparison") }),
+]);
+export type Anchor = z.infer<typeof Anchor>;
+
+export const Comment = z.intersection(
+  z.object({
+    id: z.string(),
+    reviewKey: z.string(),
+    commitId: z.string(),
+    body: z.string(),
+    resolved: z.boolean(),
+    createdAt: z.string(),
+  }),
+  Anchor,
+);
 export type Comment = z.infer<typeof Comment>;
 
 /** One file as a comparison draws it: the path its header shows and the blob
@@ -164,9 +193,7 @@ export type RowReview =
       seenTo: string | null;
     };
 
-export interface RowComment extends Comment {
-  stale: boolean;
-}
+export type RowComment = Comment & { stale: boolean };
 
 export interface ReviewedRow extends InterdiffRow {
   reviewKey: string;
@@ -299,18 +326,17 @@ export function flipSeen(
   return { ...document, marks: [...marks, { ...comparison, seenAt }] };
 }
 
-/** The document with a comment added on one line of a row, pinned to the
- * commit that line was read against. */
+/** The document with a comment added on a row, pinned to the commit what it
+ * is about was read against. */
 export function addComment(
   document: ReviewDocument,
   row: ReviewedRow,
-  comment: Pick<
-    Comment,
-    "id" | "path" | "side" | "line" | "body" | "createdAt"
-  >,
+  comment: Anchor & Pick<Comment, "id" | "body" | "createdAt">,
 ): ReviewDocument {
   const commit =
-    comment.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
+    comment.kind === "line" && comment.side === "before"
+      ? (row.from ?? row.to)
+      : (row.to ?? row.from);
   return {
     ...document,
     comments: [
@@ -608,6 +634,7 @@ describe("reviewRows", () => {
         {
           id: "c1",
           reviewKey: "change:a",
+          kind: "line",
           path: "f.ts",
           side: "after",
           line: 3,
@@ -636,6 +663,7 @@ describe("reviewRows", () => {
         {
           id: "c1",
           reviewKey: "change:a",
+          kind: "line",
           path: "f.ts",
           side: "before",
           line: 3,
@@ -653,6 +681,59 @@ describe("reviewRows", () => {
 
     // assert
     expect(reviewed?.comments[0]?.stale).toBe(false);
+  });
+
+  test("keeps a file comment fresh while its commit is the row's after side", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: ReviewDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "file",
+          path: "f.ts",
+          commitId: "a2",
+          body: "split this file",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      viewed: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(false);
+  });
+
+  test("flags a comparison comment stale once both sides have been rewritten", () => {
+    // arrange
+    const row = pairRow("a", "a3", "a4");
+    const document: ReviewDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "comparison",
+          commitId: "a2",
+          body: "squash this into its parent",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      viewed: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(true);
   });
 
   test("marks a change-id-less row reviewed on an exact triple match", () => {
@@ -746,7 +827,7 @@ describe("reviewRows", () => {
 });
 
 describe("ReviewDocument", () => {
-  test("reads a comment stored without a side as an after-side one", () => {
+  test("reads a comment stored without a kind or a side as an after-side line comment", () => {
     // arrange
     const stored = {
       marks: [],
@@ -768,7 +849,60 @@ describe("ReviewDocument", () => {
     const document = ReviewDocument.parse(stored);
 
     // assert
-    expect(document.comments[0]?.side).toBe("after");
+    expect(document.comments[0]).toMatchObject({
+      kind: "line",
+      path: "f.ts",
+      side: "after",
+      line: 3,
+    });
+  });
+
+  test("reads file and comparison comments back as themselves", () => {
+    // arrange
+    const written = {
+      reviewKey: "change:a",
+      commitId: "a2",
+      body: "",
+      resolved: false,
+      createdAt: "2026-09-14T09:00:00.000Z",
+    };
+    const stored = {
+      marks: [],
+      comments: [
+        { ...written, id: "c1", kind: "file" as const, path: "f.ts" },
+        { ...written, id: "c2", kind: "comparison" as const },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments).toEqual(stored.comments);
+  });
+
+  test("rejects a file comment with no path", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "file",
+          commitId: "a2",
+          body: "",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const parsed = ReviewDocument.safeParse(stored);
+
+    // assert
+    expect(parsed.success).toBe(false);
   });
 });
 
@@ -937,7 +1071,13 @@ describe("changes to the document", () => {
   test("pins a comment to the commit on the side it was left on", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
-    const at = { path: "f.ts", line: 3, body: "hm", createdAt: "t" };
+    const at = {
+      kind: "line",
+      path: "f.ts",
+      line: 3,
+      body: "hm",
+      createdAt: "t",
+    } as const;
 
     // act
     const document = addComment(
@@ -963,6 +1103,7 @@ describe("changes to the document", () => {
     // act
     const document = addComment(empty, row, {
       id: "c1",
+      kind: "line",
       path: "f.ts",
       side: "before",
       line: 3,
@@ -974,10 +1115,35 @@ describe("changes to the document", () => {
     expect(document.comments[0]?.commitId).toBe("a2");
   });
 
+  test("pins a file or comparison comment to the row's after side", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const at = { body: "hm", createdAt: "t" };
+
+    // act
+    const document = addComment(
+      addComment(empty, row, { ...at, id: "c1", kind: "file", path: "f.ts" }),
+      row,
+      { ...at, id: "c2", kind: "comparison" },
+    );
+
+    // assert
+    expect(document.comments.map((comment) => comment.commitId)).toEqual([
+      "a2",
+      "a2",
+    ]);
+  });
+
   test("resolves, then drops, one comment and leaves the other", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
-    const at = { path: "f.ts", line: 3, side: "after", body: "hm" } as const;
+    const at = {
+      kind: "line",
+      path: "f.ts",
+      line: 3,
+      side: "after",
+      body: "hm",
+    } as const;
     const two = addComment(
       addComment(empty, row, { ...at, id: "c1", createdAt: "t1" }),
       row,
@@ -1143,12 +1309,12 @@ changes.
 //| file: src/frontend/state/review.ts
 import { useMemo } from "react";
 import {
+  type Anchor,
   addComment,
   dropComment,
   type FileVersion,
   flipSeen,
   flipViewed,
-  type LineAnchor,
   type ReviewDocument,
   type ReviewedRow,
   resolveComment,
@@ -1159,12 +1325,7 @@ import { useStored } from "./stored";
 export interface ReviewHandle {
   document: ReviewDocument;
   markSeen: (row: ReviewedRow) => void;
-  addComment: (
-    row: ReviewedRow,
-    path: string,
-    anchor: LineAnchor,
-    body: string,
-  ) => void;
+  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
@@ -1177,11 +1338,10 @@ export function useReview(): ReviewHandle {
     const now = () => new Date().toISOString();
     return {
       markSeen: (row) => update((current) => flipSeen(current, row, now())),
-      addComment: (row, path, anchor, body) =>
+      addComment: (row, anchor, body) =>
         update((current) =>
           addComment(current, row, {
             id: crypto.randomUUID(),
-            path,
             ...anchor,
             body,
             createdAt: now(),
@@ -1274,6 +1434,30 @@ describe("reviewRepository", () => {
       comments: [],
       viewed: [],
     });
+  });
+
+  test("keeps the comments of a document saved before comments had kinds", () => {
+    // arrange
+    const comment = {
+      id: "c1",
+      reviewKey: "change:a",
+      path: "f.ts",
+      line: 3,
+      commitId: "a2",
+      body: "written before kinds",
+      resolved: false,
+      createdAt: "2026-09-14T09:00:00.000Z",
+    };
+    localStorage.setItem(
+      "diffy.session.v1",
+      JSON.stringify({ marks: [], comments: [comment] }),
+    );
+
+    // act
+    // assert
+    expect(reviewRepository.load().comments).toEqual([
+      { ...comment, kind: "line", side: "after" },
+    ]);
   });
 
   test("loads an empty document when nothing is stored", () => {
