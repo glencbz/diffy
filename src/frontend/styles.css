@@ -1845,6 +1845,12 @@
     font: inherit;
   }
 
+  .pull-compare__size {
+    display: flex;
+    gap: var(--space-3);
+    color: var(--text-muted);
+  }
+
   .pull-compare__caption {
     flex: 1 0 100%;
     margin: 0;
@@ -2120,11 +2126,11 @@
     color: var(--text-muted);
   }
 
-  .commit-stack__added {
+  .change-count__added {
     color: var(--diff-added);
   }
 
-  .commit-stack__removed {
+  .change-count__removed {
     color: var(--diff-removed);
   }
 }

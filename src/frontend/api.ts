@@ -329,10 +329,10 @@ export async function fetchPullHistory(
   );
 }
 
-/** The one commit, or the pair across two versions, to diff inside the heads
- *  `from`/`to` resolve. The backend's `DiffScope` also has a whole-head
- *  shape, which no screen asks for. */
+/** What to diff inside the heads `from`/`to` resolve: both whole heads, one
+ *  commit, or the pair across two versions. */
 export type PullDiffScope =
+  | { kind: "heads" }
   | { kind: "commit"; commit: GitOid }
   | { kind: "pair"; from: GitOid; to: GitOid };
 
@@ -352,7 +352,7 @@ export async function fetchPullDiff(
   if (scope.kind === "pair") {
     params.set("fromCommit", scope.from);
     params.set("toCommit", scope.to);
-  } else {
+  } else if (scope.kind === "commit") {
     params.set("toCommit", scope.commit);
   }
   return PullDiffResponse.parse(

@@ -16,6 +16,7 @@ import {
   useArrivals,
 } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
+import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
 import { useSources } from "../state/source";
@@ -187,6 +188,7 @@ export function PullReview({
   const afterCommits =
     afterState.status === "ready" ? afterState.data : NO_COMMITS;
 
+  const pullFiles = usePullFiles(repo, number, to);
   const pairing = usePairing(beforeCommits, afterCommits);
   const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
   const sources = useSources(
@@ -263,6 +265,7 @@ export function PullReview({
           history={history.data}
           from={from}
           to={to}
+          files={pullFiles}
           onPickFrom={(next) => onGo({ ...place, from: next })}
           onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
         />

@@ -465,6 +465,22 @@ export function countLines(files: FileDiff[]): {
   return { added, removed };
 }
 
+/** How many files a diff touches and how many lines it adds and removes.
+ *  Two siblings rather than one wrapper, so they sit in whatever row holds
+ *  them as that row's own items. */
+export function ChangeCount({ files }: { files: FileDiff[] }) {
+  const { added, removed } = countLines(files);
+  return (
+    <>
+      <span>{files.length === 1 ? "1 file" : `${files.length} files`}</span>
+      <span>
+        <span className="change-count__added">+{added}</span>{" "}
+        <span className="change-count__removed">-{removed}</span>
+      </span>
+    </>
+  );
+}
+
 function StackContents({
   row,
   sources,
@@ -494,17 +510,10 @@ function StackContents({
     return <p className="commit-stack__empty">{emptyContentsText(row.kind)}</p>;
   }
 
-  const { added, removed } = countLines(files);
-  const fileWord = files.length === 1 ? "1 file" : `${files.length} files`;
-
   return (
     <div className="commit-stack__contents">
       <button type="button" className="commit-stack__fold" onClick={onToggle}>
-        <span className="commit-stack__fold-count">{fileWord}</span>
-        <span className="commit-stack__fold-lines">
-          <span className="commit-stack__added">+{added}</span>{" "}
-          <span className="commit-stack__removed">-{removed}</span>
-        </span>
+        <ChangeCount files={files} />
         <span className="commit-stack__fold-caption">
           {contentsCaption(row.kind)}
         </span>
