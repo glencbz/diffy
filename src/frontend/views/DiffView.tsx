@@ -12,6 +12,7 @@ import {
   fileTree,
   shownPathOf,
 } from "./changedFiles";
+import { collapseReason } from "./collapse";
 import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
@@ -207,13 +208,28 @@ function FileRow({
       ? structuralBody(structural)
       : patchBody(file.patch);
   const shown = shownIn[mode];
+  const reason = collapseReason(file);
+  const [opened, setOpened] = useState<boolean | null>(null);
+  const open =
+    opened ?? (reason === null || (review?.comments.length ?? 0) > 0);
 
   return (
     <section id={anchor} className="diff-file">
       <header className="diff-file__header">
-        <span className="diff-file__status">{file.status}</span>
-        <span className="diff-file__path">{shownPathOf(file)}</span>
-        {!file.binary && (
+        <button
+          type="button"
+          className="diff-file__toggle"
+          aria-expanded={open}
+          onClick={() => setOpened(!open)}
+        >
+          <span className="diff-file__chevron" aria-hidden="true">
+            {open ? "▾" : "▸"}
+          </span>
+          <span className="diff-file__status">{file.status}</span>
+          <span className="diff-file__path">{shownPathOf(file)}</span>
+        </button>
+        {reason !== null && <span className="diff-file__reason">{reason}</span>}
+        {open && !file.binary && (
           <DiffModeSwitch
             mode={mode}
             unavailable={
@@ -225,7 +241,7 @@ function FileRow({
           />
         )}
       </header>
-      {file.binary ? (
+      {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
@@ -260,14 +276,14 @@ function FileRow({
           )}
         </pre>
       )}
-      {review !== undefined && review.composerLine !== null && (
+      {open && review !== undefined && review.composerLine !== null && (
         <CommentComposer
           line={review.composerLine}
           onCancel={review.onCancelComposer}
           onSubmit={review.onSubmitComposer}
         />
       )}
-      {review !== undefined && review.comments.length > 0 && (
+      {open && review !== undefined && review.comments.length > 0 && (
         <div>
           {review.comments.map((comment) => (
             <CommentThread

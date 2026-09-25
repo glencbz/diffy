@@ -226,6 +226,12 @@ a reformat moved, is context in the structural view, still numbered and
 still commentable. Which lines are shown differs between the two views,
 so gaps opened in one view are kept apart from gaps opened in the other.
 
+The path in a file's header is a button that folds the file down to that
+header, and opens it again. A file that is mostly noise to a reviewer
+[starts folded](#collapsed-files), with the reason next to its path, unless
+a comment is already on it, because a folded file would hide the thread.
+Whether a file is open is `useState` in its row, like its view.
+
 All of that hangs off one optional `DiffReview` rather than four optional
 props, which could not be supplied half-filled. A diff either carries review
 memory or it does not, and a diff without it offers no commentable line, so a
@@ -256,6 +262,7 @@ import {
   fileTree,
   shownPathOf,
 } from "./changedFiles";
+import { collapseReason } from "./collapse";
 import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
@@ -451,13 +458,28 @@ function FileRow({
       ? structuralBody(structural)
       : patchBody(file.patch);
   const shown = shownIn[mode];
+  const reason = collapseReason(file);
+  const [opened, setOpened] = useState<boolean | null>(null);
+  const open =
+    opened ?? (reason === null || (review?.comments.length ?? 0) > 0);
 
   return (
     <section id={anchor} className="diff-file">
       <header className="diff-file__header">
-        <span className="diff-file__status">{file.status}</span>
-        <span className="diff-file__path">{shownPathOf(file)}</span>
-        {!file.binary && (
+        <button
+          type="button"
+          className="diff-file__toggle"
+          aria-expanded={open}
+          onClick={() => setOpened(!open)}
+        >
+          <span className="diff-file__chevron" aria-hidden="true">
+            {open ? "▾" : "▸"}
+          </span>
+          <span className="diff-file__status">{file.status}</span>
+          <span className="diff-file__path">{shownPathOf(file)}</span>
+        </button>
+        {reason !== null && <span className="diff-file__reason">{reason}</span>}
+        {open && !file.binary && (
           <DiffModeSwitch
             mode={mode}
             unavailable={
@@ -469,7 +491,7 @@ function FileRow({
           />
         )}
       </header>
-      {file.binary ? (
+      {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
@@ -504,14 +526,14 @@ function FileRow({
           )}
         </pre>
       )}
-      {review !== undefined && review.composerLine !== null && (
+      {open && review !== undefined && review.composerLine !== null && (
         <CommentComposer
           line={review.composerLine}
           onCancel={review.onCancelComposer}
           onSubmit={review.onSubmitComposer}
         />
       )}
-      {review !== undefined && review.comments.length > 0 && (
+      {open && review !== undefined && review.comments.length > 0 && (
         <div>
           {review.comments.map((comment) => (
             <CommentThread
@@ -997,6 +1019,32 @@ shrink pushes the switch past the header's edge on a phone.
     color: var(--text-muted);
   }
 
+  .diff-file__toggle {
+    display: flex;
+    align-items: baseline;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .diff-file__chevron {
+    width: 1.5ch;
+    flex: none;
+    margin-right: var(--space-2);
+    color: var(--text-muted);
+  }
+
+  .diff-file__reason {
+    margin-left: var(--space-4);
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
   .diff-file__binary {
     padding: var(--space-4);
     font-style: italic;
@@ -1114,6 +1162,206 @@ has then reaches the rest.
     }
   }
 }
+```
+
+## Collapsed files
+
+`collapseReason` says why a file should start folded, as the words its
+header shows, or `null` for a file that starts open. It looks at the file's
+path and its patch, which are all the frontend has before anything else
+loads, so the answer is ready on the first render and a file never folds
+itself shut under the reader once a side arrives.
+
+A lock file is known by its name. Its diff is a package manager's output,
+and a reviewer checks the manifest change that caused it rather than the
+resolved graph. A name ending in `.lock` counts too, which is the
+convention most tools that are not in the list follow.
+
+A generated file is known either by a path that only build tools write, or
+by the marker a generator leaves at its top: `@generated`, or Go's
+`Code generated ... DO NOT EDIT.`. The marker is only looked for on the
+first few lines of the after side, and only where the patch shows them,
+because a file that merely mentions the marker further down, like this
+module, is not generated. An added file's patch is the whole file, so a
+new generated file is always caught. A modified one is caught only when
+its change is close enough to the top for the patch's context to carry
+the marker.
+
+A large diff is one whose patch adds and removes more lines than a reader
+takes in at once. The limit counts changed lines in the `git` patch, not
+the file's length, since a long file with a one-line change reads quickly.
+
+```ts
+//| id: frontend-view-collapse
+//| file: src/frontend/views/collapse.ts
+import type { FileDiff } from "../api";
+import { readPatch } from "./patch";
+
+/** Files a package manager writes and resolves on the author's behalf. */
+const LOCK_FILES = new Set([
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "deno.lock",
+  "Cargo.lock",
+  "flake.lock",
+  "uv.lock",
+  "poetry.lock",
+  "Pipfile.lock",
+  "Gemfile.lock",
+  "composer.lock",
+  "go.sum",
+  "mix.lock",
+  "Podfile.lock",
+  "pubspec.lock",
+  "packages.lock.json",
+]);
+
+/** Paths only a build step writes. */
+const GENERATED_PATHS = [
+  /\.min\.(js|css)$/,
+  /\.map$/,
+  /(^|\/)dist\//,
+  /\.pb\.go$/,
+  /_pb2\.pyi?$/,
+];
+
+/** What a generator writes at the top of its output. */
+const GENERATED_MARKER = /@generated|^\W*Code generated .* DO NOT EDIT\.?/;
+
+/** How far down the after side a generator's marker is looked for. */
+const MARKER_LINES = 5;
+
+/** Changed lines past which a diff starts folded. */
+export const LARGE_DIFF = 400;
+
+/** Why a file starts folded, in the words its header shows, or `null` when
+ *  it starts open. */
+export function collapseReason(file: FileDiff): string | null {
+  const path = "path" in file ? file.path : file.newPath;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (LOCK_FILES.has(name) || name.endsWith(".lock")) return "lock file";
+  if (GENERATED_PATHS.some((pattern) => pattern.test(path))) return "generated";
+
+  const lines = readPatch(file.patch).hunks.flatMap((hunk) => hunk.lines);
+  const marked = lines.some(
+    (line) =>
+      line.kind !== "note" &&
+      line.kind !== "removed" &&
+      line.newLine <= MARKER_LINES &&
+      GENERATED_MARKER.test(line.code),
+  );
+  if (marked) return "generated";
+
+  const changed = lines.filter(
+    (line) => line.kind === "added" || line.kind === "removed",
+  ).length;
+  if (changed > LARGE_DIFF) return `large diff, ${changed} changed lines`;
+  return null;
+}
+```
+
+### Test
+
+```ts
+//| id: frontend-view-collapse-test
+//| file: src/frontend/views/collapse.test.ts
+import { describe, expect, test } from "bun:test";
+import type { FileDiff } from "../api";
+import { collapseReason, LARGE_DIFF } from "./collapse";
+
+function modified(path: string, patch: string): FileDiff {
+  return {
+    status: "modified",
+    path,
+    binary: false,
+    oldBlob: "a",
+    newBlob: "b",
+    patch,
+    structural: { kind: "unavailable", reason: "test" },
+  };
+}
+
+function added(path: string, lines: string[]): FileDiff {
+  return {
+    status: "added",
+    path,
+    binary: false,
+    oldBlob: null,
+    newBlob: "b",
+    structural: { kind: "unavailable", reason: "test" },
+    patch: [
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+${line}`),
+      "",
+    ].join("\n"),
+  };
+}
+
+const SMALL = "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n";
+
+describe("collapseReason", () => {
+  test("folds a lock file by its name, wherever it sits", () => {
+    expect(collapseReason(modified("bun.lock", SMALL))).toBe("lock file");
+    expect(collapseReason(modified("crates/x/Cargo.lock", SMALL))).toBe(
+      "lock file",
+    );
+    expect(collapseReason(modified("tools/some.lock", SMALL))).toBe(
+      "lock file",
+    );
+  });
+
+  test("folds a path only a build step writes", () => {
+    expect(collapseReason(modified("dist/app.js", SMALL))).toBe("generated");
+    expect(collapseReason(modified("web/app.min.js", SMALL))).toBe("generated");
+  });
+
+  test("folds a new file whose top carries a generator's marker", () => {
+    // arrange
+    const file = added("api/types.go", [
+      "// Code generated by protoc-gen-go. DO NOT EDIT.",
+      "package api",
+    ]);
+
+    // act
+    const reason = collapseReason(file);
+
+    // assert
+    expect(reason).toBe("generated");
+  });
+
+  test("leaves open a file that mentions the marker further down", () => {
+    // arrange
+    const file = added("src/marker.ts", [
+      ...Array.from({ length: 10 }, () => "// ordinary"),
+      'const MARKER = "@generated";',
+    ]);
+
+    // act
+    const reason = collapseReason(file);
+
+    // assert
+    expect(reason).toBeNull();
+  });
+
+  test("folds a diff with more changed lines than the limit", () => {
+    // arrange
+    const lines = Array.from({ length: LARGE_DIFF + 1 }, (_, n) => `l${n}`);
+
+    // act
+    const reason = collapseReason(added("src/big.ts", lines));
+
+    // assert
+    expect(reason).toBe(`large diff, ${LARGE_DIFF + 1} changed lines`);
+  });
+
+  test("leaves an ordinary change open", () => {
+    expect(collapseReason(modified("src/app.ts", SMALL))).toBeNull();
+  });
+});
 ```
 
 ## Reading a patch

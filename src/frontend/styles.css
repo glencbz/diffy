@@ -1475,6 +1475,32 @@
     color: var(--text-muted);
   }
 
+  .diff-file__toggle {
+    display: flex;
+    align-items: baseline;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .diff-file__chevron {
+    width: 1.5ch;
+    flex: none;
+    margin-right: var(--space-2);
+    color: var(--text-muted);
+  }
+
+  .diff-file__reason {
+    margin-left: var(--space-4);
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
   .diff-file__binary {
     padding: var(--space-4);
     font-style: italic;
