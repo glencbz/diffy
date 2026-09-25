@@ -374,6 +374,7 @@ import {
   BlobId,
   GitOid,
   gitBlob,
+  gitBlobBytes,
   gitForget,
   gitHasCommit,
   gitLog,
@@ -780,6 +781,11 @@ line abbreviates. An id that names nothing, or names more than one object, is
 an ordinary answer for a reader holding an id out of someone else's patch, so
 `gitBlob` answers null rather than throwing.
 
+An image is read the same way, as bytes rather than text, because decoding a
+PNG as UTF-8 replaces every byte that is not valid text and the image with
+it. `gitBlob` is those bytes decoded, so the two can never disagree about
+which blob an id names.
+
 ```ts
 //| id: git-module
 
@@ -790,10 +796,18 @@ export const BlobId = z
   .brand("BlobId");
 export type BlobId = z.infer<typeof BlobId>;
 
+/** A blob's contents, or null when the store has no one blob by that id. */
+export async function gitBlobBytes(
+  id: BlobId,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
+  return result.exitCode === 0 ? result.bytes() : null;
+}
+
 /** A blob's contents as text, or null when the store has no one blob by that id. */
 export async function gitBlob(id: BlobId): Promise<string | null> {
-  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
-  return result.exitCode === 0 ? result.text() : null;
+  const bytes = await gitBlobBytes(id);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
 }
 ```
 
@@ -821,6 +835,21 @@ describe("gitBlob", () => {
     // act
     // assert
     expect(await gitBlob(BlobId.parse("f".repeat(40)))).toBeNull();
+  });
+
+  test("reads a blob back as the bytes it was stored as", async () => {
+    // arrange
+    const id = BlobId.parse(
+      (await $`git rev-parse HEAD:package.json`.quiet().text()).trim(),
+    );
+
+    // act
+    const bytes = await gitBlobBytes(id);
+
+    // assert
+    expect(bytes).toEqual(
+      (await $`git show HEAD:package.json`.quiet()).bytes(),
+    );
   });
 });
 ```
