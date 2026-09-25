@@ -195,6 +195,12 @@ clicks it a second time is asking to go back to it. `picks` counts the
 clicks, so the second click changes something the row can react to even
 though `current` did not change.
 
+A row's spine sticks to the top while the row is on screen, and so does the
+header of each file in its diff, so the file headers have to stop below the
+spine instead of covering it. The spine wraps on a phone and grows with the
+text size setting, so its height is measured rather than written down, and
+the row hands it to its diff as `--diff-sticky-top`.
+
 ```tsx
 //| id: frontend-view-commit-stack
 
@@ -337,6 +343,17 @@ function StackSection({
   useEffect(() => {
     if (isCurrent) section.current?.scrollIntoView({ block: "start" });
   }, [isCurrent, picks]);
+
+  useEffect(() => {
+    const row = section.current;
+    const spine = row?.querySelector(".commit-stack__spine");
+    if (row == null || !(spine instanceof HTMLElement)) return;
+    const observer = new ResizeObserver(() => {
+      row.style.setProperty("--diff-sticky-top", `${spine.offsetHeight}px`);
+    });
+    observer.observe(spine);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section

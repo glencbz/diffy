@@ -272,6 +272,17 @@ function StackSection({
     if (isCurrent) section.current?.scrollIntoView({ block: "start" });
   }, [isCurrent, picks]);
 
+  useEffect(() => {
+    const row = section.current;
+    const spine = row?.querySelector(".commit-stack__spine");
+    if (row == null || !(spine instanceof HTMLElement)) return;
+    const observer = new ResizeObserver(() => {
+      row.style.setProperty("--diff-sticky-top", `${spine.offsetHeight}px`);
+    });
+    observer.observe(spine);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <section
       ref={section}

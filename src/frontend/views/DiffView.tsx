@@ -212,7 +212,7 @@ function FileRow({
     <section id={anchor} className="diff-file">
       <header className="diff-file__header">
         <span className="diff-file__status">{file.status}</span>
-        {shownPathOf(file)}
+        <span className="diff-file__path">{shownPathOf(file)}</span>
         {!file.binary && (
           <DiffModeSwitch
             mode={mode}

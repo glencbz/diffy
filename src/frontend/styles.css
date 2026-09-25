@@ -1421,6 +1421,9 @@
   }
 
   .diff-file__header {
+    position: sticky;
+    top: var(--diff-sticky-top, 0);
+    z-index: 1;
     display: flex;
     align-items: baseline;
     padding: var(--space-2) var(--space-4);
@@ -1428,7 +1431,14 @@
     background: var(--surface-raised);
   }
 
+  .diff-file__path {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .diff-file__modes {
+    flex: none;
     display: flex;
     margin: 0 0 0 auto;
     padding: 0;
@@ -2109,6 +2119,7 @@
 
     .panes:not(.panes--review) .pane--diff {
       flex: 1 0 auto;
+      overflow: visible;
       border-bottom: none;
     }
   }

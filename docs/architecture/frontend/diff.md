@@ -456,7 +456,7 @@ function FileRow({
     <section id={anchor} className="diff-file">
       <header className="diff-file__header">
         <span className="diff-file__status">{file.status}</span>
-        {shownPathOf(file)}
+        <span className="diff-file__path">{shownPathOf(file)}</span>
         {!file.binary && (
           <DiffModeSwitch
             mode={mode}
@@ -860,6 +860,19 @@ because the text is [coloured by its syntax](syntax.md#colours) and green or
 red text would drown that out. [Changed words](#changed-words) take a stronger
 tint of the same colour.
 
+A file's header sticks to the top of the scrolling pane while its file is
+on screen, and the next file's header pushes it off. A long file otherwise
+scrolls away the only place that says which file it is and the switch
+between structural and line diffs, and on a phone a file runs for
+screens. It sticks at `--diff-sticky-top`, the offset a jump to a file
+already stops at: zero, unless
+[the file navigator](file-tree.md#stepping-through-files) holds the top of
+the pane.
+
+The path takes whatever width the switch leaves and wraps anywhere,
+because a path is one long word to a line breaker, and a word that cannot
+shrink pushes the switch past the header's edge on a phone.
+
 ```css
 /*| id: design-diff-view
 @layer components {
@@ -930,6 +943,9 @@ tint of the same colour.
   }
 
   .diff-file__header {
+    position: sticky;
+    top: var(--diff-sticky-top, 0);
+    z-index: 1;
     display: flex;
     align-items: baseline;
     padding: var(--space-2) var(--space-4);
@@ -937,7 +953,14 @@ tint of the same colour.
     background: var(--surface-raised);
   }
 
+  .diff-file__path {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .diff-file__modes {
+    flex: none;
     display: flex;
     margin: 0 0 0 auto;
     padding: 0;
