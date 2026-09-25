@@ -478,3 +478,28 @@ export async function fetchSource(
   );
 }
 ```
+
+## Showing a file rendered
+
+An image is shown from a URL rather than fetched as data, so the browser
+decodes it the way it decodes any image, and `blobUrl` only builds that URL
+for [`/api/blob`](../backend/server.md#serving-a-file-as-it-is). A Markdown
+side comes back from `/api/markdown` as
+[HTML the server has already made safe](../backend/markdown.md).
+
+```ts
+//| id: frontend-api
+
+export function blobUrl(blob: string, path: string): string {
+  return `/api/blob?${new URLSearchParams({ blob, path })}`;
+}
+
+const RenderedMarkdown = z.object({ html: z.string() });
+
+export async function fetchMarkdown(blob: string): Promise<string> {
+  const params = new URLSearchParams({ blob });
+  return RenderedMarkdown.parse(
+    await getJson(`/api/markdown?${params}`, "GET /api/markdown"),
+  ).html;
+}
+```

@@ -400,3 +400,18 @@ export async function fetchSource(
   );
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
+
+export function blobUrl(blob: string, path: string): string {
+  return `/api/blob?${new URLSearchParams({ blob, path })}`;
+}
+
+const RenderedMarkdown = z.object({ html: z.string() });
+
+export async function fetchMarkdown(blob: string): Promise<string> {
+  const params = new URLSearchParams({ blob });
+  return RenderedMarkdown.parse(
+    await getJson(`/api/markdown?${params}`, "GET /api/markdown"),
+  ).html;
+}
+// ~/~ end

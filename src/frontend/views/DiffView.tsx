@@ -23,6 +23,7 @@ import {
 import { collapseReason } from "./collapse";
 import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
+import { RenderedFile, renderingOf } from "./RenderedFile";
 import {
   changedLines,
   type PaintedToken,
@@ -279,6 +280,10 @@ function FileRow({
       ? structuralBody(structural)
       : patchBody(file.patch);
   const shown = shownIn[mode];
+  const rendering = renderingOf(file);
+  const [preferRendered, setPreferRendered] = useState(false);
+  const rendered =
+    rendering !== null && (file.binary || preferRendered) ? rendering : null;
   const reason = collapseReason(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const open =
@@ -326,11 +331,18 @@ function FileRow({
                 ? file.structural.reason
                 : null
             }
-            onChoose={setChosen}
+            rendered={rendering === null ? null : rendered !== null}
+            onChoose={(chosen) => {
+              setChosen(chosen);
+              setPreferRendered(false);
+            }}
+            onRender={() => setPreferRendered(true)}
           />
         )}
       </header>
-      {!open ? null : file.binary ? (
+      {!open ? null : rendered !== null ? (
+        <RenderedFile file={file} rendering={rendered} />
+      ) : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
         <pre className="diff-file__patch">
@@ -397,15 +409,20 @@ const DIFF_MODES: { value: DiffMode; caption: string }[] = [
 ];
 
 /** Which view one file is drawn in. The structural button is off, with the
- *  reason as its title, when difftastic has nothing for the file. */
+ *  reason as its title, when difftastic has nothing for the file. `rendered`
+ *  is null for a file that has no rendered view. */
 function DiffModeSwitch({
   mode,
   unavailable,
+  rendered,
   onChoose,
+  onRender,
 }: {
   mode: DiffMode;
   unavailable: string | null;
+  rendered: boolean | null;
   onChoose: (mode: DiffMode) => void;
+  onRender: () => void;
 }) {
   return (
     <fieldset className="diff-file__modes" aria-label="Diff view">
@@ -416,7 +433,7 @@ function DiffModeSwitch({
             key={value}
             type="button"
             className="diff-file__mode"
-            aria-pressed={mode === value}
+            aria-pressed={rendered !== true && mode === value}
             disabled={off}
             title={off ? `No structural diff: ${unavailable}` : undefined}
             onClick={() => onChoose(value)}
@@ -425,6 +442,16 @@ function DiffModeSwitch({
           </button>
         );
       })}
+      {rendered !== null && (
+        <button
+          type="button"
+          className="diff-file__mode"
+          aria-pressed={rendered}
+          onClick={onRender}
+        >
+          rendered
+        </button>
+      )}
     </fieldset>
   );
 }

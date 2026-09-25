@@ -1636,6 +1636,74 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/rendered-files.md#design-diff-view>>[0] */
+@layer components {
+  .rendered-file {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+
+  .rendered-file__side {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .rendered-file__label {
+    margin-bottom: var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
+  .rendered-file__canvas {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    background:
+      repeating-conic-gradient(var(--surface-sunken) 0 25%, transparent 0 50%) 0
+      0 / 16px 16px;
+  }
+
+  .rendered-file__image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .rendered-file__markdown {
+    padding: 0 var(--space-4);
+    border: 1px solid var(--border-subtle);
+    overflow-wrap: anywhere;
+  }
+
+  .rendered-file__markdown :is(pre, table) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .rendered-file__markdown table {
+    border-collapse: collapse;
+  }
+
+  .rendered-file__markdown :is(th, td) {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border);
+  }
+
+  .rendered-file__markdown img {
+    max-width: 100%;
+  }
+
+  .rendered-file__note {
+    margin: 0;
+    padding: var(--space-4);
+    border: 1px dashed var(--border-subtle);
+    color: var(--text-muted);
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/syntax.md#design-syntax>>[init] */
 @layer components {
