@@ -61,8 +61,16 @@ the reader has never looked at.
 
 A comment's `stale` flag asks whether one line still means what it meant when
 the note was written, a narrower question than a mark's `changed` state. A
-comment's `commitId` names the version its line number was read against, and
-it is stale when neither of the row's current sides is that commit.
+comment is pinned to a line on one `side` of the file, and its `commitId`
+names the version that line number was read against. It is stale when neither
+of the row's current sides is that commit.
+
+Which commit that is depends on the row. A paired row compares two commits, so
+the after side is `to` and the before side is `from`. A lone row is one
+commit's own diff against its parent, so that commit is the one version the
+row names and it stands for both sides. `addComment` picks `to ?? from` for an
+after-side line and `from ?? to` for a before-side one, and the stale rule
+needs no side of its own: a rewrite of either commit moves it off the row.
 
 ```ts
 //| id: frontend-state-review
@@ -79,10 +87,22 @@ const Comparison = z.object({
 export const Mark = Comparison.extend({ seenAt: z.string() });
 export type Mark = z.infer<typeof Mark>;
 
+export const Side = z.enum(["before", "after"]);
+export type Side = z.infer<typeof Side>;
+
+/** Where on a file a comment is pinned: a line number on one side of it. */
+export interface LineAnchor {
+  side: Side;
+  line: number;
+}
+
 export const Comment = z.object({
   id: z.string(),
   reviewKey: z.string(),
   path: z.string(),
+  /** A stored comment with no side is an after-side one. Defaulting it keeps
+   *  `load` from discarding a whole session written before the field. */
+  side: Side.default("after"),
   line: z.number().int(),
   commitId: z.string(),
   body: z.string(),
@@ -245,7 +265,7 @@ wrong assumption the code is being tested against.
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import { reviewKey, reviewRows, type SessionDocument } from "./review";
+import { reviewKey, reviewRows, SessionDocument } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -445,6 +465,7 @@ describe("reviewRows", () => {
           id: "c1",
           reviewKey: "change:a",
           path: "f.ts",
+          side: "after",
           line: 3,
           commitId: "a0",
           body: "old",
@@ -459,6 +480,33 @@ describe("reviewRows", () => {
 
     // assert
     expect(reviewed?.comments[0]?.stale).toBe(true);
+  });
+
+  test("keeps a before-side comment fresh while its commit is the row's before side", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: SessionDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          path: "f.ts",
+          side: "before",
+          line: 3,
+          commitId: "a1",
+          body: "removed too soon",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(false);
   });
 
   test("derives unseen for a change-id-less row against an empty document", () => {
@@ -561,6 +609,33 @@ describe("reviewRows", () => {
       seenFrom: "g1",
       seenTo: "g2",
     });
+  });
+});
+
+describe("SessionDocument", () => {
+  test("reads a comment stored without a side as an after-side one", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          path: "f.ts",
+          line: 3,
+          commitId: "a2",
+          body: "written before sides",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const document = SessionDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]?.side).toBe("after");
   });
 });
 
@@ -729,6 +804,7 @@ through two layers of props does not retrigger effects that depend on it.
 import { useCallback, useState } from "react";
 import {
   type Comment,
+  type LineAnchor,
   type ReviewedRow,
   SessionDocument,
   sameComparison,
@@ -768,7 +844,7 @@ export interface Session {
   addComment: (
     row: ReviewedRow,
     path: string,
-    line: number,
+    anchor: LineAnchor,
     body: string,
   ) => void;
   resolveComment: (id: string, resolved: boolean) => void;
@@ -814,13 +890,16 @@ export function useSession(): Session {
   );
 
   const addComment = useCallback(
-    (row: ReviewedRow, path: string, line: number, body: string) => {
+    (row: ReviewedRow, path: string, anchor: LineAnchor, body: string) => {
+      const commit =
+        anchor.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
       const comment: Comment = {
         id: crypto.randomUUID(),
         reviewKey: row.reviewKey,
         path,
-        line,
-        commitId: row.to?.commitId ?? row.from?.commitId ?? "",
+        side: anchor.side,
+        line: anchor.line,
+        commitId: commit?.commitId ?? "",
         body,
         resolved: false,
         createdAt: new Date().toISOString(),

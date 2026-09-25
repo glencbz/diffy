@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import { reviewKey, reviewRows, type SessionDocument } from "./review";
+import { reviewKey, reviewRows, SessionDocument } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -202,6 +202,7 @@ describe("reviewRows", () => {
           id: "c1",
           reviewKey: "change:a",
           path: "f.ts",
+          side: "after",
           line: 3,
           commitId: "a0",
           body: "old",
@@ -216,6 +217,33 @@ describe("reviewRows", () => {
 
     // assert
     expect(reviewed?.comments[0]?.stale).toBe(true);
+  });
+
+  test("keeps a before-side comment fresh while its commit is the row's before side", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: SessionDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          path: "f.ts",
+          side: "before",
+          line: 3,
+          commitId: "a1",
+          body: "removed too soon",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(false);
   });
 
   test("derives unseen for a change-id-less row against an empty document", () => {
@@ -318,6 +346,33 @@ describe("reviewRows", () => {
       seenFrom: "g1",
       seenTo: "g2",
     });
+  });
+});
+
+describe("SessionDocument", () => {
+  test("reads a comment stored without a side as an after-side one", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          path: "f.ts",
+          line: 3,
+          commitId: "a2",
+          body: "written before sides",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const document = SessionDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]?.side).toBe("after");
   });
 });
 

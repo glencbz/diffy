@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { FileSpot } from "../state/place";
-import type { RowComment } from "../state/review";
+import type { LineAnchor, RowComment } from "../state/review";
 import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import {
@@ -31,10 +31,11 @@ import {
 } from "./words";
 
 /** Review memory for the files on screen. A diff that has one lets every
- * after-side line be commented on; a diff that has none renders read-only. */
+ * line of the file, on either side, be commented on; a diff that has none
+ * renders read-only. */
 export interface DiffReview {
   comments: RowComment[];
-  onAddComment: (path: string, line: number, body: string) => void;
+  onAddComment: (path: string, anchor: LineAnchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
 }
@@ -69,7 +70,7 @@ export function DiffView({
 }) {
   const [composer, setComposer] = useState<{
     path: string;
-    line: number;
+    anchor: LineAnchor;
   } | null>(null);
 
   const changedFiles = useMemo(
@@ -105,12 +106,12 @@ export function DiffView({
                     comments: review.comments.filter(
                       (comment) => comment.path === path,
                     ),
-                    composerLine:
-                      composer?.path === path ? composer.line : null,
-                    onOpenComposer: (line) => setComposer({ path, line }),
+                    composerAnchor:
+                      composer?.path === path ? composer.anchor : null,
+                    onOpenComposer: (anchor) => setComposer({ path, anchor }),
                     onCancelComposer: () => setComposer(null),
-                    onSubmitComposer: (line, body) => {
-                      review.onAddComment(path, line, body);
+                    onSubmitComposer: (anchor, body) => {
+                      review.onAddComment(path, anchor, body);
                       setComposer(null);
                     },
                     onResolveComment: review.onResolveComment,
@@ -179,10 +180,10 @@ function jumpTo(file: ChangedFile): void {
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
-  composerLine: number | null;
-  onOpenComposer: (line: number) => void;
+  composerAnchor: LineAnchor | null;
+  onOpenComposer: (anchor: LineAnchor) => void;
   onCancelComposer: () => void;
-  onSubmitComposer: (line: number, body: string) => void;
+  onSubmitComposer: (anchor: LineAnchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
 }
@@ -366,9 +367,9 @@ function FileRow({
           )}
         </pre>
       )}
-      {open && review !== undefined && review.composerLine !== null && (
+      {open && review !== undefined && review.composerAnchor !== null && (
         <CommentComposer
-          line={review.composerLine}
+          anchor={review.composerAnchor}
           onCancel={review.onCancelComposer}
           onSubmit={review.onSubmitComposer}
         />
@@ -429,14 +430,20 @@ function DiffModeSwitch({
   );
 }
 
+/** How a comment names its line: the after side's number alone, since that
+ *  is the version being approved, and the before side's marked as such. */
+function lineLabel({ side, line }: LineAnchor): string {
+  return side === "after" ? `${line}` : `${line}, before`;
+}
+
 function CommentComposer({
-  line,
+  anchor,
   onCancel,
   onSubmit,
 }: {
-  line: number;
+  anchor: LineAnchor;
   onCancel: () => void;
-  onSubmit: (line: number, body: string) => void;
+  onSubmit: (anchor: LineAnchor, body: string) => void;
 }) {
   const [body, setBody] = useState("");
 
@@ -446,10 +453,10 @@ function CommentComposer({
       onSubmit={(event) => {
         event.preventDefault();
         if (body.trim() === "") return;
-        onSubmit(line, body);
+        onSubmit(anchor, body);
       }}
     >
-      <div className="comment-composer__line">line {line}</div>
+      <div className="comment-composer__line">line {lineLabel(anchor)}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -485,7 +492,7 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          {comment.path}:{comment.line} ·{" "}
+          {comment.path}:{lineLabel(comment)} ·{" "}
           {comment.resolved ? "resolved" : "open"}
         </span>
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
@@ -506,20 +513,21 @@ function CommentThread({
   );
 }
 
-/** A `<button>` when the line has an after-side line to comment on, a `<div>`
- *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
- *  line static, and a read-only diff with `links` makes the gutter number of
- *  every after-side line a link to it. */
+/** A `<button>` when the line is a line of the file, a `<div>` otherwise. A
+ *  read-only diff passes no `onOpenComposer`, which makes every line static,
+ *  and a read-only diff with `links` makes the gutter number of every
+ *  after-side line a link to it. */
 function PatchLine({
   line,
   onOpenComposer,
   links,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
-  onOpenComposer?: (line: number) => void;
+  onOpenComposer?: (anchor: LineAnchor) => void;
   links?: FileLinks;
 }) {
-  const afterLine = "afterLine" in line ? line.afterLine : null;
+  const anchor = "anchor" in line ? line.anchor : null;
+  const afterLine = anchor?.side === "after" ? anchor.line : null;
   const linked =
     afterLine !== null && links !== undefined && onOpenComposer === undefined;
   const body = (
@@ -561,14 +569,14 @@ function PatchLine({
       : "";
   const className = `diff-line diff-line--${line.kind}${selected}`;
 
-  if (afterLine === null || onOpenComposer === undefined) {
+  if (anchor === null || onOpenComposer === undefined) {
     return <div className={className}>{body}</div>;
   }
 
   return (
     <button
       type="button"
-      onClick={() => onOpenComposer(afterLine)}
+      onClick={() => onOpenComposer(anchor)}
       className={`${className} diff-line--interactive`}
     >
       {body}
@@ -593,16 +601,16 @@ const SIGNS: Record<CodeKind, string> = {
 };
 
 /** One line as drawn. Header lines, hunk headers, and notes are text in one
- *  colour. A line of the file is its tokens, and its after-side line number
- *  where it has one. A gap stands in for the lines `gapsOf` numbered `gap`
- *  until it is shown. */
+ *  colour. A line of the file is its tokens and where it sits: a removed line
+ *  on the before side, every other line on the after side. A gap stands in
+ *  for the lines `gapsOf` numbered `gap` until it is shown. */
 type DrawnLine =
   | { kind: "meta" | "hunk"; text: string }
   | { kind: "gap"; gap: number; count: number }
   | {
       kind: CodeKind;
       tokens: PaintedToken[];
-      afterLine: number | null;
+      anchor: LineAnchor;
     };
 
 /** What a file's lines are drawn from: hunks, and each hunk's changed
@@ -662,7 +670,7 @@ function drawnLines(
     return Array.from({ length: gap.count }, (_, offset) => ({
       kind: "context" as const,
       tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
-      afterLine: gap.start + offset,
+      anchor: { side: "after" as const, line: gap.start + offset },
     }));
   };
 
@@ -694,7 +702,7 @@ function drawnHunkLine(
       return {
         kind: "context",
         tokens: paintWords(tokensAt(sides.new, line.newLine, line.code), []),
-        afterLine: line.newLine,
+        anchor: { side: "after", line: line.newLine },
       };
     case "added":
       return {
@@ -703,7 +711,7 @@ function drawnHunkLine(
           tokensAt(sides.new, line.newLine, line.code),
           changed,
         ),
-        afterLine: line.newLine,
+        anchor: { side: "after", line: line.newLine },
       };
     case "removed":
       return {
@@ -712,7 +720,7 @@ function drawnHunkLine(
           tokensAt(sides.old, line.oldLine, line.code),
           changed,
         ),
-        afterLine: null,
+        anchor: { side: "before", line: line.oldLine },
       };
     case "note":
       return { kind: "meta", text: line.text };
