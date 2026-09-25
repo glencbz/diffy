@@ -4,12 +4,14 @@ import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
+  handleBlob,
   handleDiff,
   handleGithubPullCommits,
   handleGithubPullHistory,
   handleGithubPulls,
   handleInterdiff,
   handleLog,
+  handleMarkdown,
   handleOperations,
   handleSource,
   pullDiffResponse,
@@ -141,6 +143,101 @@ describe("handleSource", () => {
 
     // assert
     expect(res.status).toBe(400);
+  });
+});
+
+describe("handleBlob", () => {
+  const blob = (params: Record<string, string>) =>
+    handleBlob(
+      new Request(`http://test/api/blob?${new URLSearchParams(params)}`),
+    );
+
+  test("answers a blob's bytes, typed as its path says", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:package.json`.quiet().text()).trim();
+
+    // act
+    const res = await blob({ blob: id, path: "logo.PNG" });
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      (await $`git show HEAD:package.json`.quiet()).bytes(),
+    );
+  });
+
+  test("sends an SVG sandboxed, and never sniffed as anything else", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:package.json`.quiet().text()).trim();
+
+    // act
+    const res = await blob({ blob: id, path: "icon.svg" });
+
+    // assert
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  test("types a file that is not an image as bytes to download", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:package.json`.quiet().text()).trim();
+
+    // act
+    const res = await blob({ blob: id, path: "page.html" });
+
+    // assert
+    expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
+  });
+
+  test("reports a blob the store does not hold as 404", async () => {
+    // arrange
+    // act
+    const res = await blob({ blob: "f".repeat(40), path: "a.png" });
+
+    // assert
+    expect(res.status).toBe(404);
+  });
+
+  test("reports a request without a usable blob id as 400", async () => {
+    // arrange
+    // act
+    const res = await blob({ blob: "HEAD", path: "a.png" });
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("handleMarkdown", () => {
+  const markdown = (blob: string) =>
+    handleMarkdown(
+      new Request(`http://test/api/markdown?${new URLSearchParams({ blob })}`),
+    );
+
+  test("answers a blob rendered as HTML", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:CLAUDE.md`.quiet().text()).trim();
+
+    // act
+    const res = await markdown(id);
+    const body = (await res.json()) as { html: string };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.html).toContain("<h2>APIs</h2>");
+  });
+
+  test("reports a blob the store does not hold as 404", async () => {
+    // arrange
+    // act
+    const res = await markdown("f".repeat(40));
+
+    // assert
+    expect(res.status).toBe(404);
   });
 });
 

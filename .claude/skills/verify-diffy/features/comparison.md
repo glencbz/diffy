@@ -46,7 +46,14 @@ above the pane, is its own feature: see [file navigation](./file-navigation.md).
   words an edited line changed with a stronger tint. Hunk headers are blue.
 - `diff-gutter` numbers each after-side line in the left gutter and leaves it
   blank for removals and patch headers.
-- `diff-binary` shows `Binary file, no textual diff.` instead of a patch.
+- `diff-rendered` shows an image (`png`, `jpg`, `gif`, `webp`, `svg`) as a
+  `before` and an `after` figure, side by side or stacked when the pane is
+  narrow, with `No file on this side.` for an added or deleted one. An SVG or
+  Markdown file adds a `rendered` button to its `Diff view` and opens on the
+  patch. The fixture holds no image or Markdown file, so commit one into the
+  fixture repo to drive this.
+- `diff-binary` shows `Binary file, no textual diff.` for any other binary
+  file.
 - `diff-sticky` keeps a file's header pinned to the top of the pane while its
   body scrolls past.
 - `comparison-loading` shows `Loading diff...` until `/api/interdiff` answers,

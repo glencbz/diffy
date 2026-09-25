@@ -6,6 +6,7 @@ import {
   GitError,
   GitOid,
   gitBlob,
+  gitBlobBytes,
   gitLog,
   gitMaterialize,
   gitMergeBase,
@@ -36,6 +37,7 @@ import {
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import { highlightSource } from "./backend/syntax/highlight";
+import { renderMarkdown } from "./backend/syntax/markdown";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -141,6 +143,71 @@ export async function handleSource(req: Request): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[3]
 
+/** The types the diff view shows as images, by extension. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+};
+
+export async function handleBlob(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  const blob = BlobId.safeParse(params.get("blob"));
+  const path = params.get("path");
+
+  if (!blob.success || path === null || path === "") {
+    return Response.json(
+      { error: "blob needs a blob id and a path" },
+      { status: 400 },
+    );
+  }
+
+  const bytes = await gitBlobBytes(blob.data);
+  if (bytes === null) {
+    return Response.json(
+      { error: `no blob ${blob.data} in the object store` },
+      { status: 404 },
+    );
+  }
+
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": IMAGE_TYPES[extension] ?? "application/octet-stream",
+      "Content-Security-Policy":
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
+
+export async function handleMarkdown(req: Request): Promise<Response> {
+  const blob = BlobId.safeParse(new URL(req.url).searchParams.get("blob"));
+  if (!blob.success) {
+    return Response.json(
+      { error: "markdown needs a blob id" },
+      { status: 400 },
+    );
+  }
+
+  const text = await gitBlob(blob.data);
+  if (text === null) {
+    return Response.json(
+      { error: `no blob ${blob.data} in the object store` },
+      { status: 404 },
+    );
+  }
+
+  return Response.json({ html: renderMarkdown(text) });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+
 /** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
 async function githubJson(build: () => Promise<unknown>): Promise<Response> {
   try {
@@ -162,7 +229,7 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
 
 const PullsQuery = z.object({
   state: z.enum(["open", "closed", "merged", "all"]).optional(),
@@ -193,7 +260,7 @@ export function handleGithubPullHistory(req: Request): Promise<Response> {
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
 export function handleGithubPullCommits(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
@@ -220,7 +287,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
   });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
 
 export function handleGithubPullDiff(req: Request): Promise<Response> {
   return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
@@ -329,7 +396,7 @@ async function pullDiffFiles(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
 
 export const routes = {
   "/*": index,
@@ -339,6 +406,8 @@ export const routes = {
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
   "/api/source": handleSource,
+  "/api/blob": handleBlob,
+  "/api/markdown": handleMarkdown,
   "/api/github/pulls": handleGithubPulls,
   "/api/github/pull/history": handleGithubPullHistory,
   "/api/github/pull/commits": handleGithubPullCommits,

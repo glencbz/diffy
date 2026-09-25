@@ -42,6 +42,7 @@ import {
   GitError,
   GitOid,
   gitBlob,
+  gitBlobBytes,
   gitLog,
   gitMaterialize,
   gitMergeBase,
@@ -72,6 +73,7 @@ import {
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import { highlightSource } from "./backend/syntax/highlight";
+import { renderMarkdown } from "./backend/syntax/markdown";
 import index from "./frontend/index.html";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
@@ -210,6 +212,100 @@ export async function handleSource(req: Request): Promise<Response> {
   }
 
   return Response.json(await highlightSource(text, path));
+}
+```
+
+### Serving a file as it is
+
+`/api/blob` answers one side of one file as its bytes, for the page to show
+an image the way a browser shows any image, from a URL. It takes the same
+blob id and path as `/api/source`, for the same reason, and the path again
+only says what kind of file it is.
+
+Only the image types the diff view shows are named as images. Anything else
+is `application/octet-stream`, so no path can make this route answer with a
+type the browser would run as a page.
+
+An SVG is an image that can carry script. The page only ever shows one
+through `<img>`, which never runs it, but the URL can still be opened on its
+own, where it would run with the app's origin. So every answer carries a
+content security policy that loads nothing and sandboxes the document, and
+`nosniff`, which stops the browser second-guessing the type it was given.
+Inline styles are the one thing allowed, because an SVG's own `style`
+attributes are how most drawing tools colour it.
+
+```ts
+//| id: backend-server
+
+/** The types the diff view shows as images, by extension. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+};
+
+export async function handleBlob(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  const blob = BlobId.safeParse(params.get("blob"));
+  const path = params.get("path");
+
+  if (!blob.success || path === null || path === "") {
+    return Response.json(
+      { error: "blob needs a blob id and a path" },
+      { status: 400 },
+    );
+  }
+
+  const bytes = await gitBlobBytes(blob.data);
+  if (bytes === null) {
+    return Response.json(
+      { error: `no blob ${blob.data} in the object store` },
+      { status: 404 },
+    );
+  }
+
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": IMAGE_TYPES[extension] ?? "application/octet-stream",
+      "Content-Security-Policy":
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+```
+
+### Rendering a Markdown file
+
+`/api/markdown` answers one side of a Markdown file as
+[HTML safe to place in the page](markdown.md). It needs only the blob id,
+since there is only one way to read the file.
+
+```ts
+//| id: backend-server
+
+export async function handleMarkdown(req: Request): Promise<Response> {
+  const blob = BlobId.safeParse(new URL(req.url).searchParams.get("blob"));
+  if (!blob.success) {
+    return Response.json(
+      { error: "markdown needs a blob id" },
+      { status: 400 },
+    );
+  }
+
+  const text = await gitBlob(blob.data);
+  if (text === null) {
+    return Response.json(
+      { error: `no blob ${blob.data} in the object store` },
+      { status: 404 },
+    );
+  }
+
+  return Response.json({ html: renderMarkdown(text) });
 }
 ```
 
@@ -530,6 +626,8 @@ export const routes = {
   "/api/diff": handleDiff,
   "/api/interdiff": handleInterdiff,
   "/api/source": handleSource,
+  "/api/blob": handleBlob,
+  "/api/markdown": handleMarkdown,
   "/api/github/pulls": handleGithubPulls,
   "/api/github/pull/history": handleGithubPullHistory,
   "/api/github/pull/commits": handleGithubPullCommits,
@@ -555,12 +653,14 @@ import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import {
+  handleBlob,
   handleDiff,
   handleGithubPullCommits,
   handleGithubPullHistory,
   handleGithubPulls,
   handleInterdiff,
   handleLog,
+  handleMarkdown,
   handleOperations,
   handleSource,
   pullDiffResponse,
@@ -692,6 +792,101 @@ describe("handleSource", () => {
 
     // assert
     expect(res.status).toBe(400);
+  });
+});
+
+describe("handleBlob", () => {
+  const blob = (params: Record<string, string>) =>
+    handleBlob(
+      new Request(`http://test/api/blob?${new URLSearchParams(params)}`),
+    );
+
+  test("answers a blob's bytes, typed as its path says", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:package.json`.quiet().text()).trim();
+
+    // act
+    const res = await blob({ blob: id, path: "logo.PNG" });
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      (await $`git show HEAD:package.json`.quiet()).bytes(),
+    );
+  });
+
+  test("sends an SVG sandboxed, and never sniffed as anything else", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:package.json`.quiet().text()).trim();
+
+    // act
+    const res = await blob({ blob: id, path: "icon.svg" });
+
+    // assert
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  test("types a file that is not an image as bytes to download", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:package.json`.quiet().text()).trim();
+
+    // act
+    const res = await blob({ blob: id, path: "page.html" });
+
+    // assert
+    expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
+  });
+
+  test("reports a blob the store does not hold as 404", async () => {
+    // arrange
+    // act
+    const res = await blob({ blob: "f".repeat(40), path: "a.png" });
+
+    // assert
+    expect(res.status).toBe(404);
+  });
+
+  test("reports a request without a usable blob id as 400", async () => {
+    // arrange
+    // act
+    const res = await blob({ blob: "HEAD", path: "a.png" });
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("handleMarkdown", () => {
+  const markdown = (blob: string) =>
+    handleMarkdown(
+      new Request(`http://test/api/markdown?${new URLSearchParams({ blob })}`),
+    );
+
+  test("answers a blob rendered as HTML", async () => {
+    // arrange
+    const id = (await $`git rev-parse HEAD:CLAUDE.md`.quiet().text()).trim();
+
+    // act
+    const res = await markdown(id);
+    const body = (await res.json()) as { html: string };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.html).toContain("<h2>APIs</h2>");
+  });
+
+  test("reports a blob the store does not hold as 404", async () => {
+    // arrange
+    // act
+    const res = await markdown("f".repeat(40));
+
+    // assert
+    expect(res.status).toBe(404);
   });
 });
 

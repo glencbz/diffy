@@ -5,6 +5,7 @@ import {
   BlobId,
   GitOid,
   gitBlob,
+  gitBlobBytes,
   gitForget,
   gitHasCommit,
   gitLog,
@@ -357,6 +358,21 @@ describe("gitBlob", () => {
     // act
     // assert
     expect(await gitBlob(BlobId.parse("f".repeat(40)))).toBeNull();
+  });
+
+  test("reads a blob back as the bytes it was stored as", async () => {
+    // arrange
+    const id = BlobId.parse(
+      (await $`git rev-parse HEAD:package.json`.quiet().text()).trim(),
+    );
+
+    // act
+    const bytes = await gitBlobBytes(id);
+
+    // assert
+    expect(bytes).toEqual(
+      (await $`git show HEAD:package.json`.quiet()).bytes(),
+    );
   });
 });
 // ~/~ end
