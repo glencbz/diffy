@@ -11,10 +11,22 @@ const Comparison = z.object({
 export const Mark = Comparison.extend({ seenAt: z.string() });
 export type Mark = z.infer<typeof Mark>;
 
+export const Side = z.enum(["before", "after"]);
+export type Side = z.infer<typeof Side>;
+
+/** Where on a file a comment is pinned: a line number on one side of it. */
+export interface LineAnchor {
+  side: Side;
+  line: number;
+}
+
 export const Comment = z.object({
   id: z.string(),
   reviewKey: z.string(),
   path: z.string(),
+  /** A stored comment with no side is an after-side one. Defaulting it keeps
+   *  `load` from discarding a whole session written before the field. */
+  side: Side.default("after"),
   line: z.number().int(),
   commitId: z.string(),
   body: z.string(),

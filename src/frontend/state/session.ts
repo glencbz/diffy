@@ -2,6 +2,7 @@
 import { useCallback, useState } from "react";
 import {
   type Comment,
+  type LineAnchor,
   type ReviewedRow,
   SessionDocument,
   sameComparison,
@@ -41,7 +42,7 @@ export interface Session {
   addComment: (
     row: ReviewedRow,
     path: string,
-    line: number,
+    anchor: LineAnchor,
     body: string,
   ) => void;
   resolveComment: (id: string, resolved: boolean) => void;
@@ -87,13 +88,16 @@ export function useSession(): Session {
   );
 
   const addComment = useCallback(
-    (row: ReviewedRow, path: string, line: number, body: string) => {
+    (row: ReviewedRow, path: string, anchor: LineAnchor, body: string) => {
+      const commit =
+        anchor.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
       const comment: Comment = {
         id: crypto.randomUUID(),
         reviewKey: row.reviewKey,
         path,
-        line,
-        commitId: row.to?.commitId ?? row.from?.commitId ?? "",
+        side: anchor.side,
+        line: anchor.line,
+        commitId: commit?.commitId ?? "",
         body,
         resolved: false,
         createdAt: new Date().toISOString(),

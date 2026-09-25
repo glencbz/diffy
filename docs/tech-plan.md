@@ -24,11 +24,6 @@ earlier self. Lining up two series is its own problem and has its own module,
 
 These are review features GitHub and GitLab both have that diffy lacks.
 
-#### Essential
-
-* [ ] Comment on a removed line. Only lines on the after side take a comment
-  today.
-
 #### Good to have
 
 * [ ] Show a summary of files changed and lines added and removed for a

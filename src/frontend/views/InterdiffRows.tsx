@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
-import type { ReviewedRow } from "../state/review";
+import type { LineAnchor, ReviewedRow } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
@@ -18,7 +18,7 @@ export function InterdiffRows({
   onAddComment: (
     row: ReviewedRow,
     path: string,
-    line: number,
+    anchor: LineAnchor,
     body: string,
   ) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
@@ -42,8 +42,8 @@ export function InterdiffRows({
               scope={rowKey(row)}
               review={{
                 comments: row.comments,
-                onAddComment: (path, line, body) =>
-                  onAddComment(row, path, line, body),
+                onAddComment: (path, anchor, body) =>
+                  onAddComment(row, path, anchor, body),
                 onResolveComment,
                 onDropComment,
               }}
