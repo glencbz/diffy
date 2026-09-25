@@ -8,9 +8,11 @@ import type {
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../state/asyncState";
+import { opening, useLastReviewed } from "../state/lastReviewed";
 import { type Slot, usePairing } from "../state/pairing";
 import {
   type FileSpot,
+  openPull,
   type PullPlace,
   pullHref,
   useArrivals,
@@ -26,6 +28,7 @@ import {
   type StackRowKind,
 } from "../views/CommitStack";
 import type { DiffLinks } from "../views/DiffView";
+import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
 import { PullComparisonPicker } from "../views/PullComparisonPicker";
@@ -155,7 +158,7 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
 export function PullReview({
   repo,
   pull,
-  place,
+  place: asked,
   onGo,
 }: {
   repo: string;
@@ -164,6 +167,12 @@ export function PullReview({
   onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
+  const [reviewed, markReviewed] = useLastReviewed(repo, pull.number);
+  const place = opening(
+    asked,
+    reviewed,
+    history.status === "ready" ? history.data.states : [],
+  );
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
@@ -261,14 +270,27 @@ export function PullReview({
     <PullReviewPanes
       header={<PullHeader pull={pull} />}
       picker={
-        <PullComparisonPicker
-          history={history.data}
-          from={from}
-          to={to}
-          files={pullFiles}
-          onPickFrom={(next) => onGo({ ...place, from: next })}
-          onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
-        />
+        <>
+          <PullComparisonPicker
+            history={history.data}
+            from={from}
+            to={to}
+            files={pullFiles}
+            onPickFrom={(next) => onGo({ ...place, from: next })}
+            onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
+          />
+          <LastReviewed
+            states={history.data.states}
+            reviewed={reviewed}
+            from={from}
+            to={to}
+            onMark={() => {
+              markReviewed(to);
+              onGo({ ...place, to });
+            }}
+            onWhole={() => onGo({ ...openPull(number), to: latest.head })}
+          />
+        </>
       }
       commits={
         commitsError !== null ? (

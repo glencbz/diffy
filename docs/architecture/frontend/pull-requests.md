@@ -138,6 +138,363 @@ export function usePullCommits(
   return state;
 }
 ```
+## The head last reviewed
+
+A reader who has been through a pull request once wants the second visit to
+start on what moved since, not on the whole thing again. The browser keeps,
+per pull request, the head the reader last said they reviewed, and a pull
+request opened with nothing in the address after its number starts on the
+comparison from that head to the latest one.
+
+Reviewed means the reader pressed "Mark reviewed" with that head as the after
+end. Inferring it from what was on screen would be quieter and wrong: a
+reader who opens a pull request to glance at the title, or who follows a link
+to one line, has not reviewed the head it was on, and the next visit would
+then hide everything they never read behind an interdiff that starts past it.
+An explicit mark costs one click and says only what the reader said.
+
+Each pull request is stored under a key of its own, `repo#number` under a
+`diffy.last-reviewed.v1:` prefix, holding `{ head }`. One blob for every pull
+request was the alternative, and it loses twice. A value that fails to parse
+would take every other pull request's mark down with it, and two tabs marking
+two pull requests would each write back a copy missing the other's mark.
+Separate keys leave the [session](review-tracking.md#session) and
+[settings](settings.md) keys alone for the same reason. Reading and writing
+follow those two stores: parse what is there as untrusted input, answer
+nothing on anything that does not parse, and swallow a write that throws.
+
+```ts
+//| id: frontend-state-last-reviewed
+//| file: src/frontend/state/lastReviewed.ts
+import { useCallback, useState } from "react";
+import * as z from "zod";
+import { GitOid, type PullVersion } from "../api";
+import type { PullPlace } from "./place";
+
+export const LastReviewed = z.object({ head: GitOid });
+export type LastReviewed = z.infer<typeof LastReviewed>;
+
+function storageKey(repo: string, number: number): string {
+  return `diffy.last-reviewed.v1:${repo}#${number}`;
+}
+
+/** localStorage content is written by a possibly older version of this
+ * app, or by hand in devtools; a value that does not parse reads as no
+ * mark at all. */
+export function load(repo: string, number: number): GitOid | null {
+  const raw = localStorage.getItem(storageKey(repo, number));
+  if (raw === null) return null;
+
+  try {
+    return LastReviewed.parse(JSON.parse(raw)).head;
+  } catch {
+    return null;
+  }
+}
+
+/** setItem throws in Safari private browsing and over quota; a mark that
+ * holds for the tab without persisting beats a click that throws. */
+export function save(repo: string, number: number, head: GitOid): void {
+  const value: LastReviewed = { head };
+  try {
+    localStorage.setItem(storageKey(repo, number), JSON.stringify(value));
+  } catch {
+    // See the doc comment: persistence failure is not worth a UI state.
+  }
+}
+
+export function useLastReviewed(
+  repo: string,
+  number: number,
+): [GitOid | null, (head: GitOid) => void] {
+  const [head, setHead] = useState(() => load(repo, number));
+  const mark = useCallback(
+    (next: GitOid) => {
+      save(repo, number, next);
+      setHead(next);
+    },
+    [repo, number],
+  );
+  return [head, mark];
+}
+```
+
+`opening` decides where a pull request starts. Only the bare address, the
+pull request number and nothing else, is open to the remembered default. Any
+head, commit, or file in the address is a place someone asked for, by a link
+or by back and forward, and it wins. The since-review comparison is not
+written into the address either. The address says "this pull request at its
+default", and for this reader the default has moved, the way "the latest
+head" moves when the branch is pushed.
+
+A remembered head that is the latest one has nothing new to show, so the
+pull request opens whole. A remembered head can also drop out of the history.
+[The history](../backend/github.md#a-pull-requests-history) is built from
+force pushes, so a head that a later fast-forward push moved past was never an
+event's end and is no longer listed once it stops being the tip, and a long
+enough run of force pushes loses the middle of the chain. The diff route only
+compares heads the history lists, so there is no version to start from, and
+the pull request opens whole with a note saying why.
+
+```ts
+//| id: frontend-state-last-reviewed
+/** The place a pull request opens on, given the head this reader last
+ *  reviewed and the heads the pull request has had, oldest first. */
+export function opening(
+  place: PullPlace,
+  reviewed: GitOid | null,
+  states: PullVersion[],
+): PullPlace {
+  const bare =
+    place.from.kind === "base" && place.to === null && place.spot === null;
+  if (!bare || reviewed === null || reviewed === states.at(-1)?.head) {
+    return place;
+  }
+  if (!states.some((state) => state.head === reviewed)) return place;
+  return { ...place, from: { kind: "version", head: reviewed } };
+}
+```
+
+```ts
+//| id: frontend-state-last-reviewed-test
+//| file: src/frontend/state/lastReviewed.test.ts
+import { beforeEach, describe, expect, test } from "bun:test";
+import { GitOid, type PullVersion } from "../api";
+import { load, opening, save } from "./lastReviewed";
+import { openPull, type PullPlace } from "./place";
+
+function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => {
+      store.set(key, value);
+    },
+  };
+}
+
+function oid(ch: string): GitOid {
+  return GitOid.parse(ch.repeat(40));
+}
+
+function version(n: number, ch: string): PullVersion {
+  return { version: n, head: oid(ch), origin: { kind: "opened" } };
+}
+
+beforeEach(() => {
+  globalThis.localStorage = memoryStorage() as unknown as Storage;
+});
+
+describe("load", () => {
+  test("round-trips a head through save, per pull request", () => {
+    // arrange
+    save("o/r", 7, oid("a"));
+    save("o/r", 8, oid("b"));
+
+    // act
+    // assert
+    expect(load("o/r", 7)).toBe(oid("a"));
+    expect(load("o/r", 8)).toBe(oid("b"));
+    expect(load("o/other", 7)).toBeNull();
+  });
+
+  test("reads nothing when nothing is stored", () => {
+    expect(load("o/r", 7)).toBeNull();
+  });
+
+  test("reads a value that does not parse as no mark, and keeps the others", () => {
+    // arrange
+    save("o/r", 8, oid("b"));
+    localStorage.setItem("diffy.last-reviewed.v1:o/r#7", "not json");
+    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
+    localStorage.setItem("diffy.session.v1", '{"marks":[],"comments":[]}');
+
+    // act
+    // assert
+    expect(load("o/r", 7)).toBeNull();
+    expect(load("o/r", 9)).toBeNull();
+    expect(load("o/r", 8)).toBe(oid("b"));
+    expect(localStorage.getItem("diffy.session.v1")).toBe(
+      '{"marks":[],"comments":[]}',
+    );
+  });
+});
+
+describe("save", () => {
+  test("does not throw when the store throws", () => {
+    // arrange
+    globalThis.localStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("quota exceeded");
+      },
+    } as unknown as Storage;
+
+    // act
+    // assert
+    expect(() => save("o/r", 7, oid("a"))).not.toThrow();
+  });
+});
+
+describe("opening", () => {
+  const states = [version(1, "a"), version(2, "b"), version(3, "c")];
+
+  test("opens a bare address on the changes since the head last reviewed", () => {
+    expect(opening(openPull(7), oid("a"), states)).toEqual({
+      number: 7,
+      from: { kind: "version", head: oid("a") },
+      to: null,
+      spot: null,
+    });
+  });
+
+  test("opens whole when nothing was reviewed", () => {
+    expect(opening(openPull(7), null, states)).toEqual(openPull(7));
+  });
+
+  test("opens whole when the latest head is the one reviewed", () => {
+    expect(opening(openPull(7), oid("c"), states)).toEqual(openPull(7));
+  });
+
+  test("opens whole when the head reviewed is no longer in the history", () => {
+    expect(opening(openPull(7), oid("f"), states)).toEqual(openPull(7));
+  });
+
+  test("leaves an address that names anything past the number alone", () => {
+    const places: PullPlace[] = [
+      { ...openPull(7), to: oid("c") },
+      { ...openPull(7), from: { kind: "version", head: oid("b") } },
+      { ...openPull(7), to: oid("c"), spot: { commit: oid("d"), file: null } },
+    ];
+
+    for (const place of places) {
+      expect(opening(place, oid("a"), states)).toEqual(place);
+    }
+  });
+});
+```
+
+`LastReviewed` is the strip under the comparison picker that shows all of
+this. It names the head last reviewed when the comparison on screen starts
+there and ends on the latest head, with a button back to the whole pull
+request; it says so when the head last reviewed is gone from the history; and
+it holds the button that marks the head on the after end reviewed. The note
+follows the comparison rather than how it was reached, so a link to the same
+two heads reads the same as the default that opened them.
+
+Marking pins the comparison on screen into the address. The default would
+otherwise move under the reader the moment they mark the latest head, and
+switch the screen they are reading to the whole pull request.
+
+```tsx
+//| id: frontend-view-last-reviewed
+//| file: src/frontend/views/LastReviewed.tsx
+import type { GitOid, PullBaseline, PullVersion } from "../api";
+
+export function LastReviewed({
+  states,
+  reviewed,
+  from,
+  to,
+  onMark,
+  onWhole,
+}: {
+  states: PullVersion[];
+  reviewed: GitOid | null;
+  from: PullBaseline;
+  to: GitOid;
+  onMark: () => void;
+  onWhole: () => void;
+}) {
+  const known = states.find((state) => state.head === reviewed);
+  const since =
+    known !== undefined &&
+    from.kind === "version" &&
+    from.head === known.head &&
+    to === states.at(-1)?.head;
+
+  return (
+    <div className="last-reviewed">
+      {since ? (
+        <>
+          <p className="last-reviewed__note">
+            Showing what changed since v{known.version}, the head you last
+            reviewed.
+          </p>
+          <button
+            type="button"
+            className="last-reviewed__action"
+            onClick={onWhole}
+          >
+            Show the whole pull request
+          </button>
+        </>
+      ) : reviewed !== null && known === undefined ? (
+        <p className="last-reviewed__note">
+          You last reviewed {reviewed.slice(0, 7)}, which this pull request's
+          history no longer lists, so it opens whole.
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="last-reviewed__action"
+        onClick={onMark}
+        disabled={to === reviewed}
+      >
+        {to === reviewed
+          ? `Reviewed at ${name(states, to)}`
+          : `Mark reviewed at ${name(states, to)}`}
+      </button>
+    </div>
+  );
+}
+
+function name(states: PullVersion[], head: GitOid): string {
+  const state = states.find((candidate) => candidate.head === head);
+  return state === undefined ? head.slice(0, 7) : `v${state.version}`;
+}
+```
+
+The strip sits in the same band as the picker above it and wraps the same
+way, so on a phone the note takes a line and the button drops under it. The
+buttons are outlined like the pairing's reset button, and hold the same 44
+pixel touch target as the picker's selects.
+
+```css
+/*| id: design-last-reviewed
+@layer components {
+  .last-reviewed {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .last-reviewed__note {
+    flex: 1 1 auto;
+    margin: 0;
+  }
+
+  .last-reviewed__action {
+    min-height: 44px;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .last-reviewed__action:disabled {
+    color: var(--text-faint);
+    cursor: default;
+  }
+}
+```
+
 ## Pull requests controller
 
 The list, and whichever pull request is picked out of it. Which one is picked
@@ -484,6 +841,12 @@ file or a line in the diff moves the place too, but the reader is already
 looking at what they clicked, so it scrolls nothing. `reveal` is the count of
 the first two, and the stack scrolls when it moves.
 
+The place this controller reads is not quite the one it is handed. A bare
+address opens on the changes since the head this reader last reviewed, which
+[`opening`](#the-head-last-reviewed) works out once the history is in, and
+every pick below builds on that place, so picking a commit in a since-review
+comparison keeps its before end.
+
 ```tsx
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
@@ -496,9 +859,11 @@ import type {
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../state/asyncState";
+import { opening, useLastReviewed } from "../state/lastReviewed";
 import { type Slot, usePairing } from "../state/pairing";
 import {
   type FileSpot,
+  openPull,
   type PullPlace,
   pullHref,
   useArrivals,
@@ -514,6 +879,7 @@ import {
   type StackRowKind,
 } from "../views/CommitStack";
 import type { DiffLinks } from "../views/DiffView";
+import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
 import { PullComparisonPicker } from "../views/PullComparisonPicker";
@@ -643,7 +1009,7 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
 export function PullReview({
   repo,
   pull,
-  place,
+  place: asked,
   onGo,
 }: {
   repo: string;
@@ -652,6 +1018,12 @@ export function PullReview({
   onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
+  const [reviewed, markReviewed] = useLastReviewed(repo, pull.number);
+  const place = opening(
+    asked,
+    reviewed,
+    history.status === "ready" ? history.data.states : [],
+  );
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
@@ -749,14 +1121,27 @@ export function PullReview({
     <PullReviewPanes
       header={<PullHeader pull={pull} />}
       picker={
-        <PullComparisonPicker
-          history={history.data}
-          from={from}
-          to={to}
-          files={pullFiles}
-          onPickFrom={(next) => onGo({ ...place, from: next })}
-          onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
-        />
+        <>
+          <PullComparisonPicker
+            history={history.data}
+            from={from}
+            to={to}
+            files={pullFiles}
+            onPickFrom={(next) => onGo({ ...place, from: next })}
+            onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
+          />
+          <LastReviewed
+            states={history.data.states}
+            reviewed={reviewed}
+            from={from}
+            to={to}
+            onMark={() => {
+              markReviewed(to);
+              onGo({ ...place, to });
+            }}
+            onWhole={() => onGo({ ...openPull(number), to: latest.head })}
+          />
+        </>
       }
       commits={
         commitsError !== null ? (

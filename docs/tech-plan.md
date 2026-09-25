@@ -35,7 +35,7 @@ These are review features GitHub and GitLab both have that diffy lacks.
   "Binary file, no textual diff."
 * [ ] Comment on a whole file or on the whole comparison, not only on a
   line.
-* [ ] Remember the head a reader last reviewed, and open a pull request on
+* [x] Remember the head a reader last reviewed, and open a pull request on
   the changes since that head.
 
 #### Publishing to GitHub

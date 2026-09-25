@@ -1866,6 +1866,40 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-last-reviewed>>[init] */
+@layer components {
+  .last-reviewed {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .last-reviewed__note {
+    flex: 1 1 auto;
+    margin: 0;
+  }
+
+  .last-reviewed__action {
+    min-height: 44px;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .last-reviewed__action:disabled {
+    color: var(--text-faint);
+    cursor: default;
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[init] */
 @layer components {
   .pull-bar {
