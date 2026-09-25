@@ -53,8 +53,8 @@ serve:
     echo "$name never answered on ${!name}; see {{serve_state}}/$name.log" >&2
     exit 1
   done
-  echo "app   http://$(hostname):$app   ssh exe.dev share port $(hostname) $app"
-  echo "docs  http://$(hostname):$docs  ssh exe.dev share port $(hostname) $docs"
+  echo "app   https://$(hostname).exe.xyz:$app/"
+  echo "docs  https://$(hostname).exe.xyz:$docs/"
 
 # Stop this workspace's detached app and docs
 serve-stop:
@@ -83,11 +83,11 @@ after its own processes are gone.
 
 ## Reaching them from outside
 
-The VM's ports are only reachable through the exe.dev HTTPS proxy, and only
-after someone with the exe.dev SSH key runs `ssh exe.dev share port <vm> <port>`
-from their own machine. Nothing inside the VM can do that, which is why `just
-serve` prints the two commands to hand over rather than trying. Once shared, the
-URL is `https://<vm>.exe.xyz:<port>/`.
+The VM's ports are reachable through the exe.dev HTTPS proxy, which forwards
+every port from 3000 to 9999 at `https://<vm>.exe.xyz:<port>/` to anyone with
+access to the VM, so `just serve` prints those URLs and nothing needs sharing
+first. `ssh exe.dev share port` only chooses the one port the bare
+`https://<vm>.exe.xyz/` serves, which a preview never relies on.
 
 The proxy rewrites the `Host` header on the way through, which Bun's dev server
 reads as an attack: it answers `Blocked: Host header does not match the dev

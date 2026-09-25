@@ -75,10 +75,11 @@ rather than you. `just serve` hands the app whatever environment it was called
 with, which is why exporting the host is the whole fix.
 
 It starts the app and the docs site detached on this workspace's own ports,
-prints both URLs, and prints the `ssh exe.dev share port` command that exposes
-each one. Re-run it to refresh both against the current code; the ports do not
-move, so URLs already in the PR stay correct. Do that at the end of every
-follow-up round too. See `docs/devtools/serving.md`.
+and prints both URLs, `https://<vm>.exe.xyz:<port>/`, which the exe.dev proxy
+already forwards to anyone with access to the VM. Re-run it to refresh both
+against the current code; the ports do not move, so URLs already in the PR stay
+correct. Do that at the end of every follow-up round too. See
+`docs/devtools/serving.md`.
 
 Never start a server for review by hand. `just serve` runs the app in
 production mode, and `just run` on its own leaves Bun in dev mode, which
@@ -119,16 +120,13 @@ preview section is stale, in which case rewrite the body:
 gh api --method PATCH /repos/glencbz/diffy/pulls/<number> -F body=@body.md
 ```
 
-End the body with the two URLs and the two commands exactly as `just serve`
-printed them, under a `## Preview` heading, saying they work once the reviewer
-runs the commands from their own machine. Take the host and ports from that
-output rather than from here; the VM is ephemeral and the ports depend on what
-else is already serving.
+End the body with the two URLs exactly as `just serve` printed them, under a
+`## Preview` heading. Take the host and ports from that output rather than from
+here; the VM is ephemeral and the ports depend on what else is already serving.
 
 PRs are authored by `exe-dev-github-integration[bot]`, not by the person asking.
 
 ## 5. Hand it over
 
-Report the PR URL, both preview URLs, and both `ssh exe.dev share port`
-commands in the reply, not only in the PR body. Those commands need the
-reviewer's own exe.dev key, so nothing in the VM can run them.
+Report the PR URL and both preview URLs in the reply, not only in the PR body.
+They open as they are; there is no `share port` step.

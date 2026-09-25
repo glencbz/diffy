@@ -26,19 +26,13 @@ These are review features GitHub and GitLab both have that diffy lacks.
 
 #### Essential
 
-* [ ] Collapse a file's diff, and start large, generated, and lock files
-  collapsed.
 * [ ] Comment on a removed line. Only lines on the after side take a comment
   today.
-* [ ] Keep the pull request, head, commit, file, and line in the URL, so a
-  link can be shared and a reload keeps the place.
-* [ ] Show a file tree beside the diff to jump to a file, with each file's
-  added and removed line counts and a filter by path.
 
 #### Good to have
 
 * [ ] Show a summary of files changed and lines added and removed for a
-  commit and for a pull request.
+  whole pull request, as each commit already has.
 * [ ] Show a side-by-side diff as well as the unified one.
 * [ ] Mark a single file as viewed, fold it when it is marked, and count the
   files viewed so far.

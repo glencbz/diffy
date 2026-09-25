@@ -16,10 +16,12 @@ feature file.
 
 ## The screen
 
-`Local history`, the landing tab, is three columns. `before` and `after` each
-carry an `operation` dropdown over a commit log; the third diffs what the two
-select, one section per aligned pair of commits. `Pull requests` is the other
-tab, and the harness cannot reach it; see the scope note at the end.
+The top navigation holds three tabs. `Local history`, the landing tab, is three
+columns: `before` and `after` each carry an `operation` dropdown over a commit
+log, and the third diffs what the two select, one section per aligned pair of
+commits. Below 1000 pixels wide the three columns become one pane at a time.
+`Settings` holds display preferences. `Pull requests` is the remaining tab, and
+the harness cannot reach it; see the scope note at the end.
 
 ## Driving conventions
 
@@ -53,12 +55,18 @@ tab, and the harness cannot reach it; see the scope note at the end.
 
 - [Commit log](./commit-log.md) covers the rows in each column, their lanes and
   merge marker, and selecting commits into a side.
-- [Comparison pane](./comparison.md) covers the paired sections, file statuses,
-  patch colouring and the empty states.
+- [Comparison pane](./comparison.md) covers the paired sections, each file's
+  fold, diff view switch, context gaps and colouring, and the empty states.
+- [File navigation](./file-navigation.md) covers the `Files changed` summary,
+  the file navigator and its filterable list.
 - [Operation history](./operation-history.md) covers travelling one column to a
   past repo operation.
 - [Review tracking](./review-tracking.md) covers marking a section seen and the
   comments written on its lines.
+- [Settings](./settings.md) covers the top tabs, text size and the mode diffs
+  start in.
+- [Narrow layout](./narrow-layout.md) covers the one-pane-at-a-time phone
+  layout.
 - [jj-backed API](./jj-api.md) covers the jj-backed endpoints behind those
   screens and the error path they share.
 

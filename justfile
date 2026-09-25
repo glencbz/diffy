@@ -74,8 +74,8 @@ serve:
     echo "$name never answered on ${!name}; see {{serve_state}}/$name.log" >&2
     exit 1
   done
-  echo "app   http://$(hostname):$app   ssh exe.dev share port $(hostname) $app"
-  echo "docs  http://$(hostname):$docs  ssh exe.dev share port $(hostname) $docs"
+  echo "app   https://$(hostname).exe.xyz:$app/"
+  echo "docs  https://$(hostname).exe.xyz:$docs/"
 
 # Stop this workspace's detached app and docs
 serve-stop:

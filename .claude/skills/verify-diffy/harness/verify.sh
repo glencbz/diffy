@@ -13,6 +13,8 @@ PID_FILE="$RUN_DIR/server.pid"
 URL_FILE="$RUN_DIR/url"
 LOG_FILE="$RUN_DIR/server.log"
 EARLY_OP_FILE="$RUN_DIR/early-op"
+# The same pinned toolchain `just run` uses, so difftastic is on the server's PATH.
+RUNTIME=(nix --extra-experimental-features 'nix-command flakes' develop "path:$REPO/nix#runtime" -c)
 
 die() { echo "verify: $*" >&2; exit 1; }
 
@@ -42,6 +44,19 @@ build_fixture() {
            'description(substring:"add a sidecar file")' >/dev/null
     jj commit -m 'fixture: merge the two topics' >/dev/null
     jj describe -m 'fixture: an empty change' >/dev/null
+    # A second topic off the root, apart from the merge, whose files trip the
+    # diff pane's folding, context gaps, file summary and deleted status.
+    jj new 'root()' >/dev/null
+    seq -f 'long line %g' 1 60 > long.txt
+    printf 'lockfileVersion: 1\n' > bun.lock
+    printf 'function greet(name) {\n  return "hi " + name;\n}\n' > greet.js
+    jj commit -m 'fixture: add a long file, a lock file and a script' >/dev/null
+    sed -i -e 's/^long line 2$/long line two/' -e 's/^long line 58$/long line fifty-eight/' long.txt
+    rm bun.lock
+    sed -i 's/"hi "/"hello, " + "there "/' greet.js
+    jj commit -m 'fixture: edit the long file and the script' >/dev/null
+    jj abandon @ >/dev/null
+    jj edit 'description(substring:"an empty change")' >/dev/null
   )
   } 2> "$RUN_DIR/fixture.log" || { cat "$RUN_DIR/fixture.log" >&2; die "fixture build failed"; }
 }
@@ -50,7 +65,7 @@ cmd_start() {
   if running; then cat "$URL_FILE"; return 0; fi
   mkdir -p "$RUN_DIR"
   build_fixture
-  ( cd "$FIXTURE" && NODE_ENV=production exec bun run "$REPO/.claude/skills/verify-diffy/harness/serve.ts" ) \
+  ( cd "$FIXTURE" && NODE_ENV=production exec "${RUNTIME[@]}" bun run "$REPO/.claude/skills/verify-diffy/harness/serve.ts" ) \
     > "$LOG_FILE" 2>&1 &
   echo $! > "$PID_FILE"
 
