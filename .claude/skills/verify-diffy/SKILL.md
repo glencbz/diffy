@@ -135,9 +135,9 @@ the directory the session started in, because that is where the MCP server runs.
 It is not your jj workspace. Resolve one against the session directory before
 reading it, or the read fails on a file that is sitting there.
 
-A human sees none of this: the images are on the VM. Serve the artifacts
-directory and share the port with `ssh exe.dev share port <vm> <port>` when
-someone wants to look.
+A human sees none of this: the images are on the VM. When someone wants to
+look, serve the artifacts directory on a port from 3000 to 9999 and hand over
+`https://<vm>.exe.xyz:<port>/`, which the exe.dev proxy already forwards.
 
 Standards for a proof of this app:
 
