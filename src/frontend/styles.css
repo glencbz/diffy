@@ -1529,6 +1529,31 @@
     cursor: pointer;
   }
 
+  .diff-line--before {
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .diff-line--empty {
+    background: var(--surface-sunken);
+  }
+
+  .diff-file__patch--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    overflow-x: visible;
+  }
+
+  .diff-file__patch--split > .diff-line {
+    grid-column: 1 / -1;
+  }
+
+  .diff-file__patch--split > .diff-line--before,
+  .diff-file__patch--split > .diff-line--after {
+    grid-column: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .diff-line--added {
     background: var(--diff-added-surface);
   }

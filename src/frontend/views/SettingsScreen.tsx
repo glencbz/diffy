@@ -1,5 +1,10 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-view-settings-screen>>[init]
-import type { DiffMode, Settings, TextSize } from "../state/settings";
+import type {
+  DiffLayout,
+  DiffMode,
+  Settings,
+  TextSize,
+} from "../state/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
   { value: "small", caption: "Small" },
@@ -13,14 +18,21 @@ const DIFF_MODES: { value: DiffMode; caption: string }[] = [
   { value: "line", caption: "Line by line" },
 ];
 
+const DIFF_LAYOUTS: { value: DiffLayout; caption: string }[] = [
+  { value: "unified", caption: "One column" },
+  { value: "split", caption: "Side by side, for line diffs on wide screens" },
+];
+
 export function SettingsScreen({
   settings,
   onSetTextSize,
   onSetDiffMode,
+  onSetDiffLayout,
 }: {
   settings: Settings;
   onSetTextSize: (textSize: TextSize) => void;
   onSetDiffMode: (diffMode: DiffMode) => void;
+  onSetDiffLayout: (diffLayout: DiffLayout) => void;
 }) {
   return (
     <div className="settings">
@@ -49,6 +61,21 @@ export function SettingsScreen({
               value={value}
               checked={settings.display.diffMode === value}
               onChange={() => onSetDiffMode(value)}
+            />
+            {caption}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="settings__section">
+        <legend>Diffs are laid out</legend>
+        {DIFF_LAYOUTS.map(({ value, caption }) => (
+          <label key={value} className="settings__option">
+            <input
+              type="radio"
+              name="diff-layout"
+              value={value}
+              checked={settings.display.diffLayout === value}
+              onChange={() => onSetDiffLayout(value)}
             />
             {caption}
           </label>

@@ -81,9 +81,9 @@ it.
 
 `App` also calls [`useSettings`](settings.md#display), because a text size
 governs the whole window. Calling it inside `SettingsScreen` would apply the
-reader's size only while that screen is open. The default diff view governs
-every diff on every screen for the same reason, so `App` provides it to
-everything below.
+reader's size only while that screen is open. The default diff view and
+the diff layout govern every diff on every screen for the same reason, so
+`App` provides them to everything below.
 
 ```tsx
 //| id: frontend-app
@@ -96,7 +96,11 @@ import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { type Place, usePlace } from "./state/place";
 import { useSession } from "./state/session";
-import { DiffModeDefault, useSettings } from "./state/settings";
+import {
+  DiffLayoutSetting,
+  DiffModeDefault,
+  useSettings,
+} from "./state/settings";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { type Pane, ReviewPanes } from "./views/ReviewPanes";
 import { SettingsScreen } from "./views/SettingsScreen";
@@ -110,50 +114,53 @@ export function App() {
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
   const session = useSession();
-  const { settings, setTextSize, setDiffMode } = useSettings();
+  const { settings, setTextSize, setDiffMode, setDiffLayout } = useSettings();
 
   return (
     <DiffModeDefault value={settings.display.diffMode}>
-      <div className="app">
-        <ModeTabs
-          mode={place.tab}
-          onSelect={(mode) => {
-            if (mode !== place.tab) go(modePlace(mode));
-          }}
-        />
-        {place.tab === "local" && (
-          <ReviewPanes
-            before={<SidePicker side={before} />}
-            after={<SidePicker side={after} />}
-            diff={
-              <DiffPane
-                comparison={{ from: before.commits, to: after.commits }}
-                session={session}
-              />
-            }
-            showing={pane}
-            onShow={setPane}
-            selected={{
-              before: before.commits.length,
-              after: after.commits.length,
+      <DiffLayoutSetting value={settings.display.diffLayout}>
+        <div className="app">
+          <ModeTabs
+            mode={place.tab}
+            onSelect={(mode) => {
+              if (mode !== place.tab) go(modePlace(mode));
             }}
           />
-        )}
-        {place.tab === "pulls" && (
-          <PullRequests
-            repo={REPO}
-            place={place.pull}
-            onGo={(pull) => go({ tab: "pulls", pull })}
-          />
-        )}
-        {place.tab === "settings" && (
-          <SettingsScreen
-            settings={settings}
-            onSetTextSize={setTextSize}
-            onSetDiffMode={setDiffMode}
-          />
-        )}
-      </div>
+          {place.tab === "local" && (
+            <ReviewPanes
+              before={<SidePicker side={before} />}
+              after={<SidePicker side={after} />}
+              diff={
+                <DiffPane
+                  comparison={{ from: before.commits, to: after.commits }}
+                  session={session}
+                />
+              }
+              showing={pane}
+              onShow={setPane}
+              selected={{
+                before: before.commits.length,
+                after: after.commits.length,
+              }}
+            />
+          )}
+          {place.tab === "pulls" && (
+            <PullRequests
+              repo={REPO}
+              place={place.pull}
+              onGo={(pull) => go({ tab: "pulls", pull })}
+            />
+          )}
+          {place.tab === "settings" && (
+            <SettingsScreen
+              settings={settings}
+              onSetTextSize={setTextSize}
+              onSetDiffMode={setDiffMode}
+              onSetDiffLayout={setDiffLayout}
+            />
+          )}
+        </div>
+      </DiffLayoutSetting>
     </DiffModeDefault>
   );
 }

@@ -8,21 +8,32 @@ export type TextSize = z.infer<typeof TextSize>;
 export const DiffMode = z.enum(["structural", "line"]);
 export type DiffMode = z.infer<typeof DiffMode>;
 
+export const DiffLayout = z.enum(["unified", "split"]);
+export type DiffLayout = z.infer<typeof DiffLayout>;
+
 export const Settings = z.object({
   display: z.object({
     textSize: TextSize,
     diffMode: DiffMode.default("structural"),
+    diffLayout: DiffLayout.default("unified"),
   }),
 });
 export type Settings = z.infer<typeof Settings>;
 
 const STORAGE_KEY = "diffy.settings.v1";
 const DEFAULT_SETTINGS: Settings = {
-  display: { textSize: "standard", diffMode: "structural" },
+  display: {
+    textSize: "standard",
+    diffMode: "structural",
+    diffLayout: "unified",
+  },
 };
 
 /** The view a file's diff starts in until the reader switches that file. */
 export const DiffModeDefault = createContext<DiffMode>("structural");
+
+/** Whether a line diff is drawn in one column or two, where there is room. */
+export const DiffLayoutSetting = createContext<DiffLayout>("unified");
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -53,6 +64,7 @@ export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
   setDiffMode: (diffMode: DiffMode) => void;
+  setDiffLayout: (diffLayout: DiffLayout) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -80,7 +92,11 @@ export function useSettings(): SettingsHandle {
     (diffMode: DiffMode) => setDisplay({ diffMode }),
     [setDisplay],
   );
+  const setDiffLayout = useCallback(
+    (diffLayout: DiffLayout) => setDisplay({ diffLayout }),
+    [setDisplay],
+  );
 
-  return { settings, setTextSize, setDiffMode };
+  return { settings, setTextSize, setDiffMode, setDiffLayout };
 }
 // ~/~ end

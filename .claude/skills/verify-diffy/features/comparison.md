@@ -46,6 +46,12 @@ above the pane, is its own feature: see [file navigation](./file-navigation.md).
   words an edited line changed with a stronger tint. Hunk headers are blue.
 - `diff-gutter` numbers each after-side line in the left gutter and leaves it
   blank for removals and patch headers.
+- `diff-split` lays a file in the `lines` view out in two columns once
+  Settings asks for `Side by side`: `.diff-file__patch--split`, each line a
+  `.diff-line--before` or `.diff-line--after` cell numbered by its own side, a
+  removed run beside the added run after it, `.diff-line--empty` where a run
+  is shorter. Only after cells are buttons. The `structural` view, and every
+  view below 1000px, stays in one column.
 - `diff-binary` shows `Binary file, no textual diff.` instead of a patch.
 - `diff-sticky` keeps a file's header pinned to the top of the pane while its
   body scrolls past.
@@ -98,6 +104,15 @@ Preconditions:
 - **Proof.** `browser_snapshot` for headers, fold state and patch text, plus an
   unnamed `browser_take_screenshot` of `greet.js` for the colouring. Its edited
   line shows `hi` and `hello, `/`there ` in the stronger word tint.
+- **Side by side.** In Settings pick `Line by line` and
+  `Side by side, for line diffs on wide screens`, then select
+  `fixture: edit the long file and the script`. `greet.js` draws
+  `2 -  return "hi " + name;` in a `.diff-line--before` cell beside
+  `2 +  return "hello, " ...` in a `.diff-line--after` one. Clicking the after
+  cell opens `line 2` in the composer. Resizing to 412 wide drops
+  `.diff-file__patch--split`; widening brings it back. The MCP browser is
+  shared between sessions, so a private `playwright-core` script against the
+  cached chromium is the safer driver when others are verifying too.
 
 ## Gotchas
 

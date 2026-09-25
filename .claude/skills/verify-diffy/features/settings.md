@@ -18,8 +18,12 @@ the repo, and apply everywhere at once.
   `Structural, with difftastic` by default or `Line by line`. It decides which
   side of each file's `Diff view` switch is pressed when the file first opens;
   see [the comparison pane](./comparison.md).
-- `settings-persist` stores both in `localStorage` under `diffy.settings.v1`
-  as `{"display": {"textSize", "diffMode"}}`, so they survive a reload.
+- `settings-diff-layout` is a `Diffs are laid out` radio group, `One column`
+  by default or `Side by side, for line diffs on wide screens`; see
+  `diff-split` in [the comparison pane](./comparison.md).
+- `settings-persist` stores all three in `localStorage` under
+  `diffy.settings.v1` as `{"display": {"textSize", "diffMode", "diffLayout"}}`,
+  so they survive a reload.
 
 ## How to get to it (user POV)
 
@@ -38,7 +42,7 @@ Preconditions:
 - **Change both.** Click `radio "Larger"` and `radio "Line by line"`.
   `browser_evaluate` reads `document.documentElement.dataset.textSize` as
   `larger`, and `localStorage["diffy.settings.v1"]` as
-  `{"display":{"textSize":"larger","diffMode":"line"}}`.
+  `{"display":{"textSize":"larger","diffMode":"line","diffLayout":"unified"}}`.
 - **They apply and persist.** `browser_navigate` to `$URL` and select
   `fixture: edit the long file and the script` in `after`. `greet.js` and
   `long.txt` open with `lines` pressed, and the text size still reads

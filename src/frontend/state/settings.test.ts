@@ -21,7 +21,7 @@ describe("load", () => {
   test("round-trips settings through save", () => {
     // arrange
     const settings: Settings = {
-      display: { textSize: "large", diffMode: "line" },
+      display: { textSize: "large", diffMode: "line", diffLayout: "split" },
     };
 
     // act
@@ -36,7 +36,11 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
+      display: {
+        textSize: "standard",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
     });
   });
 
@@ -50,7 +54,25 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "large", diffMode: "structural" },
+      display: {
+        textSize: "large",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
+    });
+  });
+
+  test("keeps a diff mode saved before layouts existed", () => {
+    // arrange
+    localStorage.setItem(
+      "diffy.settings.v1",
+      JSON.stringify({ display: { textSize: "large", diffMode: "line" } }),
+    );
+
+    // act
+    // assert
+    expect(load()).toEqual({
+      display: { textSize: "large", diffMode: "line", diffLayout: "unified" },
     });
   });
 
@@ -61,7 +83,11 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
+      display: {
+        textSize: "standard",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
     });
   });
 
@@ -72,7 +98,11 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
+      display: {
+        textSize: "standard",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
     });
   });
 });
@@ -90,7 +120,13 @@ describe("save", () => {
     // act
     // assert
     expect(() =>
-      save({ display: { textSize: "standard", diffMode: "structural" } }),
+      save({
+        display: {
+          textSize: "standard",
+          diffMode: "structural",
+          diffLayout: "unified",
+        },
+      }),
     ).not.toThrow();
   });
 });

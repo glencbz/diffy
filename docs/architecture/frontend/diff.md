@@ -276,11 +276,16 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { FileSpot } from "../state/place";
 import type { RowComment } from "../state/review";
-import { type DiffMode, DiffModeDefault } from "../state/settings";
+import {
+  DiffLayoutSetting,
+  type DiffMode,
+  DiffModeDefault,
+} from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -293,6 +298,7 @@ import {
 import { collapseReason } from "./collapse";
 import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
+import { splitRows } from "./split";
 import {
   changedLines,
   type PaintedToken,
@@ -341,6 +347,8 @@ export function DiffView({
     path: string;
     line: number;
   } | null>(null);
+  const layout = useContext(DiffLayoutSetting);
+  const narrow = useNarrow();
 
   const changedFiles = useMemo(
     () =>
@@ -366,6 +374,7 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
+            split={layout === "split" && !narrow}
             links={links === undefined ? undefined : fileLinks(links, file)}
             reveal={reveal}
             review={
@@ -446,6 +455,21 @@ function jumpTo(file: ChangedFile): void {
   document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
 
+/** The width under which the panes stop being columns, and a diff has one
+ *  column too. */
+const NARROW = "(max-width: 1000px)";
+
+function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = matchMedia(NARROW);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => matchMedia(NARROW).matches,
+  );
+}
+
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
@@ -515,6 +539,7 @@ function FileRow({
   file,
   anchor,
   sides,
+  split,
   review,
   links,
   reveal,
@@ -522,6 +547,8 @@ function FileRow({
   file: FileDiff;
   anchor: string;
   sides: FileSides;
+  /** Whether the reader asked for two columns, where there is room. */
+  split: boolean;
   review?: FileReview;
   links?: FileLinks;
   reveal?: number;
@@ -554,6 +581,41 @@ function FileRow({
   const open =
     opened ??
     (reason === null || (review?.comments.length ?? 0) > 0 || isSelected);
+  const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
+
+  const drawn = (line: DrawnLine, key: number, side?: Side) =>
+    line.kind === "gap" ? (
+      <button
+        key={key}
+        type="button"
+        className="diff-line diff-line--gap"
+        onClick={() =>
+          setShownIn((all) => ({
+            ...all,
+            [mode]: new Set(all[mode]).add(line.gap),
+          }))
+        }
+      >
+        <span className="diff-line__gutter">⋯</span>
+        <span>
+          show {line.count} unchanged {line.count === 1 ? "line" : "lines"}
+        </span>
+      </button>
+    ) : (
+      <PatchLine
+        key={key}
+        line={line}
+        side={side}
+        onOpenComposer={review?.onOpenComposer}
+        links={links}
+      />
+    );
+  const cell = (line: DrawnLine | null, key: number, side: Side) =>
+    line === null ? (
+      <EmptyCell key={key} side={side} />
+    ) : (
+      drawn(line, key, side)
+    );
 
   return (
     <section id={anchor} ref={section} className="diff-file">
@@ -602,38 +664,20 @@ function FileRow({
       </header>
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
+      ) : split && mode === "line" ? (
+        <pre className="diff-file__patch diff-file__patch--split">
+          {splitRows(lines).flatMap((row, index) =>
+            row.kind === "across"
+              ? [drawn(row.line, 2 * index)]
+              : [
+                  cell(row.before, 2 * index, "before"),
+                  cell(row.after, 2 * index + 1, "after"),
+                ],
+          )}
+        </pre>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(body, sides, shown).map((line, index) =>
-            line.kind === "gap" ? (
-              <button
-                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-                key={index}
-                type="button"
-                className="diff-line diff-line--gap"
-                onClick={() =>
-                  setShownIn((all) => ({
-                    ...all,
-                    [mode]: new Set(all[mode]).add(line.gap),
-                  }))
-                }
-              >
-                <span className="diff-line__gutter">⋯</span>
-                <span>
-                  show {line.count} unchanged{" "}
-                  {line.count === 1 ? "line" : "lines"}
-                </span>
-              </button>
-            ) : (
-              <PatchLine
-                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-                key={index}
-                line={line}
-                onOpenComposer={review?.onOpenComposer}
-                links={links}
-              />
-            ),
-          )}
+          {lines.map((line, index) => drawn(line, index))}
         </pre>
       )}
       {open && review !== undefined && review.composerLine !== null && (
@@ -776,20 +820,29 @@ function CommentThread({
   );
 }
 
+/** The column a line is drawn in, when the diff has two. */
+type Side = "before" | "after";
+
 /** A `<button>` when the line has an after-side line to comment on, a `<div>`
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
  *  line static, and a read-only diff with `links` makes the gutter number of
- *  every after-side line a link to it. */
+ *  every after-side line a link to it. In the before column a line is
+ *  numbered by its before side, and has nothing to comment on or link to. */
 function PatchLine({
   line,
+  side,
   onOpenComposer,
   links,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
+  side?: Side;
   onOpenComposer?: (line: number) => void;
   links?: FileLinks;
 }) {
-  const afterLine = "afterLine" in line ? line.afterLine : null;
+  const afterLine =
+    side === "before" || !("afterLine" in line) ? null : line.afterLine;
+  const number =
+    side === "before" && "beforeLine" in line ? line.beforeLine : afterLine;
   const linked =
     afterLine !== null && links !== undefined && onOpenComposer === undefined;
   const body = (
@@ -803,7 +856,7 @@ function PatchLine({
           {afterLine}
         </a>
       ) : (
-        <span className="diff-line__gutter">{afterLine ?? ""}</span>
+        <span className="diff-line__gutter">{number ?? ""}</span>
       )}
       {"text" in line ? (
         <span className={`diff-line__text--${line.kind}`}>
@@ -829,7 +882,8 @@ function PatchLine({
     afterLine !== null && links?.selected?.line === afterLine
       ? " diff-line--selected"
       : "";
-  const className = `diff-line diff-line--${line.kind}${selected}`;
+  const column = side === undefined ? "" : ` diff-line--${side}`;
+  const className = `diff-line diff-line--${line.kind}${column}${selected}`;
 
   if (afterLine === null || onOpenComposer === undefined) {
     return <div className={className}>{body}</div>;
@@ -844,6 +898,11 @@ function PatchLine({
       {body}
     </button>
   );
+}
+
+/** The other column's half of a row whose line is only on one side. */
+function EmptyCell({ side }: { side: Side }) {
+  return <div className={`diff-line diff-line--${side} diff-line--empty`} />;
 }
 
 function tokenClass(token: PaintedToken): string | undefined {
@@ -863,7 +922,7 @@ const SIGNS: Record<CodeKind, string> = {
 };
 
 /** One line as drawn. Header lines, hunk headers, and notes are text in one
- *  colour. A line of the file is its tokens, and its after-side line number
+ *  colour. A line of the file is its tokens, and its number on each side
  *  where it has one. A gap stands in for the lines `gapsOf` numbered `gap`
  *  until it is shown. */
 type DrawnLine =
@@ -872,6 +931,7 @@ type DrawnLine =
   | {
       kind: CodeKind;
       tokens: PaintedToken[];
+      beforeLine: number | null;
       afterLine: number | null;
     };
 
@@ -932,6 +992,7 @@ function drawnLines(
     return Array.from({ length: gap.count }, (_, offset) => ({
       kind: "context" as const,
       tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
+      beforeLine: gap.oldStart === null ? null : gap.oldStart + offset,
       afterLine: gap.start + offset,
     }));
   };
@@ -964,6 +1025,7 @@ function drawnHunkLine(
       return {
         kind: "context",
         tokens: paintWords(tokensAt(sides.new, line.newLine, line.code), []),
+        beforeLine: line.oldLine ?? null,
         afterLine: line.newLine,
       };
     case "added":
@@ -973,6 +1035,7 @@ function drawnHunkLine(
           tokensAt(sides.new, line.newLine, line.code),
           changed,
         ),
+        beforeLine: null,
         afterLine: line.newLine,
       };
     case "removed":
@@ -982,6 +1045,7 @@ function drawnHunkLine(
           tokensAt(sides.old, line.oldLine, line.code),
           changed,
         ),
+        beforeLine: line.oldLine,
         afterLine: null,
       };
     case "note":
@@ -1010,6 +1074,33 @@ line is tinted behind its text and only its sign takes the line's colour,
 because the text is [coloured by its syntax](syntax.md#colours) and green or
 red text would drown that out. [Changed words](#changed-words) take a stronger
 tint of the same colour.
+
+The line view can be laid out [side by side](#side-by-side), once the
+reader [picks it](settings.md#display). The choice reaches the view through
+`DiffLayoutSetting`, a context, the way the default view does. Each column
+has its own gutter, numbered by its own side, and only the after column's
+lines open the composer or carry a link, since a comment names an
+after-side line in either layout. Each line is told which column it is in,
+which is the one place to change once a comment can name a before-side
+line.
+
+The structural view stays in one column in either layout. Difftastic's
+hunks read as the after side with removed lines let in, and a line it calls
+unchanged may have no before-side line at all, such as one a reformat
+moved. A before column would have to draw that line as if it were there,
+without a number, and the view exists to say that layout changes do not
+matter rather than to line them up.
+
+A window too narrow for the panes to be columns is too narrow for two
+columns of code, so there every diff is drawn in one column whatever the
+reader picked, and it goes back to two when the window widens. Only the
+width decides this, not the device, so it is read from the same media query
+the stylesheet's `components-narrow` layer uses.
+
+Each column wraps its long lines rather than scrolling sideways, as the one
+column does. A row is as tall as the taller of its two lines, so both sides
+of an edit stay level, which two columns scrolling on their own could not
+promise.
 
 A file's header sticks to the top of the scrolling pane while its file is
 on screen, and the next file's header pushes it off. A long file otherwise
@@ -1200,6 +1291,31 @@ shrink pushes the switch past the header's edge on a phone.
 
   .diff-line--interactive {
     cursor: pointer;
+  }
+
+  .diff-line--before {
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .diff-line--empty {
+    background: var(--surface-sunken);
+  }
+
+  .diff-file__patch--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    overflow-x: visible;
+  }
+
+  .diff-file__patch--split > .diff-line {
+    grid-column: 1 / -1;
+  }
+
+  .diff-file__patch--split > .diff-line--before,
+  .diff-file__patch--split > .diff-line--after {
+    grid-column: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .diff-line--added {
@@ -1524,14 +1640,16 @@ describe("collapseReason", () => {
 
 `readPatch` turns one file's patch into the lines above its first hunk and
 the hunks themselves. Each hunk line carries the line number it has on each
-side the view reads it from, counted from its `@@ -a,b +c,d @@` header. A
-removed line is read from the before side and every other line from the
-after side, so a removed line carries its before-side number and the rest
-their after-side one. The union says so, which leaves no line whose missing
-number a reader has to guess the meaning of. A context line is on both sides
-of a patch, but its before-side number is left off, because nothing draws
-it, and a [structural diff](../backend/difft.md#from-chunks-to-hunks) has
-context lines that have no before side at all.
+side it is on, counted from its `@@ -a,b +c,d @@` header. A removed line
+carries its before-side number and an added line its after-side one. The
+union says so, which leaves no line whose missing number a reader has to
+guess the meaning of. A context line is on both sides of a patch and
+carries both numbers, which the [side-by-side layout](#side-by-side) draws
+one to a column. Its before-side number is optional in the type only
+because a [structural diff](../backend/difft.md#from-chunks-to-hunks) has
+context lines that have no before side at all. A hunk keeps where it starts
+on each side for the same reason, since the lines [hidden](#hidden-lines)
+above it are numbered from there.
 
 git's `\ No newline at end of file` is a note about the line above it rather
 than a line of the file, so it is a kind of its own, with no numbers and no
@@ -1555,13 +1673,18 @@ export interface Hunk {
   /** The after-side number of the hunk's first line, or of the line that
    *  would follow it when the hunk only removes. */
   newStart: number;
+  /** The same on the before side, where the hunk says. A structural hunk
+   *  does not. */
+  oldStart?: number;
   lines: HunkLine[];
 }
 
 /** A line inside a hunk. `code` is the line without its `+`, `-`, or space,
- *  and line numbers count from 1, as each side's file has them. */
+ *  and line numbers count from 1, as each side's file has them. A context
+ *  line has no `oldLine` when it has no before-side partner, which only a
+ *  structural hunk has. */
 export type HunkLine =
-  | { kind: "context"; code: string; newLine: number }
+  | { kind: "context"; code: string; newLine: number; oldLine?: number }
   | { kind: "removed"; code: string; oldLine: number }
   | { kind: "added"; code: string; newLine: number }
   | { kind: "note"; text: string };
@@ -1588,7 +1711,12 @@ export function readPatch(patch: string): Patch {
     if (start !== null) {
       oldLine = firstLine(start[1], start[2]);
       newLine = firstLine(start[3], start[4]);
-      hunks.push({ header: text, newStart: newLine, lines: [] });
+      hunks.push({
+        header: text,
+        newStart: newLine,
+        oldStart: oldLine,
+        lines: [],
+      });
       continue;
     }
 
@@ -1606,8 +1734,12 @@ export function readPatch(patch: string): Patch {
     } else if (text.startsWith("\\")) {
       hunk.lines.push({ kind: "note", text });
     } else {
-      oldLine++;
-      hunk.lines.push({ kind: "context", code, newLine: newLine++ });
+      hunk.lines.push({
+        kind: "context",
+        code,
+        newLine: newLine++,
+        oldLine: oldLine++,
+      });
     }
   }
 
@@ -1648,11 +1780,12 @@ describe("readPatch", () => {
       {
         header: "@@ -10,3 +10,3 @@ function f() {",
         newStart: 10,
+        oldStart: 10,
         lines: [
-          { kind: "context", code: "keep", newLine: 10 },
+          { kind: "context", code: "keep", newLine: 10, oldLine: 10 },
           { kind: "removed", code: "old", oldLine: 11 },
           { kind: "added", code: "new", newLine: 11 },
-          { kind: "context", code: "keep", newLine: 12 },
+          { kind: "context", code: "keep", newLine: 12, oldLine: 12 },
         ],
       },
     ]);
@@ -1691,7 +1824,7 @@ describe("readPatch", () => {
       { kind: "removed", code: "a", oldLine: 1 },
       { kind: "note", text: "\\ No newline at end of file" },
       { kind: "added", code: "a", newLine: 1 },
-      { kind: "context", code: "b", newLine: 2 },
+      { kind: "context", code: "b", newLine: 2, oldLine: 2 },
     ]);
   });
 
@@ -1721,6 +1854,11 @@ after the last hunk, down to the end of the file. The after side is enough
 because a hidden line is unchanged, so it reads the same on both sides, and
 the after side is the one a comment is anchored to.
 
+A gap also says where it starts on the before side, which is where the
+hunk below it starts less the gap's length, or where the hunk above it
+ended. It is only known where the hunks say where they start there, which
+a structural hunk does not.
+
 A gap is only known once the length of the after side is, which is when its
 source has loaded. A side whose length falls short of what the hunks
 already show says nothing true about what lies between them, so a gap is
@@ -1730,10 +1868,11 @@ never negative, only empty.
 //| id: frontend-view-patch
 
 /** Unchanged after-side lines the patch left out, `count` of them from line
- *  `start` on. */
+ *  `start` on, which is line `oldStart` on the before side. */
 export interface Gap {
   start: number;
   count: number;
+  oldStart: number | null;
 }
 
 /** One gap before each hunk and one after the last, empty where the hunks
@@ -1741,13 +1880,27 @@ export interface Gap {
 export function gapsOf(patch: Patch, length: number): Gap[] {
   const gaps: Gap[] = [];
   let next = 1;
+  let oldNext: number | null = 1;
 
   for (const hunk of patch.hunks) {
-    gaps.push({ start: next, count: Math.max(0, hunk.newStart - next) });
+    const count = Math.max(0, hunk.newStart - next);
+    gaps.push({
+      start: next,
+      count,
+      oldStart: hunk.oldStart === undefined ? null : hunk.oldStart - count,
+    });
     next =
       hunk.newStart + hunk.lines.filter((line) => "newLine" in line).length;
+    oldNext =
+      hunk.oldStart === undefined
+        ? null
+        : hunk.oldStart + hunk.lines.filter((line) => "oldLine" in line).length;
   }
-  gaps.push({ start: next, count: Math.max(0, length - next + 1) });
+  gaps.push({
+    start: next,
+    count: Math.max(0, length - next + 1),
+    oldStart: oldNext,
+  });
 
   return gaps;
 }
@@ -1776,9 +1929,9 @@ describe("gapsOf", () => {
 
     // assert
     expect(gaps).toEqual([
-      { start: 1, count: 3 },
-      { start: 6, count: 14 },
-      { start: 22, count: 9 },
+      { start: 1, count: 3, oldStart: 1 },
+      { start: 6, count: 14, oldStart: 6 },
+      { start: 22, count: 9, oldStart: 21 },
     ]);
   });
 
@@ -1791,8 +1944,8 @@ describe("gapsOf", () => {
 
     // assert
     expect(gaps).toEqual([
-      { start: 1, count: 4 },
-      { start: 5, count: 6 },
+      { start: 1, count: 4, oldStart: 1 },
+      { start: 5, count: 6, oldStart: 7 },
     ]);
   });
 
@@ -2082,6 +2235,162 @@ describe("paintWords", () => {
       { text: " ", kind: null, changed: false },
       { text: "newPath", kind: null, changed: true },
       { text: " = 1;", kind: null, changed: false },
+    ]);
+  });
+});
+```
+
+## Side by side
+
+A diff is laid out in one column or, once the reader
+[picks it](settings.md#display), in two: the before side on the left, the
+after side on the right, each numbered by its own side. The two columns are
+the same lines as the one column, rearranged, so `splitRows` works on lines
+already drawn, and the colours, changed words, and hidden lines come across
+unchanged.
+
+A context line is on both sides, so it fills a row, once in each column. A
+run of removed lines followed straight away by a run of added ones is laid
+out the way [changed words](#changed-words) pair it: the first removed line
+beside the first added one, and so on, with whatever is left over beside an
+empty cell. The two words marked on a line are then the words that differ
+from the line beside it. Anything that is not a line of the file, such as a
+hunk header, a note, or a gap, spans both columns.
+
+`splitRows` takes any line with a `kind` rather than the view's own type, so
+it can be tested with plain objects.
+
+```ts
+//| id: frontend-view-split
+//| file: src/frontend/views/split.ts
+/** One row of a side-by-side diff: a line of the file in either column or
+ *  both, or something else across the two. */
+export type SplitRow<L> =
+  | { kind: "pair"; before: L | null; after: L | null }
+  | { kind: "across"; line: L };
+
+/** `lines`, in the order a unified diff reads them, laid out in two
+ *  columns. */
+export function splitRows<L extends { kind: string }>(
+  lines: L[],
+): SplitRow<L>[] {
+  const rows: SplitRow<L>[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] as L;
+    if (line.kind === "context") {
+      rows.push({ kind: "pair", before: line, after: line });
+      index++;
+      continue;
+    }
+    if (line.kind !== "removed" && line.kind !== "added") {
+      rows.push({ kind: "across", line });
+      index++;
+      continue;
+    }
+
+    const removed: L[] = [];
+    while (lines[index]?.kind === "removed") removed.push(lines[index++] as L);
+    const added: L[] = [];
+    while (lines[index]?.kind === "added") added.push(lines[index++] as L);
+    for (let row = 0; row < Math.max(removed.length, added.length); row++) {
+      rows.push({
+        kind: "pair",
+        before: removed[row] ?? null,
+        after: added[row] ?? null,
+      });
+    }
+  }
+
+  return rows;
+}
+```
+
+### Test
+
+```ts
+//| id: frontend-view-split-test
+//| file: src/frontend/views/split.test.ts
+import { describe, expect, test } from "bun:test";
+import { splitRows } from "./split";
+
+const context = { kind: "context", code: "keep" };
+const hunk = { kind: "hunk", text: "@@ -1,4 +1,3 @@" };
+const note = { kind: "meta", text: "\\ No newline at end of file" };
+
+function removed(code: string) {
+  return { kind: "removed", code };
+}
+
+function added(code: string) {
+  return { kind: "added", code };
+}
+
+describe("splitRows", () => {
+  test("puts a context line in both columns", () => {
+    expect(splitRows([context])).toEqual([
+      { kind: "pair", before: context, after: context },
+    ]);
+  });
+
+  test("pairs a removed run with the added run after it, row by row", () => {
+    // arrange
+    const lines = [removed("a"), removed("b"), added("A"), added("B")];
+
+    // act
+    const rows = splitRows(lines);
+
+    // assert
+    expect(rows).toEqual([
+      { kind: "pair", before: removed("a"), after: added("A") },
+      { kind: "pair", before: removed("b"), after: added("B") },
+    ]);
+  });
+
+  test("leaves the longer run's extra lines beside an empty cell", () => {
+    // arrange
+    const lines = [removed("a"), added("A"), added("B"), added("C")];
+
+    // act
+    const rows = splitRows(lines);
+
+    // assert
+    expect(rows).toEqual([
+      { kind: "pair", before: removed("a"), after: added("A") },
+      { kind: "pair", before: null, after: added("B") },
+      { kind: "pair", before: null, after: added("C") },
+    ]);
+  });
+
+  test("draws a lone removal or addition on its own side", () => {
+    // arrange
+    const lines = [removed("a"), context, added("b")];
+
+    // act
+    const rows = splitRows(lines);
+
+    // assert
+    expect(rows).toEqual([
+      { kind: "pair", before: removed("a"), after: null },
+      { kind: "pair", before: context, after: context },
+      { kind: "pair", before: null, after: added("b") },
+    ]);
+  });
+
+  test("spans anything else across both columns, ending a run", () => {
+    // arrange
+    const lines = [hunk, removed("a"), note, added("a")];
+
+    // act
+    const rows = splitRows(lines);
+
+    // assert
+    expect(rows).toEqual([
+      { kind: "across", line: hunk },
+      { kind: "pair", before: removed("a"), after: null },
+      { kind: "across", line: note },
+      { kind: "pair", before: null, after: added("a") },
     ]);
   });
 });
