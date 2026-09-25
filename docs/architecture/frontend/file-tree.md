@@ -100,7 +100,10 @@ export function changedFile(
     removed,
     binary: file.binary,
     openComments: comments.filter(
-      (comment) => comment.path === shownPathOf(file) && !comment.resolved,
+      (comment) =>
+        comment.kind !== "comparison" &&
+        comment.path === shownPathOf(file) &&
+        !comment.resolved,
     ).length,
   };
 }
@@ -246,6 +249,7 @@ function comment(path: string, resolved: boolean): RowComment {
   return {
     id: `${path}:${String(resolved)}`,
     reviewKey: "row",
+    kind: "line",
     path,
     side: "after",
     line: 1,
@@ -371,6 +375,27 @@ describe("fileTree", () => {
 
     // assert
     expect(changed.openComments).toBe(1);
+  });
+
+  test("counts a comment on the whole file but not one on the comparison", () => {
+    // arrange
+    const written = {
+      reviewKey: "row",
+      commitId: "c",
+      body: "hi",
+      resolved: false,
+      createdAt: "2024-01-01T00:00:00Z",
+      stale: false,
+    };
+
+    // act
+    const file = changedFile(added("a.ts"), "anchor", [
+      { ...written, id: "file", kind: "file", path: "a.ts" },
+      { ...written, id: "comparison", kind: "comparison" },
+    ]);
+
+    // assert
+    expect(file.openComments).toBe(1);
   });
 });
 

@@ -14,25 +14,39 @@ export type Mark = z.infer<typeof Mark>;
 export const Side = z.enum(["before", "after"]);
 export type Side = z.infer<typeof Side>;
 
-/** Where on a file a comment is pinned: a line number on one side of it. */
+/** Where on a file a line comment is pinned: a line number on one side. */
 export interface LineAnchor {
   side: Side;
   line: number;
 }
 
-export const Comment = z.object({
-  id: z.string(),
-  reviewKey: z.string(),
-  path: z.string(),
-  /** A stored comment with no side is an after-side one. Defaulting it keeps
-   *  `load` from discarding a whole session written before the field. */
-  side: Side.default("after"),
-  line: z.number().int(),
-  commitId: z.string(),
-  body: z.string(),
-  resolved: z.boolean(),
-  createdAt: z.string(),
-});
+/** What a comment is about: one line of a file, a whole file, or the whole
+ *  comparison. A stored comment with no kind is a line comment, and one with
+ *  no side is on the after side. Defaulting both keeps `load` from
+ *  discarding a whole session written before either field. */
+export const Anchor = z.union([
+  z.object({
+    kind: z.literal("line").default("line"),
+    path: z.string(),
+    side: Side.default("after"),
+    line: z.number().int(),
+  }),
+  z.object({ kind: z.literal("file"), path: z.string() }),
+  z.object({ kind: z.literal("comparison") }),
+]);
+export type Anchor = z.infer<typeof Anchor>;
+
+export const Comment = z.intersection(
+  z.object({
+    id: z.string(),
+    reviewKey: z.string(),
+    commitId: z.string(),
+    body: z.string(),
+    resolved: z.boolean(),
+    createdAt: z.string(),
+  }),
+  Anchor,
+);
 export type Comment = z.infer<typeof Comment>;
 
 export const SessionDocument = z.object({
@@ -51,9 +65,7 @@ export type RowReview =
       seenTo: string | null;
     };
 
-export interface RowComment extends Comment {
-  stale: boolean;
-}
+export type RowComment = Comment & { stale: boolean };
 
 export interface ReviewedRow extends InterdiffRow {
   reviewKey: string;
