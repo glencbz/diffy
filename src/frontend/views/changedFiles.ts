@@ -75,7 +75,10 @@ export function changedFile(
     removed,
     binary: file.binary,
     openComments: comments.filter(
-      (comment) => comment.path === shownPathOf(file) && !comment.resolved,
+      (comment) =>
+        comment.kind !== "comparison" &&
+        comment.path === shownPathOf(file) &&
+        !comment.resolved,
     ).length,
   };
 }

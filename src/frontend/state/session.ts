@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session>>[init]
 import { useCallback, useState } from "react";
 import {
+  type Anchor,
   type Comment,
-  type LineAnchor,
   type ReviewedRow,
   SessionDocument,
   sameComparison,
@@ -39,12 +39,7 @@ export function save(document: SessionDocument): void {
 export interface Session {
   document: SessionDocument;
   markSeen: (row: ReviewedRow) => void;
-  addComment: (
-    row: ReviewedRow,
-    path: string,
-    anchor: LineAnchor,
-    body: string,
-  ) => void;
+  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
 }
@@ -88,15 +83,15 @@ export function useSession(): Session {
   );
 
   const addComment = useCallback(
-    (row: ReviewedRow, path: string, anchor: LineAnchor, body: string) => {
+    (row: ReviewedRow, anchor: Anchor, body: string) => {
       const commit =
-        anchor.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
+        anchor.kind === "line" && anchor.side === "before"
+          ? (row.from ?? row.to)
+          : (row.to ?? row.from);
       const comment: Comment = {
         id: crypto.randomUUID(),
         reviewKey: row.reviewKey,
-        path,
-        side: anchor.side,
-        line: anchor.line,
+        ...anchor,
         commitId: commit?.commitId ?? "",
         body,
         resolved: false,

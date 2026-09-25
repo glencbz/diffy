@@ -1,7 +1,7 @@
 # Review tracking
 
 Each section in the comparison pane remembers whether it has been looked at and
-carries the comments written on its lines. The memory lives in the browser,
+carries the comments written on its lines, its files and itself. The memory lives in the browser,
 under the `localStorage` key `diffy.session.v1`, so it survives a reload and
 belongs to the profile rather than the repo.
 
@@ -19,6 +19,12 @@ belongs to the profile rather than the repo.
 - `comment-thread` renders a saved comment under its file as
   `<path>:<line> · open`, with `resolve` and `delete` buttons, and the body
   below.
+- `comment-file` opens a composer captioned `whole file` from an open file's
+  `comment` header button (named `comment on file`); its thread sits under the file header,
+  above the patch, as `<path> · open`.
+- `comment-comparison` opens a composer captioned `whole comparison` from the
+  section header's `comment on comparison` button; its thread sits between
+  the section header and the files, as `whole comparison · open`.
 - `comment-count` chips the number of unresolved comments in the section
   header as `<n> open`.
 - `comment-stale` marks a comment written against a line that has since been
@@ -50,6 +56,10 @@ Preconditions:
 - **Read the thread back.** The file gains `sidecar.txt:1 · open` with
   `resolve` and `delete` buttons and the text just typed, and the section
   header gains a `1 open` chip.
+- **Comment on the file or the comparison.** `browser_click` the file's
+  `comment on file` button, or the section's `comment on comparison` button,
+  and type and submit as above. The thread lands under the file header or
+  under the section header, and the `open` chip counts it with the rest.
 - **Resolve and delete.** `resolve` flips the thread's meta to
   `sidecar.txt:1 · resolved`, turns the button into `reopen` and drops the
   header's `1 open` chip. `delete` removes the thread, leaving the patch alone.

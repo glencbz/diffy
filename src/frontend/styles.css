@@ -707,7 +707,8 @@
     margin-top: var(--space-2);
   }
 
-  .comparison-header__mark-seen {
+  .comparison-header__mark-seen,
+  .comparison-header__comment {
     font: inherit;
   }
 }
@@ -1468,6 +1469,23 @@
   .diff-file__mode:disabled {
     cursor: not-allowed;
     opacity: 0.5;
+  }
+
+  .diff-file__comment {
+    flex: none;
+    margin-left: auto;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .diff-file__modes + .diff-file__comment {
+    margin-left: var(--space-3);
   }
 
   .diff-file__status {

@@ -39,6 +39,30 @@ describe("load", () => {
     expect(load()).toEqual(document);
   });
 
+  test("keeps the comments of a session stored before comments had kinds", () => {
+    // arrange
+    const comment = {
+      id: "c1",
+      reviewKey: "change:a",
+      path: "f.ts",
+      line: 3,
+      commitId: "a2",
+      body: "written before kinds",
+      resolved: false,
+      createdAt: "2026-09-14T09:00:00.000Z",
+    };
+    localStorage.setItem(
+      "diffy.session.v1",
+      JSON.stringify({ marks: [], comments: [comment] }),
+    );
+
+    // act
+    // assert
+    expect(load().comments).toEqual([
+      { ...comment, kind: "line", side: "after" },
+    ]);
+  });
+
   test("loads an empty document when nothing is stored", () => {
     // arrange
     // act
