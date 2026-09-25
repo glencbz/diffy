@@ -1,9 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
-import { useContext, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
 import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
+import {
+  afterPathOf,
+  type ChangedFile,
+  changedFile,
+  fileAnchor,
+  fileTree,
+  shownPathOf,
+} from "./changedFiles";
+import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
   changedLines,
@@ -25,23 +34,42 @@ export function DiffView({
   files,
   sources,
   review,
+  scope,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
   review?: DiffReview;
+  /** Scopes this diff's file ids apart from any other diff on the page: a
+   *  comparison row's key, or a pull request stack row's commit id. */
+  scope: string;
 }) {
   const [composer, setComposer] = useState<{
     path: string;
     line: number;
   } | null>(null);
 
+  const changedFiles = useMemo(
+    () =>
+      files.map((file) =>
+        changedFile(
+          file,
+          fileAnchor(scope, afterPathOf(file)),
+          review?.comments ?? [],
+        ),
+      ),
+    [files, review?.comments, scope],
+  );
+
   return (
     <div className="diff-view">
+      {changedFiles.length >= 2 && <FileSummary files={changedFiles} />}
       {files.map((file) => {
-        const path = pathOf(file);
+        const path = shownPathOf(file);
+        const anchor = fileAnchor(scope, afterPathOf(file));
         return (
           <FileRow
             key={path}
+            anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
             review={
@@ -68,6 +96,58 @@ export function DiffView({
       })}
     </div>
   );
+}
+
+/** A table of contents for the files below, shown once there is more than
+ *  one to summarise. Picking a row scrolls straight to that file's
+ *  `<section>`, found by the same anchor id the section itself carries, so
+ *  the summary needs no ref threaded down to reach it. */
+function FileSummary({ files }: { files: ChangedFile[] }) {
+  const nodes = useMemo(() => fileTree(files), [files]);
+  const totals = files.reduce(
+    (sum, file) => ({
+      added: sum.added + file.added,
+      removed: sum.removed + file.removed,
+    }),
+    { added: 0, removed: 0 },
+  );
+  const changes = totals.added + totals.removed;
+
+  return (
+    <section className="file-summary" aria-label="Files changed">
+      <header className="file-summary__head">
+        <b className="file-summary__title">Files changed</b>
+        <span className="file-summary__totals">
+          <span>{files.length === 1 ? "1 file" : `${files.length} files`}</span>
+          {totals.added > 0 && (
+            <span className="file-summary__added">+{totals.added}</span>
+          )}
+          {totals.removed > 0 && (
+            <span className="file-summary__removed">−{totals.removed}</span>
+          )}
+          {changes > 0 && (
+            <span className="file-summary__bar">
+              <span
+                className="file-summary__bar-added"
+                style={{ width: `${(totals.added / changes) * 100}%` }}
+              />
+              <span
+                className="file-summary__bar-removed"
+                style={{ width: `${(totals.removed / changes) * 100}%` }}
+              />
+            </span>
+          )}
+        </span>
+      </header>
+      <div className="file-summary__tree">
+        <FileTree nodes={nodes} current={null} onPick={jumpTo} />
+      </div>
+    </section>
+  );
+}
+
+function jumpTo(file: ChangedFile): void {
+  document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
 
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
@@ -104,10 +184,12 @@ function sidesOf(file: FileDiff, sources?: SourceLookup): FileSides {
 
 function FileRow({
   file,
+  anchor,
   sides,
   review,
 }: {
   file: FileDiff;
+  anchor: string;
   sides: FileSides;
   review?: FileReview;
 }) {
@@ -127,10 +209,10 @@ function FileRow({
   const shown = shownIn[mode];
 
   return (
-    <section className="diff-file">
+    <section id={anchor} className="diff-file">
       <header className="diff-file__header">
         <span className="diff-file__status">{file.status}</span>
-        {pathOf(file)}
+        <span className="diff-file__path">{shownPathOf(file)}</span>
         {!file.binary && (
           <DiffModeSwitch
             mode={mode}
@@ -375,10 +457,6 @@ function tokenClass(token: PaintedToken): string | undefined {
     token.changed ? "diff-line__changed" : null,
   ].filter((name) => name !== null);
   return classes.length === 0 ? undefined : classes.join(" ");
-}
-
-function pathOf(file: FileDiff): string {
-  return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
 }
 
 type CodeKind = "context" | "added" | "removed";

@@ -296,6 +296,10 @@ reference here, anywhere.
 
 <<design-interdiff-rows>>
 
+<<design-file-tree>>
+
+<<design-file-navigator>>
+
 <<design-diff-view>>
 
 <<design-syntax>>

@@ -81,14 +81,24 @@ because a synchronous local store adds nothing to them. `reviewRows` runs
 below those early returns as a plain function call, since it derives from
 props already in hand rather than fetching.
 
+Once there is more than one file across every row, `DiffPane` also renders
+a [`FileNavigator`](file-tree.md#stepping-through-files) above the rows,
+built from the same `changedFilesOf` a `DiffView` uses and scoped by the
+same `rowKey`, so the file the navigator names is always the file its
+click lands on. A row's label is its commit's own subject line, read once
+there is more than one row to tell apart; with one row, nothing needs
+naming.
+
 ```tsx
 //| id: frontend-controller-diff-pane
 //| file: src/frontend/controllers/DiffPane.tsx
 import { type Comparison, useComparison } from "../state/comparison";
-import { reviewRows } from "../state/review";
+import { type ReviewedRow, reviewRows } from "../state/review";
 import type { Session } from "../state/session";
 import { useSources } from "../state/source";
-import { InterdiffRows } from "../views/InterdiffRows";
+import { changedFilesOf } from "../views/changedFiles";
+import { FileNavigator, type FileNavigatorGroup } from "../views/FileNavigator";
+import { InterdiffRows, rowKey } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
 export function DiffPane({
@@ -111,16 +121,35 @@ export function DiffPane({
     return <Message tone="error">{answer.message}</Message>;
   }
 
+  const rows = reviewRows(answer.data, session.document);
+  const groups: FileNavigatorGroup[] = rows.map((row) => ({
+    label: rows.length > 1 ? rowLabel(row) : null,
+    files: changedFilesOf(row.files, rowKey(row), row.comments),
+  }));
+  const total = groups.reduce((sum, group) => sum + group.files.length, 0);
+
   return (
-    <InterdiffRows
-      rows={reviewRows(answer.data, session.document)}
-      sources={sources}
-      onMarkSeen={session.markSeen}
-      onAddComment={session.addComment}
-      onResolveComment={session.resolveComment}
-      onDropComment={session.dropComment}
-    />
+    <>
+      {total >= 2 && <FileNavigator groups={groups} />}
+      <InterdiffRows
+        rows={rows}
+        sources={sources}
+        onMarkSeen={session.markSeen}
+        onAddComment={session.addComment}
+        onResolveComment={session.resolveComment}
+        onDropComment={session.dropComment}
+      />
+    </>
   );
+}
+
+function rowLabel(row: ReviewedRow): string {
+  const commit = row.to ?? row.from;
+  if (commit === null) return "";
+  const subject = commit.description.split("\n")[0];
+  return subject !== undefined && subject !== ""
+    ? subject
+    : commit.commitId.slice(0, 8);
 }
 ```
 
@@ -202,14 +231,32 @@ props, which could not be supplied half-filled. A diff either carries review
 memory or it does not, and a diff without it offers no commentable line, so a
 read-only diff cannot advertise an affordance that records nothing.
 
+A diff of more than one file gets a [summary](file-tree.md) above its files:
+a folded tree standing in for the files themselves, so a reader can see the
+shape of the change before reading any of it. Every file's `<section>` also
+carries an id, so the summary, and later a [navigator](file-tree.md) beside
+it, can jump straight to a file rather than only describing where it is.
+The id is scoped by the caller, one comparison row's key or one pull
+request stack row's commit id, because the same path can appear once per
+row and each occurrence needs a section of its own to jump to.
+
 ```tsx
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
-import { useContext, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { RowComment } from "../state/review";
 import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
+import {
+  afterPathOf,
+  type ChangedFile,
+  changedFile,
+  fileAnchor,
+  fileTree,
+  shownPathOf,
+} from "./changedFiles";
+import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import {
   changedLines,
@@ -231,23 +278,42 @@ export function DiffView({
   files,
   sources,
   review,
+  scope,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
   review?: DiffReview;
+  /** Scopes this diff's file ids apart from any other diff on the page: a
+   *  comparison row's key, or a pull request stack row's commit id. */
+  scope: string;
 }) {
   const [composer, setComposer] = useState<{
     path: string;
     line: number;
   } | null>(null);
 
+  const changedFiles = useMemo(
+    () =>
+      files.map((file) =>
+        changedFile(
+          file,
+          fileAnchor(scope, afterPathOf(file)),
+          review?.comments ?? [],
+        ),
+      ),
+    [files, review?.comments, scope],
+  );
+
   return (
     <div className="diff-view">
+      {changedFiles.length >= 2 && <FileSummary files={changedFiles} />}
       {files.map((file) => {
-        const path = pathOf(file);
+        const path = shownPathOf(file);
+        const anchor = fileAnchor(scope, afterPathOf(file));
         return (
           <FileRow
             key={path}
+            anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
             review={
@@ -274,6 +340,58 @@ export function DiffView({
       })}
     </div>
   );
+}
+
+/** A table of contents for the files below, shown once there is more than
+ *  one to summarise. Picking a row scrolls straight to that file's
+ *  `<section>`, found by the same anchor id the section itself carries, so
+ *  the summary needs no ref threaded down to reach it. */
+function FileSummary({ files }: { files: ChangedFile[] }) {
+  const nodes = useMemo(() => fileTree(files), [files]);
+  const totals = files.reduce(
+    (sum, file) => ({
+      added: sum.added + file.added,
+      removed: sum.removed + file.removed,
+    }),
+    { added: 0, removed: 0 },
+  );
+  const changes = totals.added + totals.removed;
+
+  return (
+    <section className="file-summary" aria-label="Files changed">
+      <header className="file-summary__head">
+        <b className="file-summary__title">Files changed</b>
+        <span className="file-summary__totals">
+          <span>{files.length === 1 ? "1 file" : `${files.length} files`}</span>
+          {totals.added > 0 && (
+            <span className="file-summary__added">+{totals.added}</span>
+          )}
+          {totals.removed > 0 && (
+            <span className="file-summary__removed">−{totals.removed}</span>
+          )}
+          {changes > 0 && (
+            <span className="file-summary__bar">
+              <span
+                className="file-summary__bar-added"
+                style={{ width: `${(totals.added / changes) * 100}%` }}
+              />
+              <span
+                className="file-summary__bar-removed"
+                style={{ width: `${(totals.removed / changes) * 100}%` }}
+              />
+            </span>
+          )}
+        </span>
+      </header>
+      <div className="file-summary__tree">
+        <FileTree nodes={nodes} current={null} onPick={jumpTo} />
+      </div>
+    </section>
+  );
+}
+
+function jumpTo(file: ChangedFile): void {
+  document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
 
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
@@ -310,10 +428,12 @@ function sidesOf(file: FileDiff, sources?: SourceLookup): FileSides {
 
 function FileRow({
   file,
+  anchor,
   sides,
   review,
 }: {
   file: FileDiff;
+  anchor: string;
   sides: FileSides;
   review?: FileReview;
 }) {
@@ -333,10 +453,10 @@ function FileRow({
   const shown = shownIn[mode];
 
   return (
-    <section className="diff-file">
+    <section id={anchor} className="diff-file">
       <header className="diff-file__header">
         <span className="diff-file__status">{file.status}</span>
-        {pathOf(file)}
+        <span className="diff-file__path">{shownPathOf(file)}</span>
         {!file.binary && (
           <DiffModeSwitch
             mode={mode}
@@ -583,10 +703,6 @@ function tokenClass(token: PaintedToken): string | undefined {
   return classes.length === 0 ? undefined : classes.join(" ");
 }
 
-function pathOf(file: FileDiff): string {
-  return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
-}
-
 type CodeKind = "context" | "added" | "removed";
 
 const SIGNS: Record<CodeKind, string> = {
@@ -744,6 +860,19 @@ because the text is [coloured by its syntax](syntax.md#colours) and green or
 red text would drown that out. [Changed words](#changed-words) take a stronger
 tint of the same colour.
 
+A file's header sticks to the top of the scrolling pane while its file is
+on screen, and the next file's header pushes it off. A long file otherwise
+scrolls away the only place that says which file it is and the switch
+between structural and line diffs, and on a phone a file runs for
+screens. It sticks at `--diff-sticky-top`, the offset a jump to a file
+already stops at: zero, unless
+[the file navigator](file-tree.md#stepping-through-files) holds the top of
+the pane.
+
+The path takes whatever width the switch leaves and wraps anywhere,
+because a path is one long word to a line breaker, and a word that cannot
+shrink pushes the switch past the header's edge on a phone.
+
 ```css
 /*| id: design-diff-view
 @layer components {
@@ -751,12 +880,72 @@ tint of the same colour.
     padding: var(--space-5);
   }
 
-  .diff-file {
-    margin-bottom: var(--space-6);
+  .file-summary {
+    margin: 0 0 var(--space-6);
     border: 1px solid var(--border);
   }
 
+  .file-summary__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-5);
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-summary__title {
+    margin-right: auto;
+  }
+
+  .file-summary__totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    align-items: center;
+    font-size: var(--text-size-small);
+  }
+
+  .file-summary__added {
+    color: var(--diff-added);
+  }
+
+  .file-summary__removed {
+    color: var(--diff-removed);
+  }
+
+  .file-summary__bar {
+    display: flex;
+    height: 4px;
+    width: 100px;
+    background: var(--border-subtle);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .file-summary__bar-added {
+    background: var(--diff-added);
+  }
+
+  .file-summary__bar-removed {
+    background: var(--diff-removed);
+  }
+
+  .file-summary__tree {
+    padding: var(--space-2) 0;
+  }
+
+  .diff-file {
+    margin-bottom: var(--space-6);
+    border: 1px solid var(--border);
+    scroll-margin-top: var(--diff-sticky-top, 0);
+  }
+
   .diff-file__header {
+    position: sticky;
+    top: var(--diff-sticky-top, 0);
+    z-index: 1;
     display: flex;
     align-items: baseline;
     padding: var(--space-2) var(--space-4);
@@ -764,7 +953,14 @@ tint of the same colour.
     background: var(--surface-raised);
   }
 
+  .diff-file__path {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .diff-file__modes {
+    flex: none;
     display: flex;
     margin: 0 0 0 auto;
     padding: 0;
@@ -1548,6 +1744,7 @@ export function InterdiffRows({
             <DiffView
               files={row.files}
               sources={sources}
+              scope={rowKey(row)}
               review={{
                 comments: row.comments,
                 onAddComment: (path, line, body) =>
@@ -1563,7 +1760,9 @@ export function InterdiffRows({
   );
 }
 
-function rowKey(row: ReviewedRow): string {
+/** Also the scope [`DiffView` anchors](file-tree.md#folding-a-diffs-files-into-a-tree)
+ *  its files under, so two rows never collide on the same file's id. */
+export function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
 }
 ```

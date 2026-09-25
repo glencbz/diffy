@@ -130,6 +130,9 @@ colours and a green keyword would say nothing about either.
     --diff-added-emphasis: var(--green-200);
     --diff-removed-emphasis: var(--red-200);
 
+    --status-modified: var(--amber-800);
+    --status-renamed: var(--purple-600);
+
     --syntax-keyword: var(--purple-600);
     --syntax-string: var(--teal-600);
     --syntax-comment: var(--grey-600);
@@ -304,6 +307,9 @@ lightness that survives a dark surface.
       --diff-removed-surface: var(--red-900);
       --diff-added-emphasis: var(--green-800);
       --diff-removed-emphasis: var(--red-800);
+
+      --status-modified: var(--amber-400);
+      --status-renamed: var(--purple-400);
 
       --syntax-keyword: var(--purple-400);
       --syntax-string: var(--teal-400);

@@ -605,6 +605,7 @@ metrics edit and lives in [Design tokens](tokens.md).
 
     .panes:not(.panes--review) .pane--diff {
       flex: 1 0 auto;
+      overflow: visible;
       border-bottom: none;
     }
   }

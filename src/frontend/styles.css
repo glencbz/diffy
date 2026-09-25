@@ -101,6 +101,9 @@
     --diff-added-emphasis: var(--green-200);
     --diff-removed-emphasis: var(--red-200);
 
+    --status-modified: var(--amber-800);
+    --status-renamed: var(--purple-600);
+
     --syntax-keyword: var(--purple-600);
     --syntax-string: var(--teal-600);
     --syntax-comment: var(--grey-600);
@@ -175,6 +178,9 @@
       --diff-removed-surface: var(--red-900);
       --diff-added-emphasis: var(--green-800);
       --diff-removed-emphasis: var(--red-800);
+
+      --status-modified: var(--amber-400);
+      --status-renamed: var(--purple-400);
 
       --syntax-keyword: var(--purple-400);
       --syntax-string: var(--teal-400);
@@ -1025,18 +1031,399 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-tree>>[init] */
+@layer components {
+  .file-tree,
+  .file-tree ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .file-tree__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 26px;
+    padding: 0 var(--space-4) 0
+      calc(var(--space-4) + var(--file-tree-depth, 0) * 14px);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-left: var(--border-width-accent) solid transparent;
+  }
+
+  .file-tree__row:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-tree__row--current {
+    background: var(--surface-selected);
+    border-left-color: var(--accent);
+  }
+
+  .file-tree__row--current:hover {
+    background: var(--surface-selected);
+  }
+
+  .file-tree__twisty {
+    width: 10px;
+    flex: none;
+    color: var(--text-faint);
+    transition: transform 0.12s;
+  }
+
+  .file-tree__row--folder[aria-expanded="false"] .file-tree__twisty {
+    transform: rotate(-90deg);
+  }
+
+  .file-tree__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-tree__name--deleted {
+    color: var(--text-faint);
+    text-decoration: line-through;
+  }
+
+  .file-tree__row--folder .file-tree__name {
+    color: var(--text-muted);
+  }
+
+  .file-tree__row--folder .file-tree__name::after {
+    content: "/";
+    color: var(--text-ghost);
+  }
+
+  .file-tree__from {
+    color: var(--text-faint);
+  }
+
+  .file-tree__status {
+    width: 12px;
+    flex: none;
+    text-align: center;
+    font-weight: bold;
+  }
+
+  .file-tree__status--added {
+    color: var(--diff-added);
+  }
+
+  .file-tree__status--deleted {
+    color: var(--diff-removed);
+  }
+
+  .file-tree__status--modified {
+    color: var(--status-modified);
+  }
+
+  .file-tree__status--renamed,
+  .file-tree__status--copied {
+    color: var(--status-renamed);
+  }
+
+  .file-tree__badge {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: var(--text-size-small);
+    color: var(--review-open);
+    background: var(--review-open-surface);
+  }
+
+  .file-tree__stat {
+    flex: none;
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--text-size-small);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file-tree__stat-added {
+    color: var(--diff-added);
+  }
+
+  .file-tree__stat-removed {
+    color: var(--diff-removed);
+  }
+
+  .file-tree__stat-bin {
+    color: var(--text-faint);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-tree>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .file-tree__row {
+      min-height: 40px;
+    }
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-navigator>>[init] */
+@layer components {
+  .file-navigator {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex: none;
+  }
+
+  .pane--diff:has(> .file-navigator) {
+    --file-navigator-height: calc(
+      var(--text-size) *
+      var(--text-line-height) +
+      2 *
+      var(--space-3) +
+      1px
+    );
+    --diff-sticky-top: var(--file-navigator-height);
+  }
+
+  .file-navigator__bar {
+    box-sizing: border-box;
+    height: var(--file-navigator-height);
+    display: flex;
+    align-items: stretch;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-navigator__step {
+    flex: none;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    font-size: 14px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__step:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__open:hover {
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__pos {
+    flex: none;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file-navigator__path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    font-weight: bold;
+  }
+
+  .file-navigator__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .file-navigator__sheet {
+    position: absolute;
+    z-index: 4;
+    top: 36px;
+    left: var(--space-5);
+    width: 380px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .file-navigator__sheet-handle {
+    display: none;
+  }
+
+  .file-navigator__sheet-head {
+    flex: none;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .file-navigator__filter {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .file-navigator__sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2) 0 var(--space-4);
+  }
+
+  .file-navigator__group-label {
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    color: var(--text-faint);
+    font-size: var(--text-size-small);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/file-tree.md#design-file-navigator>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .file-navigator {
+      order: 2;
+      top: auto;
+      bottom: 0;
+    }
+
+    .pane--diff:has(> .file-navigator) {
+      --diff-sticky-top: 0;
+    }
+
+    .file-navigator__bar {
+      height: 52px;
+      border-bottom: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .file-navigator__sheet {
+      top: auto;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      width: auto;
+      max-height: 80dvh;
+      border-width: 1px 0 0;
+      border-radius: var(--radius-large) var(--radius-large) 0 0;
+    }
+
+    .file-navigator__sheet-handle {
+      display: block;
+      width: 36px;
+      height: 4px;
+      margin: var(--space-4) auto 0;
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .file-navigator__scrim {
+      background: color-mix(in srgb, var(--text) 35%, transparent);
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[init] */
 @layer components {
   .diff-view {
     padding: var(--space-5);
   }
 
-  .diff-file {
-    margin-bottom: var(--space-6);
+  .file-summary {
+    margin: 0 0 var(--space-6);
     border: 1px solid var(--border);
   }
 
+  .file-summary__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-5);
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-summary__title {
+    margin-right: auto;
+  }
+
+  .file-summary__totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    align-items: center;
+    font-size: var(--text-size-small);
+  }
+
+  .file-summary__added {
+    color: var(--diff-added);
+  }
+
+  .file-summary__removed {
+    color: var(--diff-removed);
+  }
+
+  .file-summary__bar {
+    display: flex;
+    height: 4px;
+    width: 100px;
+    background: var(--border-subtle);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .file-summary__bar-added {
+    background: var(--diff-added);
+  }
+
+  .file-summary__bar-removed {
+    background: var(--diff-removed);
+  }
+
+  .file-summary__tree {
+    padding: var(--space-2) 0;
+  }
+
+  .diff-file {
+    margin-bottom: var(--space-6);
+    border: 1px solid var(--border);
+    scroll-margin-top: var(--diff-sticky-top, 0);
+  }
+
   .diff-file__header {
+    position: sticky;
+    top: var(--diff-sticky-top, 0);
+    z-index: 1;
     display: flex;
     align-items: baseline;
     padding: var(--space-2) var(--space-4);
@@ -1044,7 +1431,14 @@
     background: var(--surface-raised);
   }
 
+  .diff-file__path {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .diff-file__modes {
+    flex: none;
     display: flex;
     margin: 0 0 0 auto;
     padding: 0;
@@ -1725,6 +2119,7 @@
 
     .panes:not(.panes--review) .pane--diff {
       flex: 1 0 auto;
+      overflow: visible;
       border-bottom: none;
     }
   }
