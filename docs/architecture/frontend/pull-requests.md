@@ -140,51 +140,60 @@ export function usePullCommits(
 ```
 ## Pull requests controller
 
-The list, and whichever pull request is picked out of it. What the screen is
-doing lives here rather than in `App` because the list is the only other thing
-that reads it, and the summary it selects is what the header needs.
+The list, and whichever pull request is picked out of it. Which one is picked
+is part of the [address](address.md), so it arrives from `App` as a
+`PullPlace` and a pick goes back up through `onGo`. Everything below the pull
+request number, the heads, the commit, and the line, is handed straight on to
+`PullReview`, which is the only thing that reads it.
 
-One `Screen` says which of three things a reader is in the middle of: browsing
-the list, reading a review, or picking a different pull request over the one
-they are reading. A number beside a flag would say the same until the flag
-said a sheet was open with nothing under it, and [the layout](layout.md) has
-no such screen to draw. Opening and dismissing are whole functions of the
-screen they are handed, so a press that lands in the wrong phase gives that
-phase back rather than inventing one.
+A `PullChoice` says which of three things a reader is in the middle of:
+browsing the list, reading a review, or picking a different pull request over
+the one they are reading. The sheet the list opens in is the one part of that
+not in the address, since it is how a narrow window shows the list and not a
+place to link to. It is held as the number of the pull request it was opened
+over rather than as a flag. A flag would say the same until it said a sheet
+was open with nothing under it, and [the layout](layout.md) has no such
+screen to draw. Going back to another pull request, or to none, leaves the
+number behind, so the sheet closes without anything having to close it.
 
 Only a narrow window puts those three anywhere, since a wide one shows the
 list and the review side by side and has nothing to collapse.
 
-A pull request the list no longer holds reads as none at all, which is the
-one place `chosen` can answer something the reader did not ask for. The list
-is reloaded per repository and a number is kept across that, so the choice can
-outlive the row it came from, and dropping back to browsing is the only answer
-that leaves a screen a reader can act on.
+A pull request the list does not hold reads as none at all, which is the one
+place `chosen` can answer something the reader did not ask for. A number in
+the address can be typed by hand or outlive the pull request it named, and
+dropping back to browsing is the only answer that leaves a screen a reader can
+act on.
 
-`PullReview` is keyed by the pull request number, so picking a different one
-remounts it and the two ends of the comparison start again at "the first head
-against the latest". Clearing them by hand would be the same behaviour written
-out, with a way to forget a field.
+Picking the pull request already open keeps its place, rather than starting
+it over, since the reader asked for the one they are on. Picking any other
+opens it at "the base against the latest head", and `PullReview` is keyed by
+the pull request number, so its own state, which rows are open and which
+messages are expanded, starts again with it.
 
 ```tsx
 //| id: frontend-controller-pull-requests
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
 import type { PullSummary } from "../api";
+import { openPull, type PullPlace } from "../state/place";
 import { usePulls } from "../state/pulls";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { type PullChoice, PullPanes } from "../views/PullPanes";
 import { PullReview } from "./PullReview";
 
-type Screen =
-  | { phase: "browsing" }
-  | { phase: "reviewing"; pull: number }
-  | { phase: "picking"; pull: number };
-
-export function PullRequests({ repo }: { repo: string }) {
+export function PullRequests({
+  repo,
+  place,
+  onGo,
+}: {
+  repo: string;
+  place: PullPlace | null;
+  onGo: (place: PullPlace | null) => void;
+}) {
   const pulls = usePulls(repo);
-  const [screen, setScreen] = useState<Screen>({ phase: "browsing" });
+  const [sheetOver, setSheetOver] = useState<number | null>(null);
 
   if (pulls.status === "loading") {
     return <Message>Loading pull requests...</Message>;
@@ -193,46 +202,49 @@ export function PullRequests({ repo }: { repo: string }) {
     return <Message tone="error">{pulls.message}</Message>;
   }
 
-  const choice = chosen(screen, pulls.data);
+  const choice = chosen(place, sheetOver, pulls.data);
 
   return (
     <PullPanes
       choice={choice}
-      onOpen={() => setScreen(openList)}
-      onDismiss={() => setScreen(dismissList)}
+      onOpen={() => setSheetOver(place?.number ?? null)}
+      onDismiss={() => setSheetOver(null)}
       list={
         <PullList
           pulls={pulls.data}
           selected={choice.phase === "browsing" ? null : choice.pull.number}
-          onSelect={(pull) => setScreen({ phase: "reviewing", pull })}
+          onSelect={(number) => {
+            setSheetOver(null);
+            onGo(number === place?.number ? place : openPull(number));
+          }}
         />
       }
       review={
-        choice.phase === "browsing" ? (
+        choice.phase === "browsing" || place === null ? (
           <Message>Select a pull request to review it.</Message>
         ) : (
-          <PullReview key={choice.pull.number} repo={repo} pull={choice.pull} />
+          <PullReview
+            key={choice.pull.number}
+            repo={repo}
+            pull={choice.pull}
+            place={place}
+            onGo={onGo}
+          />
         )
       }
     />
   );
 }
 
-function chosen(screen: Screen, pulls: PullSummary[]): PullChoice {
-  if (screen.phase === "browsing") return screen;
-  const pull = pulls.find((candidate) => candidate.number === screen.pull);
+function chosen(
+  place: PullPlace | null,
+  sheetOver: number | null,
+  pulls: PullSummary[],
+): PullChoice {
+  if (place === null) return { phase: "browsing" };
+  const pull = pulls.find((candidate) => candidate.number === place.number);
   if (pull === undefined) return { phase: "browsing" };
-  return { phase: screen.phase, pull };
-}
-
-function openList(screen: Screen): Screen {
-  if (screen.phase !== "reviewing") return screen;
-  return { phase: "picking", pull: screen.pull };
-}
-
-function dismissList(screen: Screen): Screen {
-  if (screen.phase !== "picking") return screen;
-  return { phase: "reviewing", pull: screen.pull };
+  return { phase: sheetOver === pull.number ? "picking" : "reviewing", pull };
 }
 ```
 
@@ -396,20 +408,45 @@ Only an open row draws its diff, so only an open row's files are handed to
 [`useSources`](syntax.md#loading-each-side) to load. A stack of twenty commits
 then costs nothing extra until someone opens one of them.
 
+The two ends of the comparison, the picked commit, and the picked file and
+line all come from the [address](address.md) as one `PullPlace`, and every
+pick goes back through `onGo` rather than into state of its own here. Which
+rows are open and whose message is expanded stay in `useState`, because they
+say how the reader has arranged the stack, not where in it they are, and a
+link that reopened every row its sender had opened would be noise. The one
+exception is the row holding a linked file, which opens so the file is there
+to see.
+
+Moving the before end keeps the picked commit, because the after end, and
+with it every commit id on that side, is unchanged. Moving the after end
+drops it, because a commit id belongs to one head and the new one may not
+have it.
+
+The stack scrolls to the picked row when the reader picks in the graph, and
+when back or forward, or loading the page, lands on a new place. A click on a
+file or a line in the diff moves the place too, but the reader is already
+looking at what they clicked, so it scrolls nothing. `reveal` is the count of
+the first two, and the stack scrolls when it moves.
+
 ```tsx
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   FileDiff,
   GitCommit,
   GitOid,
-  PullBaseline,
   PullSummary,
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../state/asyncState";
 import { type Slot, usePairing } from "../state/pairing";
+import {
+  type FileSpot,
+  type PullPlace,
+  pullHref,
+  useArrivals,
+} from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
@@ -419,6 +456,7 @@ import {
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
+import type { DiffLinks } from "../views/DiffView";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
 import { PullComparisonPicker } from "../views/PullComparisonPicker";
@@ -548,17 +586,21 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
 export function PullReview({
   repo,
   pull,
+  place,
+  onGo,
 }: {
   repo: string;
   pull: PullSummary;
+  place: PullPlace;
+  onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
-  const [from, setFrom] = useState<PullBaseline>({ kind: "base" });
-  const [pickedTo, setPickedTo] = useState<GitOid | null>(null);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const [current, setCurrent] = useState<string | null>(null);
   const [picks, setPicks] = useState(0);
+  const arrivals = useArrivals();
+  const { from, spot } = place;
+  const current = spot?.commit ?? null;
 
   const latest =
     history.status === "ready" ? history.data.states.at(-1) : undefined;
@@ -567,7 +609,7 @@ export function PullReview({
   // here, even on the render before the history request comes back. Every
   // hook below runs on every render, loading or not, so there is no point
   // in this function where "not loaded yet" can mean "call fewer hooks".
-  const to = pickedTo ?? latest?.head ?? pull.headRefOid;
+  const to = place.to ?? latest?.head ?? pull.headRefOid;
   const number = pull.number;
 
   const beforeState = usePullCommits(repo, number, beforeHead);
@@ -586,6 +628,24 @@ export function PullReview({
     }),
   );
 
+  const rows =
+    from.kind === "base"
+      ? baseStackRows(afterCommits, diffs)
+      : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
+
+  const currentKey =
+    rows.find(
+      (row) => row.commit.commitId === current || row.was?.commitId === current,
+    )?.key ?? null;
+
+  // A file in the address is a file on screen, so the row it is in opens,
+  // on arrival and whenever back or forward lands on another one.
+  const fileKey = spot === null || spot.file === null ? null : currentKey;
+  useEffect(() => {
+    if (fileKey === null) return;
+    setOpen((now) => (now.has(fileKey) ? now : new Set(now).add(fileKey)));
+  }, [fileKey]);
+
   if (history.status === "loading") {
     return <Message>Loading versions...</Message>;
   }
@@ -595,11 +655,6 @@ export function PullReview({
   if (latest === undefined) {
     return <Message tone="error">This pull request has had no head.</Message>;
   }
-
-  const rows =
-    from.kind === "base"
-      ? baseStackRows(afterCommits, diffs)
-      : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
 
   const commitsLoading =
     beforeState.status === "loading" || afterState.status === "loading";
@@ -611,14 +666,26 @@ export function PullReview({
         : null;
 
   const pick = (commitId: string) => {
-    setCurrent(commitId);
+    const commit =
+      afterCommits.find((candidate) => candidate.commitId === commitId) ??
+      beforeCommits.find((candidate) => candidate.commitId === commitId);
+    if (commit === undefined) return;
+    onGo({ ...place, to, spot: { commit: commit.commitId, file: null } });
     setPicks((now) => now + 1);
   };
 
-  const currentKey =
-    rows.find(
-      (row) => row.commit.commitId === current || row.was?.commitId === current,
-    )?.key ?? null;
+  const links = (row: StackRow): DiffLinks => {
+    const at = (file: FileSpot): PullPlace => ({
+      ...place,
+      to,
+      spot: { commit: row.commit.commitId, file },
+    });
+    return {
+      selected: row.key === currentKey ? (spot?.file ?? null) : null,
+      href: (file) => pullHref(at(file)),
+      onFollow: (file) => onGo(at(file)),
+    };
+  };
 
   return (
     <PullReviewPanes
@@ -628,8 +695,8 @@ export function PullReview({
           history={history.data}
           from={from}
           to={to}
-          onPickFrom={setFrom}
-          onPickTo={setPickedTo}
+          onPickFrom={(next) => onGo({ ...place, from: next })}
+          onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
         />
       }
       commits={
@@ -670,7 +737,8 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
-            picks={picks}
+            reveal={picks + arrivals}
+            links={links}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

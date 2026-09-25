@@ -5,6 +5,7 @@ import { CommitLog } from "./controllers/CommitLog";
 import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
+import { type Place, usePlace } from "./state/place";
 import { useSession } from "./state/session";
 import { DiffModeDefault, useSettings } from "./state/settings";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
@@ -15,7 +16,7 @@ import { SettingsScreen } from "./views/SettingsScreen";
 const REPO = "glencbz/diffy";
 
 export function App() {
-  const [mode, setMode] = useState<Mode>("local");
+  const [place, go] = usePlace();
   const [pane, setPane] = useState<Pane>("before");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
@@ -25,8 +26,13 @@ export function App() {
   return (
     <DiffModeDefault value={settings.display.diffMode}>
       <div className="app">
-        <ModeTabs mode={mode} onSelect={setMode} />
-        {mode === "local" && (
+        <ModeTabs
+          mode={place.tab}
+          onSelect={(mode) => {
+            if (mode !== place.tab) go(modePlace(mode));
+          }}
+        />
+        {place.tab === "local" && (
           <ReviewPanes
             before={<SidePicker side={before} />}
             after={<SidePicker side={after} />}
@@ -44,8 +50,14 @@ export function App() {
             }}
           />
         )}
-        {mode === "pulls" && <PullRequests repo={REPO} />}
-        {mode === "settings" && (
+        {place.tab === "pulls" && (
+          <PullRequests
+            repo={REPO}
+            place={place.pull}
+            onGo={(pull) => go({ tab: "pulls", pull })}
+          />
+        )}
+        {place.tab === "settings" && (
           <SettingsScreen
             settings={settings}
             onSetTextSize={setTextSize}
@@ -55,6 +67,11 @@ export function App() {
       </div>
     </DiffModeDefault>
   );
+}
+
+/** A screen as it opens from its tab, with nothing picked on it yet. */
+function modePlace(mode: Mode): Place {
+  return mode === "pulls" ? { tab: "pulls", pull: null } : { tab: mode };
 }
 
 interface Side<S extends Source> {

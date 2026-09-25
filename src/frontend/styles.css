@@ -1568,6 +1568,33 @@
     user-select: none;
   }
 
+  .diff-file__path {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .diff-file__path:hover {
+    text-decoration: underline;
+  }
+
+  .diff-file__header--selected {
+    box-shadow: inset var(--border-width-accent) 0 var(--accent);
+  }
+
+  .diff-line--selected {
+    box-shadow: inset var(--border-width-accent) 0 var(--accent);
+  }
+
+  .diff-line__anchor {
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .diff-line__anchor:hover,
+  .diff-line--selected .diff-line__anchor {
+    color: var(--accent);
+  }
+
   .diff-line__text--meta {
     color: var(--diff-meta);
   }

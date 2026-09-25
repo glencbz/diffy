@@ -332,7 +332,8 @@ async function pullDiffFiles(
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
 export const routes = {
-  "/": index,
+  "/*": index,
+  "/api/*": () => new Response("Not found", { status: 404 }),
   "/api/log": handleLog,
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,
