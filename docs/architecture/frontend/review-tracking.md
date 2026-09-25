@@ -21,7 +21,7 @@ That commit's own id, not the row's, decides the key's shape: `change:${id}`
 when it carries a jj change id, `rev:${id}` on its commit id when it does not.
 A jj change id and a git commit id are drawn from different id spaces and
 could collide as bare strings, so the prefix keeps a `change:` key and a
-`rev:` key apart in the one `change_id` column a mark or comment is stored
+`rev:` key apart in the one `reviewKey` field a mark or comment is stored
 under, with no schema change needed to say so.
 
 The two kinds of key degrade differently. A change id survives an amend, so a
