@@ -7,15 +7,20 @@ export type TextSize = z.infer<typeof TextSize>;
 export const DiffMode = z.enum(["structural", "line"]);
 export type DiffMode = z.infer<typeof DiffMode>;
 
+export const DiffLayout = z.enum(["unified", "split"]);
+export type DiffLayout = z.infer<typeof DiffLayout>;
+
 const DEFAULT_DISPLAY = {
   textSize: "standard",
   diffMode: "structural",
+  diffLayout: "unified",
 } as const;
 
 export const Settings = z.object({
   display: z.object({
     textSize: TextSize,
     diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
+    diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
   }),
 });
 export type Settings = z.infer<typeof Settings>;

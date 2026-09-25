@@ -1,6 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-state-settings>>[init]
 import { useCallback, useLayoutEffect } from "react";
-import type { DiffMode, Settings, TextSize } from "../model/settings";
+import type {
+  DiffLayout,
+  DiffMode,
+  Settings,
+  TextSize,
+} from "../model/settings";
 import { settingsRepository } from "../persistence/settings";
 import { useStored } from "./stored";
 
@@ -8,6 +13,7 @@ export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
   setDiffMode: (diffMode: DiffMode) => void;
+  setDiffLayout: (diffLayout: DiffLayout) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -34,7 +40,11 @@ export function useSettings(): SettingsHandle {
     (diffMode: DiffMode) => setDisplay({ diffMode }),
     [setDisplay],
   );
+  const setDiffLayout = useCallback(
+    (diffLayout: DiffLayout) => setDisplay({ diffLayout }),
+    [setDisplay],
+  );
 
-  return { settings, setTextSize, setDiffMode };
+  return { settings, setTextSize, setDiffMode, setDiffLayout };
 }
 // ~/~ end

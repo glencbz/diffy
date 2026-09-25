@@ -28,7 +28,7 @@ These are review features GitHub and GitLab both have that diffy lacks.
 
 * [x] Show a summary of files changed and lines added and removed for a
   whole pull request, as each commit already has.
-* [ ] Show a side-by-side diff as well as the unified one.
+* [x] Show a side-by-side diff as well as the unified one.
 * [x] Mark a single file as viewed, fold it when it is marked, and count the
   files viewed so far.
 * [ ] Show images before and after, and render Markdown and SVG, instead of
