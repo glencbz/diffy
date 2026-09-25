@@ -1,6 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
-import { useContext, useMemo, useState } from "react";
+import {
+  type MouseEvent,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import type { FileSpot } from "../state/place";
 import type { RowComment } from "../state/review";
 import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
@@ -31,11 +39,22 @@ export interface DiffReview {
   onDropComment: (id: string) => void;
 }
 
+/** Where the files and lines of a diff link to, for a diff whose place is
+ *  kept in the address. */
+export interface DiffLinks {
+  /** The file or line the address names, when it is in this diff. */
+  selected: FileSpot | null;
+  href: (spot: FileSpot) => string;
+  onFollow: (spot: FileSpot) => void;
+}
+
 export function DiffView({
   files,
   sources,
   review,
   scope,
+  links,
+  reveal,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
@@ -43,6 +62,10 @@ export function DiffView({
   /** Scopes this diff's file ids apart from any other diff on the page: a
    *  comparison row's key, or a pull request stack row's commit id. */
   scope: string;
+  links?: DiffLinks;
+  /** Changes each time the selected file or line should be brought into
+   *  view. Mounting brings it into view too. */
+  reveal?: number;
 }) {
   const [composer, setComposer] = useState<{
     path: string;
@@ -73,6 +96,8 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
+            links={links === undefined ? undefined : fileLinks(links, file)}
+            reveal={reveal}
             review={
               review === undefined
                 ? undefined
@@ -162,6 +187,39 @@ interface FileReview {
   onDropComment: (id: string) => void;
 }
 
+/** `DiffLinks` narrowed to one file. */
+interface FileLinks {
+  /** This file's place in the address, when the address names it. */
+  selected: FileSpot | null;
+  href: (line: number | null) => string;
+  onFollow: (line: number | null) => void;
+}
+
+function fileLinks(links: DiffLinks, file: FileDiff): FileLinks {
+  const path = afterPathOf(file);
+  return {
+    selected: links.selected?.path === path ? links.selected : null,
+    href: (line) => links.href({ path, line }),
+    onFollow: (line) => links.onFollow({ path, line }),
+  };
+}
+
+/** A plain click on a link is followed in place. One asking for a new tab
+ *  or window is left to the browser, which is what the `href` is for. */
+function follow(event: MouseEvent, onFollow: () => void): void {
+  if (
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  event.preventDefault();
+  onFollow();
+}
+
 /** Each side of one file, whole, where it has loaded. */
 interface FileSides {
   old: SourceFile | null;
@@ -188,12 +246,25 @@ function FileRow({
   anchor,
   sides,
   review,
+  links,
+  reveal,
 }: {
   file: FileDiff;
   anchor: string;
   sides: FileSides;
   review?: FileReview;
+  links?: FileLinks;
+  reveal?: number;
 }) {
+  const section = useRef<HTMLElement>(null);
+  const isSelected = links?.selected != null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; a click that selects a line must not scroll
+  useEffect(() => {
+    if (!isSelected) return;
+    section.current
+      ?.querySelector(".diff-file__header--selected, .diff-line--selected")
+      ?.scrollIntoView({ block: "center" });
+  }, [reveal]);
   const defaultMode = useContext(DiffModeDefault);
   const [chosen, setChosen] = useState<DiffMode | null>(null);
   const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
@@ -211,11 +282,18 @@ function FileRow({
   const reason = collapseReason(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const open =
-    opened ?? (reason === null || (review?.comments.length ?? 0) > 0);
+    opened ??
+    (reason === null || (review?.comments.length ?? 0) > 0 || isSelected);
 
   return (
-    <section id={anchor} className="diff-file">
-      <header className="diff-file__header">
+    <section id={anchor} ref={section} className="diff-file">
+      <header
+        className={
+          links?.selected != null && links.selected.line === null
+            ? "diff-file__header diff-file__header--selected"
+            : "diff-file__header"
+        }
+      >
         <button
           type="button"
           className="diff-file__toggle"
@@ -226,8 +304,19 @@ function FileRow({
             {open ? "▾" : "▸"}
           </span>
           <span className="diff-file__status">{file.status}</span>
-          <span className="diff-file__path">{shownPathOf(file)}</span>
+          {links === undefined && (
+            <span className="diff-file__path">{shownPathOf(file)}</span>
+          )}
         </button>
+        {links !== undefined && (
+          <a
+            href={links.href(null)}
+            onClick={(event) => follow(event, () => links.onFollow(null))}
+            className="diff-file__path"
+          >
+            {shownPathOf(file)}
+          </a>
+        )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
         {open && !file.binary && (
           <DiffModeSwitch
@@ -271,6 +360,7 @@ function FileRow({
                 key={index}
                 line={line}
                 onOpenComposer={review?.onOpenComposer}
+                links={links}
               />
             ),
           )}
@@ -418,18 +508,33 @@ function CommentThread({
 
 /** A `<button>` when the line has an after-side line to comment on, a `<div>`
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
- *  line static. */
+ *  line static, and a read-only diff with `links` makes the gutter number of
+ *  every after-side line a link to it. */
 function PatchLine({
   line,
   onOpenComposer,
+  links,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
   onOpenComposer?: (line: number) => void;
+  links?: FileLinks;
 }) {
   const afterLine = "afterLine" in line ? line.afterLine : null;
+  const linked =
+    afterLine !== null && links !== undefined && onOpenComposer === undefined;
   const body = (
     <>
-      <span className="diff-line__gutter">{afterLine ?? ""}</span>
+      {linked ? (
+        <a
+          href={links.href(afterLine)}
+          onClick={(event) => follow(event, () => links.onFollow(afterLine))}
+          className="diff-line__gutter diff-line__anchor"
+        >
+          {afterLine}
+        </a>
+      ) : (
+        <span className="diff-line__gutter">{afterLine ?? ""}</span>
+      )}
       {"text" in line ? (
         <span className={`diff-line__text--${line.kind}`}>
           {line.text === "" ? " " : line.text}
@@ -450,7 +555,11 @@ function PatchLine({
       )}
     </>
   );
-  const className = `diff-line diff-line--${line.kind}`;
+  const selected =
+    afterLine !== null && links?.selected?.line === afterLine
+      ? " diff-line--selected"
+      : "";
+  const className = `diff-line diff-line--${line.kind}${selected}`;
 
   if (afterLine === null || onOpenComposer === undefined) {
     return <div className={className}>{body}</div>;

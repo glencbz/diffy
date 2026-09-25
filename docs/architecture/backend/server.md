@@ -514,13 +514,17 @@ async function pullDiffFiles(
 }
 ```
 
-The route table is the list of handlers the server exposes.
+The route table is the list of handlers the server exposes. Every path that is
+not an API route is the page, since the frontend keeps the reader's place in
+[the path](../frontend/address.md). An API path with no handler is a 404
+rather than the page, so a mistyped request fails as one.
 
 ```ts
 //| id: backend-server
 
 export const routes = {
-  "/": index,
+  "/*": index,
+  "/api/*": () => new Response("Not found", { status: 404 }),
   "/api/log": handleLog,
   "/api/operations": handleOperations,
   "/api/diff": handleDiff,

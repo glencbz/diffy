@@ -3,7 +3,7 @@ import { type ReactElement, useEffect, useRef } from "react";
 import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../state/asyncState";
 import type { SourceLookup } from "../state/source";
-import { DiffView } from "./DiffView";
+import { type DiffLinks, DiffView } from "./DiffView";
 
 /** The opening of a commit body, its first paragraph or its first six
  *  lines, whichever runs shorter. Counts source lines, the ones the author
@@ -174,11 +174,12 @@ export interface CommitStackProps {
   /** Rows whose whole message is showing. */
   expanded: ReadonlySet<string>;
   onExpand: (key: string) => void;
-  /** The row the graph pane last picked, brought into view when it changes. */
+  /** The row the graph pane last picked. */
   current: string | null;
-  /** How many picks the graph pane has made, so picking the current row
-   *  again brings it back into view too. */
-  picks: number;
+  /** Changes each time the current row should be brought into view. */
+  reveal: number;
+  /** Where each row's files and lines link to. */
+  links: (row: StackRow) => DiffLinks;
   /** The older version every non-plain row is read against, as its chip
    *  names it: `v5`. */
   since: string;
@@ -222,7 +223,8 @@ export function CommitStack({
   expanded,
   onExpand,
   current,
-  picks,
+  reveal,
+  links,
   since,
 }: CommitStackProps): ReactElement {
   return (
@@ -237,7 +239,8 @@ export function CommitStack({
           isExpanded={expanded.has(row.key)}
           onExpand={() => onExpand(row.key)}
           isCurrent={current === row.key}
-          picks={picks}
+          reveal={reveal}
+          links={links(row)}
           since={since}
         />
       ))}
@@ -253,7 +256,8 @@ function StackSection({
   isExpanded,
   onExpand,
   isCurrent,
-  picks,
+  reveal,
+  links,
   since,
 }: {
   row: StackRow;
@@ -263,14 +267,18 @@ function StackSection({
   isExpanded: boolean;
   onExpand: () => void;
   isCurrent: boolean;
-  picks: number;
+  reveal: number;
+  links: DiffLinks;
   since: string;
 }) {
   const section = useRef<HTMLElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: picks is the trigger, not a value read
+  const diffScrolls = links.selected !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
-    if (isCurrent) section.current?.scrollIntoView({ block: "start" });
-  }, [isCurrent, picks]);
+    if (isCurrent && !diffScrolls) {
+      section.current?.scrollIntoView({ block: "start" });
+    }
+  }, [reveal]);
 
   useEffect(() => {
     const row = section.current;
@@ -308,6 +316,8 @@ function StackSection({
             sources={sources}
             isOpen={isOpen}
             onToggle={onToggle}
+            links={links}
+            reveal={reveal}
           />
         </>
       )}
@@ -460,11 +470,15 @@ function StackContents({
   sources,
   isOpen,
   onToggle,
+  links,
+  reveal,
 }: {
   row: StackRow;
   sources: SourceLookup;
   isOpen: boolean;
   onToggle: () => void;
+  links: DiffLinks;
+  reveal: number;
 }) {
   if (row.files.status === "loading") {
     return (
@@ -496,7 +510,13 @@ function StackContents({
         </span>
       </button>
       {isOpen && (
-        <DiffView files={files} sources={sources} scope={row.commit.commitId} />
+        <DiffView
+          files={files}
+          sources={sources}
+          scope={row.commit.commitId}
+          links={links}
+          reveal={reveal}
+        />
       )}
     </div>
   );

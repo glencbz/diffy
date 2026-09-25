@@ -1,15 +1,20 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-review>>[init]
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   FileDiff,
   GitCommit,
   GitOid,
-  PullBaseline,
   PullSummary,
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../state/asyncState";
 import { type Slot, usePairing } from "../state/pairing";
+import {
+  type FileSpot,
+  type PullPlace,
+  pullHref,
+  useArrivals,
+} from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
@@ -19,6 +24,7 @@ import {
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
+import type { DiffLinks } from "../views/DiffView";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
 import { PullComparisonPicker } from "../views/PullComparisonPicker";
@@ -148,17 +154,21 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
 export function PullReview({
   repo,
   pull,
+  place,
+  onGo,
 }: {
   repo: string;
   pull: PullSummary;
+  place: PullPlace;
+  onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
-  const [from, setFrom] = useState<PullBaseline>({ kind: "base" });
-  const [pickedTo, setPickedTo] = useState<GitOid | null>(null);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const [current, setCurrent] = useState<string | null>(null);
   const [picks, setPicks] = useState(0);
+  const arrivals = useArrivals();
+  const { from, spot } = place;
+  const current = spot?.commit ?? null;
 
   const latest =
     history.status === "ready" ? history.data.states.at(-1) : undefined;
@@ -167,7 +177,7 @@ export function PullReview({
   // here, even on the render before the history request comes back. Every
   // hook below runs on every render, loading or not, so there is no point
   // in this function where "not loaded yet" can mean "call fewer hooks".
-  const to = pickedTo ?? latest?.head ?? pull.headRefOid;
+  const to = place.to ?? latest?.head ?? pull.headRefOid;
   const number = pull.number;
 
   const beforeState = usePullCommits(repo, number, beforeHead);
@@ -186,6 +196,24 @@ export function PullReview({
     }),
   );
 
+  const rows =
+    from.kind === "base"
+      ? baseStackRows(afterCommits, diffs)
+      : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
+
+  const currentKey =
+    rows.find(
+      (row) => row.commit.commitId === current || row.was?.commitId === current,
+    )?.key ?? null;
+
+  // A file in the address is a file on screen, so the row it is in opens,
+  // on arrival and whenever back or forward lands on another one.
+  const fileKey = spot === null || spot.file === null ? null : currentKey;
+  useEffect(() => {
+    if (fileKey === null) return;
+    setOpen((now) => (now.has(fileKey) ? now : new Set(now).add(fileKey)));
+  }, [fileKey]);
+
   if (history.status === "loading") {
     return <Message>Loading versions...</Message>;
   }
@@ -195,11 +223,6 @@ export function PullReview({
   if (latest === undefined) {
     return <Message tone="error">This pull request has had no head.</Message>;
   }
-
-  const rows =
-    from.kind === "base"
-      ? baseStackRows(afterCommits, diffs)
-      : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
 
   const commitsLoading =
     beforeState.status === "loading" || afterState.status === "loading";
@@ -211,14 +234,26 @@ export function PullReview({
         : null;
 
   const pick = (commitId: string) => {
-    setCurrent(commitId);
+    const commit =
+      afterCommits.find((candidate) => candidate.commitId === commitId) ??
+      beforeCommits.find((candidate) => candidate.commitId === commitId);
+    if (commit === undefined) return;
+    onGo({ ...place, to, spot: { commit: commit.commitId, file: null } });
     setPicks((now) => now + 1);
   };
 
-  const currentKey =
-    rows.find(
-      (row) => row.commit.commitId === current || row.was?.commitId === current,
-    )?.key ?? null;
+  const links = (row: StackRow): DiffLinks => {
+    const at = (file: FileSpot): PullPlace => ({
+      ...place,
+      to,
+      spot: { commit: row.commit.commitId, file },
+    });
+    return {
+      selected: row.key === currentKey ? (spot?.file ?? null) : null,
+      href: (file) => pullHref(at(file)),
+      onFollow: (file) => onGo(at(file)),
+    };
+  };
 
   return (
     <PullReviewPanes
@@ -228,8 +263,8 @@ export function PullReview({
           history={history.data}
           from={from}
           to={to}
-          onPickFrom={setFrom}
-          onPickTo={setPickedTo}
+          onPickFrom={(next) => onGo({ ...place, from: next })}
+          onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
         />
       }
       commits={
@@ -270,7 +305,8 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
-            picks={picks}
+            reveal={picks + arrivals}
+            links={links}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

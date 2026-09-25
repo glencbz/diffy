@@ -56,10 +56,19 @@ createRoot(container).render(<App />);
 
 ## App
 
-Which pane a narrow window is showing lives here for the reason `mode` does:
-it is one choice about the whole window, made in a strip above the screen it
-governs, and [`ReviewPanes`](layout.md) is a view and holds no state. On a
-wide screen the value is carried and never read.
+Which screen is open is part of the [address](address.md), so `App` reads it
+from `usePlace` rather than holding it in `useState`, and hands the pull
+request screen its part of the same place. Pressing the tab of the screen
+already open does nothing. Going to that screen's bare place instead would
+throw away the pull request and the line a reader is on, for a click that
+asked for nothing new.
+
+Which pane a narrow window is showing lives here too: it is one choice about
+the whole window, made in a strip above the screen it governs, and
+[`ReviewPanes`](layout.md) is a view and holds no state. On a wide screen the
+value is carried and never read. It stays out of the address because it says
+how big the window is, not where the reader is, and a link opened on a wide
+screen would carry it for nothing.
 
 `App` calls `useSession()` once, alongside the two `useSide()` calls it
 already owns, and passes it down to the local history's `DiffPane`. The pull
@@ -85,6 +94,7 @@ import { CommitLog } from "./controllers/CommitLog";
 import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
+import { type Place, usePlace } from "./state/place";
 import { useSession } from "./state/session";
 import { DiffModeDefault, useSettings } from "./state/settings";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
@@ -95,7 +105,7 @@ import { SettingsScreen } from "./views/SettingsScreen";
 const REPO = "glencbz/diffy";
 
 export function App() {
-  const [mode, setMode] = useState<Mode>("local");
+  const [place, go] = usePlace();
   const [pane, setPane] = useState<Pane>("before");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
@@ -105,8 +115,13 @@ export function App() {
   return (
     <DiffModeDefault value={settings.display.diffMode}>
       <div className="app">
-        <ModeTabs mode={mode} onSelect={setMode} />
-        {mode === "local" && (
+        <ModeTabs
+          mode={place.tab}
+          onSelect={(mode) => {
+            if (mode !== place.tab) go(modePlace(mode));
+          }}
+        />
+        {place.tab === "local" && (
           <ReviewPanes
             before={<SidePicker side={before} />}
             after={<SidePicker side={after} />}
@@ -124,8 +139,14 @@ export function App() {
             }}
           />
         )}
-        {mode === "pulls" && <PullRequests repo={REPO} />}
-        {mode === "settings" && (
+        {place.tab === "pulls" && (
+          <PullRequests
+            repo={REPO}
+            place={place.pull}
+            onGo={(pull) => go({ tab: "pulls", pull })}
+          />
+        )}
+        {place.tab === "settings" && (
           <SettingsScreen
             settings={settings}
             onSetTextSize={setTextSize}
@@ -135,6 +156,11 @@ export function App() {
       </div>
     </DiffModeDefault>
   );
+}
+
+/** A screen as it opens from its tab, with nothing picked on it yet. */
+function modePlace(mode: Mode): Place {
+  return mode === "pulls" ? { tab: "pulls", pull: null } : { tab: mode };
 }
 
 interface Side<S extends Source> {

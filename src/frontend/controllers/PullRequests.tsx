@@ -1,20 +1,24 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-requests>>[init]
 import { useState } from "react";
 import type { PullSummary } from "../api";
+import { openPull, type PullPlace } from "../state/place";
 import { usePulls } from "../state/pulls";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { type PullChoice, PullPanes } from "../views/PullPanes";
 import { PullReview } from "./PullReview";
 
-type Screen =
-  | { phase: "browsing" }
-  | { phase: "reviewing"; pull: number }
-  | { phase: "picking"; pull: number };
-
-export function PullRequests({ repo }: { repo: string }) {
+export function PullRequests({
+  repo,
+  place,
+  onGo,
+}: {
+  repo: string;
+  place: PullPlace | null;
+  onGo: (place: PullPlace | null) => void;
+}) {
   const pulls = usePulls(repo);
-  const [screen, setScreen] = useState<Screen>({ phase: "browsing" });
+  const [sheetOver, setSheetOver] = useState<number | null>(null);
 
   if (pulls.status === "loading") {
     return <Message>Loading pull requests...</Message>;
@@ -23,45 +27,48 @@ export function PullRequests({ repo }: { repo: string }) {
     return <Message tone="error">{pulls.message}</Message>;
   }
 
-  const choice = chosen(screen, pulls.data);
+  const choice = chosen(place, sheetOver, pulls.data);
 
   return (
     <PullPanes
       choice={choice}
-      onOpen={() => setScreen(openList)}
-      onDismiss={() => setScreen(dismissList)}
+      onOpen={() => setSheetOver(place?.number ?? null)}
+      onDismiss={() => setSheetOver(null)}
       list={
         <PullList
           pulls={pulls.data}
           selected={choice.phase === "browsing" ? null : choice.pull.number}
-          onSelect={(pull) => setScreen({ phase: "reviewing", pull })}
+          onSelect={(number) => {
+            setSheetOver(null);
+            onGo(number === place?.number ? place : openPull(number));
+          }}
         />
       }
       review={
-        choice.phase === "browsing" ? (
+        choice.phase === "browsing" || place === null ? (
           <Message>Select a pull request to review it.</Message>
         ) : (
-          <PullReview key={choice.pull.number} repo={repo} pull={choice.pull} />
+          <PullReview
+            key={choice.pull.number}
+            repo={repo}
+            pull={choice.pull}
+            place={place}
+            onGo={onGo}
+          />
         )
       }
     />
   );
 }
 
-function chosen(screen: Screen, pulls: PullSummary[]): PullChoice {
-  if (screen.phase === "browsing") return screen;
-  const pull = pulls.find((candidate) => candidate.number === screen.pull);
+function chosen(
+  place: PullPlace | null,
+  sheetOver: number | null,
+  pulls: PullSummary[],
+): PullChoice {
+  if (place === null) return { phase: "browsing" };
+  const pull = pulls.find((candidate) => candidate.number === place.number);
   if (pull === undefined) return { phase: "browsing" };
-  return { phase: screen.phase, pull };
-}
-
-function openList(screen: Screen): Screen {
-  if (screen.phase !== "reviewing") return screen;
-  return { phase: "picking", pull: screen.pull };
-}
-
-function dismissList(screen: Screen): Screen {
-  if (screen.phase !== "picking") return screen;
-  return { phase: "reviewing", pull: screen.pull };
+  return { phase: sheetOver === pull.number ? "picking" : "reviewing", pull };
 }
 // ~/~ end

@@ -26,7 +26,7 @@ import { type ReactElement, useEffect, useRef } from "react";
 import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../state/asyncState";
 import type { SourceLookup } from "../state/source";
-import { DiffView } from "./DiffView";
+import { type DiffLinks, DiffView } from "./DiffView";
 
 /** The opening of a commit body, its first paragraph or its first six
  *  lines, whichever runs shorter. Counts source lines, the ones the author
@@ -191,9 +191,17 @@ other.
 Picking a commit in the graph pane scrolls its row to the top of the stack.
 A highlight on a row the reader cannot see answers nothing. Picking the same
 commit again scrolls it back, since a reader who has read on past it and
-clicks it a second time is asking to go back to it. `picks` counts the
-clicks, so the second click changes something the row can react to even
-though `current` did not change.
+clicks it a second time is asking to go back to it. `reveal` counts the
+times the reader asked to be taken to the current row, so the second click
+changes something the row can react to even though `current` did not change.
+A row that becomes current any other way, by a click on one of its lines, is
+already in front of the reader and stays where it is.
+
+Each row's diff links its files and lines to [the address](address.md), and
+`links` says where each one goes. A row whose current file or line is linked
+leaves the scrolling to its diff, which brings that file or line into view
+itself. Scrolling the row to the top first would be undone at once, or worse,
+land after it.
 
 A row's spine sticks to the top while the row is on screen, and so does the
 header of each file in its diff, so the file headers have to stop below the
@@ -246,11 +254,12 @@ export interface CommitStackProps {
   /** Rows whose whole message is showing. */
   expanded: ReadonlySet<string>;
   onExpand: (key: string) => void;
-  /** The row the graph pane last picked, brought into view when it changes. */
+  /** The row the graph pane last picked. */
   current: string | null;
-  /** How many picks the graph pane has made, so picking the current row
-   *  again brings it back into view too. */
-  picks: number;
+  /** Changes each time the current row should be brought into view. */
+  reveal: number;
+  /** Where each row's files and lines link to. */
+  links: (row: StackRow) => DiffLinks;
   /** The older version every non-plain row is read against, as its chip
    *  names it: `v5`. */
   since: string;
@@ -294,7 +303,8 @@ export function CommitStack({
   expanded,
   onExpand,
   current,
-  picks,
+  reveal,
+  links,
   since,
 }: CommitStackProps): ReactElement {
   return (
@@ -309,7 +319,8 @@ export function CommitStack({
           isExpanded={expanded.has(row.key)}
           onExpand={() => onExpand(row.key)}
           isCurrent={current === row.key}
-          picks={picks}
+          reveal={reveal}
+          links={links(row)}
           since={since}
         />
       ))}
@@ -325,7 +336,8 @@ function StackSection({
   isExpanded,
   onExpand,
   isCurrent,
-  picks,
+  reveal,
+  links,
   since,
 }: {
   row: StackRow;
@@ -335,14 +347,18 @@ function StackSection({
   isExpanded: boolean;
   onExpand: () => void;
   isCurrent: boolean;
-  picks: number;
+  reveal: number;
+  links: DiffLinks;
   since: string;
 }) {
   const section = useRef<HTMLElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: picks is the trigger, not a value read
+  const diffScrolls = links.selected !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
-    if (isCurrent) section.current?.scrollIntoView({ block: "start" });
-  }, [isCurrent, picks]);
+    if (isCurrent && !diffScrolls) {
+      section.current?.scrollIntoView({ block: "start" });
+    }
+  }, [reveal]);
 
   useEffect(() => {
     const row = section.current;
@@ -380,6 +396,8 @@ function StackSection({
             sources={sources}
             isOpen={isOpen}
             onToggle={onToggle}
+            links={links}
+            reveal={reveal}
           />
         </>
       )}
@@ -532,11 +550,15 @@ function StackContents({
   sources,
   isOpen,
   onToggle,
+  links,
+  reveal,
 }: {
   row: StackRow;
   sources: SourceLookup;
   isOpen: boolean;
   onToggle: () => void;
+  links: DiffLinks;
+  reveal: number;
 }) {
   if (row.files.status === "loading") {
     return (
@@ -568,7 +590,13 @@ function StackContents({
         </span>
       </button>
       {isOpen && (
-        <DiffView files={files} sources={sources} scope={row.commit.commitId} />
+        <DiffView
+          files={files}
+          sources={sources}
+          scope={row.commit.commitId}
+          links={links}
+          reveal={reveal}
+        />
       )}
     </div>
   );

@@ -159,9 +159,12 @@ the repository the pull request screen reads. The repository is one named
 constant and is the next thing here worth making configurable; a view never
 sees it except as a prop.
 
-Which head of a pull request is being read is *not* in `App`. Nothing outside
-the pull request pane needs it, and the pane already remounts when the selected
-pull request changes, which resets the two ends of the comparison for free.
+Which screen is open, and on the pull request screen which pull request,
+heads, commit, file, and line, is not React state at all but the
+[address](address.md). `App` reads it through `usePlace` and hands each screen
+its part. Everything else a screen holds, such as which rows are open, stays in
+that screen's own state, because it says how a reader has arranged the page
+rather than where they are in it.
 
 ### Keeping the boundary honest
 
