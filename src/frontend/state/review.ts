@@ -35,9 +35,25 @@ export const Comment = z.object({
 });
 export type Comment = z.infer<typeof Comment>;
 
+/** One file as a comparison draws it: the path its header shows and the blob
+ * on each side. Two versions that agree on all three draw the same diff. */
+export const FileVersion = z.object({
+  path: z.string(),
+  oldBlob: z.string().nullable(),
+  newBlob: z.string().nullable(),
+});
+export type FileVersion = z.infer<typeof FileVersion>;
+
+export const ViewedFile = FileVersion.extend({
+  reviewKey: z.string(),
+  viewedAt: z.string(),
+});
+export type ViewedFile = z.infer<typeof ViewedFile>;
+
 export const SessionDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
+  viewed: z.array(ViewedFile).default([]),
 });
 export type SessionDocument = z.infer<typeof SessionDocument>;
 
@@ -59,6 +75,7 @@ export interface ReviewedRow extends InterdiffRow {
   reviewKey: string;
   review: RowReview;
   comments: RowComment[];
+  viewed: ViewedFile[];
 }
 
 /** What a mark uses to find its row again. A change id survives a rewrite, so
@@ -150,6 +167,7 @@ export function reviewRows(
       reviewKey: key,
       review: reviewFor(marksForChange, fromCommitId, toCommitId),
       comments,
+      viewed: document.viewed.filter((mark) => mark.reviewKey === key),
     };
   });
 }
@@ -175,5 +193,36 @@ export function sameComparison(
     a.fromCommitId === b.fromCommitId &&
     a.toCommitId === b.toCommitId
   );
+}
+
+function sameVersion(a: FileVersion, b: FileVersion): boolean {
+  return (
+    a.path === b.path && a.oldBlob === b.oldBlob && a.newBlob === b.newBlob
+  );
+}
+
+/** Whether one of a row's viewed marks covers the file as it reads now. */
+export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
+  return viewed.some((mark) => sameVersion(mark, file));
+}
+
+/** The document with one file's viewed mark added, or removed if it is
+ * there. */
+export function flipViewed(
+  document: SessionDocument,
+  reviewKey: string,
+  file: FileVersion,
+  viewedAt: string,
+): SessionDocument {
+  const others = document.viewed.filter(
+    (mark) => mark.reviewKey !== reviewKey || !sameVersion(mark, file),
+  );
+  if (others.length < document.viewed.length) {
+    return { ...document, viewed: others };
+  }
+  return {
+    ...document,
+    viewed: [...others, { ...file, reviewKey, viewedAt }],
+  };
 }
 // ~/~ end

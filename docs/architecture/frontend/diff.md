@@ -138,6 +138,7 @@ export function DiffPane({
         onAddComment={session.addComment}
         onResolveComment={session.resolveComment}
         onDropComment={session.dropComment}
+        onToggleViewed={session.toggleViewed}
       />
     </>
   );
@@ -240,10 +241,18 @@ unless a comment is already on it or the address names it, because a folded
 file would hide the thread or the line a link was sent for.
 Whether a file is open is `useState` in its row, like its view.
 
-All of that hangs off one optional `DiffReview` rather than four optional
+A diff with review memory ends each file's header with a `Viewed` checkbox.
+Ticking it records a [viewed mark](review-tracking.md#review-state) and folds
+the file, and unticking it opens the file again. A file already viewed when
+the diff draws starts folded, comments or not, because the reader has said
+they are done with it. Only the address still opens it, since a link names a
+file to be read.
+
+All of that hangs off one optional `DiffReview` rather than separate optional
 props, which could not be supplied half-filled. A diff either carries review
-memory or it does not, and a diff without it offers no commentable line, so a
-read-only diff cannot advertise an affordance that records nothing.
+memory or it does not, and a diff without it offers no commentable line and no
+`Viewed` checkbox, so a read-only diff cannot advertise an affordance that
+records nothing.
 
 A diff of more than one file gets a [summary](file-tree.md) above its files:
 a folded tree standing in for the files themselves, so a reader can see the
@@ -286,7 +295,13 @@ import {
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
-import type { LineAnchor, RowComment } from "../state/review";
+import {
+  type FileVersion,
+  isViewed,
+  type LineAnchor,
+  type RowComment,
+  type ViewedFile,
+} from "../state/review";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -294,6 +309,7 @@ import {
   changedFile,
   fileAnchor,
   fileTree,
+  fileVersionOf,
   shownPathOf,
 } from "./changedFiles";
 import { collapseReason } from "./collapse";
@@ -319,6 +335,8 @@ export interface DiffReview {
   onAddComment: (path: string, anchor: LineAnchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  viewed: ViewedFile[];
+  onToggleViewed: (file: FileVersion) => void;
 }
 
 /** Where the files and lines of a diff link to, for a diff whose place is
@@ -397,6 +415,9 @@ export function DiffView({
                     },
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
+                    viewed: isViewed(review.viewed, fileVersionOf(file)),
+                    onToggleViewed: () =>
+                      review.onToggleViewed(fileVersionOf(file)),
                   }
             }
           />
@@ -467,6 +488,8 @@ interface FileReview {
   onSubmitComposer: (anchor: LineAnchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  viewed: boolean;
+  onToggleViewed: () => void;
 }
 
 /** `DiffLinks` narrowed to one file. */
@@ -563,9 +586,11 @@ function FileRow({
   const shown = shownIn[mode];
   const reason = collapseReason(file);
   const [opened, setOpened] = useState<boolean | null>(null);
+  const viewed = review?.viewed ?? false;
   const open =
     opened ??
-    (reason === null || (review?.comments.length ?? 0) > 0 || isSelected);
+    (isSelected ||
+      (!viewed && (reason === null || (review?.comments.length ?? 0) > 0)));
 
   return (
     <section id={anchor} ref={section} className="diff-file">
@@ -610,6 +635,19 @@ function FileRow({
             }
             onChoose={setChosen}
           />
+        )}
+        {review !== undefined && (
+          <label className="diff-file__viewed">
+            <input
+              type="checkbox"
+              checked={viewed}
+              onChange={() => {
+                review.onToggleViewed();
+                setOpened(viewed);
+              }}
+            />
+            Viewed
+          </label>
         )}
       </header>
       {!open ? null : file.binary ? (
@@ -1184,6 +1222,22 @@ shrink pushes the switch past the header's edge on a phone.
     flex: none;
     margin-right: var(--space-2);
     color: var(--text-muted);
+  }
+
+  .diff-file__viewed {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: auto;
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .diff-file__modes + .diff-file__viewed {
+    margin-left: var(--space-4);
   }
 
   .diff-file__reason {
@@ -2119,7 +2173,7 @@ rather than in the controller, because it is per row and the controller sees
 the list.
 
 Rows take `ReviewedRow` now, not the bare wire `InterdiffRow`, and thread the
-four session callbacks down to `ComparisonHeader` and `DiffView`. `rowKey`
+session callbacks down to `ComparisonHeader` and `DiffView`. `rowKey`
 stays keyed on commit ids as before. [A reordered series can put the same
 change id on two rows](review-tracking.md#review-state), so the change id is
 not a unique React key even though it now sits on the row.
@@ -2127,7 +2181,7 @@ not a unique React key even though it now sits on the row.
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
-import type { LineAnchor, ReviewedRow } from "../state/review";
+import type { FileVersion, LineAnchor, ReviewedRow } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
@@ -2139,6 +2193,7 @@ export function InterdiffRows({
   onAddComment,
   onResolveComment,
   onDropComment,
+  onToggleViewed,
 }: {
   rows: ReviewedRow[];
   sources: SourceLookup;
@@ -2151,6 +2206,7 @@ export function InterdiffRows({
   ) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  onToggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }) {
   return (
     <div>
@@ -2174,6 +2230,8 @@ export function InterdiffRows({
                   onAddComment(row, path, anchor, body),
                 onResolveComment,
                 onDropComment,
+                viewed: row.viewed,
+                onToggleViewed: (file) => onToggleViewed(row, file),
               }}
             />
           )}
@@ -2215,15 +2273,18 @@ A third line adds review state to that same job: whether the row has been
 looked at, whether it moved since, and how many open comments sit on it. The
 `mark seen` / `mark unseen` button reads its own label off
 `row.review.state`, so the caller wires the click through without computing
-which action is current.
+which action is current. Next to it, the row counts its files the reader has
+marked viewed, read off the same marks the files' checkboxes are, so the two
+never disagree.
 
 ```tsx
 //| id: frontend-view-comparison-header
 //| file: src/frontend/views/ComparisonHeader.tsx
 import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import type { ReviewedRow, RowReview } from "../state/review";
+import { isViewed, type ReviewedRow, type RowReview } from "../state/review";
 import { CommitLabel } from "./CommitLabel";
+import { fileVersionOf } from "./changedFiles";
 
 export function ComparisonHeader({
   row,
@@ -2235,6 +2296,9 @@ export function ComparisonHeader({
   const openComments = row.comments.filter(
     (comment) => !comment.resolved,
   ).length;
+  const viewed = row.files.filter((file) =>
+    isViewed(row.viewed, fileVersionOf(file)),
+  ).length;
 
   return (
     <header className="comparison-header">
@@ -2243,6 +2307,11 @@ export function ComparisonHeader({
       <div className="comparison-header__actions">
         <ReviewChip review={row.review} />
         {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
+        {row.files.length > 0 && (
+          <span className="comparison-header__viewed">
+            {viewed} / {row.files.length} files viewed
+          </span>
+        )}
         <button
           type="button"
           onClick={onMarkSeen}
@@ -2336,6 +2405,10 @@ runs.
     align-items: center;
     gap: var(--space-3);
     margin-top: var(--space-2);
+  }
+
+  .comparison-header__viewed {
+    color: var(--text-muted);
   }
 
   .comparison-header__mark-seen {

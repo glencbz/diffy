@@ -2,6 +2,8 @@
 import { useCallback, useState } from "react";
 import {
   type Comment,
+  type FileVersion,
+  flipViewed,
   type LineAnchor,
   type ReviewedRow,
   SessionDocument,
@@ -9,7 +11,11 @@ import {
 } from "./review";
 
 const STORAGE_KEY = "diffy.session.v1";
-const EMPTY_DOCUMENT: SessionDocument = { marks: [], comments: [] };
+const EMPTY_DOCUMENT: SessionDocument = {
+  marks: [],
+  comments: [],
+  viewed: [],
+};
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -47,6 +53,7 @@ export interface Session {
   ) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
+  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }
 
 export function useSession(): Session {
@@ -132,6 +139,22 @@ export function useSession(): Session {
     [update],
   );
 
-  return { document, markSeen, addComment, resolveComment, dropComment };
+  const toggleViewed = useCallback(
+    (row: ReviewedRow, file: FileVersion) => {
+      update((current) =>
+        flipViewed(current, row.reviewKey, file, new Date().toISOString()),
+      );
+    },
+    [update],
+  );
+
+  return {
+    document,
+    markSeen,
+    addComment,
+    resolveComment,
+    dropComment,
+    toggleViewed,
+  };
 }
 // ~/~ end

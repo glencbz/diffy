@@ -11,7 +11,13 @@ import {
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
-import type { LineAnchor, RowComment } from "../state/review";
+import {
+  type FileVersion,
+  isViewed,
+  type LineAnchor,
+  type RowComment,
+  type ViewedFile,
+} from "../state/review";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -19,6 +25,7 @@ import {
   changedFile,
   fileAnchor,
   fileTree,
+  fileVersionOf,
   shownPathOf,
 } from "./changedFiles";
 import { collapseReason } from "./collapse";
@@ -44,6 +51,8 @@ export interface DiffReview {
   onAddComment: (path: string, anchor: LineAnchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  viewed: ViewedFile[];
+  onToggleViewed: (file: FileVersion) => void;
 }
 
 /** Where the files and lines of a diff link to, for a diff whose place is
@@ -122,6 +131,9 @@ export function DiffView({
                     },
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
+                    viewed: isViewed(review.viewed, fileVersionOf(file)),
+                    onToggleViewed: () =>
+                      review.onToggleViewed(fileVersionOf(file)),
                   }
             }
           />
@@ -192,6 +204,8 @@ interface FileReview {
   onSubmitComposer: (anchor: LineAnchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  viewed: boolean;
+  onToggleViewed: () => void;
 }
 
 /** `DiffLinks` narrowed to one file. */
@@ -288,9 +302,11 @@ function FileRow({
   const shown = shownIn[mode];
   const reason = collapseReason(file);
   const [opened, setOpened] = useState<boolean | null>(null);
+  const viewed = review?.viewed ?? false;
   const open =
     opened ??
-    (reason === null || (review?.comments.length ?? 0) > 0 || isSelected);
+    (isSelected ||
+      (!viewed && (reason === null || (review?.comments.length ?? 0) > 0)));
 
   return (
     <section id={anchor} ref={section} className="diff-file">
@@ -335,6 +351,19 @@ function FileRow({
             }
             onChoose={setChosen}
           />
+        )}
+        {review !== undefined && (
+          <label className="diff-file__viewed">
+            <input
+              type="checkbox"
+              checked={viewed}
+              onChange={() => {
+                review.onToggleViewed();
+                setOpened(viewed);
+              }}
+            />
+            Viewed
+          </label>
         )}
       </header>
       {!open ? null : file.binary ? (

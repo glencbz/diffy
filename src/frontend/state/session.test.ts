@@ -30,6 +30,15 @@ describe("load", () => {
         },
       ],
       comments: [],
+      viewed: [
+        {
+          reviewKey: "a",
+          path: "f.ts",
+          oldBlob: null,
+          newBlob: "b1",
+          viewedAt: "2026-09-25T09:00:00.000Z",
+        },
+      ],
     };
 
     // act
@@ -39,11 +48,29 @@ describe("load", () => {
     expect(load()).toEqual(document);
   });
 
+  test("loads a document saved before viewed marks, with none viewed", () => {
+    // arrange
+    const mark = {
+      reviewKey: "a",
+      fromCommitId: "a1",
+      toCommitId: "a2",
+      seenAt: "2026-09-14T09:00:00.000Z",
+    };
+    localStorage.setItem(
+      "diffy.session.v1",
+      JSON.stringify({ marks: [mark], comments: [] }),
+    );
+
+    // act
+    // assert
+    expect(load()).toEqual({ marks: [mark], comments: [], viewed: [] });
+  });
+
   test("loads an empty document when nothing is stored", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [] });
+    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
   });
 
   test("loads an empty document when the stored value is not JSON", () => {
@@ -52,7 +79,7 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [] });
+    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
   });
 
   test("loads an empty document when the stored value has the wrong shape", () => {
@@ -61,7 +88,7 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [] });
+    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
   });
 });
 
@@ -77,7 +104,7 @@ describe("save", () => {
 
     // act
     // assert
-    expect(() => save({ marks: [], comments: [] })).not.toThrow();
+    expect(() => save({ marks: [], comments: [], viewed: [] })).not.toThrow();
   });
 });
 // ~/~ end
