@@ -228,9 +228,17 @@ export const BlobId = z
   .brand("BlobId");
 export type BlobId = z.infer<typeof BlobId>;
 
+/** A blob's contents, or null when the store has no one blob by that id. */
+export async function gitBlobBytes(
+  id: BlobId,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
+  return result.exitCode === 0 ? result.bytes() : null;
+}
+
 /** A blob's contents as text, or null when the store has no one blob by that id. */
 export async function gitBlob(id: BlobId): Promise<string | null> {
-  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
-  return result.exitCode === 0 ? result.text() : null;
+  const bytes = await gitBlobBytes(id);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
 }
 // ~/~ end
