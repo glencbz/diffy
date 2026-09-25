@@ -13,13 +13,18 @@ export interface Hunk {
   /** The after-side number of the hunk's first line, or of the line that
    *  would follow it when the hunk only removes. */
   newStart: number;
+  /** The same on the before side, where the hunk says. A structural hunk
+   *  does not. */
+  oldStart?: number;
   lines: HunkLine[];
 }
 
 /** A line inside a hunk. `code` is the line without its `+`, `-`, or space,
- *  and line numbers count from 1, as each side's file has them. */
+ *  and line numbers count from 1, as each side's file has them. A context
+ *  line has no `oldLine` when it has no before-side partner, which only a
+ *  structural hunk has. */
 export type HunkLine =
-  | { kind: "context"; code: string; newLine: number }
+  | { kind: "context"; code: string; newLine: number; oldLine?: number }
   | { kind: "removed"; code: string; oldLine: number }
   | { kind: "added"; code: string; newLine: number }
   | { kind: "note"; text: string };
@@ -46,7 +51,12 @@ export function readPatch(patch: string): Patch {
     if (start !== null) {
       oldLine = firstLine(start[1], start[2]);
       newLine = firstLine(start[3], start[4]);
-      hunks.push({ header: text, newStart: newLine, lines: [] });
+      hunks.push({
+        header: text,
+        newStart: newLine,
+        oldStart: oldLine,
+        lines: [],
+      });
       continue;
     }
 
@@ -64,8 +74,12 @@ export function readPatch(patch: string): Patch {
     } else if (text.startsWith("\\")) {
       hunk.lines.push({ kind: "note", text });
     } else {
-      oldLine++;
-      hunk.lines.push({ kind: "context", code, newLine: newLine++ });
+      hunk.lines.push({
+        kind: "context",
+        code,
+        newLine: newLine++,
+        oldLine: oldLine++,
+      });
     }
   }
 
@@ -75,10 +89,11 @@ export function readPatch(patch: string): Patch {
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-patch>>[1]
 
 /** Unchanged after-side lines the patch left out, `count` of them from line
- *  `start` on. */
+ *  `start` on, which is line `oldStart` on the before side. */
 export interface Gap {
   start: number;
   count: number;
+  oldStart: number | null;
 }
 
 /** One gap before each hunk and one after the last, empty where the hunks
@@ -86,13 +101,27 @@ export interface Gap {
 export function gapsOf(patch: Patch, length: number): Gap[] {
   const gaps: Gap[] = [];
   let next = 1;
+  let oldNext: number | null = 1;
 
   for (const hunk of patch.hunks) {
-    gaps.push({ start: next, count: Math.max(0, hunk.newStart - next) });
+    const count = Math.max(0, hunk.newStart - next);
+    gaps.push({
+      start: next,
+      count,
+      oldStart: hunk.oldStart === undefined ? null : hunk.oldStart - count,
+    });
     next =
       hunk.newStart + hunk.lines.filter((line) => "newLine" in line).length;
+    oldNext =
+      hunk.oldStart === undefined
+        ? null
+        : hunk.oldStart + hunk.lines.filter((line) => "oldLine" in line).length;
   }
-  gaps.push({ start: next, count: Math.max(0, length - next + 1) });
+  gaps.push({
+    start: next,
+    count: Math.max(0, length - next + 1),
+    oldStart: oldNext,
+  });
 
   return gaps;
 }

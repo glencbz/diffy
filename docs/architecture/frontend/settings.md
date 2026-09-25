@@ -32,9 +32,19 @@ since each file has its own switch. The default reaches the diff view through
 `DiffModeDefault`, a context, since the diffs sit several screens and
 controllers below `App` and none of those layers has any use for it.
 
-`diffMode` parses with a default of its own. Settings saved before the
-choice existed have no `diffMode`, and without the default they would fail
-to parse and reset the reader's text size along with it.
+The reader also picks whether a diff is laid out in one column or
+[side by side](diff.md#side-by-side). Unlike the view, the layout is not a
+starting point with a switch on every file, since a reader who wants two
+columns wants them for every file at once. It is a setting of the device
+for the same reason the text size is: a laptop has room for two columns and
+a phone does not, and a diff on a narrow window is drawn in one column
+whatever the setting says. It reaches the diff view through
+`DiffLayoutSetting`, beside `DiffModeDefault`.
+
+`diffMode` and `diffLayout` each parse with a default of their own.
+Settings saved before either choice existed do not have it, and without the
+default they would fail to parse and reset the reader's text size along
+with it.
 
 The size is written to the page in a layout effect, not a plain effect. A
 plain effect runs after the browser paints, so a reader who chose a larger
@@ -52,21 +62,32 @@ export type TextSize = z.infer<typeof TextSize>;
 export const DiffMode = z.enum(["structural", "line"]);
 export type DiffMode = z.infer<typeof DiffMode>;
 
+export const DiffLayout = z.enum(["unified", "split"]);
+export type DiffLayout = z.infer<typeof DiffLayout>;
+
 export const Settings = z.object({
   display: z.object({
     textSize: TextSize,
     diffMode: DiffMode.default("structural"),
+    diffLayout: DiffLayout.default("unified"),
   }),
 });
 export type Settings = z.infer<typeof Settings>;
 
 const STORAGE_KEY = "diffy.settings.v1";
 const DEFAULT_SETTINGS: Settings = {
-  display: { textSize: "standard", diffMode: "structural" },
+  display: {
+    textSize: "standard",
+    diffMode: "structural",
+    diffLayout: "unified",
+  },
 };
 
 /** The view a file's diff starts in until the reader switches that file. */
 export const DiffModeDefault = createContext<DiffMode>("structural");
+
+/** Whether a line diff is drawn in one column or two, where there is room. */
+export const DiffLayoutSetting = createContext<DiffLayout>("unified");
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -97,6 +118,7 @@ export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
   setDiffMode: (diffMode: DiffMode) => void;
+  setDiffLayout: (diffLayout: DiffLayout) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -124,8 +146,12 @@ export function useSettings(): SettingsHandle {
     (diffMode: DiffMode) => setDisplay({ diffMode }),
     [setDisplay],
   );
+  const setDiffLayout = useCallback(
+    (diffLayout: DiffLayout) => setDisplay({ diffLayout }),
+    [setDisplay],
+  );
 
-  return { settings, setTextSize, setDiffMode };
+  return { settings, setTextSize, setDiffMode, setDiffLayout };
 }
 ```
 
@@ -154,7 +180,7 @@ describe("load", () => {
   test("round-trips settings through save", () => {
     // arrange
     const settings: Settings = {
-      display: { textSize: "large", diffMode: "line" },
+      display: { textSize: "large", diffMode: "line", diffLayout: "split" },
     };
 
     // act
@@ -169,7 +195,11 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
+      display: {
+        textSize: "standard",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
     });
   });
 
@@ -183,7 +213,25 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "large", diffMode: "structural" },
+      display: {
+        textSize: "large",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
+    });
+  });
+
+  test("keeps a diff mode saved before layouts existed", () => {
+    // arrange
+    localStorage.setItem(
+      "diffy.settings.v1",
+      JSON.stringify({ display: { textSize: "large", diffMode: "line" } }),
+    );
+
+    // act
+    // assert
+    expect(load()).toEqual({
+      display: { textSize: "large", diffMode: "line", diffLayout: "unified" },
     });
   });
 
@@ -194,7 +242,11 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
+      display: {
+        textSize: "standard",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
     });
   });
 
@@ -205,7 +257,11 @@ describe("load", () => {
     // act
     // assert
     expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
+      display: {
+        textSize: "standard",
+        diffMode: "structural",
+        diffLayout: "unified",
+      },
     });
   });
 });
@@ -223,7 +279,13 @@ describe("save", () => {
     // act
     // assert
     expect(() =>
-      save({ display: { textSize: "standard", diffMode: "structural" } }),
+      save({
+        display: {
+          textSize: "standard",
+          diffMode: "structural",
+          diffLayout: "unified",
+        },
+      }),
     ).not.toThrow();
   });
 });
@@ -257,8 +319,8 @@ size the reader picked beats any default a breakpoint sets.
 
 ## Settings screen
 
-One `<fieldset>` per choice. A radio group is the right control for both a
-size and a diff view: the choices are mutually exclusive, there are few
+One `<fieldset>` per choice. A radio group is the right control for a
+size, a diff view, and a layout alike: the choices are mutually exclusive, there are few
 enough to show all at once, and a native `<input type="radio">` gets
 keyboard and screen reader behaviour for free that a row of buttons would
 have to reimplement.
@@ -271,7 +333,12 @@ repeat every pixel value in a second set of rules.
 ```tsx
 //| id: frontend-view-settings-screen
 //| file: src/frontend/views/SettingsScreen.tsx
-import type { DiffMode, Settings, TextSize } from "../state/settings";
+import type {
+  DiffLayout,
+  DiffMode,
+  Settings,
+  TextSize,
+} from "../state/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
   { value: "small", caption: "Small" },
@@ -285,14 +352,21 @@ const DIFF_MODES: { value: DiffMode; caption: string }[] = [
   { value: "line", caption: "Line by line" },
 ];
 
+const DIFF_LAYOUTS: { value: DiffLayout; caption: string }[] = [
+  { value: "unified", caption: "One column" },
+  { value: "split", caption: "Side by side, for line diffs on wide screens" },
+];
+
 export function SettingsScreen({
   settings,
   onSetTextSize,
   onSetDiffMode,
+  onSetDiffLayout,
 }: {
   settings: Settings;
   onSetTextSize: (textSize: TextSize) => void;
   onSetDiffMode: (diffMode: DiffMode) => void;
+  onSetDiffLayout: (diffLayout: DiffLayout) => void;
 }) {
   return (
     <div className="settings">
@@ -321,6 +395,21 @@ export function SettingsScreen({
               value={value}
               checked={settings.display.diffMode === value}
               onChange={() => onSetDiffMode(value)}
+            />
+            {caption}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="settings__section">
+        <legend>Diffs are laid out</legend>
+        {DIFF_LAYOUTS.map(({ value, caption }) => (
+          <label key={value} className="settings__option">
+            <input
+              type="radio"
+              name="diff-layout"
+              value={value}
+              checked={settings.display.diffLayout === value}
+              onChange={() => onSetDiffLayout(value)}
             />
             {caption}
           </label>

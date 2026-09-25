@@ -6,11 +6,16 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { FileSpot } from "../state/place";
 import type { RowComment } from "../state/review";
-import { type DiffMode, DiffModeDefault } from "../state/settings";
+import {
+  DiffLayoutSetting,
+  type DiffMode,
+  DiffModeDefault,
+} from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -23,6 +28,7 @@ import {
 import { collapseReason } from "./collapse";
 import { FileTree } from "./FileTree";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
+import { splitRows } from "./split";
 import {
   changedLines,
   type PaintedToken,
@@ -71,6 +77,8 @@ export function DiffView({
     path: string;
     line: number;
   } | null>(null);
+  const layout = useContext(DiffLayoutSetting);
+  const narrow = useNarrow();
 
   const changedFiles = useMemo(
     () =>
@@ -96,6 +104,7 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
+            split={layout === "split" && !narrow}
             links={links === undefined ? undefined : fileLinks(links, file)}
             reveal={reveal}
             review={
@@ -176,6 +185,21 @@ function jumpTo(file: ChangedFile): void {
   document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
 
+/** The width under which the panes stop being columns, and a diff has one
+ *  column too. */
+const NARROW = "(max-width: 1000px)";
+
+function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = matchMedia(NARROW);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => matchMedia(NARROW).matches,
+  );
+}
+
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
@@ -245,6 +269,7 @@ function FileRow({
   file,
   anchor,
   sides,
+  split,
   review,
   links,
   reveal,
@@ -252,6 +277,8 @@ function FileRow({
   file: FileDiff;
   anchor: string;
   sides: FileSides;
+  /** Whether the reader asked for two columns, where there is room. */
+  split: boolean;
   review?: FileReview;
   links?: FileLinks;
   reveal?: number;
@@ -284,6 +311,41 @@ function FileRow({
   const open =
     opened ??
     (reason === null || (review?.comments.length ?? 0) > 0 || isSelected);
+  const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
+
+  const drawn = (line: DrawnLine, key: number, side?: Side) =>
+    line.kind === "gap" ? (
+      <button
+        key={key}
+        type="button"
+        className="diff-line diff-line--gap"
+        onClick={() =>
+          setShownIn((all) => ({
+            ...all,
+            [mode]: new Set(all[mode]).add(line.gap),
+          }))
+        }
+      >
+        <span className="diff-line__gutter">⋯</span>
+        <span>
+          show {line.count} unchanged {line.count === 1 ? "line" : "lines"}
+        </span>
+      </button>
+    ) : (
+      <PatchLine
+        key={key}
+        line={line}
+        side={side}
+        onOpenComposer={review?.onOpenComposer}
+        links={links}
+      />
+    );
+  const cell = (line: DrawnLine | null, key: number, side: Side) =>
+    line === null ? (
+      <EmptyCell key={key} side={side} />
+    ) : (
+      drawn(line, key, side)
+    );
 
   return (
     <section id={anchor} ref={section} className="diff-file">
@@ -332,38 +394,20 @@ function FileRow({
       </header>
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
+      ) : split && mode === "line" ? (
+        <pre className="diff-file__patch diff-file__patch--split">
+          {splitRows(lines).flatMap((row, index) =>
+            row.kind === "across"
+              ? [drawn(row.line, 2 * index)]
+              : [
+                  cell(row.before, 2 * index, "before"),
+                  cell(row.after, 2 * index + 1, "after"),
+                ],
+          )}
+        </pre>
       ) : (
         <pre className="diff-file__patch">
-          {drawnLines(body, sides, shown).map((line, index) =>
-            line.kind === "gap" ? (
-              <button
-                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-                key={index}
-                type="button"
-                className="diff-line diff-line--gap"
-                onClick={() =>
-                  setShownIn((all) => ({
-                    ...all,
-                    [mode]: new Set(all[mode]).add(line.gap),
-                  }))
-                }
-              >
-                <span className="diff-line__gutter">⋯</span>
-                <span>
-                  show {line.count} unchanged{" "}
-                  {line.count === 1 ? "line" : "lines"}
-                </span>
-              </button>
-            ) : (
-              <PatchLine
-                // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
-                key={index}
-                line={line}
-                onOpenComposer={review?.onOpenComposer}
-                links={links}
-              />
-            ),
-          )}
+          {lines.map((line, index) => drawn(line, index))}
         </pre>
       )}
       {open && review !== undefined && review.composerLine !== null && (
@@ -506,20 +550,29 @@ function CommentThread({
   );
 }
 
+/** The column a line is drawn in, when the diff has two. */
+type Side = "before" | "after";
+
 /** A `<button>` when the line has an after-side line to comment on, a `<div>`
  *  otherwise. A read-only diff passes no `onOpenComposer`, which makes every
  *  line static, and a read-only diff with `links` makes the gutter number of
- *  every after-side line a link to it. */
+ *  every after-side line a link to it. In the before column a line is
+ *  numbered by its before side, and has nothing to comment on or link to. */
 function PatchLine({
   line,
+  side,
   onOpenComposer,
   links,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
+  side?: Side;
   onOpenComposer?: (line: number) => void;
   links?: FileLinks;
 }) {
-  const afterLine = "afterLine" in line ? line.afterLine : null;
+  const afterLine =
+    side === "before" || !("afterLine" in line) ? null : line.afterLine;
+  const number =
+    side === "before" && "beforeLine" in line ? line.beforeLine : afterLine;
   const linked =
     afterLine !== null && links !== undefined && onOpenComposer === undefined;
   const body = (
@@ -533,7 +586,7 @@ function PatchLine({
           {afterLine}
         </a>
       ) : (
-        <span className="diff-line__gutter">{afterLine ?? ""}</span>
+        <span className="diff-line__gutter">{number ?? ""}</span>
       )}
       {"text" in line ? (
         <span className={`diff-line__text--${line.kind}`}>
@@ -559,7 +612,8 @@ function PatchLine({
     afterLine !== null && links?.selected?.line === afterLine
       ? " diff-line--selected"
       : "";
-  const className = `diff-line diff-line--${line.kind}${selected}`;
+  const column = side === undefined ? "" : ` diff-line--${side}`;
+  const className = `diff-line diff-line--${line.kind}${column}${selected}`;
 
   if (afterLine === null || onOpenComposer === undefined) {
     return <div className={className}>{body}</div>;
@@ -574,6 +628,11 @@ function PatchLine({
       {body}
     </button>
   );
+}
+
+/** The other column's half of a row whose line is only on one side. */
+function EmptyCell({ side }: { side: Side }) {
+  return <div className={`diff-line diff-line--${side} diff-line--empty`} />;
 }
 
 function tokenClass(token: PaintedToken): string | undefined {
@@ -593,7 +652,7 @@ const SIGNS: Record<CodeKind, string> = {
 };
 
 /** One line as drawn. Header lines, hunk headers, and notes are text in one
- *  colour. A line of the file is its tokens, and its after-side line number
+ *  colour. A line of the file is its tokens, and its number on each side
  *  where it has one. A gap stands in for the lines `gapsOf` numbered `gap`
  *  until it is shown. */
 type DrawnLine =
@@ -602,6 +661,7 @@ type DrawnLine =
   | {
       kind: CodeKind;
       tokens: PaintedToken[];
+      beforeLine: number | null;
       afterLine: number | null;
     };
 
@@ -662,6 +722,7 @@ function drawnLines(
     return Array.from({ length: gap.count }, (_, offset) => ({
       kind: "context" as const,
       tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
+      beforeLine: gap.oldStart === null ? null : gap.oldStart + offset,
       afterLine: gap.start + offset,
     }));
   };
@@ -694,6 +755,7 @@ function drawnHunkLine(
       return {
         kind: "context",
         tokens: paintWords(tokensAt(sides.new, line.newLine, line.code), []),
+        beforeLine: line.oldLine ?? null,
         afterLine: line.newLine,
       };
     case "added":
@@ -703,6 +765,7 @@ function drawnHunkLine(
           tokensAt(sides.new, line.newLine, line.code),
           changed,
         ),
+        beforeLine: null,
         afterLine: line.newLine,
       };
     case "removed":
@@ -712,6 +775,7 @@ function drawnHunkLine(
           tokensAt(sides.old, line.oldLine, line.code),
           changed,
         ),
+        beforeLine: line.oldLine,
         afterLine: null,
       };
     case "note":
