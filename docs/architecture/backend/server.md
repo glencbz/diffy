@@ -926,6 +926,12 @@ base does not, which is what makes the two diffs differ at all. That case
 asserts both halves, that the answer is the diff from the commit the two
 share, and that it is not the diff from the base.
 
+`divergedPull` searches only the merges on trunk, which every clone has, and
+asks a revset whether the base side holds a non-empty commit the merge base
+lacks. Diffing the two instead runs difftastic over every file they touch, and
+the local merges a review chain adds span enough files to run past the test
+timeout.
+
 ```ts
 //| id: backend-server-test
 
@@ -982,7 +988,7 @@ describe("pullDiffResponse", () => {
     head: string;
     mergeBase: string;
   }> {
-    for (const merge of await jjLog({ revset: "merges()" })) {
+    for (const merge of await jjLog({ revset: "merges() & ::trunk()" })) {
       const [left, right] = merge.parents;
       if (left === undefined || right === undefined) continue;
       const [shared] = await jjLog({
@@ -997,8 +1003,11 @@ describe("pullDiffResponse", () => {
         [left, right],
         [right, left],
       ] as [string, string][]) {
-        const moved = await jjDiffBetween({ from: mergeBase, to: base });
-        if (moved.length > 0) return { base, head, mergeBase };
+        const [moved] = await jjLog({
+          revset: `(${mergeBase}..${base}) ~ empty()`,
+          limit: 1,
+        });
+        if (moved !== undefined) return { base, head, mergeBase };
       }
     }
     throw new Error("this repo has no merge of two diverged histories");

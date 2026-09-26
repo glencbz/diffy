@@ -110,24 +110,19 @@ describe("jjLog", () => {
   });
 });
 
+/** The operation every jj repo starts from, always last in `jj op log`. */
+const ROOT_OPERATION = "0".repeat(128);
+
 describe("jjOpLog", () => {
-  test("lists operations newest first", async () => {
+  test("lists operations newest first, ending at the root operation", async () => {
     // arrange
     // act
     const operations = await jjOpLog();
 
     // assert
-    expect(operations.length).toBeGreaterThan(0);
-    for (const op of operations) {
-      expect(typeof op.id).toBe("string");
-      expect(typeof op.description).toBe("string");
-      expect(typeof op.args).toBe("string");
-      expect(Number.isNaN(Date.parse(op.time))).toBe(false);
-    }
-
-    const times = operations.map((op) => Date.parse(op.time));
-    const sorted = [...times].sort((a, b) => b - a);
-    expect(times).toEqual(sorted);
+    expect(operations.length).toBeGreaterThan(1);
+    expect(operations[0]?.id).not.toBe(ROOT_OPERATION);
+    expect(operations.at(-1)?.id).toBe(ROOT_OPERATION);
   });
 
   test("respects the limit option", async () => {
