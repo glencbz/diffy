@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-view-settings-screen>>[init]
-import type { DiffMode, Settings, TextSize } from "../state/settings";
+import type { DiffMode, Settings, TextSize } from "../model/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
   { value: "small", caption: "Small" },

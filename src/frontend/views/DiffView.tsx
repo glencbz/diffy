@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
 import {
+  createContext,
   type MouseEvent,
   useContext,
   useEffect,
@@ -8,9 +9,9 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
 import type { RowComment } from "../state/review";
-import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -29,6 +30,11 @@ import {
   paintWords,
   type Range,
 } from "./words";
+
+/** The view a file's diff starts in until the reader switches that file. */
+export const DiffModeDefault = createContext<DiffMode>(
+  DEFAULT_SETTINGS.display.diffMode,
+);
 
 /** Review memory for the files on screen. A diff that has one lets every
  * after-side line be commented on; a diff that has none renders read-only. */
