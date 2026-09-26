@@ -72,6 +72,19 @@ row names and it stands for both sides. `addComment` picks `to ?? from` for an
 after-side line and `from ?? to` for a before-side one, and the stale rule
 needs no side of its own: a rewrite of either commit moves it off the row.
 
+A viewed mark says the reader is done with one file of a row, as that file
+reads now. It is filed under the row's review key, so it follows a change
+through an amend the way a mark does, and it names the file by the path its
+header shows and the blob on each side. The blobs are what keep it honest.
+An amend or a rebase that leaves the file alone leaves both blobs alone, and
+the file stays viewed. One that touches the file changes a blob, and the file
+reads as not viewed until the reader looks again. A path alone would keep a
+file marked viewed after it changed underneath the reader, which is the one
+thing a viewed mark must not claim. The two blob ids are enough without
+hashing the patch, because the patch is drawn from them. A mark that no longer
+matches is left in place rather than pruned, as a stale comparison mark is:
+nothing reads it, and a later rewrite that puts the old blobs back finds it.
+
 ```ts
 //| id: frontend-state-review
 //| file: src/frontend/state/review.ts
@@ -111,9 +124,25 @@ export const Comment = z.object({
 });
 export type Comment = z.infer<typeof Comment>;
 
+/** One file as a comparison draws it: the path its header shows and the blob
+ * on each side. Two versions that agree on all three draw the same diff. */
+export const FileVersion = z.object({
+  path: z.string(),
+  oldBlob: z.string().nullable(),
+  newBlob: z.string().nullable(),
+});
+export type FileVersion = z.infer<typeof FileVersion>;
+
+export const ViewedFile = FileVersion.extend({
+  reviewKey: z.string(),
+  viewedAt: z.string(),
+});
+export type ViewedFile = z.infer<typeof ViewedFile>;
+
 export const SessionDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
+  viewed: z.array(ViewedFile).default([]),
 });
 export type SessionDocument = z.infer<typeof SessionDocument>;
 
@@ -135,6 +164,7 @@ export interface ReviewedRow extends InterdiffRow {
   reviewKey: string;
   review: RowReview;
   comments: RowComment[];
+  viewed: ViewedFile[];
 }
 
 /** What a mark uses to find its row again. A change id survives a rewrite, so
@@ -226,6 +256,7 @@ export function reviewRows(
       reviewKey: key,
       review: reviewFor(marksForChange, fromCommitId, toCommitId),
       comments,
+      viewed: document.viewed.filter((mark) => mark.reviewKey === key),
     };
   });
 }
@@ -252,6 +283,37 @@ export function sameComparison(
     a.toCommitId === b.toCommitId
   );
 }
+
+function sameVersion(a: FileVersion, b: FileVersion): boolean {
+  return (
+    a.path === b.path && a.oldBlob === b.oldBlob && a.newBlob === b.newBlob
+  );
+}
+
+/** Whether one of a row's viewed marks covers the file as it reads now. */
+export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
+  return viewed.some((mark) => sameVersion(mark, file));
+}
+
+/** The document with one file's viewed mark added, or removed if it is
+ * there. */
+export function flipViewed(
+  document: SessionDocument,
+  reviewKey: string,
+  file: FileVersion,
+  viewedAt: string,
+): SessionDocument {
+  const others = document.viewed.filter(
+    (mark) => mark.reviewKey !== reviewKey || !sameVersion(mark, file),
+  );
+  if (others.length < document.viewed.length) {
+    return { ...document, viewed: others };
+  }
+  return {
+    ...document,
+    viewed: [...others, { ...file, reviewKey, viewedAt }],
+  };
+}
 ```
 
 The reorder case runs `alignSeries` for real rather than using a hand-rolled
@@ -265,7 +327,14 @@ wrong assumption the code is being tested against.
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import { reviewKey, reviewRows, SessionDocument } from "./review";
+import {
+  type FileVersion,
+  flipViewed,
+  isViewed,
+  reviewKey,
+  reviewRows,
+  SessionDocument,
+} from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -302,7 +371,7 @@ describe("reviewRows", () => {
   test("leaves a row unseen against an empty document", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = { marks: [], comments: [] };
+    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -324,6 +393,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -349,6 +419,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -376,6 +447,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -403,6 +475,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -425,9 +498,11 @@ describe("reviewRows", () => {
       ...pair,
       files: [],
     }));
-    const changeARows = reviewRows(rows, { marks: [], comments: [] }).filter(
-      (row) => row.reviewKey === "change:aaaa",
-    );
+    const changeARows = reviewRows(rows, {
+      marks: [],
+      comments: [],
+      viewed: [],
+    }).filter((row) => row.reviewKey === "change:aaaa");
     const dropped = changeARows.find((row) => row.to === null);
     if (dropped === undefined) {
       throw new Error("expected a dropped row for change aaaa");
@@ -442,6 +517,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -473,6 +549,7 @@ describe("reviewRows", () => {
           createdAt: "2026-09-14T09:00:00.000Z",
         },
       ],
+      viewed: [],
     };
 
     // act
@@ -500,6 +577,7 @@ describe("reviewRows", () => {
           createdAt: "2026-09-14T09:00:00.000Z",
         },
       ],
+      viewed: [],
     };
 
     // act
@@ -516,7 +594,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2"),
       files: [],
     };
-    const document: SessionDocument = { marks: [], comments: [] };
+    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -542,6 +620,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -571,6 +650,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -597,6 +677,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -661,6 +742,75 @@ describe("reviewKey", () => {
     expect(jjKey).toBe("change:shared");
     expect(gitKey).toBe("rev:shared");
     expect(jjKey).not.toBe(gitKey);
+  });
+});
+
+describe("viewed files", () => {
+  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+  const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
+
+  test("reads a file viewed on its row once it is marked", () => {
+    // arrange
+    const document = flipViewed(
+      empty,
+      "change:a",
+      file,
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const [row] = reviewRows([pairRow("a", "a1", "a2")], document);
+
+    // assert
+    expect(isViewed(row?.viewed ?? [], file)).toBe(true);
+  });
+
+  test("unmarks a file marked a second time", () => {
+    // arrange
+    const marked = flipViewed(empty, "change:a", file, "2026-09-25T09:00:00Z");
+
+    // act
+    const unmarked = flipViewed(
+      marked,
+      "change:a",
+      file,
+      "2026-09-25T09:01:00Z",
+    );
+
+    // assert
+    expect(unmarked.viewed).toEqual([]);
+  });
+
+  test("reads a file not viewed once its after side has changed", () => {
+    // arrange
+    const document = flipViewed(
+      empty,
+      "change:a",
+      file,
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const [row] = reviewRows([pairRow("a", "a1", "a3")], document);
+
+    // assert
+    expect(isViewed(row?.viewed ?? [], { ...file, newBlob: "b3" })).toBe(false);
+  });
+
+  test("keeps a viewed mark to the row it was made on", () => {
+    // arrange
+    const document = flipViewed(
+      empty,
+      "change:a",
+      file,
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const [row] = reviewRows([pairRow("b", "b1", "b2")], document);
+
+    // assert
+    expect(isViewed(row?.viewed ?? [], file)).toBe(false);
   });
 });
 ```
@@ -774,7 +924,10 @@ single `useState<SessionDocument>`. It passes `useState(load)` rather than
 `load` parses whatever sits under the storage key with the `SessionDocument`
 Zod schema and falls back to an empty document on anything that does not
 parse: absent, truncated by a full quota, or hand-edited in devtools into some
-other shape. Content read out of `localStorage` is external input the way a
+other shape. A document saved before viewed marks existed has no `viewed`
+list, and the schema reads that as an empty one rather than as a bad blob, so
+adding viewed marks cost no reader their marks and comments. Content read out
+of `localStorage` is external input the way a
 request body was, so it gets the boundary discipline a request body used to
 get on the server. A corrupt blob costs the reviewer their history, not the
 ability to open the app.
@@ -794,7 +947,11 @@ This is the same five-way logic that used to live in `applyEdit`'s `switch`,
 inlined at the call site that already knows which mutation it is making rather
 than re-derived from a `kind` tag a layer away. `markSeen` decides mark versus
 unmark from the row's own `review.state`, so callers never build a comparison
-by hand. Every mutator is wrapped in `useCallback` closing only over the
+by hand. `toggleViewed` is the exception to inlining: its next document
+comes from `flipViewed` in the review module, a plain function the review
+tests reach without rendering a component, since whether a mark is added or
+removed is the part worth testing. Every mutator is wrapped in `useCallback`
+closing only over the
 stable `update` function rather than over `document`, so passing `markSeen`
 through two layers of props does not retrigger effects that depend on it.
 
@@ -804,6 +961,8 @@ through two layers of props does not retrigger effects that depend on it.
 import { useCallback, useState } from "react";
 import {
   type Comment,
+  type FileVersion,
+  flipViewed,
   type LineAnchor,
   type ReviewedRow,
   SessionDocument,
@@ -811,7 +970,11 @@ import {
 } from "./review";
 
 const STORAGE_KEY = "diffy.session.v1";
-const EMPTY_DOCUMENT: SessionDocument = { marks: [], comments: [] };
+const EMPTY_DOCUMENT: SessionDocument = {
+  marks: [],
+  comments: [],
+  viewed: [],
+};
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -849,6 +1012,7 @@ export interface Session {
   ) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
+  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }
 
 export function useSession(): Session {
@@ -934,7 +1098,23 @@ export function useSession(): Session {
     [update],
   );
 
-  return { document, markSeen, addComment, resolveComment, dropComment };
+  const toggleViewed = useCallback(
+    (row: ReviewedRow, file: FileVersion) => {
+      update((current) =>
+        flipViewed(current, row.reviewKey, file, new Date().toISOString()),
+      );
+    },
+    [update],
+  );
+
+  return {
+    document,
+    markSeen,
+    addComment,
+    resolveComment,
+    dropComment,
+    toggleViewed,
+  };
 }
 ```
 
@@ -979,6 +1159,15 @@ describe("load", () => {
         },
       ],
       comments: [],
+      viewed: [
+        {
+          reviewKey: "a",
+          path: "f.ts",
+          oldBlob: null,
+          newBlob: "b1",
+          viewedAt: "2026-09-25T09:00:00.000Z",
+        },
+      ],
     };
 
     // act
@@ -988,11 +1177,29 @@ describe("load", () => {
     expect(load()).toEqual(document);
   });
 
+  test("loads a document saved before viewed marks, with none viewed", () => {
+    // arrange
+    const mark = {
+      reviewKey: "a",
+      fromCommitId: "a1",
+      toCommitId: "a2",
+      seenAt: "2026-09-14T09:00:00.000Z",
+    };
+    localStorage.setItem(
+      "diffy.session.v1",
+      JSON.stringify({ marks: [mark], comments: [] }),
+    );
+
+    // act
+    // assert
+    expect(load()).toEqual({ marks: [mark], comments: [], viewed: [] });
+  });
+
   test("loads an empty document when nothing is stored", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [] });
+    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
   });
 
   test("loads an empty document when the stored value is not JSON", () => {
@@ -1001,7 +1208,7 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [] });
+    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
   });
 
   test("loads an empty document when the stored value has the wrong shape", () => {
@@ -1010,7 +1217,7 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [] });
+    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
   });
 });
 
@@ -1026,7 +1233,7 @@ describe("save", () => {
 
     // act
     // assert
-    expect(() => save({ marks: [], comments: [] })).not.toThrow();
+    expect(() => save({ marks: [], comments: [], viewed: [] })).not.toThrow();
   });
 });
 ```

@@ -2,7 +2,14 @@
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import { reviewKey, reviewRows, SessionDocument } from "./review";
+import {
+  type FileVersion,
+  flipViewed,
+  isViewed,
+  reviewKey,
+  reviewRows,
+  SessionDocument,
+} from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -39,7 +46,7 @@ describe("reviewRows", () => {
   test("leaves a row unseen against an empty document", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = { marks: [], comments: [] };
+    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -61,6 +68,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -86,6 +94,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -113,6 +122,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -140,6 +150,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -162,9 +173,11 @@ describe("reviewRows", () => {
       ...pair,
       files: [],
     }));
-    const changeARows = reviewRows(rows, { marks: [], comments: [] }).filter(
-      (row) => row.reviewKey === "change:aaaa",
-    );
+    const changeARows = reviewRows(rows, {
+      marks: [],
+      comments: [],
+      viewed: [],
+    }).filter((row) => row.reviewKey === "change:aaaa");
     const dropped = changeARows.find((row) => row.to === null);
     if (dropped === undefined) {
       throw new Error("expected a dropped row for change aaaa");
@@ -179,6 +192,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -210,6 +224,7 @@ describe("reviewRows", () => {
           createdAt: "2026-09-14T09:00:00.000Z",
         },
       ],
+      viewed: [],
     };
 
     // act
@@ -237,6 +252,7 @@ describe("reviewRows", () => {
           createdAt: "2026-09-14T09:00:00.000Z",
         },
       ],
+      viewed: [],
     };
 
     // act
@@ -253,7 +269,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2"),
       files: [],
     };
-    const document: SessionDocument = { marks: [], comments: [] };
+    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -279,6 +295,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -308,6 +325,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -334,6 +352,7 @@ describe("reviewRows", () => {
         },
       ],
       comments: [],
+      viewed: [],
     };
 
     // act
@@ -398,6 +417,75 @@ describe("reviewKey", () => {
     expect(jjKey).toBe("change:shared");
     expect(gitKey).toBe("rev:shared");
     expect(jjKey).not.toBe(gitKey);
+  });
+});
+
+describe("viewed files", () => {
+  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+  const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
+
+  test("reads a file viewed on its row once it is marked", () => {
+    // arrange
+    const document = flipViewed(
+      empty,
+      "change:a",
+      file,
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const [row] = reviewRows([pairRow("a", "a1", "a2")], document);
+
+    // assert
+    expect(isViewed(row?.viewed ?? [], file)).toBe(true);
+  });
+
+  test("unmarks a file marked a second time", () => {
+    // arrange
+    const marked = flipViewed(empty, "change:a", file, "2026-09-25T09:00:00Z");
+
+    // act
+    const unmarked = flipViewed(
+      marked,
+      "change:a",
+      file,
+      "2026-09-25T09:01:00Z",
+    );
+
+    // assert
+    expect(unmarked.viewed).toEqual([]);
+  });
+
+  test("reads a file not viewed once its after side has changed", () => {
+    // arrange
+    const document = flipViewed(
+      empty,
+      "change:a",
+      file,
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const [row] = reviewRows([pairRow("a", "a1", "a3")], document);
+
+    // assert
+    expect(isViewed(row?.viewed ?? [], { ...file, newBlob: "b3" })).toBe(false);
+  });
+
+  test("keeps a viewed mark to the row it was made on", () => {
+    // arrange
+    const document = flipViewed(
+      empty,
+      "change:a",
+      file,
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const [row] = reviewRows([pairRow("b", "b1", "b2")], document);
+
+    // assert
+    expect(isViewed(row?.viewed ?? [], file)).toBe(false);
   });
 });
 // ~/~ end

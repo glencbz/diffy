@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-changed-files>>[init]
 import type { FileDiff } from "../api";
-import type { RowComment } from "../state/review";
+import type { FileVersion, RowComment } from "../state/review";
 import { readPatch } from "./patch";
 
 /** One changed file, read once from whichever `FileDiff` shape it came
@@ -43,6 +43,16 @@ export function afterPathOf(file: FileDiff): string {
  *  `old → new` for a rename or a copy. */
 export function shownPathOf(file: FileDiff): string {
   return "path" in file ? file.path : `${file.oldPath} → ${file.newPath}`;
+}
+
+/** The file as a viewed mark names it: filed like its comments, and pinned
+ *  to the blobs it was read at. */
+export function fileVersionOf(file: FileDiff): FileVersion {
+  return {
+    path: shownPathOf(file),
+    oldBlob: file.oldBlob,
+    newBlob: file.newBlob,
+  };
 }
 
 function countPatch(patch: string): { added: number; removed: number } {

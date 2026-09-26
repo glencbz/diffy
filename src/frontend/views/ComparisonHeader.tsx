@@ -1,8 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comparison-header>>[init]
 import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import type { ReviewedRow, RowReview } from "../state/review";
+import { isViewed, type ReviewedRow, type RowReview } from "../state/review";
 import { CommitLabel } from "./CommitLabel";
+import { fileVersionOf } from "./changedFiles";
 
 export function ComparisonHeader({
   row,
@@ -14,6 +15,9 @@ export function ComparisonHeader({
   const openComments = row.comments.filter(
     (comment) => !comment.resolved,
   ).length;
+  const viewed = row.files.filter((file) =>
+    isViewed(row.viewed, fileVersionOf(file)),
+  ).length;
 
   return (
     <header className="comparison-header">
@@ -22,6 +26,11 @@ export function ComparisonHeader({
       <div className="comparison-header__actions">
         <ReviewChip review={row.review} />
         {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
+        {row.files.length > 0 && (
+          <span className="comparison-header__viewed">
+            {viewed} / {row.files.length} files viewed
+          </span>
+        )}
         <button
           type="button"
           onClick={onMarkSeen}

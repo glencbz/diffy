@@ -45,6 +45,7 @@ export function DiffPane({
         onAddComment={session.addComment}
         onResolveComment={session.resolveComment}
         onDropComment={session.dropComment}
+        onToggleViewed={session.toggleViewed}
       />
     </>
   );
