@@ -102,7 +102,9 @@ directory, and run `review.sh sync` or let the watcher pick it up.
   `jj bookmark forget` it.
 - The merges are descendants of every WIP change, so `jj log` shows them and
   `jj rebase -s <root> -o 'trunk()'` on a WIP branch drags them along. That is
-  expected and harmless.
+  the point: the merge keeps its resolution and follows its branch. Update a
+  branch by rebasing or amending its change, never by `jj duplicate`, which
+  leaves the merge on a change nobody will touch again.
 - If a sync reports a divergent merge, two operations rewrote it at once.
   Look at both copies with `jj log -r 'divergent()'`, `jj abandon` the one
   without the resolution, and sync.
