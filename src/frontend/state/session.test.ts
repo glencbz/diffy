@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionDocument } from "./review";
+import type { SessionDocument } from "../model/review";
 import { load, save } from "./session";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {

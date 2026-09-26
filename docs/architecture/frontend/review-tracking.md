@@ -85,11 +85,15 @@ hashing the patch, because the patch is drawn from them. A mark that no longer
 matches is left in place rather than pruned, as a stale comparison mark is:
 nothing reads it, and a later rewrite that puts the old blobs back finds it.
 
+What a session document can hold is the review [model](index.md#model):
+marks, comments, and viewed files, each with the Zod schema that reads it
+back from storage. The views name these shapes, and none of them needs React
+or storage, so they sit apart from the state that loads and changes them.
+
 ```ts
-//| id: frontend-state-review
-//| file: src/frontend/state/review.ts
+//| id: frontend-model-review
+//| file: src/frontend/model/review.ts
 import * as z from "zod";
-import type { InterdiffRow } from "../api";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -145,6 +149,22 @@ export const SessionDocument = z.object({
   viewed: z.array(ViewedFile).default([]),
 });
 export type SessionDocument = z.infer<typeof SessionDocument>;
+```
+
+The rest is state: how the stored document is read against the rows the
+interdiff returns.
+
+```ts
+//| id: frontend-state-review
+//| file: src/frontend/state/review.ts
+import type { InterdiffRow } from "../api";
+import type {
+  Comment,
+  FileVersion,
+  Mark,
+  SessionDocument,
+  ViewedFile,
+} from "../model/review";
 
 export type RowReview =
   | { state: "unseen" }
@@ -327,14 +347,8 @@ wrong assumption the code is being tested against.
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import {
-  type FileVersion,
-  flipViewed,
-  isViewed,
-  reviewKey,
-  reviewRows,
-  SessionDocument,
-} from "./review";
+import { type FileVersion, SessionDocument } from "../model/review";
+import { flipViewed, isViewed, reviewKey, reviewRows } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -962,12 +976,10 @@ import { useCallback, useState } from "react";
 import {
   type Comment,
   type FileVersion,
-  flipViewed,
   type LineAnchor,
-  type ReviewedRow,
   SessionDocument,
-  sameComparison,
-} from "./review";
+} from "../model/review";
+import { flipViewed, type ReviewedRow, sameComparison } from "./review";
 
 const STORAGE_KEY = "diffy.session.v1";
 const EMPTY_DOCUMENT: SessionDocument = {
@@ -1129,7 +1141,7 @@ functions it tests.
 //| id: frontend-state-session-test
 //| file: src/frontend/state/session.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionDocument } from "./review";
+import type { SessionDocument } from "../model/review";
 import { load, save } from "./session";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
