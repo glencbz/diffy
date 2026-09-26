@@ -28,22 +28,26 @@ exists for.
 A diff is drawn [structurally or line by line](diff.md#diff-view), and the
 reader picks which one files start in. Structural is the default because it
 is the one that hides layout noise. The choice is only a starting point,
-since each file has its own switch. The default reaches the diff view through
-`DiffModeDefault`, a context, since the diffs sit several screens and
-controllers below `App` and none of those layers has any use for it.
+since each file has its own switch. The reader's choice reaches the diff view
+through [`DiffModeDefault`](diff.md#diff-view), a context, since the diffs sit
+several screens and controllers below `App` and none of those layers has any
+use for it.
 
 `diffMode` parses with a default of its own. Settings saved before the
 choice existed have no `diffMode`, and without the default they would fail
 to parse and reset the reader's text size along with it.
 
-The size is written to the page in a layout effect, not a plain effect. A
-plain effect runs after the browser paints, so a reader who chose a larger
-size would see every load flash at the standard size first.
+What a setting can be and what it starts as are the settings'
+[model](index.md#model), apart from the state that loads and saves them. The
+diff view needs the vocabulary and the default, and neither needs storage or
+React. With both in `state/`, a view could not name a diff mode without
+reaching into the layer that owns `localStorage`. Each default is written
+once, in `DEFAULT_SETTINGS`, and the schema, the fallback, and the context
+all read it from there.
 
 ```ts
-//| id: frontend-state-settings
-//| file: src/frontend/state/settings.ts
-import { createContext, useCallback, useLayoutEffect, useState } from "react";
+//| id: frontend-model-settings
+//| file: src/frontend/model/settings.ts
 import * as z from "zod";
 
 export const TextSize = z.enum(["small", "standard", "large", "larger"]);
@@ -52,21 +56,38 @@ export type TextSize = z.infer<typeof TextSize>;
 export const DiffMode = z.enum(["structural", "line"]);
 export type DiffMode = z.infer<typeof DiffMode>;
 
+const DEFAULT_DISPLAY = {
+  textSize: "standard",
+  diffMode: "structural",
+} as const;
+
 export const Settings = z.object({
   display: z.object({
     textSize: TextSize,
-    diffMode: DiffMode.default("structural"),
+    diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
   }),
 });
 export type Settings = z.infer<typeof Settings>;
 
-const STORAGE_KEY = "diffy.settings.v1";
-const DEFAULT_SETTINGS: Settings = {
-  display: { textSize: "standard", diffMode: "structural" },
-};
+export const DEFAULT_SETTINGS: Settings = { display: DEFAULT_DISPLAY };
+```
 
-/** The view a file's diff starts in until the reader switches that file. */
-export const DiffModeDefault = createContext<DiffMode>("structural");
+The size is written to the page in a layout effect, not a plain effect. A
+plain effect runs after the browser paints, so a reader who chose a larger
+size would see every load flash at the standard size first.
+
+```ts
+//| id: frontend-state-settings
+//| file: src/frontend/state/settings.ts
+import { useCallback, useLayoutEffect, useState } from "react";
+import {
+  DEFAULT_SETTINGS,
+  type DiffMode,
+  Settings,
+  type TextSize,
+} from "../model/settings";
+
+const STORAGE_KEY = "diffy.settings.v1";
 
 /** localStorage content is written by a possibly older version of this
  * app, or by hand in devtools; treat it as untrusted input and fall back
@@ -133,7 +154,7 @@ export function useSettings(): SettingsHandle {
 //| id: frontend-state-settings-test
 //| file: src/frontend/state/settings.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { Settings } from "./settings";
+import type { Settings } from "../model/settings";
 import { load, save } from "./settings";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
@@ -271,7 +292,7 @@ repeat every pixel value in a second set of rules.
 ```tsx
 //| id: frontend-view-settings-screen
 //| file: src/frontend/views/SettingsScreen.tsx
-import type { DiffMode, Settings, TextSize } from "../state/settings";
+import type { DiffMode, Settings, TextSize } from "../model/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
   { value: "small", caption: "Small" },

@@ -207,7 +207,8 @@ reformat and mark the tokens that changed rather than the words. The line
 view draws the `git` patch. Both arrive with every file, so switching costs
 no request. Each file has its own switch in its header. Until the reader
 uses it, a file starts in the [default from Settings](settings.md#display),
-read from context. The switch is `useState` in the file's row, like its
+read from `DiffModeDefault`. The context lives here, beside the one component
+that reads it, and `App` provides the reader's choice through it. The switch is `useState` in the file's row, like its
 hidden lines, so it lasts as long as the file is on screen.
 
 The two views are the same drawing over different hunks. Difftastic's hunks
@@ -270,6 +271,7 @@ it, since the reader is looking at what they clicked.
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
 import {
+  createContext,
   type MouseEvent,
   useContext,
   useEffect,
@@ -278,9 +280,9 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
 import type { RowComment } from "../state/review";
-import { type DiffMode, DiffModeDefault } from "../state/settings";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -299,6 +301,11 @@ import {
   paintWords,
   type Range,
 } from "./words";
+
+/** The view a file's diff starts in until the reader switches that file. */
+export const DiffModeDefault = createContext<DiffMode>(
+  DEFAULT_SETTINGS.display.diffMode,
+);
 
 /** Review memory for the files on screen. A diff that has one lets every
  * after-side line be commented on; a diff that has none renders read-only. */

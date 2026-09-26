@@ -43,7 +43,7 @@ would need a stack of out-of-band swaps.
 
 ## Architecture
 
-The app has four layers plus a root. Imports point one way down this list:
+The app has five layers plus a root. Imports point one way down this list:
 
 ```
 index.html + main.tsx   mount point
@@ -53,8 +53,9 @@ index.html + main.tsx   mount point
    controllers/          wire a state hook to a view
       /       \
  state/        views/    state/ owns data and keeps it loaded
-        |                views/ turn props into markup
-     api.ts              transport, fetch plus Zod, no React
+    |    \      /        views/ turn props into markup
+ api.ts   model/         api.ts: transport, fetch plus Zod, no React
+                         model/: the app's own shapes and defaults
 ```
 
 Each layer is named for the job it does. The `state/` modules are React hooks.
@@ -120,6 +121,31 @@ exactly what the API returns. When it stops matching, add view-model types and
 map to them in the controllers. Until then, skip them. A copy of the wire types
 only drifts from the original.
 
+### model
+
+A module in `model/` says what the app's own data can be and what it starts
+as: a Zod schema, the type it infers, and the defaults. It holds no state,
+touches no storage, and imports nothing but Zod. `api.ts` is the same kind of
+module for the shapes the backend sends; `model/` is for the ones that never
+cross the wire, such as [settings](settings.md#display).
+
+A shape goes in `model/` when a view needs it and the layer that loads it is
+`state/`. The view can then name the shape without reaching into the module
+that owns the loading. The module holds the shape, its schema, its defaults,
+and any pure function that is part of what the shape means, such as the key
+it is stored under.
+
+The pattern is meant to spread. A feature whose views name a shape its state
+hook produces keeps that shape in `model/<feature>.ts` from the start, and
+the hook imports it from there. A feature whose shapes all come off the wire
+already has its model in `api.ts` and gets no `model/` module for symmetry.
+
+Shapes that predate the layer still sit in `state/` beside their hooks, and
+any type a view imports from `state/` is one of them. Move one into `model/`
+when its feature next changes, not in a sweep of its own. Views may import
+types from `state/` only until the last of them has moved. After that the
+rule is that views never import `state/`.
+
 ### controllers
 
 A controller in `controllers/` wires one state hook to one view. It calls the
@@ -177,24 +203,24 @@ code, not to add an exception.
 
 Allowed import edges:
 
-- `api.ts` imports Zod only.
-- `state/` imports React, `api.ts`, and other `state/` modules. It imports
-  Zod too, to parse what it reads back from `localStorage`.
+- `api.ts` and `model/` import Zod only.
+- `state/` imports React, `api.ts`, `model/`, and other `state/` modules. It
+  imports Zod too, to parse what it reads back from `localStorage`.
 - `state/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
   `../../backend/commit/series`. `alignSeries` is a pure function with no
   transport and no React, so importing it needs no running server to test,
   which is what this rule exists to protect.
-- `views/` imports React, other `views/`, and *types* from `api.ts` and
-  `state/`. A view is written against a view model, `ReviewedRow` or
+- `views/` imports React, other `views/`, `model/`, and *types* from `api.ts`
+  and `state/`. A view is written against a view model, `ReviewedRow` or
   `RowReview`, as often as against a wire type, and a type-only import erases
   at compile time, so pulling one in from `state/` adds no runtime coupling to
   fetch or React state. The line is drawn at values, not at where a name is
   declared, so importing a *function* from `state/` is the boundary
   violation.
 - `controllers/` import `state/`, `views/`, and `api.ts` *types*.
-- `App.tsx` imports `controllers/`, `views/`, `api.ts` *types*, and the
-  `state/` hooks for what it holds for the whole app: the address, the
-  review session, and the settings.
+- `App.tsx` imports `controllers/`, `views/`, `model/`, `api.ts` *types*,
+  and the `state/` hooks for what it holds for the whole app: the address,
+  the review session, and the settings.
 
 ## Styling
 

@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-state-settings-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { Settings } from "./settings";
+import type { Settings } from "../model/settings";
 import { load, save } from "./settings";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
