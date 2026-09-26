@@ -359,6 +359,62 @@ export function useRowDiffs(
 }
 ```
 
+## Whole pull request
+
+Each row in the stack says how many files its commit touches and how many
+lines it adds and removes. The pull request as a whole wants the same line,
+the one GitHub puts on its files tab, and no sum of the rows gives it: two
+commits editing the same file count that file twice, and a line one commit
+adds and a later one removes counts in both. `usePullFiles` asks the backend
+for the version's whole head against the merge base instead, the diff the
+pull request would land.
+
+That count follows the after end alone. A version-to-version comparison
+still has a whole pull request behind its after end, and the size of what
+that version would land is the same number whichever older version it is
+being read against. Asking for the two heads against each other instead
+would get an interdiff of the tip commits only, which is not a size anyone
+asked about.
+
+```tsx
+//| id: frontend-state-pull-files
+//| file: src/frontend/state/pullFiles.ts
+import { useEffect, useState } from "react";
+import { type FileDiff, fetchPullDiff, type GitOid } from "../api";
+import type { AsyncState } from "./asyncState";
+
+/** Every file one version changes against its base, as the pull request
+ *  would land it. */
+export function usePullFiles(
+  repo: string,
+  number: number,
+  head: GitOid,
+): AsyncState<FileDiff[]> {
+  const [state, setState] = useState<AsyncState<FileDiff[]>>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let live = true;
+
+    setState({ status: "loading" });
+    fetchPullDiff(repo, number, head, { kind: "base" }, { kind: "heads" })
+      .then((data) => {
+        if (live) setState({ status: "ready", data: data.files });
+      })
+      .catch((err: unknown) => {
+        if (live) setState({ status: "error", message: String(err) });
+      });
+
+    return () => {
+      live = false;
+    };
+  }, [repo, number, head]);
+
+  return state;
+}
+```
+
 ## Pull review controller
 
 One pull request, head by head. The before end defaults to the base and the
@@ -448,6 +504,7 @@ import {
   useArrivals,
 } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
+import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
 import { useSources } from "../state/source";
@@ -619,6 +676,7 @@ export function PullReview({
   const afterCommits =
     afterState.status === "ready" ? afterState.data : NO_COMMITS;
 
+  const pullFiles = usePullFiles(repo, number, to);
   const pairing = usePairing(beforeCommits, afterCommits);
   const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
   const sources = useSources(
@@ -695,6 +753,7 @@ export function PullReview({
           history={history.data}
           from={from}
           to={to}
+          files={pullFiles}
           onPickFrom={(next) => onGo({ ...place, from: next })}
           onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
         />
@@ -1231,6 +1290,19 @@ gives no visual hint that anything is missing, so a short note says a gap
 exists. GitHub's own history does not say where the gap is, only that there
 is one, so the note does not try to mark it between two options either.
 
+The size of the [whole pull request](#whole-pull-request) sits right after
+the "to" select, since that is the version it measures, and it is drawn by
+the stack's own [`ChangeCount`](commit-stack.md) so it reads the way every
+commit's count below it does. It is labelled "whole pull request" because a
+version-to-version comparison shows it too, beside a caption about the change
+between two versions that it is not the size of. It is a sibling of the `<label>` rather than
+inside it, because text inside a label becomes part of the select's
+accessible name, and a screen reader announcing "to, 5 files +120 -30" would
+name the field by its current answer. Until the count lands, and if it
+fails, there is nothing there: every row in the stack below asks for its own
+comparison and reports its own failure, so a second error up here would say
+nothing new.
+
 The caption matters more here than the chip row's caption did, because the
 two selects name which versions are being compared but not which kind of
 comparison is on screen. Base against a head is a tree diff of content;
@@ -1244,23 +1316,29 @@ than decoration.
 //| id: frontend-view-pull-comparison-picker
 //| file: src/frontend/views/PullComparisonPicker.tsx
 import type {
+  FileDiff,
   GitOid,
   PullBaseline,
   PullHeadOrigin,
   PullHistory,
   PullVersion,
 } from "../api";
+import type { AsyncState } from "../state/asyncState";
+import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({
   history,
   from,
   to,
+  files,
   onPickFrom,
   onPickTo,
 }: {
   history: PullHistory;
   from: PullBaseline;
   to: GitOid;
+  /** Everything the `to` version changes against the base. */
+  files: AsyncState<FileDiff[]>;
   onPickFrom: (from: PullBaseline) => void;
   onPickTo: (head: GitOid) => void;
 }) {
@@ -1299,6 +1377,12 @@ export function PullComparisonPicker({
           ))}
         </select>
       </label>
+      {files.status === "ready" && (
+        <span className="pull-compare__size">
+          <span className="pull-compare__label">whole pull request</span>
+          <ChangeCount files={files.data} />
+        </span>
+      )}
       {truncated ? (
         <p className="pull-compare__truncated">
           Some versions are missing here. This pull request was force-pushed
@@ -1366,8 +1450,9 @@ touch equivalent, so a reader on a phone could move the after end and never
 the before end, which is a control that only half works for part of its
 audience.
 
-`PullComparisonPicker` is two labelled selects and two caption lines, so
-`.pull-compare` is the flex row that holds all four and the rest of the
+`PullComparisonPicker` is two labelled selects, the size of the whole pull
+request, and two caption lines, so `.pull-compare` is the flex row that
+holds all five and the rest of the
 classes only line each part up. `flex-wrap: wrap` on that row is what lets
 the two fields sit side by side on a wide screen and drop to a stack on a
 phone, and `min-height: 44px` on the select is the standard minimum touch
@@ -1403,6 +1488,12 @@ elsewhere in this app.
     min-height: 44px;
     min-width: 0;
     font: inherit;
+  }
+
+  .pull-compare__size {
+    display: flex;
+    gap: var(--space-3);
+    color: var(--text-muted);
   }
 
   .pull-compare__caption {

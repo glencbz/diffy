@@ -1,22 +1,28 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-comparison-picker>>[init]
 import type {
+  FileDiff,
   GitOid,
   PullBaseline,
   PullHeadOrigin,
   PullHistory,
   PullVersion,
 } from "../api";
+import type { AsyncState } from "../state/asyncState";
+import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({
   history,
   from,
   to,
+  files,
   onPickFrom,
   onPickTo,
 }: {
   history: PullHistory;
   from: PullBaseline;
   to: GitOid;
+  /** Everything the `to` version changes against the base. */
+  files: AsyncState<FileDiff[]>;
   onPickFrom: (from: PullBaseline) => void;
   onPickTo: (head: GitOid) => void;
 }) {
@@ -55,6 +61,12 @@ export function PullComparisonPicker({
           ))}
         </select>
       </label>
+      {files.status === "ready" && (
+        <span className="pull-compare__size">
+          <span className="pull-compare__label">whole pull request</span>
+          <ChangeCount files={files.data} />
+        </span>
+      )}
       {truncated ? (
         <p className="pull-compare__truncated">
           Some versions are missing here. This pull request was force-pushed
