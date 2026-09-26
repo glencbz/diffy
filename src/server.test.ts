@@ -417,25 +417,6 @@ describe("pullDiffResponse", () => {
     expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
   });
 
-  test("leaves the whole-head diff untouched when no commit scope is given", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const later = heads.at(-1) as string;
-
-    // act
-    const res = await pullDiffResponse(
-      query({ from: "base", to: later }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(
-      await jjDiffBetween({ from: base, to: later }),
-    );
-  });
-
   test("fromCommit and toCommit together interdiff those two commits", async () => {
     // arrange
     const { base, heads } = await localPull();

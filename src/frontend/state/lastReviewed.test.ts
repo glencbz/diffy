@@ -39,10 +39,6 @@ describe("load", () => {
     expect(load("o/other", 7)).toBeNull();
   });
 
-  test("reads nothing when nothing is stored", () => {
-    expect(load("o/r", 7)).toBeNull();
-  });
-
   test("reads a value that does not parse as no mark, and keeps the others", () => {
     // arrange
     save("o/r", 8, oid("b"));

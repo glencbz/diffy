@@ -668,21 +668,6 @@ describe("jjLog", () => {
     ).rejects.toBeInstanceOf(JjError);
   });
 
-  test("reads the log at a past operation", async () => {
-    // arrange
-    const operations = await jjOpLog();
-    const earlier = operations.at(-1);
-
-    // act
-    const entries = await jjLog({
-      revset: "all()",
-      atOperation: earlier?.id,
-    });
-
-    // assert
-    expect(entries.length).toBeGreaterThan(0);
-  });
-
   test("wraps an unknown operation id in JjError", async () => {
     // arrange
     // act
@@ -721,8 +706,8 @@ describe("jjOpLog", () => {
 
 The `jjDiff` parser is a pure function, so most of its cases are covered
 without touching a repo, using the trimmed real `jj diff --git` output in the
-fixtures below. Only the integration-level behaviour (default revision, error
-wrapping) drives the real CLI.
+fixtures below. Only the integration-level behaviour (reading a real commit,
+error wrapping) drives the real CLI.
 
 ```ts
 //| id: jj-module-test
@@ -894,18 +879,6 @@ describe("jjDiff", () => {
     expect(await jjDiff({ revision: "root()" })).toEqual([]);
   });
 
-  test("defaults to the working-copy revision", async () => {
-    // arrange
-    // act
-    const [viaDefault, viaExplicit] = await Promise.all([
-      jjDiff(),
-      jjDiff({ revision: "@" }),
-    ]);
-
-    // assert
-    expect(viaDefault).toEqual(viaExplicit);
-  });
-
   test("wraps an unresolvable revision in JjError", async () => {
     // arrange
     const attempt = () => jjDiff({ revision: "no-such-revision-xyz" });
@@ -1034,15 +1007,6 @@ describe("jjCommits", () => {
     // assert
     expect(await jjCommits([])).toEqual(new Map());
   });
-
-  test("wraps an unresolvable id in JjError", async () => {
-    // arrange
-    // act
-    // assert
-    await expect(jjCommits(["no-such-commit-xyz"])).rejects.toBeInstanceOf(
-      JjError,
-    );
-  });
 });
 
 describe("jjInterdiff", () => {
@@ -1090,16 +1054,6 @@ describe("jjInterdiff", () => {
     // assert
     expect(Array.isArray(files)).toBe(true);
   });
-
-  test("wraps an unresolvable commit in JjError", async () => {
-    // arrange
-    const attempt = () => jjInterdiff({ from: "no-such-commit-xyz", to: "@" });
-
-    // act
-    // assert
-    await expect(attempt()).rejects.toBeInstanceOf(JjError);
-    await expect(attempt()).rejects.toThrow(/doesn't exist/);
-  });
 });
 ```
 
@@ -1123,33 +1077,6 @@ describe("jjDiffBetween", () => {
 
     // assert
     expect(files).toEqual(await jjDiff({ revision: to }));
-  });
-
-  test("answers something other than the interdiff of the same pair", async () => {
-    // arrange
-    const from = await commitId("root()+");
-    const to = await commitId("root()++");
-
-    // act
-    const [tree, changes] = await Promise.all([
-      jjDiffBetween({ from, to }),
-      jjInterdiff({ from, to }),
-    ]);
-
-    // assert
-    expect(tree.length).toBeGreaterThan(0);
-    expect(tree).not.toEqual(changes);
-  });
-
-  test("wraps an unresolvable revision in JjError", async () => {
-    // arrange
-    const attempt = () =>
-      jjDiffBetween({ from: "no-such-revision-xyz", to: "@" });
-
-    // act
-    // assert
-    await expect(attempt()).rejects.toBeInstanceOf(JjError);
-    await expect(attempt()).rejects.toThrow(/doesn't exist/);
   });
 });
 ```

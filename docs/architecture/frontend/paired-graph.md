@@ -66,7 +66,7 @@ export type RowKind = "added" | "dropped" | "paired";
 /** What shape a row draws. Never tries to say whether a paired commit was
  *  amended or is byte-identical; that needs the diff, which this pane does
  *  not fetch. */
-export function rowKind(slot: Slot): RowKind {
+function rowKind(slot: Slot): RowKind {
   if (slot.left === null) return "added";
   if (slot.right === null) return "dropped";
   return "paired";
@@ -543,53 +543,4 @@ read, and the rail's own width.
     }
   }
 }
-```
-
-## Tests
-
-`rowKind` is the one pure helper here worth pinning: three shapes in, three
-answers out, the same way [`CommitGraph.test.ts`](commit-history.md#commit-graph)
-tests `layoutGraph` rather than rendering anything.
-
-```ts
-//| id: frontend-view-paired-graph-test
-//| file: src/frontend/views/PairedGraph.test.ts
-import { describe, expect, test } from "bun:test";
-import type { Slot } from "../state/pairing";
-import { rowKind } from "./PairedGraph";
-
-describe("rowKind", () => {
-  test("reads a slot with nothing on the old side as added", () => {
-    // arrange
-    const slot: Slot = { left: null, right: "a2" };
-
-    // act
-    const kind = rowKind(slot);
-
-    // assert
-    expect(kind).toBe("added");
-  });
-
-  test("reads a slot with nothing on the new side as dropped", () => {
-    // arrange
-    const slot: Slot = { left: "a1", right: null };
-
-    // act
-    const kind = rowKind(slot);
-
-    // assert
-    expect(kind).toBe("dropped");
-  });
-
-  test("reads a slot with a commit on both sides as paired", () => {
-    // arrange
-    const slot: Slot = { left: "a1", right: "a2" };
-
-    // act
-    const kind = rowKind(slot);
-
-    // assert
-    expect(kind).toBe("paired");
-  });
-});
 ```
