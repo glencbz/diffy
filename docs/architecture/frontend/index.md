@@ -345,6 +345,8 @@ reference here, anywhere.
 
 <<design-pull-comparison-picker>>
 
+<<design-last-reviewed>>
+
 <<design-pull-sheet>>
 
 <<design-commit-stack>>
