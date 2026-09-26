@@ -3,12 +3,10 @@ import { useCallback, useState } from "react";
 import {
   type Comment,
   type FileVersion,
-  flipViewed,
   type LineAnchor,
-  type ReviewedRow,
   SessionDocument,
-  sameComparison,
-} from "./review";
+} from "../model/review";
+import { flipViewed, type ReviewedRow, sameComparison } from "./review";
 
 const STORAGE_KEY = "diffy.session.v1";
 const EMPTY_DOCUMENT: SessionDocument = {

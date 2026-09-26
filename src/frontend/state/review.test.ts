@@ -2,14 +2,8 @@
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import {
-  type FileVersion,
-  flipViewed,
-  isViewed,
-  reviewKey,
-  reviewRows,
-  SessionDocument,
-} from "./review";
+import { type FileVersion, SessionDocument } from "../model/review";
+import { flipViewed, isViewed, reviewKey, reviewRows } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
