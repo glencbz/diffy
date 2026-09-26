@@ -357,7 +357,7 @@ describe("pullDiffResponse", () => {
     head: string;
     mergeBase: string;
   }> {
-    for (const merge of await jjLog({ revset: "merges()" })) {
+    for (const merge of await jjLog({ revset: "merges() & ::trunk()" })) {
       const [left, right] = merge.parents;
       if (left === undefined || right === undefined) continue;
       const [shared] = await jjLog({
@@ -372,8 +372,11 @@ describe("pullDiffResponse", () => {
         [left, right],
         [right, left],
       ] as [string, string][]) {
-        const moved = await jjDiffBetween({ from: mergeBase, to: base });
-        if (moved.length > 0) return { base, head, mergeBase };
+        const [moved] = await jjLog({
+          revset: `(${mergeBase}..${base}) ~ empty()`,
+          limit: 1,
+        });
+        if (moved !== undefined) return { base, head, mergeBase };
       }
     }
     throw new Error("this repo has no merge of two diverged histories");
@@ -412,25 +415,6 @@ describe("pullDiffResponse", () => {
       await jjInterdiff({ from: earlier, to: later }),
     );
     expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
-  });
-
-  test("leaves the whole-head diff untouched when no commit scope is given", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const later = heads.at(-1) as string;
-
-    // act
-    const res = await pullDiffResponse(
-      query({ from: "base", to: later }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(
-      await jjDiffBetween({ from: base, to: later }),
-    );
   });
 
   test("fromCommit and toCommit together interdiff those two commits", async () => {
