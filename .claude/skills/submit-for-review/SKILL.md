@@ -46,6 +46,12 @@ A jj rebase does not stop on a conflict, it records one, so that last command
 is how you find out. Resolve it in the conflicted change rather than at the tip
 of the stack, as in the `jj-commit-stack` skill.
 
+Rebase the change itself; never `jj duplicate` it onto `trunk()`. Its
+descendants include its `review: merge <bookmark>` commit from the
+`review-branch` skill, and the rebase is what carries that merge and its
+resolution onto the new change. A duplicate leaves the merge on the stale
+change for the watcher to transplant, and it can land conflicted.
+
 If the rebase moved anything, run step 1 again. Those checks measured the old
 base and no longer say anything about what you are about to push.
 
@@ -59,6 +65,17 @@ jj git push --bookmark <bookmark>
 
 To update a change that already has a PR: amend it, move the bookmark, push.
 Never stack a "review fixes" commit on top and never open a second PR.
+
+After the push, check the review branch:
+
+```sh
+.claude/skills/review-branch/review.sh status
+```
+
+A merge marked `conflict` blocks every branch above it on the shared preview.
+Updating a PR includes leaving that chain clean, so resolve the merge as the
+`review-branch` skill describes, even when the conflict sits in another
+branch's merge that yours moved under.
 
 ## 3. Serve this workspace
 
