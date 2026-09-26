@@ -18,9 +18,10 @@ GitHub keeps the same sizes on a phone and grows only its headings, so
 Standard is the default on every screen. A reader who wants more on a phone
 picks Large there, and the laptop keeps its own choice.
 
-`Settings` is stored the way the [session](review-tracking.md#session) is.
-A Zod schema parses whatever `localStorage` holds. Anything that fails to
-parse falls back to the defaults, whether it is an older shape, a hand-edited
+`Settings` is stored the way the [session](review-tracking.md#session) is,
+through a [repository](index.md#local-storage) of its own. A Zod schema
+parses whatever `localStorage` holds. Anything that fails to parse falls back
+to the defaults, whether it is an older shape, a hand-edited
 blob, or nothing at all. `localStorage` is per browser, so a phone keeps its
 own size and a laptop keeps the default, which is the split the setting
 exists for.
@@ -38,10 +39,11 @@ choice existed have no `diffMode`, and without the default they would fail
 to parse and reset the reader's text size along with it.
 
 What a setting can be and what it starts as are the settings'
-[model](index.md#model), apart from the state that loads and saves them. The
-diff view needs the vocabulary and the default, and neither needs storage or
-React. With both in `state/`, a view could not name a diff mode without
-reaching into the layer that owns `localStorage`. Each default is written
+[model](index.md#model), apart from the state that holds them and the
+repository that stores them. The diff view needs the vocabulary and the
+default, and neither needs storage or React. With both in `state/`, a view
+could not name a diff mode without reaching into the layer that owns the
+settings hook. Each default is written
 once, in `DEFAULT_SETTINGS`, and the schema, the fallback, and the context
 all read it from there.
 
@@ -72,90 +74,31 @@ export type Settings = z.infer<typeof Settings>;
 export const DEFAULT_SETTINGS: Settings = { display: DEFAULT_DISPLAY };
 ```
 
-The size is written to the page in a layout effect, not a plain effect. A
-plain effect runs after the browser paints, so a reader who chose a larger
-size would see every load flash at the standard size first.
+`settingsRepository` names the key the settings are kept under, the schema
+that reads them, and the defaults to fall back to.
 
 ```ts
-//| id: frontend-state-settings
-//| file: src/frontend/state/settings.ts
-import { useCallback, useLayoutEffect, useState } from "react";
-import {
-  DEFAULT_SETTINGS,
-  type DiffMode,
+//| id: frontend-persistence-settings
+//| file: src/frontend/persistence/settings.ts
+import { DEFAULT_SETTINGS, Settings } from "../model/settings";
+import { localRepository } from "./local";
+
+export const settingsRepository = localRepository<Settings>(
+  "diffy.settings.v1",
   Settings,
-  type TextSize,
-} from "../model/settings";
-
-const STORAGE_KEY = "diffy.settings.v1";
-
-/** localStorage content is written by a possibly older version of this
- * app, or by hand in devtools; treat it as untrusted input and fall back
- * to the defaults rather than let a bad blob break the app. */
-export function load(): Settings {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === null) return DEFAULT_SETTINGS;
-
-  try {
-    return Settings.parse(JSON.parse(raw));
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-/** setItem throws in Safari private browsing and over quota; there is no
- * error channel from here back to a click handler, and settings that keep
- * working for the tab without persisting beats a page that throws. */
-export function save(settings: Settings): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  } catch {
-    // See the doc comment: persistence failure is not worth a UI state.
-  }
-}
-
-export interface SettingsHandle {
-  settings: Settings;
-  setTextSize: (textSize: TextSize) => void;
-  setDiffMode: (diffMode: DiffMode) => void;
-}
-
-export function useSettings(): SettingsHandle {
-  const [settings, setSettings] = useState<Settings>(load);
-
-  useLayoutEffect(() => {
-    document.documentElement.dataset.textSize = settings.display.textSize;
-  }, [settings.display.textSize]);
-
-  const setDisplay = useCallback((change: Partial<Settings["display"]>) => {
-    setSettings((current) => {
-      const next: Settings = {
-        ...current,
-        display: { ...current.display, ...change },
-      };
-      save(next);
-      return next;
-    });
-  }, []);
-  const setTextSize = useCallback(
-    (textSize: TextSize) => setDisplay({ textSize }),
-    [setDisplay],
-  );
-  const setDiffMode = useCallback(
-    (diffMode: DiffMode) => setDisplay({ diffMode }),
-    [setDisplay],
-  );
-
-  return { settings, setTextSize, setDiffMode };
-}
+  DEFAULT_SETTINGS,
+);
 ```
 
+The repository's tests cover what the settings schema adds to
+[`localRepository`](index.md#local-storage)'s.
+
 ```ts
-//| id: frontend-state-settings-test
-//| file: src/frontend/state/settings.test.ts
+//| id: frontend-persistence-settings-test
+//| file: src/frontend/persistence/settings.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Settings } from "../model/settings";
-import { load, save } from "./settings";
+import { settingsRepository } from "./settings";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -171,7 +114,7 @@ beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
 });
 
-describe("load", () => {
+describe("settingsRepository", () => {
   test("round-trips settings through save", () => {
     // arrange
     const settings: Settings = {
@@ -179,17 +122,17 @@ describe("load", () => {
     };
 
     // act
-    save(settings);
+    settingsRepository.save(settings);
 
     // assert
-    expect(load()).toEqual(settings);
+    expect(settingsRepository.load()).toEqual(settings);
   });
 
   test("loads the defaults when nothing is stored", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({
+    expect(settingsRepository.load()).toEqual({
       display: { textSize: "standard", diffMode: "structural" },
     });
   });
@@ -203,51 +146,58 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({
+    expect(settingsRepository.load()).toEqual({
       display: { textSize: "large", diffMode: "structural" },
     });
   });
-
-  test("loads the defaults when the stored value is not JSON", () => {
-    // arrange
-    localStorage.setItem("diffy.settings.v1", "not json");
-
-    // act
-    // assert
-    expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
-    });
-  });
-
-  test("loads the defaults when the stored value has the wrong shape", () => {
-    // arrange
-    localStorage.setItem("diffy.settings.v1", JSON.stringify({ foo: "bar" }));
-
-    // act
-    // assert
-    expect(load()).toEqual({
-      display: { textSize: "standard", diffMode: "structural" },
-    });
-  });
 });
+```
 
-describe("save", () => {
-  test("does not throw when the store throws", () => {
-    // arrange
-    globalThis.localStorage = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error("quota exceeded");
-      },
-    } as unknown as Storage;
+The size is written to the page in a layout effect, not a plain effect. A
+plain effect runs after the browser paints, so a reader who chose a larger
+size would see every load flash at the standard size first.
 
-    // act
-    // assert
-    expect(() =>
-      save({ display: { textSize: "standard", diffMode: "structural" } }),
-    ).not.toThrow();
-  });
-});
+```ts
+//| id: frontend-state-settings
+//| file: src/frontend/state/settings.ts
+import { useCallback, useLayoutEffect } from "react";
+import type { DiffMode, Settings, TextSize } from "../model/settings";
+import { settingsRepository } from "../persistence/settings";
+import { useStored } from "./stored";
+
+export interface SettingsHandle {
+  settings: Settings;
+  setTextSize: (textSize: TextSize) => void;
+  setDiffMode: (diffMode: DiffMode) => void;
+}
+
+export function useSettings(): SettingsHandle {
+  const [settings, update] = useStored(settingsRepository);
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.textSize = settings.display.textSize;
+  }, [settings.display.textSize]);
+
+  const setDisplay = useCallback(
+    (change: Partial<Settings["display"]>) => {
+      update((current) => ({
+        ...current,
+        display: { ...current.display, ...change },
+      }));
+    },
+    [update],
+  );
+  const setTextSize = useCallback(
+    (textSize: TextSize) => setDisplay({ textSize }),
+    [setDisplay],
+  );
+  const setDiffMode = useCallback(
+    (diffMode: DiffMode) => setDisplay({ diffMode }),
+    [setDisplay],
+  );
+
+  return { settings, setTextSize, setDiffMode };
+}
 ```
 
 The pixel values stay in the stylesheet with every other length. Each size

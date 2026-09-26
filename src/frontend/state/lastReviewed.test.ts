@@ -1,18 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-last-reviewed-test>>[init]
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { GitOid, type PullVersion } from "../api";
-import { load, opening, save } from "./lastReviewed";
+import { opening } from "./lastReviewed";
 import { openPull, type PullPlace } from "./place";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key) => store.get(key) ?? null,
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -21,61 +11,6 @@ function oid(ch: string): GitOid {
 function version(n: number, ch: string): PullVersion {
   return { version: n, head: oid(ch), origin: { kind: "opened" } };
 }
-
-beforeEach(() => {
-  globalThis.localStorage = memoryStorage() as unknown as Storage;
-});
-
-describe("load", () => {
-  test("round-trips a head through save, per pull request", () => {
-    // arrange
-    save("o/r", 7, oid("a"));
-    save("o/r", 8, oid("b"));
-
-    // act
-    // assert
-    expect(load("o/r", 7)).toBe(oid("a"));
-    expect(load("o/r", 8)).toBe(oid("b"));
-    expect(load("o/other", 7)).toBeNull();
-  });
-
-  test("reads nothing when nothing is stored", () => {
-    expect(load("o/r", 7)).toBeNull();
-  });
-
-  test("reads a value that does not parse as no mark, and keeps the others", () => {
-    // arrange
-    save("o/r", 8, oid("b"));
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#7", "not json");
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
-    localStorage.setItem("diffy.session.v1", '{"marks":[],"comments":[]}');
-
-    // act
-    // assert
-    expect(load("o/r", 7)).toBeNull();
-    expect(load("o/r", 9)).toBeNull();
-    expect(load("o/r", 8)).toBe(oid("b"));
-    expect(localStorage.getItem("diffy.session.v1")).toBe(
-      '{"marks":[],"comments":[]}',
-    );
-  });
-});
-
-describe("save", () => {
-  test("does not throw when the store throws", () => {
-    // arrange
-    globalThis.localStorage = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error("quota exceeded");
-      },
-    } as unknown as Storage;
-
-    // act
-    // assert
-    expect(() => save("o/r", 7, oid("a"))).not.toThrow();
-  });
-});
 
 describe("opening", () => {
   const states = [version(1, "a"), version(2, "b"), version(3, "c")];

@@ -160,62 +160,63 @@ would take every other pull request's mark down with it, and two tabs marking
 two pull requests would each write back a copy missing the other's mark.
 Separate keys leave the [session](review-tracking.md#session) and
 [settings](settings.md) keys alone for the same reason. Reading and writing
-follow those two stores: parse what is there as untrusted input, answer
-nothing on anything that does not parse, and swallow a write that throws.
+go through a [repository](index.md#local-storage) the way those two do, so a
+value that does not parse reads as no mark and a write that throws is
+dropped. Since each pull request has a key of its own, there is a repository
+per pull request rather than one for the app.
+
+The stored `{ head }` is the repository's own shape. The hook hands out the
+head alone, and nothing outside `persistence/` names the wrapper.
+
+```ts
+//| id: frontend-persistence-last-reviewed
+//| file: src/frontend/persistence/lastReviewed.ts
+import * as z from "zod";
+import { GitOid } from "../api";
+import { localRepository, type Repository } from "./local";
+
+const LastReviewed = z.object({ head: GitOid });
+type LastReviewed = z.infer<typeof LastReviewed>;
+
+/** The head this reader last marked reviewed on one pull request. */
+export function lastReviewedRepository(
+  repo: string,
+  number: number,
+): Repository<LastReviewed | null> {
+  return localRepository<LastReviewed | null>(
+    `diffy.last-reviewed.v1:${repo}#${number}`,
+    LastReviewed,
+    null,
+  );
+}
+```
+
+`useLastReviewed` builds the repository once per pull request and holds its
+value through [`useStored`](index.md#local-storage).
 
 ```ts
 //| id: frontend-state-last-reviewed
 //| file: src/frontend/state/lastReviewed.ts
-import { useCallback, useState } from "react";
-import * as z from "zod";
-import { GitOid, type PullVersion } from "../api";
+import { useCallback, useMemo } from "react";
+import type { GitOid, PullVersion } from "../api";
+import { lastReviewedRepository } from "../persistence/lastReviewed";
 import type { PullPlace } from "./place";
-
-export const LastReviewed = z.object({ head: GitOid });
-export type LastReviewed = z.infer<typeof LastReviewed>;
-
-function storageKey(repo: string, number: number): string {
-  return `diffy.last-reviewed.v1:${repo}#${number}`;
-}
-
-/** localStorage content is written by a possibly older version of this
- * app, or by hand in devtools; a value that does not parse reads as no
- * mark at all. */
-export function load(repo: string, number: number): GitOid | null {
-  const raw = localStorage.getItem(storageKey(repo, number));
-  if (raw === null) return null;
-
-  try {
-    return LastReviewed.parse(JSON.parse(raw)).head;
-  } catch {
-    return null;
-  }
-}
-
-/** setItem throws in Safari private browsing and over quota; a mark that
- * holds for the tab without persisting beats a click that throws. */
-export function save(repo: string, number: number, head: GitOid): void {
-  const value: LastReviewed = { head };
-  try {
-    localStorage.setItem(storageKey(repo, number), JSON.stringify(value));
-  } catch {
-    // See the doc comment: persistence failure is not worth a UI state.
-  }
-}
+import { useStored } from "./stored";
 
 export function useLastReviewed(
   repo: string,
   number: number,
 ): [GitOid | null, (head: GitOid) => void] {
-  const [head, setHead] = useState(() => load(repo, number));
-  const mark = useCallback(
-    (next: GitOid) => {
-      save(repo, number, next);
-      setHead(next);
-    },
+  const repository = useMemo(
+    () => lastReviewedRepository(repo, number),
     [repo, number],
   );
-  return [head, mark];
+  const [stored, update] = useStored(repository);
+  const mark = useCallback(
+    (head: GitOid) => update(() => ({ head })),
+    [update],
+  );
+  return [stored?.head ?? null, mark];
 }
 ```
 
@@ -256,12 +257,11 @@ export function opening(
 ```
 
 ```ts
-//| id: frontend-state-last-reviewed-test
-//| file: src/frontend/state/lastReviewed.test.ts
+//| id: frontend-persistence-last-reviewed-test
+//| file: src/frontend/persistence/lastReviewed.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import { GitOid, type PullVersion } from "../api";
-import { load, opening, save } from "./lastReviewed";
-import { openPull, type PullPlace } from "./place";
+import { GitOid } from "../api";
+import { lastReviewedRepository } from "./lastReviewed";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -273,6 +273,52 @@ function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   };
 }
 
+beforeEach(() => {
+  globalThis.localStorage = memoryStorage() as unknown as Storage;
+});
+
+function oid(ch: string): GitOid {
+  return GitOid.parse(ch.repeat(40));
+}
+
+describe("lastReviewedRepository", () => {
+  test("round-trips a head through save, per pull request", () => {
+    // arrange
+    lastReviewedRepository("o/r", 7).save({ head: oid("a") });
+    lastReviewedRepository("o/r", 8).save({ head: oid("b") });
+
+    // act
+    // assert
+    expect(lastReviewedRepository("o/r", 7).load()).toEqual({ head: oid("a") });
+    expect(lastReviewedRepository("o/r", 8).load()).toEqual({ head: oid("b") });
+    expect(lastReviewedRepository("o/other", 7).load()).toBeNull();
+  });
+
+  test("reads a value that does not parse as no mark, and keeps the others", () => {
+    // arrange
+    lastReviewedRepository("o/r", 8).save({ head: oid("b") });
+    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
+    localStorage.setItem("diffy.session.v1", '{"marks":[],"comments":[]}');
+
+    // act
+    // assert
+    expect(lastReviewedRepository("o/r", 9).load()).toBeNull();
+    expect(lastReviewedRepository("o/r", 8).load()).toEqual({ head: oid("b") });
+    expect(localStorage.getItem("diffy.session.v1")).toBe(
+      '{"marks":[],"comments":[]}',
+    );
+  });
+});
+```
+
+```ts
+//| id: frontend-state-last-reviewed-test
+//| file: src/frontend/state/lastReviewed.test.ts
+import { describe, expect, test } from "bun:test";
+import { GitOid, type PullVersion } from "../api";
+import { opening } from "./lastReviewed";
+import { openPull, type PullPlace } from "./place";
+
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
 }
@@ -280,61 +326,6 @@ function oid(ch: string): GitOid {
 function version(n: number, ch: string): PullVersion {
   return { version: n, head: oid(ch), origin: { kind: "opened" } };
 }
-
-beforeEach(() => {
-  globalThis.localStorage = memoryStorage() as unknown as Storage;
-});
-
-describe("load", () => {
-  test("round-trips a head through save, per pull request", () => {
-    // arrange
-    save("o/r", 7, oid("a"));
-    save("o/r", 8, oid("b"));
-
-    // act
-    // assert
-    expect(load("o/r", 7)).toBe(oid("a"));
-    expect(load("o/r", 8)).toBe(oid("b"));
-    expect(load("o/other", 7)).toBeNull();
-  });
-
-  test("reads nothing when nothing is stored", () => {
-    expect(load("o/r", 7)).toBeNull();
-  });
-
-  test("reads a value that does not parse as no mark, and keeps the others", () => {
-    // arrange
-    save("o/r", 8, oid("b"));
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#7", "not json");
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
-    localStorage.setItem("diffy.session.v1", '{"marks":[],"comments":[]}');
-
-    // act
-    // assert
-    expect(load("o/r", 7)).toBeNull();
-    expect(load("o/r", 9)).toBeNull();
-    expect(load("o/r", 8)).toBe(oid("b"));
-    expect(localStorage.getItem("diffy.session.v1")).toBe(
-      '{"marks":[],"comments":[]}',
-    );
-  });
-});
-
-describe("save", () => {
-  test("does not throw when the store throws", () => {
-    // arrange
-    globalThis.localStorage = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error("quota exceeded");
-      },
-    } as unknown as Storage;
-
-    // act
-    // assert
-    expect(() => save("o/r", 7, oid("a"))).not.toThrow();
-  });
-});
 
 describe("opening", () => {
   const states = [version(1, "a"), version(2, "b"), version(3, "c")];
