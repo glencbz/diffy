@@ -43,7 +43,7 @@ would need a stack of out-of-band swaps.
 
 ## Architecture
 
-The app has five layers plus a root. Imports point one way down this list:
+The app has six layers plus a root. Imports point one way down this list:
 
 ```
 index.html + main.tsx   mount point
@@ -53,8 +53,10 @@ index.html + main.tsx   mount point
    controllers/          wire a state hook to a view
       /       \
  state/        views/    state/ owns data and keeps it loaded
-    |    \      /        views/ turn props into markup
- api.ts   model/         api.ts: transport, fetch plus Zod, no React
+    |   \         |      views/ turn props into markup
+    | persistence/ |     persistence/: what the browser keeps between visits
+    |         \    |
+ api.ts       model/     api.ts: transport, fetch plus Zod, no React
                          model/: the app's own shapes and defaults
 ```
 
@@ -132,8 +134,7 @@ cross the wire, such as [settings](settings.md#display).
 A shape goes in `model/` when a view needs it and the layer that loads it is
 `state/`. The view can then name the shape without reaching into the module
 that owns the loading. The module holds the shape, its schema, its defaults,
-and any pure function that is part of what the shape means, such as the key
-it is stored under.
+and any pure function that is part of what the shape means.
 
 The pattern is meant to spread. A feature whose views name a shape its state
 hook produces keeps that shape in `model/<feature>.ts` from the start, and
@@ -145,6 +146,20 @@ any type a view imports from `state/` is one of them. Move one into `model/`
 when its feature next changes, not in a sweep of its own. Views may import
 types from `state/` only until the last of them has moved. After that the
 rule is that views never import `state/`.
+
+### persistence
+
+A module in `persistence/` is a repository for one document the app keeps in
+the browser between visits. It knows the key the document is kept under, the
+schema that reads it back, and what to start from when nothing usable is
+there, and it offers two operations: load the document and save it. It knows
+nothing about React. The state hook that owns the document holds it in memory,
+computes each change as a plain function of the current value, and hands the
+result to the repository. [Local storage](#local-storage) holds the one
+implementation every repository shares.
+
+"Repository" here is the storage pattern, not the jj or GitHub repository the
+app reviews. The code spells that one `repo`.
 
 ### controllers
 
@@ -204,8 +219,11 @@ code, not to add an exception.
 Allowed import edges:
 
 - `api.ts` and `model/` import Zod only.
-- `state/` imports React, `api.ts`, `model/`, and other `state/` modules. It
-  imports Zod too, to parse what it reads back from `localStorage`.
+- `persistence/` imports Zod, `model/`, and the `api.ts` schemas of values it
+  stores, such as a pull request head. It is the only layer that touches
+  `localStorage`.
+- `state/` imports React, `api.ts`, `persistence/`, `model/`, and other
+  `state/` modules.
 - `state/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
   `../../backend/commit/series`. `alignSeries` is a pure function with no
   transport and no React, so importing it needs no running server to test,
@@ -365,4 +383,191 @@ export type AsyncState<T> =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; data: T };
+```
+
+## Local storage
+
+Every repository keeps its document the same way: as JSON under one
+`localStorage` key. `localRepository` is that once, given the key, the schema,
+and the empty document.
+
+`load` parses whatever sits under the key with the schema and falls back to
+the empty document on anything that does not parse: absent, truncated by a
+full quota, or hand-edited in devtools into some other shape. What an older
+version of the app wrote is read through the same schema, so a field added
+later needs a default in the schema, or every document saved before it reads
+as a bad one. Content read out of `localStorage` is external input, so it gets
+the discipline any boundary gets. A corrupt blob costs the reader what was
+stored, not the ability to open the app.
+
+`save` writes back through a `try`/`catch` that swallows a thrown write.
+`localStorage.setItem` throws in Safari private browsing and whenever a tab is
+over quota, and there is no error channel here to carry that failure anywhere.
+The caller is a synchronous state update from inside a click handler, not a
+promise with a `.catch` to hang one off. A document that keeps working for the
+rest of the tab, without surviving a reload, beats throwing out of that click,
+so no hook that stores a document has an `error` field.
+
+A repository loads and saves the whole document rather than offering a method
+per change, such as `addComment`. Every document is small and sits under one
+key, so a write is the whole document whatever changed, and a method per
+change would move each mutation's logic into the storage layer, where it
+could not be tested without a stand-in for storage.
+
+```ts
+//| id: frontend-persistence-local
+//| file: src/frontend/persistence/local.ts
+import type * as z from "zod";
+
+/** Loads and saves one document the app keeps between visits. */
+export interface Repository<T> {
+  load(): T;
+  save(document: T): void;
+}
+
+/** A document kept as JSON under one `localStorage` key. A read that finds
+ * nothing it can parse returns `empty`, and a write that throws is dropped. */
+export function localRepository<T>(
+  key: string,
+  schema: z.ZodType<T>,
+  empty: T,
+): Repository<T> {
+  return {
+    load() {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return empty;
+
+      try {
+        return schema.parse(JSON.parse(raw));
+      } catch {
+        return empty;
+      }
+    },
+    save(document) {
+      try {
+        localStorage.setItem(key, JSON.stringify(document));
+      } catch {
+        // Persistence failure is not worth a UI state.
+      }
+    },
+  };
+}
+```
+
+`useStored` is the one place a state hook meets a repository. It reads the
+document once, lazily, as the initial value of a `useState`, so the read
+happens once rather than on every render. Its `update` computes the next
+document from the current one, saves it, and sets it. A hook built on it
+names its repository and never mentions storage again. `update` closes over
+nothing that changes, so a callback wrapped around it can be passed down
+several layers of props without retriggering effects that depend on it.
+
+```ts
+//| id: frontend-state-stored
+//| file: src/frontend/state/stored.ts
+import { useCallback, useState } from "react";
+import type { Repository } from "../persistence/local";
+
+export type Update<T> = (compute: (current: T) => T) => void;
+
+/** A document held in React state and saved through `repository` on every
+ * change. */
+export function useStored<T>(repository: Repository<T>): [T, Update<T>] {
+  const [document, setDocument] = useState<T>(() => repository.load());
+
+  const update = useCallback<Update<T>>(
+    (compute) => {
+      setDocument((current) => {
+        const next = compute(current);
+        repository.save(next);
+        return next;
+      });
+    },
+    [repository],
+  );
+
+  return [document, update];
+}
+```
+
+The tests use an in-memory `localStorage` stand-in, since `bun test` has no
+DOM to provide the real thing, and a schema of their own, since what they
+check holds for any document. Each repository's tests cover only what its own
+schema adds, such as reading a document an older version saved.
+
+```ts
+//| id: frontend-persistence-local-test
+//| file: src/frontend/persistence/local.test.ts
+import { beforeEach, describe, expect, test } from "bun:test";
+import * as z from "zod";
+import { localRepository } from "./local";
+
+function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => {
+      store.set(key, value);
+    },
+  };
+}
+
+beforeEach(() => {
+  globalThis.localStorage = memoryStorage() as unknown as Storage;
+});
+
+const Counter = z.object({ count: z.number() });
+const repository = localRepository("test.counter", Counter, { count: 0 });
+
+describe("load", () => {
+  test("round-trips a document through save", () => {
+    // arrange
+    repository.save({ count: 3 });
+
+    // act
+    // assert
+    expect(repository.load()).toEqual({ count: 3 });
+  });
+
+  test("loads the empty document when nothing is stored", () => {
+    // arrange
+    // act
+    // assert
+    expect(repository.load()).toEqual({ count: 0 });
+  });
+
+  test("loads the empty document when the stored value is not JSON", () => {
+    // arrange
+    localStorage.setItem("test.counter", "not json");
+
+    // act
+    // assert
+    expect(repository.load()).toEqual({ count: 0 });
+  });
+
+  test("loads the empty document when the stored value has the wrong shape", () => {
+    // arrange
+    localStorage.setItem("test.counter", JSON.stringify({ foo: "bar" }));
+
+    // act
+    // assert
+    expect(repository.load()).toEqual({ count: 0 });
+  });
+});
+
+describe("save", () => {
+  test("does not throw when the store throws", () => {
+    // arrange
+    globalThis.localStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("quota exceeded");
+      },
+    } as unknown as Storage;
+
+    // act
+    // assert
+    expect(() => repository.save({ count: 1 })).not.toThrow();
+  });
+});
 ```

@@ -85,11 +85,15 @@ hashing the patch, because the patch is drawn from them. A mark that no longer
 matches is left in place rather than pruned, as a stale comparison mark is:
 nothing reads it, and a later rewrite that puts the old blobs back finds it.
 
+What a session document can hold is the review [model](index.md#model):
+marks, comments, and viewed files, each with the Zod schema that reads it
+back from storage. The views name these shapes, and none of them needs React
+or storage, so they sit apart from the state that loads and changes them.
+
 ```ts
-//| id: frontend-state-review
-//| file: src/frontend/state/review.ts
+//| id: frontend-model-review
+//| file: src/frontend/model/review.ts
 import * as z from "zod";
-import type { InterdiffRow } from "../api";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -145,6 +149,22 @@ export const SessionDocument = z.object({
   viewed: z.array(ViewedFile).default([]),
 });
 export type SessionDocument = z.infer<typeof SessionDocument>;
+```
+
+The rest is state: how the stored document is read against the rows the
+interdiff returns.
+
+```ts
+//| id: frontend-state-review
+//| file: src/frontend/state/review.ts
+import type { InterdiffRow } from "../api";
+import type {
+  Comment,
+  FileVersion,
+  Mark,
+  SessionDocument,
+  ViewedFile,
+} from "../model/review";
 
 export type RowReview =
   | { state: "unseen" }
@@ -327,14 +347,8 @@ wrong assumption the code is being tested against.
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import {
-  type FileVersion,
-  flipViewed,
-  isViewed,
-  reviewKey,
-  reviewRows,
-  SessionDocument,
-} from "./review";
+import { type FileVersion, SessionDocument } from "../model/review";
+import { flipViewed, isViewed, reviewKey, reviewRows } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -918,31 +932,31 @@ layer between a mutator that knew what it wanted to do and a `switch` that
 re-derived the same thing from a `kind` field. The union and `applyEdit` are
 gone, and each mutator below builds the next document directly.
 
-`useSession` reads the stored document once, lazily, as the initial value of a
-single `useState<SessionDocument>`. It passes `useState(load)` rather than
-`useState(load())`, so the read happens once rather than racing every render.
-`load` parses whatever sits under the storage key with the `SessionDocument`
-Zod schema and falls back to an empty document on anything that does not
-parse: absent, truncated by a full quota, or hand-edited in devtools into some
-other shape. A document saved before viewed marks existed has no `viewed`
-list, and the schema reads that as an empty one rather than as a bad blob, so
-adding viewed marks cost no reader their marks and comments. Content read out
-of `localStorage` is external input the way a
-request body was, so it gets the boundary discipline a request body used to
-get on the server. A corrupt blob costs the reviewer their history, not the
-ability to open the app.
+`useSession` holds the document through [`useStored`](index.md#local-storage),
+which reads it once from `sessionRepository` and saves every change back.
+The repository parses the stored document with the `SessionDocument` schema
+and falls back to an empty one. A document saved before viewed marks existed
+has no `viewed` list, and the schema reads that as an empty one rather than as
+a bad blob, so adding viewed marks cost no reader their marks and comments.
 
-`save` writes back through a `try`/`catch` that swallows a thrown write.
-`localStorage.setItem` throws in Safari private browsing and whenever a tab is
-over quota, and there is no error channel here to carry that failure anywhere.
-The caller is a synchronous state update from inside a click handler, not a
-promise with a `.catch` to hang one off. A session that keeps working for the
-rest of the tab, without surviving a reload, beats throwing out of that click.
-`Session` has no `error` field, because a persistence failure the reviewer
-cannot act on is not worth a UI state.
+```ts
+//| id: frontend-persistence-session
+//| file: src/frontend/persistence/session.ts
+import { SessionDocument } from "../model/review";
+import { localRepository } from "./local";
+
+export const sessionRepository = localRepository<SessionDocument>(
+  "diffy.session.v1",
+  SessionDocument,
+  { marks: [], comments: [], viewed: [] },
+);
+```
+
+`Session` has no `error` field, because a failed write is dropped rather than
+reported; [Local storage](index.md#local-storage) says why.
 
 Each mutator computes its next document from the current one and hands it to
-`update`, the one place that writes to `localStorage` and calls `setDocument`.
+`update`, the one place the document is saved and set.
 This is the same five-way logic that used to live in `applyEdit`'s `switch`,
 inlined at the call site that already knows which mutation it is making rather
 than re-derived from a `kind` tag a layer away. `markSeen` decides mark versus
@@ -951,55 +965,21 @@ by hand. `toggleViewed` is the exception to inlining: its next document
 comes from `flipViewed` in the review module, a plain function the review
 tests reach without rendering a component, since whether a mark is added or
 removed is the part worth testing. Every mutator is wrapped in `useCallback`
-closing only over the
-stable `update` function rather than over `document`, so passing `markSeen`
-through two layers of props does not retrigger effects that depend on it.
+closing only over the stable `update` function rather than over `document`.
 
 ```tsx
 //| id: frontend-state-session
 //| file: src/frontend/state/session.ts
-import { useCallback, useState } from "react";
-import {
-  type Comment,
-  type FileVersion,
-  flipViewed,
-  type LineAnchor,
-  type ReviewedRow,
+import { useCallback } from "react";
+import type {
+  Comment,
+  FileVersion,
+  LineAnchor,
   SessionDocument,
-  sameComparison,
-} from "./review";
-
-const STORAGE_KEY = "diffy.session.v1";
-const EMPTY_DOCUMENT: SessionDocument = {
-  marks: [],
-  comments: [],
-  viewed: [],
-};
-
-/** localStorage content is written by a possibly older version of this
- * app, or by hand in devtools; treat it as untrusted input and fall back
- * to an empty session rather than let a bad blob break the app. */
-export function load(): SessionDocument {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === null) return EMPTY_DOCUMENT;
-
-  try {
-    return SessionDocument.parse(JSON.parse(raw));
-  } catch {
-    return EMPTY_DOCUMENT;
-  }
-}
-
-/** setItem throws in Safari private browsing and over quota; there is no
- * error channel from here back to a click handler, and a session that
- * keeps working for the tab without persisting beats one that throws. */
-export function save(document: SessionDocument): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
-  } catch {
-    // See the doc comment: persistence failure is not worth a UI state.
-  }
-}
+} from "../model/review";
+import { sessionRepository } from "../persistence/session";
+import { flipViewed, type ReviewedRow, sameComparison } from "./review";
+import { useStored } from "./stored";
 
 export interface Session {
   document: SessionDocument;
@@ -1016,18 +996,7 @@ export interface Session {
 }
 
 export function useSession(): Session {
-  const [document, setDocument] = useState<SessionDocument>(load);
-
-  const update = useCallback(
-    (compute: (current: SessionDocument) => SessionDocument) => {
-      setDocument((current) => {
-        const next = compute(current);
-        save(next);
-        return next;
-      });
-    },
-    [],
-  );
+  const [document, update] = useStored(sessionRepository);
 
   const markSeen = useCallback(
     (row: ReviewedRow) => {
@@ -1118,19 +1087,15 @@ export function useSession(): Session {
 }
 ```
 
-The store's own tests live next to it, with an in-memory `localStorage`
-stand-in, since `bun test` has no DOM to provide the real thing. `load` and
-`save` are exported by name rather than kept private to the hook so those
-tests can reach them without rendering a component. This project has no
-renderer, and adding one to cover a `try`/`catch` would cost more than the two
-functions it tests.
+The repository's tests cover what its schema adds to
+[`localRepository`](index.md#local-storage)'s.
 
 ```ts
-//| id: frontend-state-session-test
-//| file: src/frontend/state/session.test.ts
+//| id: frontend-persistence-session-test
+//| file: src/frontend/persistence/session.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionDocument } from "./review";
-import { load, save } from "./session";
+import type { SessionDocument } from "../model/review";
+import { sessionRepository } from "./session";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -1146,7 +1111,7 @@ beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
 });
 
-describe("load", () => {
+describe("sessionRepository", () => {
   test("round-trips a document through save", () => {
     // arrange
     const document: SessionDocument = {
@@ -1171,10 +1136,10 @@ describe("load", () => {
     };
 
     // act
-    save(document);
+    sessionRepository.save(document);
 
     // assert
-    expect(load()).toEqual(document);
+    expect(sessionRepository.load()).toEqual(document);
   });
 
   test("loads a document saved before viewed marks, with none viewed", () => {
@@ -1192,48 +1157,22 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ marks: [mark], comments: [], viewed: [] });
+    expect(sessionRepository.load()).toEqual({
+      marks: [mark],
+      comments: [],
+      viewed: [],
+    });
   });
 
   test("loads an empty document when nothing is stored", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
-  });
-
-  test("loads an empty document when the stored value is not JSON", () => {
-    // arrange
-    localStorage.setItem("diffy.session.v1", "not json");
-
-    // act
-    // assert
-    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
-  });
-
-  test("loads an empty document when the stored value has the wrong shape", () => {
-    // arrange
-    localStorage.setItem("diffy.session.v1", JSON.stringify({ foo: "bar" }));
-
-    // act
-    // assert
-    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
-  });
-});
-
-describe("save", () => {
-  test("does not throw when the store throws", () => {
-    // arrange
-    globalThis.localStorage = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error("quota exceeded");
-      },
-    } as unknown as Storage;
-
-    // act
-    // assert
-    expect(() => save({ marks: [], comments: [], viewed: [] })).not.toThrow();
+    expect(sessionRepository.load()).toEqual({
+      marks: [],
+      comments: [],
+      viewed: [],
+    });
   });
 });
 ```

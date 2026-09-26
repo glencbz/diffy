@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
-import type { FileVersion, LineAnchor, ReviewedRow } from "../state/review";
+import type { FileVersion, LineAnchor } from "../model/review";
+import type { ReviewedRow } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";

@@ -25,7 +25,8 @@ in two different rows still gets two different ids.
 //| id: frontend-view-changed-files
 //| file: src/frontend/views/changedFiles.ts
 import type { FileDiff } from "../api";
-import type { FileVersion, RowComment } from "../state/review";
+import type { FileVersion } from "../model/review";
+import type { RowComment } from "../state/review";
 import { readPatch } from "./patch";
 
 /** One changed file, read once from whichever `FileDiff` shape it came
