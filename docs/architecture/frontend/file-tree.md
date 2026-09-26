@@ -247,6 +247,7 @@ function comment(path: string, resolved: boolean): RowComment {
     id: `${path}:${String(resolved)}`,
     reviewKey: "row",
     path,
+    side: "after",
     line: 1,
     commitId: "c",
     body: "hi",
