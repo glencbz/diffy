@@ -168,16 +168,18 @@ rather than where they are in it.
 
 ### Keeping the boundary honest
 
-The one-way import rule is a convention today. Nothing stops a view from
-importing `fetchDiff` for "just one more field". The first time that happens,
-the split is gone and the view needs a running server to test again. A
-follow-up adds a Biome `noRestrictedImports` rule per directory. The boundary
-then fails the build without waiting for a reviewer to notice.
+The one-way import rule is a convention, kept by whoever writes and reviews
+the import. Nothing stops a view from importing `fetchDiff` for "just one
+more field". The first time that happens, the split is gone and the view
+needs a running server to test again. An import that does not fit the list
+below is a sign the code is in the wrong layer, and the fix is to move the
+code, not to add an exception.
 
 Allowed import edges:
 
 - `api.ts` imports Zod only.
-- `state/` imports React and `api.ts`.
+- `state/` imports React, `api.ts`, and other `state/` modules. It imports
+  Zod too, to parse what it reads back from `localStorage`.
 - `state/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
   `../../backend/commit/series`. `alignSeries` is a pure function with no
   transport and no React, so importing it needs no running server to test,
@@ -190,7 +192,9 @@ Allowed import edges:
   declared, so importing a *function* from `state/` is the boundary
   violation.
 - `controllers/` import `state/`, `views/`, and `api.ts` *types*.
-- `App.tsx` imports `controllers/`, `views/`, and `api.ts` *types*.
+- `App.tsx` imports `controllers/`, `views/`, `api.ts` *types*, and the
+  `state/` hooks for what it holds for the whole app: the address, the
+  review session, and the settings.
 
 ## Styling
 
