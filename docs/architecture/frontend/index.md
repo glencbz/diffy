@@ -483,19 +483,13 @@ export function useStored<T>(repository: Repository<T>): [T, Update<T>] {
 }
 ```
 
-The tests use an in-memory `localStorage` stand-in, since `bun test` has no
-DOM to provide the real thing, and a schema of their own, since what they
-check holds for any document. Each repository's tests cover only what its own
-schema adds, such as reading a document an older version saved.
+`bun test` has no DOM to provide `localStorage`, so every repository's tests
+install the same in-memory stand-in before each test.
 
 ```ts
-//| id: frontend-persistence-local-test
-//| file: src/frontend/persistence/local.test.ts
-import { beforeEach, describe, expect, test } from "bun:test";
-import * as z from "zod";
-import { localRepository } from "./local";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
+//| id: frontend-persistence-memory-storage
+//| file: src/frontend/persistence/memoryStorage.ts
+export function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
   return {
     getItem: (key) => store.get(key) ?? null,
@@ -504,6 +498,19 @@ function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
     },
   };
 }
+```
+
+The tests below use a schema of their own, since what they check holds for
+any document. Each repository's tests cover only what its own schema adds,
+such as reading a document an older version saved.
+
+```ts
+//| id: frontend-persistence-local-test
+//| file: src/frontend/persistence/local.test.ts
+import { beforeEach, describe, expect, test } from "bun:test";
+import * as z from "zod";
+import { localRepository } from "./local";
+import { memoryStorage } from "./memoryStorage";
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;

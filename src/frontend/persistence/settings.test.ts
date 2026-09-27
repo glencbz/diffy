@@ -1,17 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-persistence-settings-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Settings } from "../model/settings";
+import { memoryStorage } from "./memoryStorage";
 import { settingsRepository } from "./settings";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key) => store.get(key) ?? null,
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;

@@ -1373,17 +1373,8 @@ The repository's tests cover what its schema adds to
 //| file: src/frontend/persistence/review.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ReviewDocument } from "../model/review";
+import { memoryStorage } from "./memoryStorage";
 import { reviewRepository } from "./review";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key) => store.get(key) ?? null,
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;

@@ -2,16 +2,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import * as z from "zod";
 import { localRepository } from "./local";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key) => store.get(key) ?? null,
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}
+import { memoryStorage } from "./memoryStorage";
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
