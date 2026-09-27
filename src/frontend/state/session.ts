@@ -1,46 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session>>[init]
-import { useCallback, useState } from "react";
-import {
-  type Comment,
-  type FileVersion,
-  flipViewed,
-  type LineAnchor,
-  type ReviewedRow,
+import { useCallback } from "react";
+import type {
+  Comment,
+  FileVersion,
+  LineAnchor,
   SessionDocument,
-  sameComparison,
-} from "./review";
-
-const STORAGE_KEY = "diffy.session.v1";
-const EMPTY_DOCUMENT: SessionDocument = {
-  marks: [],
-  comments: [],
-  viewed: [],
-};
-
-/** localStorage content is written by a possibly older version of this
- * app, or by hand in devtools; treat it as untrusted input and fall back
- * to an empty session rather than let a bad blob break the app. */
-export function load(): SessionDocument {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === null) return EMPTY_DOCUMENT;
-
-  try {
-    return SessionDocument.parse(JSON.parse(raw));
-  } catch {
-    return EMPTY_DOCUMENT;
-  }
-}
-
-/** setItem throws in Safari private browsing and over quota; there is no
- * error channel from here back to a click handler, and a session that
- * keeps working for the tab without persisting beats one that throws. */
-export function save(document: SessionDocument): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
-  } catch {
-    // See the doc comment: persistence failure is not worth a UI state.
-  }
-}
+} from "../model/review";
+import { sessionRepository } from "../persistence/session";
+import { flipViewed, type ReviewedRow, sameComparison } from "./review";
+import { useStored } from "./stored";
 
 export interface Session {
   document: SessionDocument;
@@ -57,18 +25,7 @@ export interface Session {
 }
 
 export function useSession(): Session {
-  const [document, setDocument] = useState<SessionDocument>(load);
-
-  const update = useCallback(
-    (compute: (current: SessionDocument) => SessionDocument) => {
-      setDocument((current) => {
-        const next = compute(current);
-        save(next);
-        return next;
-      });
-    },
-    [],
-  );
+  const [document, update] = useStored(sessionRepository);
 
   const markSeen = useCallback(
     (row: ReviewedRow) => {

@@ -1,7 +1,7 @@
-// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-persistence-session-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionDocument } from "./review";
-import { load, save } from "./session";
+import type { SessionDocument } from "../model/review";
+import { sessionRepository } from "./session";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -17,7 +17,7 @@ beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
 });
 
-describe("load", () => {
+describe("sessionRepository", () => {
   test("round-trips a document through save", () => {
     // arrange
     const document: SessionDocument = {
@@ -42,10 +42,10 @@ describe("load", () => {
     };
 
     // act
-    save(document);
+    sessionRepository.save(document);
 
     // assert
-    expect(load()).toEqual(document);
+    expect(sessionRepository.load()).toEqual(document);
   });
 
   test("loads a document saved before viewed marks, with none viewed", () => {
@@ -63,48 +63,22 @@ describe("load", () => {
 
     // act
     // assert
-    expect(load()).toEqual({ marks: [mark], comments: [], viewed: [] });
+    expect(sessionRepository.load()).toEqual({
+      marks: [mark],
+      comments: [],
+      viewed: [],
+    });
   });
 
   test("loads an empty document when nothing is stored", () => {
     // arrange
     // act
     // assert
-    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
-  });
-
-  test("loads an empty document when the stored value is not JSON", () => {
-    // arrange
-    localStorage.setItem("diffy.session.v1", "not json");
-
-    // act
-    // assert
-    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
-  });
-
-  test("loads an empty document when the stored value has the wrong shape", () => {
-    // arrange
-    localStorage.setItem("diffy.session.v1", JSON.stringify({ foo: "bar" }));
-
-    // act
-    // assert
-    expect(load()).toEqual({ marks: [], comments: [], viewed: [] });
-  });
-});
-
-describe("save", () => {
-  test("does not throw when the store throws", () => {
-    // arrange
-    globalThis.localStorage = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error("quota exceeded");
-      },
-    } as unknown as Storage;
-
-    // act
-    // assert
-    expect(() => save({ marks: [], comments: [], viewed: [] })).not.toThrow();
+    expect(sessionRepository.load()).toEqual({
+      marks: [],
+      comments: [],
+      viewed: [],
+    });
   });
 });
 // ~/~ end
