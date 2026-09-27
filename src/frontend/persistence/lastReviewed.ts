@@ -1,10 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-persistence-last-reviewed>>[init]
-import * as z from "zod";
-import { GitOid } from "../api";
+import { LastReviewed } from "../model/lastReviewed";
 import { localRepository, type Repository } from "./local";
-
-const LastReviewed = z.object({ head: GitOid });
-type LastReviewed = z.infer<typeof LastReviewed>;
 
 /** The head this reader last marked reviewed on one pull request. */
 export function lastReviewedRepository(

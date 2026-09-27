@@ -165,18 +165,26 @@ value that does not parse reads as no mark and a write that throws is
 dropped. Since each pull request has a key of its own, there is a repository
 per pull request rather than one for the app.
 
-The stored `{ head }` is the repository's own shape. The hook hands out the
-head alone, and nothing outside `persistence/` names the wrapper.
+The stored `{ head }` is the document's shape, kept in the model beside the
+rule that reads it. The hook hands out the head alone, and no view names the
+wrapper.
+
+```ts
+//| id: frontend-model-last-reviewed
+//| file: src/frontend/model/lastReviewed.ts
+import * as z from "zod";
+import { GitOid, type PullVersion } from "../api";
+import type { PullPlace } from "./place";
+
+export const LastReviewed = z.object({ head: GitOid });
+export type LastReviewed = z.infer<typeof LastReviewed>;
+```
 
 ```ts
 //| id: frontend-persistence-last-reviewed
 //| file: src/frontend/persistence/lastReviewed.ts
-import * as z from "zod";
-import { GitOid } from "../api";
+import { LastReviewed } from "../model/lastReviewed";
 import { localRepository, type Repository } from "./local";
-
-const LastReviewed = z.object({ head: GitOid });
-type LastReviewed = z.infer<typeof LastReviewed>;
 
 /** The head this reader last marked reviewed on one pull request. */
 export function lastReviewedRepository(
@@ -198,9 +206,8 @@ value through [`useStored`](index.md#local-storage).
 //| id: frontend-state-last-reviewed
 //| file: src/frontend/state/lastReviewed.ts
 import { useCallback, useMemo } from "react";
-import type { GitOid, PullVersion } from "../api";
+import type { GitOid } from "../api";
 import { lastReviewedRepository } from "../persistence/lastReviewed";
-import type { PullPlace } from "./place";
 import { useStored } from "./stored";
 
 export function useLastReviewed(
@@ -238,7 +245,7 @@ compares heads the history lists, so there is no version to start from, and
 the pull request opens whole with a note saying why.
 
 ```ts
-//| id: frontend-state-last-reviewed
+//| id: frontend-model-last-reviewed
 /** The place a pull request opens on, given the head this reader last
  *  reviewed and the heads the pull request has had, oldest first. */
 export function opening(
@@ -312,8 +319,8 @@ describe("lastReviewedRepository", () => {
 ```
 
 ```ts
-//| id: frontend-state-last-reviewed-test
-//| file: src/frontend/state/lastReviewed.test.ts
+//| id: frontend-model-last-reviewed-test
+//| file: src/frontend/model/lastReviewed.test.ts
 import { describe, expect, test } from "bun:test";
 import { GitOid, type PullVersion } from "../api";
 import { opening } from "./lastReviewed";
@@ -524,7 +531,7 @@ messages are expanded, starts again with it.
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
 import type { PullSummary } from "../api";
-import { openPull, type PullPlace } from "../state/place";
+import { openPull, type PullPlace } from "../model/place";
 import { usePulls } from "../state/pulls";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
@@ -850,15 +857,16 @@ import type {
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
-import { opening, useLastReviewed } from "../state/lastReviewed";
-import { type Slot, usePairing } from "../state/pairing";
+import { opening } from "../model/lastReviewed";
 import {
   type FileSpot,
   openPull,
   type PullPlace,
   pullHref,
-  useArrivals,
-} from "../state/place";
+} from "../model/place";
+import { useLastReviewed } from "../state/lastReviewed";
+import { type Slot, usePairing } from "../state/pairing";
+import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
