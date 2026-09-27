@@ -1,4 +1,4 @@
-# Review tracking
+# Review
 
 What the reader has already looked at, which of it has changed since, and
 where the answer is kept between visits.
@@ -7,8 +7,8 @@ where the answer is kept between visits.
 
 `/api/interdiff` must never learn that review state exists. Every row it
 returns costs a `jj` process, so a mark that triggered a refetch would spawn a
-subprocess to record a click. The session document is read from
-[`localStorage`](#session) on its own, independently of the interdiff fetch;
+subprocess to record a click. The review document is read from
+[`localStorage`](#storage) on its own, independently of the interdiff fetch;
 whichever row a mark or comment belongs to is worked out here, client-side,
 from ids both already carry.
 
@@ -50,7 +50,7 @@ when it shares one: the same `fromCommitId` because an amend moved the after
 side, or the same `toCommitId` because a rebase moved the before side. Sharing
 a side alone is not enough, because a rebase that rewrites both sides at once
 shares neither, and reporting a change the reader has already looked at as
-`unseen` loses the memory the session exists to keep. Filling the same sides
+`unseen` loses the memory the review document exists to keep. Filling the same sides
 alone is not enough either, because a change that was a modification and is
 now a drop fills different slots while being the same thing the reader
 reviewed. The two together leave exactly one pair unrelated, which is the pair
@@ -122,7 +122,7 @@ export const Comment = z.object({
   reviewKey: z.string(),
   path: z.string(),
   /** A stored comment with no side is an after-side one. Defaulting it keeps
-   *  `load` from discarding a whole session written before the field. */
+   *  `load` from discarding a whole document written before the field. */
   side: Side.default("after"),
   line: z.number().int(),
   commitId: z.string(),
@@ -147,12 +147,12 @@ export const ViewedFile = FileVersion.extend({
 });
 export type ViewedFile = z.infer<typeof ViewedFile>;
 
-export const SessionDocument = z.object({
+export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
 });
-export type SessionDocument = z.infer<typeof SessionDocument>;
+export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
 export type RowReview =
   | { state: "unseen" }
@@ -240,7 +240,7 @@ function reviewFor(
 
 export function reviewRows(
   rows: InterdiffRow[],
-  document: SessionDocument,
+  document: ReviewDocument,
 ): ReviewedRow[] {
   return rows.map((row) => {
     const key = reviewKey(row);
@@ -283,10 +283,10 @@ function sameComparison(a: Comparison, b: Comparison): boolean {
  * reviewed. Any mark on the same comparison is replaced rather than kept
  * beside the new one. */
 export function flipSeen(
-  document: SessionDocument,
+  document: ReviewDocument,
   row: ReviewedRow,
   seenAt: string,
-): SessionDocument {
+): ReviewDocument {
   const comparison: Comparison = {
     reviewKey: row.reviewKey,
     fromCommitId: row.from?.commitId ?? null,
@@ -302,13 +302,13 @@ export function flipSeen(
 /** The document with a comment added on one line of a row, pinned to the
  * commit that line was read against. */
 export function addComment(
-  document: SessionDocument,
+  document: ReviewDocument,
   row: ReviewedRow,
   comment: Pick<
     Comment,
     "id" | "path" | "side" | "line" | "body" | "createdAt"
   >,
-): SessionDocument {
+): ReviewDocument {
   const commit =
     comment.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
   return {
@@ -326,10 +326,10 @@ export function addComment(
 }
 
 export function resolveComment(
-  document: SessionDocument,
+  document: ReviewDocument,
   id: string,
   resolved: boolean,
-): SessionDocument {
+): ReviewDocument {
   return {
     ...document,
     comments: document.comments.map((comment) =>
@@ -339,9 +339,9 @@ export function resolveComment(
 }
 
 export function dropComment(
-  document: SessionDocument,
+  document: ReviewDocument,
   id: string,
-): SessionDocument {
+): ReviewDocument {
   return {
     ...document,
     comments: document.comments.filter((comment) => comment.id !== id),
@@ -362,11 +362,11 @@ export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
 /** The document with one file's viewed mark added, or removed if it is
  * there. */
 export function flipViewed(
-  document: SessionDocument,
+  document: ReviewDocument,
   reviewKey: string,
   file: FileVersion,
   viewedAt: string,
-): SessionDocument {
+): ReviewDocument {
   const others = document.viewed.filter(
     (mark) => mark.reviewKey !== reviewKey || !sameVersion(mark, file),
   );
@@ -398,10 +398,10 @@ import {
   flipSeen,
   flipViewed,
   isViewed,
+  ReviewDocument,
   resolveComment,
   reviewKey,
   reviewRows,
-  SessionDocument,
 } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
@@ -439,7 +439,7 @@ describe("reviewRows", () => {
   test("leaves a row unseen against an empty document", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
+    const document: ReviewDocument = { marks: [], comments: [], viewed: [] };
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -451,7 +451,7 @@ describe("reviewRows", () => {
   test("marks a row reviewed on an exact triple match", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -477,7 +477,7 @@ describe("reviewRows", () => {
   test("marks a row changed when the after side has moved on", () => {
     // arrange
     const row = pairRow("a", "a1", "a3");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -505,7 +505,7 @@ describe("reviewRows", () => {
   test("marks a row changed when the before side has moved on", () => {
     // arrange
     const row = pairRow("a", "a0", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -533,7 +533,7 @@ describe("reviewRows", () => {
   test("marks a row changed when a rebase moved both sides at once", () => {
     // arrange
     const row = pairRow("a", "a3", "a4");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -575,7 +575,7 @@ describe("reviewRows", () => {
     if (dropped === undefined) {
       throw new Error("expected a dropped row for change aaaa");
     }
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:aaaa",
@@ -602,7 +602,7 @@ describe("reviewRows", () => {
   test("flags a comment stale when its commit is on neither side of the row", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [],
       comments: [
         {
@@ -630,7 +630,7 @@ describe("reviewRows", () => {
   test("keeps a before-side comment fresh while its commit is the row's before side", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [],
       comments: [
         {
@@ -662,7 +662,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2"),
       files: [],
     };
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "rev:g2",
@@ -692,7 +692,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2-rewritten"),
       files: [],
     };
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "rev:g2",
@@ -719,7 +719,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2"),
       files: [],
     };
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "rev:g2",
@@ -745,7 +745,7 @@ describe("reviewRows", () => {
   });
 });
 
-describe("SessionDocument", () => {
+describe("ReviewDocument", () => {
   test("reads a comment stored without a side as an after-side one", () => {
     // arrange
     const stored = {
@@ -765,7 +765,7 @@ describe("SessionDocument", () => {
     };
 
     // act
-    const document = SessionDocument.parse(stored);
+    const document = ReviewDocument.parse(stored);
 
     // assert
     expect(document.comments[0]?.side).toBe("after");
@@ -798,7 +798,7 @@ describe("reviewKey", () => {
 });
 
 describe("viewed files", () => {
-  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
   const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
 
   test("reads a file viewed on its row once it is marked", () => {
@@ -867,9 +867,9 @@ describe("viewed files", () => {
 });
 
 describe("changes to the document", () => {
-  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
 
-  function reviewedRow(row: InterdiffRow, document: SessionDocument) {
+  function reviewedRow(row: InterdiffRow, document: ReviewDocument) {
     const [reviewed] = reviewRows([row], document);
     if (reviewed === undefined) throw new Error("no row");
     return reviewed;
@@ -1055,9 +1055,9 @@ colour without either file naming it.
   }
 }
 ```
-## Session
+## Storage
 
-The session belongs to whoever is reading, not to the repository being read,
+The review document belongs to whoever is reading, not to the repository being read,
 so it lives in the browser. It used to live in a SQLite file under `.jj/`,
 which put diffy's own bookkeeping inside the directory of the tool being
 reviewed. `.jj/` is jj's. A reviewer's marks and comments are diffy's
@@ -1076,18 +1076,18 @@ whatever the server ended up holding; a synchronous write either succeeds or
 throws where it is called. All three collapse into a plain `useState`, because
 all three only existed to cover a round trip that is now gone.
 
-The session follows the browser rather than the repo, and that costs
+The review document follows the browser rather than the repo, and that costs
 something. It does not survive clearing site data. It is not shared between
 two browsers, or between two machines working from the same clone. Because
 [`just serve` gives each workspace its own port](../../devtools/serving.md),
 browser storage is partitioned by origin, and an origin includes the port, two
-workspaces of the same repo reviewed side by side get two separate sessions,
+workspaces of the same repo reviewed side by side get two separate review documents,
 which is usually what is wanted. A different repo served later on a port an
 earlier repo used inherits that repo's stored marks. Those marks carry change
 ids no row in the new repo will ever match, so they render as nothing, but
 they accumulate in `localStorage`. That is accepted on the same "good enough
 for one reader in one browser" grounds as the rest of this design. A reviewer
-working from two machines, or a session that has to outlive clearing browser
+working from two machines, or a review that has to outlive clearing browser
 data, wants a server-side store keyed by repo, which is a feature to build
 rather than a small addition to this one.
 
@@ -1101,27 +1101,30 @@ layer between a mutator that knew what it wanted to do and a `switch` that
 re-derived the same thing from a `kind` field. The union and `applyEdit` are
 gone, and each mutator below builds the next document directly.
 
-`useSession` holds the document through [`useStored`](index.md#local-storage),
-which reads it once from `sessionRepository` and saves every change back.
-The repository parses the stored document with the `SessionDocument` schema
+`useReview` holds the document through [`useStored`](index.md#local-storage),
+which reads it once from `reviewRepository` and saves every change back.
+The repository parses the stored document with the `ReviewDocument` schema
 and falls back to an empty one. A document saved before viewed marks existed
 has no `viewed` list, and the schema reads that as an empty one rather than as
 a bad blob, so adding viewed marks cost no reader their marks and comments.
+The key is still `diffy.session.v1`, from when this document was called the
+session. Renaming the key would lose every reader's marks and comments, and
+the key's name costs nothing.
 
 ```ts
-//| id: frontend-persistence-session
-//| file: src/frontend/persistence/session.ts
-import { SessionDocument } from "../model/review";
+//| id: frontend-persistence-review
+//| file: src/frontend/persistence/review.ts
+import { ReviewDocument } from "../model/review";
 import { localRepository } from "./local";
 
-export const sessionRepository = localRepository<SessionDocument>(
+export const reviewRepository = localRepository<ReviewDocument>(
   "diffy.session.v1",
-  SessionDocument,
+  ReviewDocument,
   { marks: [], comments: [], viewed: [] },
 );
 ```
 
-`Session` has no `error` field, because a failed write is dropped rather than
+`ReviewHandle` has no `error` field, because a failed write is dropped rather than
 reported; [Local storage](index.md#local-storage) says why.
 
 Each mutator hands `update` a pure change from the review model, which
@@ -1136,8 +1139,8 @@ The mutators close only over the stable `update` function rather than over
 changes.
 
 ```tsx
-//| id: frontend-state-session
-//| file: src/frontend/state/session.ts
+//| id: frontend-state-review
+//| file: src/frontend/state/review.ts
 import { useMemo } from "react";
 import {
   addComment,
@@ -1146,15 +1149,15 @@ import {
   flipSeen,
   flipViewed,
   type LineAnchor,
+  type ReviewDocument,
   type ReviewedRow,
   resolveComment,
-  type SessionDocument,
 } from "../model/review";
-import { sessionRepository } from "../persistence/session";
+import { reviewRepository } from "../persistence/review";
 import { useStored } from "./stored";
 
-export interface Session {
-  document: SessionDocument;
+export interface ReviewHandle {
+  document: ReviewDocument;
   markSeen: (row: ReviewedRow) => void;
   addComment: (
     row: ReviewedRow,
@@ -1167,10 +1170,10 @@ export interface Session {
   toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }
 
-export function useSession(): Session {
-  const [document, update] = useStored(sessionRepository);
+export function useReview(): ReviewHandle {
+  const [document, update] = useStored(reviewRepository);
 
-  const mutators = useMemo<Omit<Session, "document">>(() => {
+  const mutators = useMemo<Omit<ReviewHandle, "document">>(() => {
     const now = () => new Date().toISOString();
     return {
       markSeen: (row) => update((current) => flipSeen(current, row, now())),
@@ -1200,11 +1203,11 @@ The repository's tests cover what its schema adds to
 [`localRepository`](index.md#local-storage)'s.
 
 ```ts
-//| id: frontend-persistence-session-test
-//| file: src/frontend/persistence/session.test.ts
+//| id: frontend-persistence-review-test
+//| file: src/frontend/persistence/review.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionDocument } from "../model/review";
-import { sessionRepository } from "./session";
+import type { ReviewDocument } from "../model/review";
+import { reviewRepository } from "./review";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -1220,10 +1223,10 @@ beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
 });
 
-describe("sessionRepository", () => {
+describe("reviewRepository", () => {
   test("round-trips a document through save", () => {
     // arrange
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "a",
@@ -1245,10 +1248,10 @@ describe("sessionRepository", () => {
     };
 
     // act
-    sessionRepository.save(document);
+    reviewRepository.save(document);
 
     // assert
-    expect(sessionRepository.load()).toEqual(document);
+    expect(reviewRepository.load()).toEqual(document);
   });
 
   test("loads a document saved before viewed marks, with none viewed", () => {
@@ -1266,7 +1269,7 @@ describe("sessionRepository", () => {
 
     // act
     // assert
-    expect(sessionRepository.load()).toEqual({
+    expect(reviewRepository.load()).toEqual({
       marks: [mark],
       comments: [],
       viewed: [],
@@ -1277,7 +1280,7 @@ describe("sessionRepository", () => {
     // arrange
     // act
     // assert
-    expect(sessionRepository.load()).toEqual({
+    expect(reviewRepository.load()).toEqual({
       marks: [],
       comments: [],
       viewed: [],

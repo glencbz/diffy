@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-model-review>>[init]
+// ~/~ begin <<docs/architecture/frontend/review.md#frontend-model-review>>[init]
 import * as z from "zod";
 import type { InterdiffRow } from "../api";
 
@@ -26,7 +26,7 @@ export const Comment = z.object({
   reviewKey: z.string(),
   path: z.string(),
   /** A stored comment with no side is an after-side one. Defaulting it keeps
-   *  `load` from discarding a whole session written before the field. */
+   *  `load` from discarding a whole document written before the field. */
   side: Side.default("after"),
   line: z.number().int(),
   commitId: z.string(),
@@ -51,12 +51,12 @@ export const ViewedFile = FileVersion.extend({
 });
 export type ViewedFile = z.infer<typeof ViewedFile>;
 
-export const SessionDocument = z.object({
+export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
 });
-export type SessionDocument = z.infer<typeof SessionDocument>;
+export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
 export type RowReview =
   | { state: "unseen" }
@@ -144,7 +144,7 @@ function reviewFor(
 
 export function reviewRows(
   rows: InterdiffRow[],
-  document: SessionDocument,
+  document: ReviewDocument,
 ): ReviewedRow[] {
   return rows.map((row) => {
     const key = reviewKey(row);
@@ -187,10 +187,10 @@ function sameComparison(a: Comparison, b: Comparison): boolean {
  * reviewed. Any mark on the same comparison is replaced rather than kept
  * beside the new one. */
 export function flipSeen(
-  document: SessionDocument,
+  document: ReviewDocument,
   row: ReviewedRow,
   seenAt: string,
-): SessionDocument {
+): ReviewDocument {
   const comparison: Comparison = {
     reviewKey: row.reviewKey,
     fromCommitId: row.from?.commitId ?? null,
@@ -206,13 +206,13 @@ export function flipSeen(
 /** The document with a comment added on one line of a row, pinned to the
  * commit that line was read against. */
 export function addComment(
-  document: SessionDocument,
+  document: ReviewDocument,
   row: ReviewedRow,
   comment: Pick<
     Comment,
     "id" | "path" | "side" | "line" | "body" | "createdAt"
   >,
-): SessionDocument {
+): ReviewDocument {
   const commit =
     comment.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
   return {
@@ -230,10 +230,10 @@ export function addComment(
 }
 
 export function resolveComment(
-  document: SessionDocument,
+  document: ReviewDocument,
   id: string,
   resolved: boolean,
-): SessionDocument {
+): ReviewDocument {
   return {
     ...document,
     comments: document.comments.map((comment) =>
@@ -243,9 +243,9 @@ export function resolveComment(
 }
 
 export function dropComment(
-  document: SessionDocument,
+  document: ReviewDocument,
   id: string,
-): SessionDocument {
+): ReviewDocument {
   return {
     ...document,
     comments: document.comments.filter((comment) => comment.id !== id),
@@ -266,11 +266,11 @@ export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
 /** The document with one file's viewed mark added, or removed if it is
  * there. */
 export function flipViewed(
-  document: SessionDocument,
+  document: ReviewDocument,
   reviewKey: string,
   file: FileVersion,
   viewedAt: string,
-): SessionDocument {
+): ReviewDocument {
   const others = document.viewed.filter(
     (mark) => mark.reviewKey !== reviewKey || !sameVersion(mark, file),
   );

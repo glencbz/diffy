@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-controller-diff-pane>>[init]
 import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
-import type { Session } from "../state/session";
+import type { ReviewHandle } from "../state/review";
 import { useSources } from "../state/source";
 import { changedFilesOf } from "../views/changedFiles";
 import { FileNavigator, type FileNavigatorGroup } from "../views/FileNavigator";
@@ -10,10 +10,10 @@ import { Message } from "../views/Message";
 
 export function DiffPane({
   comparison,
-  session,
+  review,
 }: {
   comparison: Comparison;
-  session: Session;
+  review: ReviewHandle;
 }) {
   const answer = useComparison(comparison);
   const sources = useSources(
@@ -28,7 +28,7 @@ export function DiffPane({
     return <Message tone="error">{answer.message}</Message>;
   }
 
-  const rows = reviewRows(answer.data, session.document);
+  const rows = reviewRows(answer.data, review.document);
   const groups: FileNavigatorGroup[] = rows.map((row) => ({
     label: rows.length > 1 ? rowLabel(row) : null,
     files: changedFilesOf(row.files, rowKey(row), row.comments),
@@ -41,11 +41,11 @@ export function DiffPane({
       <InterdiffRows
         rows={rows}
         sources={sources}
-        onMarkSeen={session.markSeen}
-        onAddComment={session.addComment}
-        onResolveComment={session.resolveComment}
-        onDropComment={session.dropComment}
-        onToggleViewed={session.toggleViewed}
+        onMarkSeen={review.markSeen}
+        onAddComment={review.addComment}
+        onResolveComment={review.resolveComment}
+        onDropComment={review.dropComment}
+        onToggleViewed={review.toggleViewed}
       />
     </>
   );

@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-session>>[init]
+// ~/~ begin <<docs/architecture/frontend/review.md#frontend-state-review>>[init]
 import { useMemo } from "react";
 import {
   addComment,
@@ -7,15 +7,15 @@ import {
   flipSeen,
   flipViewed,
   type LineAnchor,
+  type ReviewDocument,
   type ReviewedRow,
   resolveComment,
-  type SessionDocument,
 } from "../model/review";
-import { sessionRepository } from "../persistence/session";
+import { reviewRepository } from "../persistence/review";
 import { useStored } from "./stored";
 
-export interface Session {
-  document: SessionDocument;
+export interface ReviewHandle {
+  document: ReviewDocument;
   markSeen: (row: ReviewedRow) => void;
   addComment: (
     row: ReviewedRow,
@@ -28,10 +28,10 @@ export interface Session {
   toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }
 
-export function useSession(): Session {
-  const [document, update] = useStored(sessionRepository);
+export function useReview(): ReviewHandle {
+  const [document, update] = useStored(reviewRepository);
 
-  const mutators = useMemo<Omit<Session, "document">>(() => {
+  const mutators = useMemo<Omit<ReviewHandle, "document">>(() => {
     const now = () => new Date().toISOString();
     return {
       markSeen: (row) => update((current) => flipSeen(current, row, now())),

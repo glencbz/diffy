@@ -241,7 +241,7 @@ Allowed import edges:
 - `controllers/` import `state/`, `views/`, `model/`, and `api.ts` *types*.
 - `App.tsx` imports `controllers/`, `views/`, `model/`, `api.ts` *types*,
   and the `state/` hooks for what it holds for the whole app: the address,
-  the review session, and the settings.
+  the review document, and the settings.
 
 ## Styling
 

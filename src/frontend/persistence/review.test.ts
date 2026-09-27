@@ -1,7 +1,7 @@
-// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-persistence-session-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/review.md#frontend-persistence-review-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionDocument } from "../model/review";
-import { sessionRepository } from "./session";
+import type { ReviewDocument } from "../model/review";
+import { reviewRepository } from "./review";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -17,10 +17,10 @@ beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
 });
 
-describe("sessionRepository", () => {
+describe("reviewRepository", () => {
   test("round-trips a document through save", () => {
     // arrange
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "a",
@@ -42,10 +42,10 @@ describe("sessionRepository", () => {
     };
 
     // act
-    sessionRepository.save(document);
+    reviewRepository.save(document);
 
     // assert
-    expect(sessionRepository.load()).toEqual(document);
+    expect(reviewRepository.load()).toEqual(document);
   });
 
   test("loads a document saved before viewed marks, with none viewed", () => {
@@ -63,7 +63,7 @@ describe("sessionRepository", () => {
 
     // act
     // assert
-    expect(sessionRepository.load()).toEqual({
+    expect(reviewRepository.load()).toEqual({
       marks: [mark],
       comments: [],
       viewed: [],
@@ -74,7 +74,7 @@ describe("sessionRepository", () => {
     // arrange
     // act
     // assert
-    expect(sessionRepository.load()).toEqual({
+    expect(reviewRepository.load()).toEqual({
       marks: [],
       comments: [],
       viewed: [],

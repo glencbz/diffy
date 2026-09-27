@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-model-review-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/review.md#frontend-model-review-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
@@ -9,10 +9,10 @@ import {
   flipSeen,
   flipViewed,
   isViewed,
+  ReviewDocument,
   resolveComment,
   reviewKey,
   reviewRows,
-  SessionDocument,
 } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
@@ -50,7 +50,7 @@ describe("reviewRows", () => {
   test("leaves a row unseen against an empty document", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
+    const document: ReviewDocument = { marks: [], comments: [], viewed: [] };
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -62,7 +62,7 @@ describe("reviewRows", () => {
   test("marks a row reviewed on an exact triple match", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -88,7 +88,7 @@ describe("reviewRows", () => {
   test("marks a row changed when the after side has moved on", () => {
     // arrange
     const row = pairRow("a", "a1", "a3");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -116,7 +116,7 @@ describe("reviewRows", () => {
   test("marks a row changed when the before side has moved on", () => {
     // arrange
     const row = pairRow("a", "a0", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -144,7 +144,7 @@ describe("reviewRows", () => {
   test("marks a row changed when a rebase moved both sides at once", () => {
     // arrange
     const row = pairRow("a", "a3", "a4");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:a",
@@ -186,7 +186,7 @@ describe("reviewRows", () => {
     if (dropped === undefined) {
       throw new Error("expected a dropped row for change aaaa");
     }
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "change:aaaa",
@@ -213,7 +213,7 @@ describe("reviewRows", () => {
   test("flags a comment stale when its commit is on neither side of the row", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [],
       comments: [
         {
@@ -241,7 +241,7 @@ describe("reviewRows", () => {
   test("keeps a before-side comment fresh while its commit is the row's before side", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [],
       comments: [
         {
@@ -273,7 +273,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2"),
       files: [],
     };
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "rev:g2",
@@ -303,7 +303,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2-rewritten"),
       files: [],
     };
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "rev:g2",
@@ -330,7 +330,7 @@ describe("reviewRows", () => {
       to: gitLogEntry("g2"),
       files: [],
     };
-    const document: SessionDocument = {
+    const document: ReviewDocument = {
       marks: [
         {
           reviewKey: "rev:g2",
@@ -356,7 +356,7 @@ describe("reviewRows", () => {
   });
 });
 
-describe("SessionDocument", () => {
+describe("ReviewDocument", () => {
   test("reads a comment stored without a side as an after-side one", () => {
     // arrange
     const stored = {
@@ -376,7 +376,7 @@ describe("SessionDocument", () => {
     };
 
     // act
-    const document = SessionDocument.parse(stored);
+    const document = ReviewDocument.parse(stored);
 
     // assert
     expect(document.comments[0]?.side).toBe("after");
@@ -409,7 +409,7 @@ describe("reviewKey", () => {
 });
 
 describe("viewed files", () => {
-  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
   const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
 
   test("reads a file viewed on its row once it is marked", () => {
@@ -478,9 +478,9 @@ describe("viewed files", () => {
 });
 
 describe("changes to the document", () => {
-  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
 
-  function reviewedRow(row: InterdiffRow, document: SessionDocument) {
+  function reviewedRow(row: InterdiffRow, document: ReviewDocument) {
     const [reviewed] = reviewRows([row], document);
     if (reviewed === undefined) throw new Error("no row");
     return reviewed;
