@@ -7,7 +7,7 @@ import {
   type LogEntry,
   type Source,
 } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 function asLogEntry(commit: GitCommit): LogEntry {
   return {

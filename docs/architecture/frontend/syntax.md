@@ -25,13 +25,20 @@ of the sides it wants, the same way `useComparison` depends on its question's,
 because the list of files is a fresh array whenever its screen renders.
 
 ```ts
+//| id: frontend-model-source
+//| file: src/frontend/model/source.ts
+import type { SourceFile } from "../api";
+
+/** One side of a file, whole and highlighted, or null while there is none. */
+export type SourceLookup = (blob: string, path: string) => SourceFile | null;
+```
+
+```ts
 //| id: frontend-state-source
 //| file: src/frontend/state/source.ts
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type FileDiff, fetchSource, type SourceFile } from "../api";
-
-/** One side of a file, whole and highlighted, or null while there is none. */
-export type SourceLookup = (blob: string, path: string) => SourceFile | null;
+import type { SourceLookup } from "../model/source";
 
 interface Side {
   blob: string;

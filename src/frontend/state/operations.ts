@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-state-operations>>[init]
 import { useEffect, useState } from "react";
 import { fetchOperations, type OpLogEntry } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 export function useOperations(): AsyncState<OpLogEntry[]> {
   const [state, setState] = useState<AsyncState<OpLogEntry[]>>({

@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-pull-commits>>[init]
 import { useEffect, useState } from "react";
 import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** One version's commits, oldest first, as the pull request's own, so the
  *  pairing can read the identity the graph deliberately drops. */

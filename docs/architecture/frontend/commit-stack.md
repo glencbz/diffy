@@ -24,8 +24,8 @@ short prefix that carries the "why" without carrying the rest.
 //| file: src/frontend/views/CommitStack.tsx
 import { type ReactElement, useEffect, useRef } from "react";
 import type { FileDiff, GitCommit } from "../api";
-import type { AsyncState } from "../state/asyncState";
-import type { SourceLookup } from "../state/source";
+import type { AsyncState } from "../model/asyncState";
+import type { SourceLookup } from "../model/source";
 import { type DiffLinks, DiffView } from "./DiffView";
 
 /** The opening of a commit body, its first paragraph or its first six

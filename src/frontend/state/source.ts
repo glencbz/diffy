@@ -1,9 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/syntax.md#frontend-state-source>>[init]
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type FileDiff, fetchSource, type SourceFile } from "../api";
-
-/** One side of a file, whole and highlighted, or null while there is none. */
-export type SourceLookup = (blob: string, path: string) => SourceFile | null;
+import type { SourceLookup } from "../model/source";
 
 interface Side {
   blob: string;

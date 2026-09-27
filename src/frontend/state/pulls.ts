@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-pulls>>[init]
 import { useEffect, useState } from "react";
 import { fetchPulls, type PullSummary } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 export function usePulls(repo: string): AsyncState<PullSummary[]> {
   const [state, setState] = useState<AsyncState<PullSummary[]>>({

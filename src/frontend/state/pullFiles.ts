@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-pull-files>>[init]
 import { useEffect, useState } from "react";
 import { type FileDiff, fetchPullDiff, type GitOid } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** Every file one version changes against its base, as the pull request
  *  would land it. */

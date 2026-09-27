@@ -7,7 +7,7 @@ import type {
   PullSummary,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
+import type { AsyncState } from "../model/asyncState";
 import { opening, useLastReviewed } from "../state/lastReviewed";
 import { type Slot, usePairing } from "../state/pairing";
 import {

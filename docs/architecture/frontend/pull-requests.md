@@ -14,7 +14,7 @@ back, and a list of open ones would never reach it.
 //| file: src/frontend/state/pulls.ts
 import { useEffect, useState } from "react";
 import { fetchPulls, type PullSummary } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 export function usePulls(repo: string): AsyncState<PullSummary[]> {
   const [state, setState] = useState<AsyncState<PullSummary[]>>({
@@ -49,7 +49,7 @@ latest, so it loads first and on its own.
 //| file: src/frontend/state/pullHistory.ts
 import { useEffect, useState } from "react";
 import { fetchPullHistory, type PullHistory } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 export function usePullHistory(
   repo: string,
@@ -98,7 +98,7 @@ and the commit stack cannot disagree about which end is up.
 //| file: src/frontend/state/pullCommits.ts
 import { useEffect, useState } from "react";
 import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** One version's commits, oldest first, as the pull request's own, so the
  *  pairing can read the identity the graph deliberately drops. */
@@ -630,7 +630,7 @@ import {
   type PullBaseline,
   type PullDiffScope,
 } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 import type { Slot } from "./pairing";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
@@ -729,7 +729,7 @@ asked about.
 //| file: src/frontend/state/pullFiles.ts
 import { useEffect, useState } from "react";
 import { type FileDiff, fetchPullDiff, type GitOid } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** Every file one version changes against its base, as the pull request
  *  would land it. */
@@ -849,7 +849,7 @@ import type {
   PullSummary,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
+import type { AsyncState } from "../model/asyncState";
 import { opening, useLastReviewed } from "../state/lastReviewed";
 import { type Slot, usePairing } from "../state/pairing";
 import {
@@ -1198,7 +1198,7 @@ screen, so they are what gets pinned, the way `heuristicSlots` is pinned in
 //| file: src/frontend/controllers/PullReview.test.ts
 import { describe, expect, test } from "bun:test";
 import { type FileDiff, type GitCommit, GitOid } from "../api";
-import type { AsyncState } from "../state/asyncState";
+import type { AsyncState } from "../model/asyncState";
 import type { Slot } from "../state/pairing";
 import { baseStackRows, stackRows } from "./PullReview";
 
@@ -1699,7 +1699,7 @@ import type {
   PullHistory,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
+import type { AsyncState } from "../model/asyncState";
 import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({

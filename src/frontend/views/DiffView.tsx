@@ -23,8 +23,8 @@ import {
   type DiffLayout,
   type DiffMode,
 } from "../model/settings";
+import type { SourceLookup } from "../model/source";
 import type { FileSpot } from "../state/place";
-import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
   type ChangedFile,

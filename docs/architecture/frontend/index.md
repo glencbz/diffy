@@ -380,8 +380,8 @@ reference here, anywhere.
 Every slice reports its status as an `AsyncState<T>`.
 
 ```ts
-//| id: frontend-async-state
-//| file: src/frontend/state/asyncState.ts
+//| id: frontend-model-async-state
+//| file: src/frontend/model/asyncState.ts
 export type AsyncState<T> =
   | { status: "loading" }
   | { status: "error"; message: string }

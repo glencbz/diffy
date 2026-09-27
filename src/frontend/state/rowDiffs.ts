@@ -7,7 +7,7 @@ import {
   type PullBaseline,
   type PullDiffScope,
 } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 import type { Slot } from "./pairing";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
