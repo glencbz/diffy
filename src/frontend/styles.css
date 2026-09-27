@@ -717,7 +717,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/review-tracking.md#design-review-state>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/review.md#design-review-state>>[init] */
 @layer components {
   .review-chip {
     padding: var(--space-1) var(--space-3);

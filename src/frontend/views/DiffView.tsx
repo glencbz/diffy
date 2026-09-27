@@ -9,10 +9,15 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
-import type { FileVersion, LineAnchor, ViewedFile } from "../model/review";
+import {
+  type FileVersion,
+  isViewed,
+  type LineAnchor,
+  type RowComment,
+  type ViewedFile,
+} from "../model/review";
 import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
-import { isViewed, type RowComment } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,

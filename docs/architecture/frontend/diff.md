@@ -74,8 +74,8 @@ comparison once it lands, for the diff to colour. That hook sits above the
 early returns with an empty list to begin with, because hooks run on every
 render or on none.
 
-Takes a `session` prop rather than calling `useSession` itself, since `App`
-owns the one session for the whole page and other readers will want it. The
+Takes a `review` prop rather than calling `useReview` itself, since `App`
+owns the one review document for the whole page and other readers will want it. The
 existing null/loading/error branches on the comparison fetch are untouched,
 because a synchronous local store adds nothing to them. `reviewRows` runs
 below those early returns as a plain function call, since it derives from
@@ -92,9 +92,9 @@ naming.
 ```tsx
 //| id: frontend-controller-diff-pane
 //| file: src/frontend/controllers/DiffPane.tsx
+import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
-import { type ReviewedRow, reviewRows } from "../state/review";
-import type { Session } from "../state/session";
+import type { ReviewHandle } from "../state/review";
 import { useSources } from "../state/source";
 import { changedFilesOf } from "../views/changedFiles";
 import { FileNavigator, type FileNavigatorGroup } from "../views/FileNavigator";
@@ -103,10 +103,10 @@ import { Message } from "../views/Message";
 
 export function DiffPane({
   comparison,
-  session,
+  review,
 }: {
   comparison: Comparison;
-  session: Session;
+  review: ReviewHandle;
 }) {
   const answer = useComparison(comparison);
   const sources = useSources(
@@ -121,7 +121,7 @@ export function DiffPane({
     return <Message tone="error">{answer.message}</Message>;
   }
 
-  const rows = reviewRows(answer.data, session.document);
+  const rows = reviewRows(answer.data, review.document);
   const groups: FileNavigatorGroup[] = rows.map((row) => ({
     label: rows.length > 1 ? rowLabel(row) : null,
     files: changedFilesOf(row.files, rowKey(row), row.comments),
@@ -134,11 +134,11 @@ export function DiffPane({
       <InterdiffRows
         rows={rows}
         sources={sources}
-        onMarkSeen={session.markSeen}
-        onAddComment={session.addComment}
-        onResolveComment={session.resolveComment}
-        onDropComment={session.dropComment}
-        onToggleViewed={session.toggleViewed}
+        onMarkSeen={review.markSeen}
+        onAddComment={review.addComment}
+        onResolveComment={review.resolveComment}
+        onDropComment={review.dropComment}
+        onToggleViewed={review.toggleViewed}
       />
     </>
   );
@@ -242,7 +242,7 @@ file would hide the thread or the line a link was sent for.
 Whether a file is open is `useState` in its row, like its view.
 
 A diff with review memory ends each file's header with a `Viewed` checkbox.
-Ticking it records a [viewed mark](review-tracking.md#review-state) and folds
+Ticking it records a [viewed mark](review.md#review-state) and folds
 the file, and unticking it opens the file again. A file already viewed when
 the diff draws starts folded, comments or not, because the reader has said
 they are done with it. Only the address still opens it, since a link names a
@@ -293,10 +293,15 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
-import type { FileVersion, LineAnchor, ViewedFile } from "../model/review";
+import {
+  type FileVersion,
+  isViewed,
+  type LineAnchor,
+  type RowComment,
+  type ViewedFile,
+} from "../model/review";
 import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
-import { isViewed, type RowComment } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -2168,16 +2173,15 @@ rather than in the controller, because it is per row and the controller sees
 the list.
 
 Rows take `ReviewedRow` now, not the bare wire `InterdiffRow`, and thread the
-session callbacks down to `ComparisonHeader` and `DiffView`. `rowKey`
+review callbacks down to `ComparisonHeader` and `DiffView`. `rowKey`
 stays keyed on commit ids as before. [A reordered series can put the same
-change id on two rows](review-tracking.md#review-state), so the change id is
+change id on two rows](review.md#review-state), so the change id is
 not a unique React key even though it now sits on the row.
 
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
-import type { FileVersion, LineAnchor } from "../model/review";
-import type { ReviewedRow } from "../state/review";
+import type { FileVersion, LineAnchor, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
@@ -2278,7 +2282,7 @@ never disagree.
 //| file: src/frontend/views/ComparisonHeader.tsx
 import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import { isViewed, type ReviewedRow, type RowReview } from "../state/review";
+import { isViewed, type ReviewedRow, type RowReview } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { fileVersionOf } from "./changedFiles";
 

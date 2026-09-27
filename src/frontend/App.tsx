@@ -6,7 +6,7 @@ import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { type Place, usePlace } from "./state/place";
-import { useSession } from "./state/session";
+import { useReview } from "./state/review";
 import { useSettings } from "./state/settings";
 import { DiffModeDefault } from "./views/DiffView";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
@@ -21,7 +21,7 @@ export function App() {
   const [pane, setPane] = useState<Pane>("before");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
-  const session = useSession();
+  const review = useReview();
   const { settings, setTextSize, setDiffMode } = useSettings();
 
   return (
@@ -40,7 +40,7 @@ export function App() {
             diff={
               <DiffPane
                 comparison={{ from: before.commits, to: after.commits }}
-                session={session}
+                review={review}
               />
             }
             showing={pane}

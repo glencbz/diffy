@@ -158,7 +158,7 @@ Each pull request is stored under a key of its own, `repo#number` under a
 request was the alternative, and it loses twice. A value that fails to parse
 would take every other pull request's mark down with it, and two tabs marking
 two pull requests would each write back a copy missing the other's mark.
-Separate keys leave the [session](review-tracking.md#session) and
+Separate keys leave the [review](review.md#storage) and
 [settings](settings.md) keys alone for the same reason. Reading and writing
 go through a [repository](index.md#local-storage) the way those two do, so a
 value that does not parse reads as no mark and a write that throws is

@@ -18,7 +18,7 @@ GitHub keeps the same sizes on a phone and grows only its headings, so
 Standard is the default on every screen. A reader who wants more on a phone
 picks Large there, and the laptop keeps its own choice.
 
-`Settings` is stored the way the [session](review-tracking.md#session) is,
+`Settings` is stored the way the [review document](review.md#storage) is,
 through a [repository](index.md#local-storage) of its own. A Zod schema
 parses whatever `localStorage` holds. Anything that fails to parse falls back
 to the defaults, whether it is an older shape, a hand-edited

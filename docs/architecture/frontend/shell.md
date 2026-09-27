@@ -70,10 +70,10 @@ value is carried and never read. It stays out of the address because it says
 how big the window is, not where the reader is, and a link opened on a wide
 screen would carry it for nothing.
 
-`App` calls `useSession()` once, alongside the two `useSide()` calls it
+`App` calls `useReview()` once, alongside the two `useSide()` calls it
 already owns, and passes it down to the local history's `DiffPane`. The pull
 request screen reads commit by commit and keeps no marks yet, so it is not
-handed a session it would not read. `useSide` and
+handed a review document it would not read. `useSide` and
 `SidePicker` are untouched. Wiring review state into the commit pickers would
 mean threading it through `CommitLog` and `CommitGraph` too, for a graph that
 shows nothing about review state and has no requested feature that would use
@@ -95,7 +95,7 @@ import { DiffPane } from "./controllers/DiffPane";
 import { OperationLog } from "./controllers/OperationLog";
 import { PullRequests } from "./controllers/PullRequests";
 import { type Place, usePlace } from "./state/place";
-import { useSession } from "./state/session";
+import { useReview } from "./state/review";
 import { useSettings } from "./state/settings";
 import { DiffModeDefault } from "./views/DiffView";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
@@ -110,7 +110,7 @@ export function App() {
   const [pane, setPane] = useState<Pane>("before");
   const before = useSide<JjSource>({ kind: "jj", operation: null });
   const after = useSide<JjSource>({ kind: "jj", operation: null });
-  const session = useSession();
+  const review = useReview();
   const { settings, setTextSize, setDiffMode } = useSettings();
 
   return (
@@ -129,7 +129,7 @@ export function App() {
             diff={
               <DiffPane
                 comparison={{ from: before.commits, to: after.commits }}
-                session={session}
+                review={review}
               />
             }
             showing={pane}
