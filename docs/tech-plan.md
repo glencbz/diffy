@@ -46,6 +46,13 @@ written in diffy leaves the browser.
 * [ ] Keep comments and viewed marks on the pull request screen, as the local
   history screen does.
 
+#### Beyond these
+
+[Direction](direction.md) sketches where diffy goes after this list:
+giving local review everything pull request review has, keeping comments on
+the server, and using review as the loop between a reader and a coding
+agent.
+
 ## Architecture
 
 ### Web frontend
