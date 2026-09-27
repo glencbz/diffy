@@ -815,8 +815,8 @@ to the one the pane already imposes.
 
 The pure helpers are what carries the logic here, so they are what gets
 pinned, the same way `messageBlocks` and `splitMessage` are tested without
-rendering anything, the pattern `PairedGraph.test.ts` and `CommitGraph.test.ts`
-already set for this app.
+rendering anything, the pattern `CommitGraph.test.ts` already sets for this
+app.
 
 ```ts
 //| id: frontend-view-commit-stack-test

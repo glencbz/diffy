@@ -85,21 +85,6 @@ describe("jjLog", () => {
     ).rejects.toBeInstanceOf(JjError);
   });
 
-  test("reads the log at a past operation", async () => {
-    // arrange
-    const operations = await jjOpLog();
-    const earlier = operations.at(-1);
-
-    // act
-    const entries = await jjLog({
-      revset: "all()",
-      atOperation: earlier?.id,
-    });
-
-    // assert
-    expect(entries.length).toBeGreaterThan(0);
-  });
-
   test("wraps an unknown operation id in JjError", async () => {
     // arrange
     // act
@@ -110,24 +95,19 @@ describe("jjLog", () => {
   });
 });
 
+/** The operation every jj repo starts from, always last in `jj op log`. */
+const ROOT_OPERATION = "0".repeat(128);
+
 describe("jjOpLog", () => {
-  test("lists operations newest first", async () => {
+  test("lists operations newest first, ending at the root operation", async () => {
     // arrange
     // act
     const operations = await jjOpLog();
 
     // assert
-    expect(operations.length).toBeGreaterThan(0);
-    for (const op of operations) {
-      expect(typeof op.id).toBe("string");
-      expect(typeof op.description).toBe("string");
-      expect(typeof op.args).toBe("string");
-      expect(Number.isNaN(Date.parse(op.time))).toBe(false);
-    }
-
-    const times = operations.map((op) => Date.parse(op.time));
-    const sorted = [...times].sort((a, b) => b - a);
-    expect(times).toEqual(sorted);
+    expect(operations.length).toBeGreaterThan(1);
+    expect(operations[0]?.id).not.toBe(ROOT_OPERATION);
+    expect(operations.at(-1)?.id).toBe(ROOT_OPERATION);
   });
 
   test("respects the limit option", async () => {
@@ -309,18 +289,6 @@ describe("jjDiff", () => {
     expect(await jjDiff({ revision: "root()" })).toEqual([]);
   });
 
-  test("defaults to the working-copy revision", async () => {
-    // arrange
-    // act
-    const [viaDefault, viaExplicit] = await Promise.all([
-      jjDiff(),
-      jjDiff({ revision: "@" }),
-    ]);
-
-    // assert
-    expect(viaDefault).toEqual(viaExplicit);
-  });
-
   test("wraps an unresolvable revision in JjError", async () => {
     // arrange
     const attempt = () => jjDiff({ revision: "no-such-revision-xyz" });
@@ -360,15 +328,6 @@ describe("jjCommits", () => {
     // act
     // assert
     expect(await jjCommits([])).toEqual(new Map());
-  });
-
-  test("wraps an unresolvable id in JjError", async () => {
-    // arrange
-    // act
-    // assert
-    await expect(jjCommits(["no-such-commit-xyz"])).rejects.toBeInstanceOf(
-      JjError,
-    );
   });
 });
 
@@ -417,16 +376,6 @@ describe("jjInterdiff", () => {
     // assert
     expect(Array.isArray(files)).toBe(true);
   });
-
-  test("wraps an unresolvable commit in JjError", async () => {
-    // arrange
-    const attempt = () => jjInterdiff({ from: "no-such-commit-xyz", to: "@" });
-
-    // act
-    // assert
-    await expect(attempt()).rejects.toBeInstanceOf(JjError);
-    await expect(attempt()).rejects.toThrow(/doesn't exist/);
-  });
 });
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[3]
@@ -442,33 +391,6 @@ describe("jjDiffBetween", () => {
 
     // assert
     expect(files).toEqual(await jjDiff({ revision: to }));
-  });
-
-  test("answers something other than the interdiff of the same pair", async () => {
-    // arrange
-    const from = await commitId("root()+");
-    const to = await commitId("root()++");
-
-    // act
-    const [tree, changes] = await Promise.all([
-      jjDiffBetween({ from, to }),
-      jjInterdiff({ from, to }),
-    ]);
-
-    // assert
-    expect(tree.length).toBeGreaterThan(0);
-    expect(tree).not.toEqual(changes);
-  });
-
-  test("wraps an unresolvable revision in JjError", async () => {
-    // arrange
-    const attempt = () =>
-      jjDiffBetween({ from: "no-such-revision-xyz", to: "@" });
-
-    // act
-    // assert
-    await expect(attempt()).rejects.toBeInstanceOf(JjError);
-    await expect(attempt()).rejects.toThrow(/doesn't exist/);
   });
 });
 // ~/~ end

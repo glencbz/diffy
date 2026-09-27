@@ -8,7 +8,7 @@ export type RowKind = "added" | "dropped" | "paired";
 /** What shape a row draws. Never tries to say whether a paired commit was
  *  amended or is byte-identical; that needs the diff, which this pane does
  *  not fetch. */
-export function rowKind(slot: Slot): RowKind {
+function rowKind(slot: Slot): RowKind {
   if (slot.left === null) return "added";
   if (slot.right === null) return "dropped";
   return "paired";

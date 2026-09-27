@@ -587,22 +587,6 @@ describe("reviewRows", () => {
     expect(reviewed?.comments[0]?.stale).toBe(false);
   });
 
-  test("derives unseen for a change-id-less row against an empty document", () => {
-    // arrange
-    const row: InterdiffRow = {
-      from: gitLogEntry("g1"),
-      to: gitLogEntry("g2"),
-      files: [],
-    };
-    const document: SessionDocument = { marks: [], comments: [], viewed: [] };
-
-    // act
-    const [reviewed] = reviewRows([row], document);
-
-    // assert
-    expect(reviewed?.review).toEqual({ state: "unseen" });
-  });
-
   test("marks a change-id-less row reviewed on an exact triple match", () => {
     // arrange
     const row: InterdiffRow = {

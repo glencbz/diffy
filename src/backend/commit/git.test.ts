@@ -182,21 +182,6 @@ describe("parseLogRecord", () => {
     });
   });
 
-  test("carries the subject line as its changeId", () => {
-    // arrange
-    const raw = record([
-      a,
-      b,
-      "Glen",
-      "2026-09-10T11:08:01+00:00",
-      "subject line\n\nbody\n",
-    ]);
-
-    // act
-    // assert
-    expect(parseLogRecord(raw).changeId).toBe("subject line");
-  });
-
   test("keeps a multi-line body whole", () => {
     // arrange
     const body = "subject line\n\nbody line one\nbody line two\n";

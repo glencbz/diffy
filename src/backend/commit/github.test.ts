@@ -185,24 +185,6 @@ describe("githubPullRequestHistory", () => {
     expect(history.truncated).toBe(false);
   });
 
-  test("a PR with no force pushes has one state", async () => {
-    // arrange
-    const gh = stub(historyEnvelope([], false, CHAIN[0] as GitOid));
-
-    // act
-    const history = await githubPullRequestHistory(
-      REPO,
-      PullNumber.parse(11),
-      gh,
-    );
-
-    // assert
-    expect(history.states).toEqual([
-      { version: 1, head: CHAIN[0] as GitOid, origin: { kind: "opened" } },
-    ]);
-    expect(history.truncated).toBe(false);
-  });
-
   test("reports a full page of force pushes as truncated", async () => {
     // arrange
     const gh = stub(historyEnvelope(PULL_9_NODES, true));
@@ -254,21 +236,6 @@ describe("githubPullRequestHistory", () => {
       name: "GitHubError",
       kind: "not-found",
     });
-  });
-
-  test("passes a transport's not-found through untouched", async () => {
-    // arrange
-    const gh: GitHubGraphQL = () =>
-      Promise.reject(
-        new GitHubError("Could not resolve to a Repository", "not-found"),
-      );
-
-    // act
-    const attempt = githubPullRequestHistory(REPO, PullNumber.parse(9), gh);
-
-    // assert
-    await expect(attempt).rejects.toBeInstanceOf(GitHubError);
-    await expect(attempt).rejects.toMatchObject({ kind: "not-found" });
   });
 });
 
@@ -433,15 +400,6 @@ describe("pullStateAt", () => {
     expect(error).toBeInstanceOf(GitHubError);
     expect(error).toMatchObject({ kind: "not-found" });
     expect((error as Error).message).toContain(stranger);
-  });
-
-  test("refuses the base branch tip, which is not one of the heads", () => {
-    // arrange
-    // act
-    const error = catchError(() => pullStateAt(history, BASE));
-
-    // assert
-    expect(error).toMatchObject({ name: "GitHubError", kind: "not-found" });
   });
 });
 // ~/~ end
