@@ -27,11 +27,12 @@ describe("readPatch", () => {
       {
         header: "@@ -10,3 +10,3 @@ function f() {",
         newStart: 10,
+        oldStart: 10,
         lines: [
-          { kind: "context", code: "keep", newLine: 10 },
+          { kind: "context", code: "keep", newLine: 10, oldLine: 10 },
           { kind: "removed", code: "old", oldLine: 11 },
           { kind: "added", code: "new", newLine: 11 },
-          { kind: "context", code: "keep", newLine: 12 },
+          { kind: "context", code: "keep", newLine: 12, oldLine: 12 },
         ],
       },
     ]);
@@ -70,7 +71,7 @@ describe("readPatch", () => {
       { kind: "removed", code: "a", oldLine: 1 },
       { kind: "note", text: "\\ No newline at end of file" },
       { kind: "added", code: "a", newLine: 1 },
-      { kind: "context", code: "b", newLine: 2 },
+      { kind: "context", code: "b", newLine: 2, oldLine: 2 },
     ]);
   });
 
@@ -112,9 +113,9 @@ describe("gapsOf", () => {
 
     // assert
     expect(gaps).toEqual([
-      { start: 1, count: 3 },
-      { start: 6, count: 14 },
-      { start: 22, count: 9 },
+      { start: 1, count: 3, oldStart: 1 },
+      { start: 6, count: 14, oldStart: 6 },
+      { start: 22, count: 9, oldStart: 21 },
     ]);
   });
 
@@ -127,8 +128,8 @@ describe("gapsOf", () => {
 
     // assert
     expect(gaps).toEqual([
-      { start: 1, count: 4 },
-      { start: 5, count: 6 },
+      { start: 1, count: 4, oldStart: 1 },
+      { start: 5, count: 6, oldStart: 7 },
     ]);
   });
 
