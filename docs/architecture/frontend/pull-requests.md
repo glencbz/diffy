@@ -638,7 +638,7 @@ import {
   type PullDiffScope,
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
-import type { Slot } from "./pairing";
+import type { Slot } from "../model/pairing";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything
@@ -858,6 +858,7 @@ import type {
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import { opening } from "../model/lastReviewed";
+import type { Slot } from "../model/pairing";
 import {
   type FileSpot,
   openPull,
@@ -865,7 +866,7 @@ import {
   pullHref,
 } from "../model/place";
 import { useLastReviewed } from "../state/lastReviewed";
-import { type Slot, usePairing } from "../state/pairing";
+import { usePairing } from "../state/pairing";
 import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
@@ -1207,7 +1208,7 @@ screen, so they are what gets pinned, the way `heuristicSlots` is pinned in
 import { describe, expect, test } from "bun:test";
 import { type FileDiff, type GitCommit, GitOid } from "../api";
 import type { AsyncState } from "../model/asyncState";
-import type { Slot } from "../state/pairing";
+import type { Slot } from "../model/pairing";
 import { baseStackRows, stackRows } from "./PullReview";
 
 function oid(ch: string): GitOid {

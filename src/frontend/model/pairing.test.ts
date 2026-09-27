@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/pairing.md#frontend-state-pairing-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/pairing.md#frontend-model-pairing-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { SeriesCommit } from "../../backend/commit/series";
 import {

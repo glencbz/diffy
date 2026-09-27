@@ -9,6 +9,7 @@ import type {
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import { opening } from "../model/lastReviewed";
+import type { Slot } from "../model/pairing";
 import {
   type FileSpot,
   openPull,
@@ -16,7 +17,7 @@ import {
   pullHref,
 } from "../model/place";
 import { useLastReviewed } from "../state/lastReviewed";
-import { type Slot, usePairing } from "../state/pairing";
+import { usePairing } from "../state/pairing";
 import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
