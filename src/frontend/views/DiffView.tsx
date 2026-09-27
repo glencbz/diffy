@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import {
+  type Anchor,
   type FileVersion,
   isViewed,
   type LineAnchor,
@@ -44,11 +45,11 @@ export const DiffModeDefault = createContext<DiffMode>(
 );
 
 /** Review memory for the files on screen. A diff that has one lets every
- * line of the file, on either side, be commented on; a diff that has none
- * renders read-only. */
+ * file, and every line of it on either side, be commented on; a diff that
+ * has none renders read-only. */
 export interface DiffReview {
   comments: RowComment[];
-  onAddComment: (path: string, anchor: LineAnchor, body: string) => void;
+  onAddComment: (anchor: Anchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: ViewedFile[];
@@ -83,10 +84,7 @@ export function DiffView({
    *  view. Mounting brings it into view too. */
   reveal?: number;
 }) {
-  const [composer, setComposer] = useState<{
-    path: string;
-    anchor: LineAnchor;
-  } | null>(null);
+  const [composer, setComposer] = useState<Anchor | null>(null);
 
   const changedFiles = useMemo(
     () =>
@@ -119,14 +117,19 @@ export function DiffView({
                 ? undefined
                 : {
                     comments: review.comments.filter(
-                      (comment) => comment.path === path,
+                      (comment) =>
+                        comment.kind !== "comparison" && comment.path === path,
                     ),
-                    composerAnchor:
-                      composer?.path === path ? composer.anchor : null,
-                    onOpenComposer: (anchor) => setComposer({ path, anchor }),
+                    composer:
+                      composer !== null &&
+                      composer.kind !== "comparison" &&
+                      composer.path === path
+                        ? composer
+                        : null,
+                    onOpenComposer: setComposer,
                     onCancelComposer: () => setComposer(null),
                     onSubmitComposer: (anchor, body) => {
-                      review.onAddComment(path, anchor, body);
+                      review.onAddComment(anchor, body);
                       setComposer(null);
                     },
                     onResolveComment: review.onResolveComment,
@@ -198,10 +201,10 @@ function jumpTo(file: ChangedFile): void {
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
-  composerAnchor: LineAnchor | null;
-  onOpenComposer: (anchor: LineAnchor) => void;
+  composer: Anchor | null;
+  onOpenComposer: (anchor: Anchor) => void;
   onCancelComposer: () => void;
-  onSubmitComposer: (anchor: LineAnchor, body: string) => void;
+  onSubmitComposer: (anchor: Anchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: boolean;
@@ -301,6 +304,7 @@ function FileRow({
       : patchBody(file.patch);
   const shown = shownIn[mode];
   const reason = collapseReason(file);
+  const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const viewed = review?.viewed ?? false;
   const open =
@@ -352,6 +356,16 @@ function FileRow({
             onChoose={setChosen}
           />
         )}
+        {open && review !== undefined && (
+          <button
+            type="button"
+            className="diff-file__comment"
+            aria-label="comment on file"
+            onClick={() => review.onOpenComposer({ kind: "file", path })}
+          >
+            comment
+          </button>
+        )}
         {review !== undefined && (
           <label className="diff-file__viewed">
             <input
@@ -366,6 +380,9 @@ function FileRow({
           </label>
         )}
       </header>
+      {open && review !== undefined && (
+        <FileComments review={review} kind="file" />
+      )}
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
@@ -395,35 +412,49 @@ function FileRow({
                 // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
                 key={index}
                 line={line}
-                onOpenComposer={review?.onOpenComposer}
+                onOpenComposer={
+                  review === undefined
+                    ? undefined
+                    : (at) =>
+                        review.onOpenComposer({ kind: "line", path, ...at })
+                }
                 links={links}
               />
             ),
           )}
         </pre>
       )}
-      {open && review !== undefined && review.composerAnchor !== null && (
+      {open && review !== undefined && (
+        <FileComments review={review} kind="line" />
+      )}
+    </section>
+  );
+}
+
+/** A file's composer and threads for one kind of anchor: the whole file's
+ *  under its header, its lines' under its patch. */
+function FileComments({
+  review,
+  kind,
+}: {
+  review: FileReview;
+  kind: "file" | "line";
+}) {
+  return (
+    <>
+      {review.composer?.kind === kind && (
         <CommentComposer
-          anchor={review.composerAnchor}
+          anchor={review.composer}
           onCancel={review.onCancelComposer}
           onSubmit={review.onSubmitComposer}
         />
       )}
-      {open && review !== undefined && review.comments.length > 0 && (
-        <div>
-          {review.comments.map((comment) => (
-            <CommentThread
-              key={comment.id}
-              comment={comment}
-              onResolve={(resolved) =>
-                review.onResolveComment(comment.id, resolved)
-              }
-              onDrop={() => review.onDropComment(comment.id)}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+      <CommentThreads
+        comments={review.comments.filter((comment) => comment.kind === kind)}
+        onResolveComment={review.onResolveComment}
+        onDropComment={review.onDropComment}
+      />
+    </>
   );
 }
 
@@ -471,14 +502,38 @@ function lineLabel({ side, line }: LineAnchor): string {
   return side === "after" ? `${line}` : `${line}, before`;
 }
 
-function CommentComposer({
+/** What a composer is writing about, where its file is already on screen. */
+function composerLabel(anchor: Anchor): string {
+  switch (anchor.kind) {
+    case "line":
+      return `line ${lineLabel(anchor)}`;
+    case "file":
+      return "whole file";
+    case "comparison":
+      return "whole comparison";
+  }
+}
+
+/** What a thread is about, named so it reads on its own. */
+function threadLabel(comment: Anchor): string {
+  switch (comment.kind) {
+    case "line":
+      return `${comment.path}:${lineLabel(comment)}`;
+    case "file":
+      return comment.path;
+    case "comparison":
+      return "whole comparison";
+  }
+}
+
+export function CommentComposer({
   anchor,
   onCancel,
   onSubmit,
 }: {
-  anchor: LineAnchor;
+  anchor: Anchor;
   onCancel: () => void;
-  onSubmit: (anchor: LineAnchor, body: string) => void;
+  onSubmit: (anchor: Anchor, body: string) => void;
 }) {
   const [body, setBody] = useState("");
 
@@ -491,7 +546,7 @@ function CommentComposer({
         onSubmit(anchor, body);
       }}
     >
-      <div className="comment-composer__line">line {lineLabel(anchor)}</div>
+      <div className="comment-composer__line">{composerLabel(anchor)}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -505,6 +560,30 @@ function CommentComposer({
         </button>
       </div>
     </form>
+  );
+}
+
+export function CommentThreads({
+  comments,
+  onResolveComment,
+  onDropComment,
+}: {
+  comments: RowComment[];
+  onResolveComment: (id: string, resolved: boolean) => void;
+  onDropComment: (id: string) => void;
+}) {
+  if (comments.length === 0) return null;
+  return (
+    <div>
+      {comments.map((comment) => (
+        <CommentThread
+          key={comment.id}
+          comment={comment}
+          onResolve={(resolved) => onResolveComment(comment.id, resolved)}
+          onDrop={() => onDropComment(comment.id)}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -527,8 +606,7 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          {comment.path}:{lineLabel(comment)} ·{" "}
-          {comment.resolved ? "resolved" : "open"}
+          {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
         </span>
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
           {comment.resolved ? "reopen" : "resolve"}
@@ -540,8 +618,9 @@ function CommentThread({
       <div>{comment.body}</div>
       {comment.stale && (
         <div className="comment-thread__stale">
-          written against {comment.commitId.slice(0, 8)}. That line has since
-          been rewritten.
+          written against {comment.commitId.slice(0, 8)}.{" "}
+          {comment.kind === "line" ? "That line" : "That commit"} has since been
+          rewritten.
         </div>
       )}
     </div>

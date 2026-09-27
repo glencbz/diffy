@@ -711,7 +711,8 @@
     color: var(--text-muted);
   }
 
-  .comparison-header__mark-seen {
+  .comparison-header__mark-seen,
+  .comparison-header__comment {
     font: inherit;
   }
 }
@@ -1429,6 +1430,8 @@
     top: var(--diff-sticky-top, 0);
     z-index: 1;
     display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
     align-items: baseline;
     padding: var(--space-2) var(--space-4);
     font-weight: bold;
@@ -1436,8 +1439,8 @@
   }
 
   .diff-file__path {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 20ch;
+    min-width: min(20ch, 100%);
     overflow-wrap: anywhere;
   }
 
@@ -1474,12 +1477,31 @@
     opacity: 0.5;
   }
 
+  .diff-file__comment {
+    flex: none;
+    margin-left: auto;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .diff-file__modes + .diff-file__comment {
+    margin-left: var(--space-3);
+  }
+
   .diff-file__status {
     margin-right: var(--space-4);
     color: var(--text-muted);
   }
 
   .diff-file__toggle {
+    flex: 1 1 30ch;
+    min-width: 0;
     display: flex;
     align-items: baseline;
     padding: 0;
@@ -1510,7 +1532,8 @@
     cursor: pointer;
   }
 
-  .diff-file__modes + .diff-file__viewed {
+  .diff-file__modes + .diff-file__viewed,
+  .diff-file__comment + .diff-file__viewed {
     margin-left: var(--space-4);
   }
 

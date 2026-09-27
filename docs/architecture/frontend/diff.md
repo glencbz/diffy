@@ -194,9 +194,12 @@ clickable.
 Every line of the file is commentable. A comment is pinned to a `LineAnchor`,
 a side and a line number on it: a removed line to its number on the before
 side, every other line to its number on the after side. Clicking a line opens
-a composer for it, a plain `<form>` with one
-`useState<{path, anchor} | null>` for which line's composer is open, closed
-again on submit or cancel. The composer and the thread both name a
+a composer for it, a plain `<form>` with one `useState<Anchor | null>` for
+which [anchor](review.md#review-state)'s composer is open, closed again on
+submit or cancel. The same state holds the composer the `comment` button in an
+open file's header opens, and a comment on the whole file is drawn under that
+header rather than under the patch, since it is about everything below it
+rather than about the last line. The composer and the thread both name a
 before-side line as `12, before`, so it is not read as line 12 of the after
 side. Comment threads render under the file's `<pre>` rather
 than in the gutter. A gutter-anchored thread would have to reflow around
@@ -294,6 +297,7 @@ import {
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import {
+  type Anchor,
   type FileVersion,
   isViewed,
   type LineAnchor,
@@ -328,11 +332,11 @@ export const DiffModeDefault = createContext<DiffMode>(
 );
 
 /** Review memory for the files on screen. A diff that has one lets every
- * line of the file, on either side, be commented on; a diff that has none
- * renders read-only. */
+ * file, and every line of it on either side, be commented on; a diff that
+ * has none renders read-only. */
 export interface DiffReview {
   comments: RowComment[];
-  onAddComment: (path: string, anchor: LineAnchor, body: string) => void;
+  onAddComment: (anchor: Anchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: ViewedFile[];
@@ -367,10 +371,7 @@ export function DiffView({
    *  view. Mounting brings it into view too. */
   reveal?: number;
 }) {
-  const [composer, setComposer] = useState<{
-    path: string;
-    anchor: LineAnchor;
-  } | null>(null);
+  const [composer, setComposer] = useState<Anchor | null>(null);
 
   const changedFiles = useMemo(
     () =>
@@ -403,14 +404,19 @@ export function DiffView({
                 ? undefined
                 : {
                     comments: review.comments.filter(
-                      (comment) => comment.path === path,
+                      (comment) =>
+                        comment.kind !== "comparison" && comment.path === path,
                     ),
-                    composerAnchor:
-                      composer?.path === path ? composer.anchor : null,
-                    onOpenComposer: (anchor) => setComposer({ path, anchor }),
+                    composer:
+                      composer !== null &&
+                      composer.kind !== "comparison" &&
+                      composer.path === path
+                        ? composer
+                        : null,
+                    onOpenComposer: setComposer,
                     onCancelComposer: () => setComposer(null),
                     onSubmitComposer: (anchor, body) => {
-                      review.onAddComment(path, anchor, body);
+                      review.onAddComment(anchor, body);
                       setComposer(null);
                     },
                     onResolveComment: review.onResolveComment,
@@ -482,10 +488,10 @@ function jumpTo(file: ChangedFile): void {
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
-  composerAnchor: LineAnchor | null;
-  onOpenComposer: (anchor: LineAnchor) => void;
+  composer: Anchor | null;
+  onOpenComposer: (anchor: Anchor) => void;
   onCancelComposer: () => void;
-  onSubmitComposer: (anchor: LineAnchor, body: string) => void;
+  onSubmitComposer: (anchor: Anchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: boolean;
@@ -585,6 +591,7 @@ function FileRow({
       : patchBody(file.patch);
   const shown = shownIn[mode];
   const reason = collapseReason(file);
+  const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const viewed = review?.viewed ?? false;
   const open =
@@ -636,6 +643,16 @@ function FileRow({
             onChoose={setChosen}
           />
         )}
+        {open && review !== undefined && (
+          <button
+            type="button"
+            className="diff-file__comment"
+            aria-label="comment on file"
+            onClick={() => review.onOpenComposer({ kind: "file", path })}
+          >
+            comment
+          </button>
+        )}
         {review !== undefined && (
           <label className="diff-file__viewed">
             <input
@@ -650,6 +667,9 @@ function FileRow({
           </label>
         )}
       </header>
+      {open && review !== undefined && (
+        <FileComments review={review} kind="file" />
+      )}
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : (
@@ -679,35 +699,49 @@ function FileRow({
                 // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering patch lines
                 key={index}
                 line={line}
-                onOpenComposer={review?.onOpenComposer}
+                onOpenComposer={
+                  review === undefined
+                    ? undefined
+                    : (at) =>
+                        review.onOpenComposer({ kind: "line", path, ...at })
+                }
                 links={links}
               />
             ),
           )}
         </pre>
       )}
-      {open && review !== undefined && review.composerAnchor !== null && (
+      {open && review !== undefined && (
+        <FileComments review={review} kind="line" />
+      )}
+    </section>
+  );
+}
+
+/** A file's composer and threads for one kind of anchor: the whole file's
+ *  under its header, its lines' under its patch. */
+function FileComments({
+  review,
+  kind,
+}: {
+  review: FileReview;
+  kind: "file" | "line";
+}) {
+  return (
+    <>
+      {review.composer?.kind === kind && (
         <CommentComposer
-          anchor={review.composerAnchor}
+          anchor={review.composer}
           onCancel={review.onCancelComposer}
           onSubmit={review.onSubmitComposer}
         />
       )}
-      {open && review !== undefined && review.comments.length > 0 && (
-        <div>
-          {review.comments.map((comment) => (
-            <CommentThread
-              key={comment.id}
-              comment={comment}
-              onResolve={(resolved) =>
-                review.onResolveComment(comment.id, resolved)
-              }
-              onDrop={() => review.onDropComment(comment.id)}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+      <CommentThreads
+        comments={review.comments.filter((comment) => comment.kind === kind)}
+        onResolveComment={review.onResolveComment}
+        onDropComment={review.onDropComment}
+      />
+    </>
   );
 }
 
@@ -755,14 +789,38 @@ function lineLabel({ side, line }: LineAnchor): string {
   return side === "after" ? `${line}` : `${line}, before`;
 }
 
-function CommentComposer({
+/** What a composer is writing about, where its file is already on screen. */
+function composerLabel(anchor: Anchor): string {
+  switch (anchor.kind) {
+    case "line":
+      return `line ${lineLabel(anchor)}`;
+    case "file":
+      return "whole file";
+    case "comparison":
+      return "whole comparison";
+  }
+}
+
+/** What a thread is about, named so it reads on its own. */
+function threadLabel(comment: Anchor): string {
+  switch (comment.kind) {
+    case "line":
+      return `${comment.path}:${lineLabel(comment)}`;
+    case "file":
+      return comment.path;
+    case "comparison":
+      return "whole comparison";
+  }
+}
+
+export function CommentComposer({
   anchor,
   onCancel,
   onSubmit,
 }: {
-  anchor: LineAnchor;
+  anchor: Anchor;
   onCancel: () => void;
-  onSubmit: (anchor: LineAnchor, body: string) => void;
+  onSubmit: (anchor: Anchor, body: string) => void;
 }) {
   const [body, setBody] = useState("");
 
@@ -775,7 +833,7 @@ function CommentComposer({
         onSubmit(anchor, body);
       }}
     >
-      <div className="comment-composer__line">line {lineLabel(anchor)}</div>
+      <div className="comment-composer__line">{composerLabel(anchor)}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -789,6 +847,30 @@ function CommentComposer({
         </button>
       </div>
     </form>
+  );
+}
+
+export function CommentThreads({
+  comments,
+  onResolveComment,
+  onDropComment,
+}: {
+  comments: RowComment[];
+  onResolveComment: (id: string, resolved: boolean) => void;
+  onDropComment: (id: string) => void;
+}) {
+  if (comments.length === 0) return null;
+  return (
+    <div>
+      {comments.map((comment) => (
+        <CommentThread
+          key={comment.id}
+          comment={comment}
+          onResolve={(resolved) => onResolveComment(comment.id, resolved)}
+          onDrop={() => onDropComment(comment.id)}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -811,8 +893,7 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          {comment.path}:{lineLabel(comment)} ·{" "}
-          {comment.resolved ? "resolved" : "open"}
+          {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
         </span>
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
           {comment.resolved ? "reopen" : "resolve"}
@@ -824,8 +905,9 @@ function CommentThread({
       <div>{comment.body}</div>
       {comment.stale && (
         <div className="comment-thread__stale">
-          written against {comment.commitId.slice(0, 8)}. That line has since
-          been rewritten.
+          written against {comment.commitId.slice(0, 8)}.{" "}
+          {comment.kind === "line" ? "That line" : "That commit"} has since been
+          rewritten.
         </div>
       )}
     </div>
@@ -1077,9 +1159,16 @@ already stops at: zero, unless
 [the file navigator](file-tree.md#stepping-through-files) holds the top of
 the pane.
 
-The path takes whatever width the switch leaves and wraps anywhere,
-because a path is one long word to a line breaker, and a word that cannot
-shrink pushes the switch past the header's edge on a phone.
+The path takes whatever width the header's controls leave and wraps
+anywhere, because a path is one long word to a line breaker, and a word that
+cannot shrink pushes the controls past the header's edge on a phone. It keeps
+at least 20 characters, though. The switch, the `comment` button and the
+`Viewed` box leave a phone-width path a few letters, which stacks it one
+syllable to a line, so once the path would go narrower than that the controls
+wrap onto a row of their own under it. The path asks for those 20 characters
+rather than its whole length, since a flex row wraps on what its items ask
+for, and a long path asking for all of its width would push the controls down
+on a desktop too.
 
 ```css
 /*| id: design-diff-view
@@ -1155,6 +1244,8 @@ shrink pushes the switch past the header's edge on a phone.
     top: var(--diff-sticky-top, 0);
     z-index: 1;
     display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
     align-items: baseline;
     padding: var(--space-2) var(--space-4);
     font-weight: bold;
@@ -1162,8 +1253,8 @@ shrink pushes the switch past the header's edge on a phone.
   }
 
   .diff-file__path {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 20ch;
+    min-width: min(20ch, 100%);
     overflow-wrap: anywhere;
   }
 
@@ -1200,12 +1291,31 @@ shrink pushes the switch past the header's edge on a phone.
     opacity: 0.5;
   }
 
+  .diff-file__comment {
+    flex: none;
+    margin-left: auto;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .diff-file__modes + .diff-file__comment {
+    margin-left: var(--space-3);
+  }
+
   .diff-file__status {
     margin-right: var(--space-4);
     color: var(--text-muted);
   }
 
   .diff-file__toggle {
+    flex: 1 1 30ch;
+    min-width: 0;
     display: flex;
     align-items: baseline;
     padding: 0;
@@ -1236,7 +1346,8 @@ shrink pushes the switch past the header's edge on a phone.
     cursor: pointer;
   }
 
-  .diff-file__modes + .diff-file__viewed {
+  .diff-file__modes + .diff-file__viewed,
+  .diff-file__comment + .diff-file__viewed {
     margin-left: var(--space-4);
   }
 
@@ -2173,7 +2284,11 @@ rather than in the controller, because it is per row and the controller sees
 the list.
 
 Rows take `ReviewedRow` now, not the bare wire `InterdiffRow`, and thread the
-review callbacks down to `ComparisonHeader` and `DiffView`. `rowKey`
+review callbacks down to `ComparisonHeader` and `DiffView`. A comment on
+the whole comparison belongs to the row rather than to any file in it, so its
+composer, opened from the header, and its threads sit here, between the header
+and the files. A row with no files takes one too, which is the one comment an
+empty commit can be given. `rowKey`
 stays keyed on commit ids as before. [A reordered series can put the same
 change id on two rows](review.md#review-state), so the change id is
 not a unique React key even though it now sits on the row.
@@ -2181,10 +2296,11 @@ not a unique React key even though it now sits on the row.
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
-import type { FileVersion, LineAnchor, ReviewedRow } from "../model/review";
+import { useState } from "react";
+import type { Anchor, FileVersion, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
-import { DiffView } from "./DiffView";
+import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 
 export function InterdiffRows({
   rows,
@@ -2198,21 +2314,39 @@ export function InterdiffRows({
   rows: ReviewedRow[];
   sources: SourceLookup;
   onMarkSeen: (row: ReviewedRow) => void;
-  onAddComment: (
-    row: ReviewedRow,
-    path: string,
-    anchor: LineAnchor,
-    body: string,
-  ) => void;
+  onAddComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onToggleViewed: (row: ReviewedRow, file: FileVersion) => void;
 }) {
+  const [composing, setComposing] = useState<string | null>(null);
+
   return (
     <div>
       {rows.map((row) => (
         <section key={rowKey(row)}>
-          <ComparisonHeader row={row} onMarkSeen={() => onMarkSeen(row)} />
+          <ComparisonHeader
+            row={row}
+            onMarkSeen={() => onMarkSeen(row)}
+            onComment={() => setComposing(rowKey(row))}
+          />
+          {composing === rowKey(row) && (
+            <CommentComposer
+              anchor={{ kind: "comparison" }}
+              onCancel={() => setComposing(null)}
+              onSubmit={(anchor, body) => {
+                onAddComment(row, anchor, body);
+                setComposing(null);
+              }}
+            />
+          )}
+          <CommentThreads
+            comments={row.comments.filter(
+              (comment) => comment.kind === "comparison",
+            )}
+            onResolveComment={onResolveComment}
+            onDropComment={onDropComment}
+          />
           {row.files.length === 0 ? (
             <p className="interdiff-empty">
               {row.from !== null && row.to !== null
@@ -2226,8 +2360,7 @@ export function InterdiffRows({
               scope={rowKey(row)}
               review={{
                 comments: row.comments,
-                onAddComment: (path, anchor, body) =>
-                  onAddComment(row, path, anchor, body),
+                onAddComment: (anchor, body) => onAddComment(row, anchor, body),
                 onResolveComment,
                 onDropComment,
                 viewed: row.viewed,
@@ -2289,9 +2422,11 @@ import { fileVersionOf } from "./changedFiles";
 export function ComparisonHeader({
   row,
   onMarkSeen,
+  onComment,
 }: {
   row: ReviewedRow;
   onMarkSeen: () => void;
+  onComment: () => void;
 }) {
   const openComments = row.comments.filter(
     (comment) => !comment.resolved,
@@ -2318,6 +2453,13 @@ export function ComparisonHeader({
           className="comparison-header__mark-seen"
         >
           {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+        </button>
+        <button
+          type="button"
+          onClick={onComment}
+          className="comparison-header__comment"
+        >
+          comment on comparison
         </button>
       </div>
     </header>
@@ -2411,7 +2553,8 @@ runs.
     color: var(--text-muted);
   }
 
-  .comparison-header__mark-seen {
+  .comparison-header__mark-seen,
+  .comparison-header__comment {
     font: inherit;
   }
 }

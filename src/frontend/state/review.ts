@@ -1,12 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-state-review>>[init]
 import { useMemo } from "react";
 import {
+  type Anchor,
   addComment,
   dropComment,
   type FileVersion,
   flipSeen,
   flipViewed,
-  type LineAnchor,
   type ReviewDocument,
   type ReviewedRow,
   resolveComment,
@@ -17,12 +17,7 @@ import { useStored } from "./stored";
 export interface ReviewHandle {
   document: ReviewDocument;
   markSeen: (row: ReviewedRow) => void;
-  addComment: (
-    row: ReviewedRow,
-    path: string,
-    anchor: LineAnchor,
-    body: string,
-  ) => void;
+  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
@@ -35,11 +30,10 @@ export function useReview(): ReviewHandle {
     const now = () => new Date().toISOString();
     return {
       markSeen: (row) => update((current) => flipSeen(current, row, now())),
-      addComment: (row, path, anchor, body) =>
+      addComment: (row, anchor, body) =>
         update((current) =>
           addComment(current, row, {
             id: crypto.randomUUID(),
-            path,
             ...anchor,
             body,
             createdAt: now(),

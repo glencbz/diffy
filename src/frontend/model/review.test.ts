@@ -219,6 +219,7 @@ describe("reviewRows", () => {
         {
           id: "c1",
           reviewKey: "change:a",
+          kind: "line",
           path: "f.ts",
           side: "after",
           line: 3,
@@ -247,6 +248,7 @@ describe("reviewRows", () => {
         {
           id: "c1",
           reviewKey: "change:a",
+          kind: "line",
           path: "f.ts",
           side: "before",
           line: 3,
@@ -264,6 +266,59 @@ describe("reviewRows", () => {
 
     // assert
     expect(reviewed?.comments[0]?.stale).toBe(false);
+  });
+
+  test("keeps a file comment fresh while its commit is the row's after side", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const document: ReviewDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "file",
+          path: "f.ts",
+          commitId: "a2",
+          body: "split this file",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      viewed: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(false);
+  });
+
+  test("flags a comparison comment stale once both sides have been rewritten", () => {
+    // arrange
+    const row = pairRow("a", "a3", "a4");
+    const document: ReviewDocument = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "comparison",
+          commitId: "a2",
+          body: "squash this into its parent",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+      viewed: [],
+    };
+
+    // act
+    const [reviewed] = reviewRows([row], document);
+
+    // assert
+    expect(reviewed?.comments[0]?.stale).toBe(true);
   });
 
   test("marks a change-id-less row reviewed on an exact triple match", () => {
@@ -357,7 +412,7 @@ describe("reviewRows", () => {
 });
 
 describe("ReviewDocument", () => {
-  test("reads a comment stored without a side as an after-side one", () => {
+  test("reads a comment stored without a kind or a side as an after-side line comment", () => {
     // arrange
     const stored = {
       marks: [],
@@ -379,7 +434,60 @@ describe("ReviewDocument", () => {
     const document = ReviewDocument.parse(stored);
 
     // assert
-    expect(document.comments[0]?.side).toBe("after");
+    expect(document.comments[0]).toMatchObject({
+      kind: "line",
+      path: "f.ts",
+      side: "after",
+      line: 3,
+    });
+  });
+
+  test("reads file and comparison comments back as themselves", () => {
+    // arrange
+    const written = {
+      reviewKey: "change:a",
+      commitId: "a2",
+      body: "",
+      resolved: false,
+      createdAt: "2026-09-14T09:00:00.000Z",
+    };
+    const stored = {
+      marks: [],
+      comments: [
+        { ...written, id: "c1", kind: "file" as const, path: "f.ts" },
+        { ...written, id: "c2", kind: "comparison" as const },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments).toEqual(stored.comments);
+  });
+
+  test("rejects a file comment with no path", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "file",
+          commitId: "a2",
+          body: "",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const parsed = ReviewDocument.safeParse(stored);
+
+    // assert
+    expect(parsed.success).toBe(false);
   });
 });
 
@@ -548,7 +656,13 @@ describe("changes to the document", () => {
   test("pins a comment to the commit on the side it was left on", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
-    const at = { path: "f.ts", line: 3, body: "hm", createdAt: "t" };
+    const at = {
+      kind: "line",
+      path: "f.ts",
+      line: 3,
+      body: "hm",
+      createdAt: "t",
+    } as const;
 
     // act
     const document = addComment(
@@ -574,6 +688,7 @@ describe("changes to the document", () => {
     // act
     const document = addComment(empty, row, {
       id: "c1",
+      kind: "line",
       path: "f.ts",
       side: "before",
       line: 3,
@@ -585,10 +700,35 @@ describe("changes to the document", () => {
     expect(document.comments[0]?.commitId).toBe("a2");
   });
 
+  test("pins a file or comparison comment to the row's after side", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const at = { body: "hm", createdAt: "t" };
+
+    // act
+    const document = addComment(
+      addComment(empty, row, { ...at, id: "c1", kind: "file", path: "f.ts" }),
+      row,
+      { ...at, id: "c2", kind: "comparison" },
+    );
+
+    // assert
+    expect(document.comments.map((comment) => comment.commitId)).toEqual([
+      "a2",
+      "a2",
+    ]);
+  });
+
   test("resolves, then drops, one comment and leaves the other", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
-    const at = { path: "f.ts", line: 3, side: "after", body: "hm" } as const;
+    const at = {
+      kind: "line",
+      path: "f.ts",
+      line: 3,
+      side: "after",
+      body: "hm",
+    } as const;
     const two = addComment(
       addComment(empty, row, { ...at, id: "c1", createdAt: "t1" }),
       row,
