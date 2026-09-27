@@ -127,8 +127,8 @@ only drifts from the original.
 
 A module in `model/` says what the app's own data can be and what it starts
 as: a Zod schema, the type it infers, and the defaults. It holds no state,
-touches no storage, and imports nothing but Zod. `api.ts` is the same kind of
-module for the shapes the backend sends; `model/` is for the ones that never
+touches no storage, and imports nothing but Zod and the types of the wire
+shapes it is built on. `api.ts` is the same kind of module for the shapes the backend sends; `model/` is for the ones that never
 cross the wire, such as [settings](settings.md#display).
 
 A shape goes in `model/` when a view needs it and the layer that loads it is
@@ -218,7 +218,9 @@ code, not to add an exception.
 
 Allowed import edges:
 
-- `api.ts` and `model/` import Zod only.
+- `api.ts` imports Zod only. `model/` imports Zod and *types* from `api.ts`,
+  since a model such as a reviewed row is a wire shape with the app's own
+  fields added, and a type-only import erases at compile time.
 - `persistence/` imports Zod, `model/`, and the `api.ts` schemas of values it
   stores, such as a pull request head. It is the only layer that touches
   `localStorage`.
@@ -229,13 +231,14 @@ Allowed import edges:
   transport and no React, so importing it needs no running server to test,
   which is what this rule exists to protect.
 - `views/` imports React, other `views/`, `model/`, and *types* from `api.ts`
-  and `state/`. A view is written against a view model, `ReviewedRow` or
-  `RowReview`, as often as against a wire type, and a type-only import erases
-  at compile time, so pulling one in from `state/` adds no runtime coupling to
-  fetch or React state. The line is drawn at values, not at where a name is
+  and `state/`. A view is written against a model, `ReviewedRow` or
+  `Settings`, as often as against a wire type. A shape a view names from
+  `state/` is one that [predates `model/`](#model), and a type-only import
+  erases at compile time, so pulling one in adds no runtime coupling to fetch
+  or React state. The line is drawn at values, not at where a name is
   declared, so importing a *function* from `state/` is the boundary
   violation.
-- `controllers/` import `state/`, `views/`, and `api.ts` *types*.
+- `controllers/` import `state/`, `views/`, `model/`, and `api.ts` *types*.
 - `App.tsx` imports `controllers/`, `views/`, `model/`, `api.ts` *types*,
   and the `state/` hooks for what it holds for the whole app: the address,
   the review session, and the settings.

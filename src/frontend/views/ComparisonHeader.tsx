@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comparison-header>>[init]
 import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import { isViewed, type ReviewedRow, type RowReview } from "../state/review";
+import { isViewed, type ReviewedRow, type RowReview } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { fileVersionOf } from "./changedFiles";
 

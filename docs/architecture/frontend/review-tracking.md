@@ -85,21 +85,25 @@ hashing the patch, because the patch is drawn from them. A mark that no longer
 matches is left in place rather than pruned, as a stale comparison mark is:
 nothing reads it, and a later rewrite that puts the old blobs back finds it.
 
-What a session document can hold is the review [model](index.md#model):
-marks, comments, and viewed files, each with the Zod schema that reads it
-back from storage. The views name these shapes, and none of them needs React
-or storage, so they sit apart from the state that loads and changes them.
+All of this is the review [model](index.md#model): marks, comments, and
+viewed files, each with the Zod schema that reads it back from storage; how
+the stored document is read against the rows the interdiff returns; and each
+change a reader can make to it, as a plain function from one document to the
+next. The views name these shapes and call the readers, and none of it needs
+React or storage, so it sits apart from the state that holds the document.
 
 ```ts
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
 import * as z from "zod";
+import type { InterdiffRow } from "../api";
 
 const Comparison = z.object({
   reviewKey: z.string(),
   fromCommitId: z.string().nullable(),
   toCommitId: z.string().nullable(),
 });
+type Comparison = z.infer<typeof Comparison>;
 
 export const Mark = Comparison.extend({ seenAt: z.string() });
 export type Mark = z.infer<typeof Mark>;
@@ -149,22 +153,6 @@ export const SessionDocument = z.object({
   viewed: z.array(ViewedFile).default([]),
 });
 export type SessionDocument = z.infer<typeof SessionDocument>;
-```
-
-The rest is state: how the stored document is read against the rows the
-interdiff returns.
-
-```ts
-//| id: frontend-state-review
-//| file: src/frontend/state/review.ts
-import type { InterdiffRow } from "../api";
-import type {
-  Comment,
-  FileVersion,
-  Mark,
-  SessionDocument,
-  ViewedFile,
-} from "../model/review";
 
 export type RowReview =
   | { state: "unseen" }
@@ -282,26 +270,82 @@ export function reviewRows(
 }
 
 /** Whether two marks (or a mark and a comparison) name the same row: the
- * same change id filling the same before/after slots. Exported so the
- * session store can replace or remove a mark by the same key it is read
- * back by. */
-export function sameComparison(
-  a: {
-    reviewKey: string;
-    fromCommitId: string | null;
-    toCommitId: string | null;
-  },
-  b: {
-    reviewKey: string;
-    fromCommitId: string | null;
-    toCommitId: string | null;
-  },
-): boolean {
+ * same change id filling the same before/after slots. */
+function sameComparison(a: Comparison, b: Comparison): boolean {
   return (
     a.reviewKey === b.reviewKey &&
     a.fromCommitId === b.fromCommitId &&
     a.toCommitId === b.toCommitId
   );
+}
+
+/** The document with the row's mark added, or removed if the row reads
+ * reviewed. Any mark on the same comparison is replaced rather than kept
+ * beside the new one. */
+export function flipSeen(
+  document: SessionDocument,
+  row: ReviewedRow,
+  seenAt: string,
+): SessionDocument {
+  const comparison: Comparison = {
+    reviewKey: row.reviewKey,
+    fromCommitId: row.from?.commitId ?? null,
+    toCommitId: row.to?.commitId ?? null,
+  };
+  const marks = document.marks.filter(
+    (mark) => !sameComparison(mark, comparison),
+  );
+  if (row.review.state === "reviewed") return { ...document, marks };
+  return { ...document, marks: [...marks, { ...comparison, seenAt }] };
+}
+
+/** The document with a comment added on one line of a row, pinned to the
+ * commit that line was read against. */
+export function addComment(
+  document: SessionDocument,
+  row: ReviewedRow,
+  comment: Pick<
+    Comment,
+    "id" | "path" | "side" | "line" | "body" | "createdAt"
+  >,
+): SessionDocument {
+  const commit =
+    comment.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
+  return {
+    ...document,
+    comments: [
+      ...document.comments,
+      {
+        ...comment,
+        reviewKey: row.reviewKey,
+        commitId: commit?.commitId ?? "",
+        resolved: false,
+      },
+    ],
+  };
+}
+
+export function resolveComment(
+  document: SessionDocument,
+  id: string,
+  resolved: boolean,
+): SessionDocument {
+  return {
+    ...document,
+    comments: document.comments.map((comment) =>
+      comment.id === id ? { ...comment, resolved } : comment,
+    ),
+  };
+}
+
+export function dropComment(
+  document: SessionDocument,
+  id: string,
+): SessionDocument {
+  return {
+    ...document,
+    comments: document.comments.filter((comment) => comment.id !== id),
+  };
 }
 
 function sameVersion(a: FileVersion, b: FileVersion): boolean {
@@ -342,13 +386,23 @@ becomes review state, and a fixture written by hand could encode the same
 wrong assumption the code is being tested against.
 
 ```ts
-//| id: frontend-state-review-test
-//| file: src/frontend/state/review.test.ts
+//| id: frontend-model-review-test
+//| file: src/frontend/model/review.test.ts
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import { type FileVersion, SessionDocument } from "../model/review";
-import { flipViewed, isViewed, reviewKey, reviewRows } from "./review";
+import {
+  addComment,
+  dropComment,
+  type FileVersion,
+  flipSeen,
+  flipViewed,
+  isViewed,
+  resolveComment,
+  reviewKey,
+  reviewRows,
+  SessionDocument,
+} from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -811,6 +865,137 @@ describe("viewed files", () => {
     expect(isViewed(row?.viewed ?? [], file)).toBe(false);
   });
 });
+
+describe("changes to the document", () => {
+  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+
+  function reviewedRow(row: InterdiffRow, document: SessionDocument) {
+    const [reviewed] = reviewRows([row], document);
+    if (reviewed === undefined) throw new Error("no row");
+    return reviewed;
+  }
+
+  test("marks a row seen, and reads it reviewed", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+
+    // act
+    const document = flipSeen(
+      empty,
+      reviewedRow(row, empty),
+      "2026-09-25T09:00:00Z",
+    );
+
+    // assert
+    expect(reviewedRow(row, document).review).toEqual({
+      state: "reviewed",
+      seenAt: "2026-09-25T09:00:00Z",
+    });
+  });
+
+  test("unmarks a reviewed row", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const marked = flipSeen(
+      empty,
+      reviewedRow(row, empty),
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const document = flipSeen(
+      marked,
+      reviewedRow(row, marked),
+      "2026-09-25T09:01:00Z",
+    );
+
+    // assert
+    expect(document.marks).toEqual([]);
+  });
+
+  test("keeps the old mark when a changed row is marked again", () => {
+    // arrange
+    const marked = flipSeen(
+      empty,
+      reviewedRow(pairRow("a", "a1", "a2"), empty),
+      "2026-09-25T09:00:00Z",
+    );
+    const amended = pairRow("a", "a1", "a3");
+
+    // act
+    const document = flipSeen(
+      marked,
+      reviewedRow(amended, marked),
+      "2026-09-25T09:01:00Z",
+    );
+
+    // assert
+    expect(document.marks.map((mark) => mark.toCommitId)).toEqual(["a2", "a3"]);
+    expect(reviewedRow(amended, document).review.state).toBe("reviewed");
+  });
+
+  test("pins a comment to the commit on the side it was left on", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const at = { path: "f.ts", line: 3, body: "hm", createdAt: "t" };
+
+    // act
+    const document = addComment(
+      addComment(empty, row, { ...at, id: "c1", side: "before" }),
+      row,
+      { ...at, id: "c2", side: "after" },
+    );
+
+    // assert
+    expect(document.comments.map((comment) => comment.commitId)).toEqual([
+      "a1",
+      "a2",
+    ]);
+  });
+
+  test("pins a comment on a lone row to its one commit, either side", () => {
+    // arrange
+    const row = reviewedRow(
+      { from: null, to: logEntry("a", "a2"), files: [] },
+      empty,
+    );
+
+    // act
+    const document = addComment(empty, row, {
+      id: "c1",
+      path: "f.ts",
+      side: "before",
+      line: 3,
+      body: "hm",
+      createdAt: "t",
+    });
+
+    // assert
+    expect(document.comments[0]?.commitId).toBe("a2");
+  });
+
+  test("resolves, then drops, one comment and leaves the other", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const at = { path: "f.ts", line: 3, side: "after", body: "hm" } as const;
+    const two = addComment(
+      addComment(empty, row, { ...at, id: "c1", createdAt: "t1" }),
+      row,
+      { ...at, id: "c2", createdAt: "t2" },
+    );
+
+    // act
+    const resolved = resolveComment(two, "c1", true);
+    const dropped = dropComment(resolved, "c1");
+
+    // assert
+    expect(resolved.comments.map((comment) => comment.resolved)).toEqual([
+      true,
+      false,
+    ]);
+    expect(dropped.comments.map((comment) => comment.id)).toEqual(["c2"]);
+  });
+});
 ```
 
 A comment or a comparison row is always in one of the same three states —
@@ -939,30 +1124,33 @@ export const sessionRepository = localRepository<SessionDocument>(
 `Session` has no `error` field, because a failed write is dropped rather than
 reported; [Local storage](index.md#local-storage) says why.
 
-Each mutator computes its next document from the current one and hands it to
-`update`, the one place the document is saved and set.
-This is the same five-way logic that used to live in `applyEdit`'s `switch`,
-inlined at the call site that already knows which mutation it is making rather
-than re-derived from a `kind` tag a layer away. `markSeen` decides mark versus
-unmark from the row's own `review.state`, so callers never build a comparison
-by hand. `toggleViewed` is the exception to inlining: its next document
-comes from `flipViewed` in the review module, a plain function the review
-tests reach without rendering a component, since whether a mark is added or
-removed is the part worth testing. Every mutator is wrapped in `useCallback`
-closing only over the stable `update` function rather than over `document`.
+Each mutator hands `update` a pure change from the review model, which
+computes the next document from the current one; `update` is the one place
+the document is saved and set. The changes live in the model rather than in
+the hook so the review tests reach them without rendering a component, and
+what the hook adds is only what a pure function cannot make up for itself:
+the time and a fresh comment id. `markSeen` decides mark versus unmark from
+the row's own `review.state`, so callers never build a comparison by hand.
+The mutators close only over the stable `update` function rather than over
+`document`, so a component handed one does not re-render when the document
+changes.
 
 ```tsx
 //| id: frontend-state-session
 //| file: src/frontend/state/session.ts
-import { useCallback } from "react";
-import type {
-  Comment,
-  FileVersion,
-  LineAnchor,
-  SessionDocument,
+import { useMemo } from "react";
+import {
+  addComment,
+  dropComment,
+  type FileVersion,
+  flipSeen,
+  flipViewed,
+  type LineAnchor,
+  type ReviewedRow,
+  resolveComment,
+  type SessionDocument,
 } from "../model/review";
 import { sessionRepository } from "../persistence/session";
-import { flipViewed, type ReviewedRow, sameComparison } from "./review";
 import { useStored } from "./stored";
 
 export interface Session {
@@ -982,92 +1170,29 @@ export interface Session {
 export function useSession(): Session {
   const [document, update] = useStored(sessionRepository);
 
-  const markSeen = useCallback(
-    (row: ReviewedRow) => {
-      const comparison = {
-        reviewKey: row.reviewKey,
-        fromCommitId: row.from?.commitId ?? null,
-        toCommitId: row.to?.commitId ?? null,
-      };
-      update((current) => {
-        const marks = current.marks.filter(
-          (mark) => !sameComparison(mark, comparison),
-        );
-        if (row.review.state === "reviewed") return { ...current, marks };
-        return {
-          ...current,
-          marks: [
-            ...marks,
-            { ...comparison, seenAt: new Date().toISOString() },
-          ],
-        };
-      });
-    },
-    [update],
-  );
-
-  const addComment = useCallback(
-    (row: ReviewedRow, path: string, anchor: LineAnchor, body: string) => {
-      const commit =
-        anchor.side === "after" ? (row.to ?? row.from) : (row.from ?? row.to);
-      const comment: Comment = {
-        id: crypto.randomUUID(),
-        reviewKey: row.reviewKey,
-        path,
-        side: anchor.side,
-        line: anchor.line,
-        commitId: commit?.commitId ?? "",
-        body,
-        resolved: false,
-        createdAt: new Date().toISOString(),
-      };
-      update((current) => ({
-        ...current,
-        comments: [...current.comments, comment],
-      }));
-    },
-    [update],
-  );
-
-  const resolveComment = useCallback(
-    (id: string, resolved: boolean) => {
-      update((current) => ({
-        ...current,
-        comments: current.comments.map((comment) =>
-          comment.id === id ? { ...comment, resolved } : comment,
+  const mutators = useMemo<Omit<Session, "document">>(() => {
+    const now = () => new Date().toISOString();
+    return {
+      markSeen: (row) => update((current) => flipSeen(current, row, now())),
+      addComment: (row, path, anchor, body) =>
+        update((current) =>
+          addComment(current, row, {
+            id: crypto.randomUUID(),
+            path,
+            ...anchor,
+            body,
+            createdAt: now(),
+          }),
         ),
-      }));
-    },
-    [update],
-  );
+      resolveComment: (id, resolved) =>
+        update((current) => resolveComment(current, id, resolved)),
+      dropComment: (id) => update((current) => dropComment(current, id)),
+      toggleViewed: (row, file) =>
+        update((current) => flipViewed(current, row.reviewKey, file, now())),
+    };
+  }, [update]);
 
-  const dropComment = useCallback(
-    (id: string) => {
-      update((current) => ({
-        ...current,
-        comments: current.comments.filter((comment) => comment.id !== id),
-      }));
-    },
-    [update],
-  );
-
-  const toggleViewed = useCallback(
-    (row: ReviewedRow, file: FileVersion) => {
-      update((current) =>
-        flipViewed(current, row.reviewKey, file, new Date().toISOString()),
-      );
-    },
-    [update],
-  );
-
-  return {
-    document,
-    markSeen,
-    addComment,
-    resolveComment,
-    dropComment,
-    toggleViewed,
-  };
+  return { document, ...mutators };
 }
 ```
 

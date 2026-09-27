@@ -92,8 +92,8 @@ naming.
 ```tsx
 //| id: frontend-controller-diff-pane
 //| file: src/frontend/controllers/DiffPane.tsx
+import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
-import { type ReviewedRow, reviewRows } from "../state/review";
 import type { Session } from "../state/session";
 import { useSources } from "../state/source";
 import { changedFilesOf } from "../views/changedFiles";
@@ -293,10 +293,15 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
-import type { FileVersion, LineAnchor, ViewedFile } from "../model/review";
+import {
+  type FileVersion,
+  isViewed,
+  type LineAnchor,
+  type RowComment,
+  type ViewedFile,
+} from "../model/review";
 import { DEFAULT_SETTINGS, type DiffMode } from "../model/settings";
 import type { FileSpot } from "../state/place";
-import { isViewed, type RowComment } from "../state/review";
 import type { SourceLookup } from "../state/source";
 import {
   afterPathOf,
@@ -2176,8 +2181,7 @@ not a unique React key even though it now sits on the row.
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
-import type { FileVersion, LineAnchor } from "../model/review";
-import type { ReviewedRow } from "../state/review";
+import type { FileVersion, LineAnchor, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../state/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { DiffView } from "./DiffView";
@@ -2278,7 +2282,7 @@ never disagree.
 //| file: src/frontend/views/ComparisonHeader.tsx
 import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import { isViewed, type ReviewedRow, type RowReview } from "../state/review";
+import { isViewed, type ReviewedRow, type RowReview } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { fileVersionOf } from "./changedFiles";
 

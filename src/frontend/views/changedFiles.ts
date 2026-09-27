@@ -1,7 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-changed-files>>[init]
 import type { FileDiff } from "../api";
-import type { FileVersion } from "../model/review";
-import type { RowComment } from "../state/review";
+import type { FileVersion, RowComment } from "../model/review";
 import { readPatch } from "./patch";
 
 /** One changed file, read once from whichever `FileDiff` shape it came

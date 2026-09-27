@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-controller-diff-pane>>[init]
+import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
-import { type ReviewedRow, reviewRows } from "../state/review";
 import type { Session } from "../state/session";
 import { useSources } from "../state/source";
 import { changedFilesOf } from "../views/changedFiles";

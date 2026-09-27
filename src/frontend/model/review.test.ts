@@ -1,9 +1,19 @@
-// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-state-review-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/review-tracking.md#frontend-model-review-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
-import { type FileVersion, SessionDocument } from "../model/review";
-import { flipViewed, isViewed, reviewKey, reviewRows } from "./review";
+import {
+  addComment,
+  dropComment,
+  type FileVersion,
+  flipSeen,
+  flipViewed,
+  isViewed,
+  resolveComment,
+  reviewKey,
+  reviewRows,
+  SessionDocument,
+} from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
   return { ...blank, changeId, commitId };
@@ -464,6 +474,137 @@ describe("viewed files", () => {
 
     // assert
     expect(isViewed(row?.viewed ?? [], file)).toBe(false);
+  });
+});
+
+describe("changes to the document", () => {
+  const empty: SessionDocument = { marks: [], comments: [], viewed: [] };
+
+  function reviewedRow(row: InterdiffRow, document: SessionDocument) {
+    const [reviewed] = reviewRows([row], document);
+    if (reviewed === undefined) throw new Error("no row");
+    return reviewed;
+  }
+
+  test("marks a row seen, and reads it reviewed", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+
+    // act
+    const document = flipSeen(
+      empty,
+      reviewedRow(row, empty),
+      "2026-09-25T09:00:00Z",
+    );
+
+    // assert
+    expect(reviewedRow(row, document).review).toEqual({
+      state: "reviewed",
+      seenAt: "2026-09-25T09:00:00Z",
+    });
+  });
+
+  test("unmarks a reviewed row", () => {
+    // arrange
+    const row = pairRow("a", "a1", "a2");
+    const marked = flipSeen(
+      empty,
+      reviewedRow(row, empty),
+      "2026-09-25T09:00:00Z",
+    );
+
+    // act
+    const document = flipSeen(
+      marked,
+      reviewedRow(row, marked),
+      "2026-09-25T09:01:00Z",
+    );
+
+    // assert
+    expect(document.marks).toEqual([]);
+  });
+
+  test("keeps the old mark when a changed row is marked again", () => {
+    // arrange
+    const marked = flipSeen(
+      empty,
+      reviewedRow(pairRow("a", "a1", "a2"), empty),
+      "2026-09-25T09:00:00Z",
+    );
+    const amended = pairRow("a", "a1", "a3");
+
+    // act
+    const document = flipSeen(
+      marked,
+      reviewedRow(amended, marked),
+      "2026-09-25T09:01:00Z",
+    );
+
+    // assert
+    expect(document.marks.map((mark) => mark.toCommitId)).toEqual(["a2", "a3"]);
+    expect(reviewedRow(amended, document).review.state).toBe("reviewed");
+  });
+
+  test("pins a comment to the commit on the side it was left on", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const at = { path: "f.ts", line: 3, body: "hm", createdAt: "t" };
+
+    // act
+    const document = addComment(
+      addComment(empty, row, { ...at, id: "c1", side: "before" }),
+      row,
+      { ...at, id: "c2", side: "after" },
+    );
+
+    // assert
+    expect(document.comments.map((comment) => comment.commitId)).toEqual([
+      "a1",
+      "a2",
+    ]);
+  });
+
+  test("pins a comment on a lone row to its one commit, either side", () => {
+    // arrange
+    const row = reviewedRow(
+      { from: null, to: logEntry("a", "a2"), files: [] },
+      empty,
+    );
+
+    // act
+    const document = addComment(empty, row, {
+      id: "c1",
+      path: "f.ts",
+      side: "before",
+      line: 3,
+      body: "hm",
+      createdAt: "t",
+    });
+
+    // assert
+    expect(document.comments[0]?.commitId).toBe("a2");
+  });
+
+  test("resolves, then drops, one comment and leaves the other", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const at = { path: "f.ts", line: 3, side: "after", body: "hm" } as const;
+    const two = addComment(
+      addComment(empty, row, { ...at, id: "c1", createdAt: "t1" }),
+      row,
+      { ...at, id: "c2", createdAt: "t2" },
+    );
+
+    // act
+    const resolved = resolveComment(two, "c1", true);
+    const dropped = dropComment(resolved, "c1");
+
+    // assert
+    expect(resolved.comments.map((comment) => comment.resolved)).toEqual([
+      true,
+      false,
+    ]);
+    expect(dropped.comments.map((comment) => comment.id)).toEqual(["c2"]);
   });
 });
 // ~/~ end

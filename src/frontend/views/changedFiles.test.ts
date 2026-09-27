@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-changed-files-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { FileDiff } from "../api";
-import type { RowComment } from "../state/review";
+import type { RowComment } from "../model/review";
 import {
   type ChangedFile,
   changedFile,
