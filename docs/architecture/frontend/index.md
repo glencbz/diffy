@@ -212,6 +212,11 @@ Allowed import edges:
   `model/` modules, since a model such as a reviewed row is a wire shape with
   the app's own fields added, and a place holds pull request heads it parses
   with the wire schema.
+- The server's [review store](../backend/review-store.md) imports
+  `model/review.ts`, so the command a browser applies to its copy and the
+  one the server applies to the stored document are the same function. A
+  model module never touches a browser API anyway, which is what lets the
+  server run it.
 - `model/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
   `../../backend/commit/series`. `alignSeries` is a pure function with no
   transport and no React, so importing it needs no running server to test,

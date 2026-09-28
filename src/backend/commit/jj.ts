@@ -1,4 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[init]
+import { realpath, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
 import { type StructuralDiff, StructuralDiffs } from "./difft";
@@ -231,6 +233,20 @@ export async function jjOpLog(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[4]
 
+/** The real path of the repository store behind the current workspace,
+ *  the same for every workspace of one repository. */
+export async function jjRepoDir(): Promise<string> {
+  const root = (await runJj(["workspace", "root"])).trim();
+  const dotJj = join(root, ".jj");
+  const repo = join(dotJj, "repo");
+  const target = (await stat(repo)).isFile()
+    ? resolve(dotJj, (await Bun.file(repo).text()).trim())
+    : repo;
+  return realpath(target);
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[5]
+
 /** How one file changed between a revision and its parent, as its patch says. */
 export type JjPatchFile = (
   | { status: "added" | "deleted" | "modified"; path: string }
@@ -292,7 +308,7 @@ async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
   });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[5]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[6]
 
 /** How to run `diffy`: a compiled executable is the command itself, and
  *  from source it is Bun running `cli.ts`. */
@@ -340,7 +356,7 @@ function structuralFor(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[6]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[7]
 
 /** `a/foo` / `b/foo` -> `foo`; `/dev/null` -> `null`. */
 function stripPrefix(raw: string): string | null {
@@ -420,7 +436,7 @@ export function parseFileDiff(patch: string): JjPatchFile {
   return { status: kind, path, binary, oldBlob, newBlob, patch };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[7]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[8]
 
 export interface JjInterdiffOptions {
   /** Commit id whose change is the "before" side. */
@@ -435,7 +451,7 @@ export function jjInterdiff(
   return diffFiles(["interdiff", "--from", options.from, "--to", options.to]);
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[8]
+// ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[9]
 
 export interface JjDiffBetweenOptions {
   /** Revision whose tree is the "before" side. */

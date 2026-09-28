@@ -214,6 +214,13 @@ export const EMPTY_REVIEW: ReviewDocument = {
   viewed: [],
 };
 
+/** The document as the server holds it, and how many writes made it. */
+export const ReviewSnapshot = z.object({
+  revision: z.number().int(),
+  document: ReviewDocument,
+});
+export type ReviewSnapshot = z.infer<typeof ReviewSnapshot>;
+
 export type RowReview =
   | { state: "unseen" }
   | { state: "reviewed"; seenAt: string }

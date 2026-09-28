@@ -35,8 +35,10 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import type { ReviewStore } from "./backend/review/store";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
+import { ReviewCommand } from "./frontend/model/review";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {
@@ -331,17 +333,40 @@ async function pullDiffFiles(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
-export const routes = {
-  "/*": index,
-  "/api/*": () => new Response("Not found", { status: 404 }),
-  "/api/log": handleLog,
-  "/api/operations": handleOperations,
-  "/api/diff": handleDiff,
-  "/api/interdiff": handleInterdiff,
-  "/api/source": handleSource,
-  "/api/github/pulls": handleGithubPulls,
-  "/api/github/pull/history": handleGithubPullHistory,
-  "/api/github/pull/commits": handleGithubPullCommits,
-  "/api/github/pull/diff": handleGithubPullDiff,
-};
+export function reviewRoute(store: ReviewStore) {
+  return {
+    GET: () => Response.json(store.read()),
+    POST: async (req: Request) => {
+      const command = ReviewCommand.safeParse(
+        await req.json().catch(() => undefined),
+      );
+      if (!command.success) {
+        return Response.json(
+          { error: z.prettifyError(command.error) },
+          { status: 400 },
+        );
+      }
+      return Response.json(store.apply(command.data));
+    },
+  };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
+
+export function routes(store: ReviewStore) {
+  return {
+    "/*": index,
+    "/api/*": () => new Response("Not found", { status: 404 }),
+    "/api/log": handleLog,
+    "/api/operations": handleOperations,
+    "/api/diff": handleDiff,
+    "/api/interdiff": handleInterdiff,
+    "/api/source": handleSource,
+    "/api/github/pulls": handleGithubPulls,
+    "/api/github/pull/history": handleGithubPullHistory,
+    "/api/github/pull/commits": handleGithubPullCommits,
+    "/api/github/pull/diff": handleGithubPullDiff,
+    "/api/review": reviewRoute(store),
+  };
+}
 // ~/~ end
