@@ -88,6 +88,27 @@ describe("readPlace", () => {
     expect(at("/pulls/x")).toEqual({ tab: "pulls", pull: null });
   });
 
+  test("reads a local review by name, its versions by number", () => {
+    const place = at(`/reviews/stack%2Fone/commits/${oid("c")}?from=2&to=3`);
+
+    expect(place).toEqual({
+      tab: "reviews",
+      review: {
+        name: "stack/one",
+        from: { kind: "version", id: "2" },
+        to: "3",
+        spot: { commit: oid("c"), file: null },
+      },
+    });
+  });
+
+  test("opens a local review afresh when a version is not a number", () => {
+    expect(at("/reviews/stack?from=v2")).toEqual({
+      tab: "reviews",
+      review: { name: "stack", from: { kind: "base" }, to: null, spot: null },
+    });
+  });
+
   test("reads a path it does not know as the local history screen", () => {
     expect(at("/nowhere/41")).toEqual({ tab: "local" });
   });
@@ -121,6 +142,16 @@ describe("writePlace", () => {
           commit: oid("c"),
           file: { path: "dir/a file&more#?.ts", line: 3 },
         },
+      },
+    },
+    { tab: "reviews", review: null },
+    {
+      tab: "reviews",
+      review: {
+        name: "stack/one",
+        from: { kind: "version", id: "1" },
+        to: "2",
+        spot: { commit: oid("c"), file: { path: "src/a.ts", line: 9 } },
       },
     },
   ];

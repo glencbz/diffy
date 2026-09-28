@@ -341,6 +341,20 @@ export function pullRowKey(
   return { reviewKey: inherited ?? `rev:${own}`, keeps: own };
 }
 
+/** The key a local review's row is filed under: its change id, which
+ *  survives the rewrites between one registration and the next, so there is
+ *  nothing to record for the next version to inherit. */
+export function localRowKey(
+  before: { commitId: string; changeId: string | null } | null,
+  after: { commitId: string; changeId: string | null } | null,
+): { reviewKey: string; keeps: null } {
+  const own = after ?? before;
+  if (own === null) throw new Error("a local review row has no commit");
+  const reviewKey =
+    own.changeId === null ? `rev:${own.commitId}` : `change:${own.changeId}`;
+  return { reviewKey, keeps: null };
+}
+
 /** Whether two marks (or a mark and a comparison) name the same row: the
  * same change id filling the same before/after slots. */
 function sameComparison(a: Comparison, b: Comparison): boolean {

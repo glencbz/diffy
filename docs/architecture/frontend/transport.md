@@ -113,8 +113,13 @@ export type InterdiffResponse = { rows: InterdiffRow[] };
 //| id: frontend-api
 //| file: src/frontend/api.ts
 import * as z from "zod";
-import type { InterdiffResponse } from "./model/diff";
-import { GitOid, type LogEntry, type OpLogEntry } from "./model/history";
+import type { FileDiff, InterdiffResponse } from "./model/diff";
+import {
+  type GitCommit,
+  GitOid,
+  type LogEntry,
+  type OpLogEntry,
+} from "./model/history";
 import type {
   PullBaseline,
   PullCommitsResponse,
@@ -284,9 +289,10 @@ export async function fetchInterdiff(
 
 ## Where a side's commits come from
 
-`Source` is where a side's commits come from: a jj operation, or one head of
-a pull request, named by oid because versions shift (see
-[`pullStateAt`](../backend/github.md#naming-one-state-of-a-pull-request)).
+`Source` is where a side's commits come from: a jj operation, one head of a
+pull request, named by oid because versions shift (see
+[`pullStateAt`](../backend/github.md#naming-one-state-of-a-pull-request)), or
+a version of a [local review](local-reviews.md), as the commits it registered.
 
 ```ts
 //| id: frontend-model-history
@@ -302,8 +308,11 @@ export type PullSource = {
   head: GitOid;
 };
 
+/** One version of a local review, named by the commits it registered. */
+export type LocalSource = { kind: "local"; commits: string[] };
+
 /** Where one side's commits come from. */
-export type Source = JjSource | PullSource;
+export type Source = JjSource | PullSource | LocalSource;
 
 export type GitCommit = {
   commitId: GitOid;
@@ -566,5 +575,54 @@ export async function fetchSource(
   return sourceFile.parse(
     await getJson(`/api/source?${params}`, "GET /api/source"),
   );
+}
+```
+
+## Reading a local review
+
+A local review's version is a list of commit ids, so its routes take ids and
+never a revset. The revset was evaluated once, when the version was
+registered, and evaluating it again would read today's repository instead of
+the one the author declared ready. Each route has the pull request route's
+job: one version's commits, one row's comparison, and the size of the whole.
+
+```ts
+//| id: frontend-api
+
+/** The commits `ids` name, in that order. */
+export async function fetchLocalCommits(ids: string[]): Promise<GitCommit[]> {
+  const params = new URLSearchParams(ids.map((id) => ["id", id]));
+  return z
+    .array(gitCommit)
+    .parse(
+      await getJson(`/api/local/commits?${params}`, "GET /api/local/commits"),
+    );
+}
+
+const filesResponse = z.object({ files: z.array(fileDiff) });
+
+/** One row of a local review: two commits' interdiff, or one's own diff. */
+export async function fetchLocalDiff(
+  fromCommit: string | null,
+  toCommit: string | null,
+): Promise<FileDiff[]> {
+  const params = new URLSearchParams();
+  if (fromCommit !== null) params.set("fromCommit", fromCommit);
+  if (toCommit !== null) params.set("toCommit", toCommit);
+  const body = await getJson(
+    `/api/local/diff?${params}`,
+    "GET /api/local/diff",
+  );
+  return filesResponse.parse(body).files;
+}
+
+/** Everything the commits `ids` change together. */
+export async function fetchLocalSize(ids: string[]): Promise<FileDiff[]> {
+  const params = new URLSearchParams(ids.map((id) => ["id", id]));
+  const body = await getJson(
+    `/api/local/size?${params}`,
+    "GET /api/local/size",
+  );
+  return filesResponse.parse(body).files;
 }
 ```

@@ -11,6 +11,7 @@ import {
   isViewed,
   keepKey,
   keptPairing,
+  localRowKey,
   markSeen,
   markViewed,
   pullRowKey,
@@ -1017,6 +1018,22 @@ describe("registered local reviews", () => {
       },
       { name: "other", versions: [version("o1", "trunk()..o")] },
     ]);
+  });
+});
+describe("localRowKey", () => {
+  test("files a row under its change id, whichever side holds it", () => {
+    const before = { commitId: "b1", changeId: "kx" };
+    const after = { commitId: "a1", changeId: "kx" };
+
+    expect(localRowKey(before, after).reviewKey).toBe("change:kx");
+    expect(localRowKey(before, null).reviewKey).toBe("change:kx");
+  });
+
+  test("falls back to the commit when it has no change id", () => {
+    expect(localRowKey(null, { commitId: "a1", changeId: null })).toEqual({
+      reviewKey: "rev:a1",
+      keeps: null,
+    });
   });
 });
 // ~/~ end

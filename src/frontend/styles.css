@@ -2134,6 +2134,28 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-local-review-list>>[init] */
+@layer components {
+  .local-review__open {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .local-review__commits {
+    margin-top: var(--space-3);
+    cursor: pointer;
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[init] */
 @layer components {
   .pull-header {
