@@ -5,6 +5,7 @@ import type { InterdiffRow, LogEntry } from "../api";
 import {
   applyCommand,
   commentOn,
+  EMPTY_REVIEW,
   type FileVersion,
   isViewed,
   markSeen,
@@ -51,7 +52,7 @@ describe("reviewRows", () => {
   test("leaves a row unseen against an empty document", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: ReviewDocument = { marks: [], comments: [], viewed: [] };
+    const document = EMPTY_REVIEW;
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -74,6 +75,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -100,6 +102,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -128,6 +131,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -156,6 +160,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -178,11 +183,9 @@ describe("reviewRows", () => {
       ...pair,
       files: [],
     }));
-    const changeARows = reviewRows(rows, {
-      marks: [],
-      comments: [],
-      viewed: [],
-    }).filter((row) => row.reviewKey === "change:aaaa");
+    const changeARows = reviewRows(rows, EMPTY_REVIEW).filter(
+      (row) => row.reviewKey === "change:aaaa",
+    );
     const dropped = changeARows.find((row) => row.to === null);
     if (dropped === undefined) {
       throw new Error("expected a dropped row for change aaaa");
@@ -198,6 +201,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -232,6 +236,7 @@ describe("reviewRows", () => {
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -262,6 +267,7 @@ describe("reviewRows", () => {
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -290,6 +296,7 @@ describe("reviewRows", () => {
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -317,6 +324,7 @@ describe("reviewRows", () => {
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -344,6 +352,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -374,6 +383,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -401,6 +411,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -546,7 +557,7 @@ describe("reviewKey", () => {
   });
 });
 
-const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
+const empty = EMPTY_REVIEW;
 
 function reviewedRow(row: InterdiffRow, document: ReviewDocument): ReviewedRow {
   const [reviewed] = reviewRows([row], document);
@@ -814,6 +825,79 @@ describe("changes to the document", () => {
 
     // assert
     expect(twice).toEqual(once);
+  });
+});
+
+describe("reviewed versions", () => {
+  test("keeps every version marked, once each", () => {
+    // arrange
+    const mark = (version: string, at: string): ReviewCommand => ({
+      kind: "mark-reviewed",
+      series: "pull:o/r#7",
+      version,
+      at,
+    });
+
+    // act
+    const document = applied(
+      empty,
+      mark("v1", "t1"),
+      mark("v2", "t2"),
+      mark("v1", "t3"),
+    );
+
+    // assert
+    expect(document.reviewed).toEqual([
+      { series: "pull:o/r#7", version: "v1", reviewedAt: "t1" },
+      { series: "pull:o/r#7", version: "v2", reviewedAt: "t2" },
+    ]);
+  });
+});
+
+describe("import", () => {
+  const row = pairRow("a", "a1", "a2");
+  const comment = {
+    id: "c1",
+    kind: "comparison",
+    body: "hm",
+    createdAt: "t",
+    author: "reader",
+  } as const;
+
+  test("adds what the document lacks and keeps what it has", () => {
+    // arrange
+    const held = applied(empty, markSeen(reviewedRow(row, empty), "t-held"));
+    const incoming = applied(
+      empty,
+      markSeen(reviewedRow(row, empty), "t-incoming"),
+      commentOn(reviewedRow(row, empty), comment),
+    );
+
+    // act
+    const document = applied(held, { kind: "import", document: incoming });
+
+    // assert
+    expect(document.marks.map((mark) => mark.seenAt)).toEqual(["t-held"]);
+    expect(document.comments.map((kept) => kept.id)).toEqual(["c1"]);
+  });
+
+  test("leaves the document of one import when it lands twice", () => {
+    // arrange
+    const incoming = applied(
+      empty,
+      markSeen(reviewedRow(row, empty), "t"),
+      commentOn(reviewedRow(row, empty), comment),
+      { kind: "mark-reviewed", series: "pull:o/r#7", version: "v1", at: "t" },
+    );
+    const command: ReviewCommand = { kind: "import", document: incoming };
+
+    // act
+    const once = applied(empty, command);
+    const twice = applied(empty, command, command);
+
+    // assert
+    expect(twice).toEqual(once);
+    expect(once).toEqual(incoming);
   });
 });
 // ~/~ end

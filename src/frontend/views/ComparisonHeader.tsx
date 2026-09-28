@@ -11,8 +11,9 @@ export function ComparisonHeader({
   onComment,
 }: {
   row: ReviewedRow;
-  onMarkSeen: () => void;
-  onComment: () => void;
+  /** Null when there is no review document to write to. */
+  onMarkSeen: (() => void) | null;
+  onComment: (() => void) | null;
 }) {
   const openComments = row.comments.filter(
     (comment) => !comment.resolved,
@@ -33,20 +34,24 @@ export function ComparisonHeader({
             {viewed} / {row.files.length} files viewed
           </span>
         )}
-        <button
-          type="button"
-          onClick={onMarkSeen}
-          className="comparison-header__mark-seen"
-        >
-          {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
-        </button>
-        <button
-          type="button"
-          onClick={onComment}
-          className="comparison-header__comment"
-        >
-          comment on comparison
-        </button>
+        {onMarkSeen !== null && (
+          <button
+            type="button"
+            onClick={onMarkSeen}
+            className="comparison-header__mark-seen"
+          >
+            {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+          </button>
+        )}
+        {onComment !== null && (
+          <button
+            type="button"
+            onClick={onComment}
+            className="comparison-header__comment"
+          >
+            comment on comparison
+          </button>
+        )}
       </div>
     </header>
   );

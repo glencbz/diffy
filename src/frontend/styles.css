@@ -797,6 +797,24 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/review.md#design-review-state>>[1] */
+@layer components {
+  .review-strip {
+    flex: none;
+    padding: var(--space-2) var(--space-5);
+    border-bottom: 1px solid var(--review-changed-border);
+    background: var(--review-changed-surface);
+  }
+
+  .review-strip__note {
+    margin: 0;
+  }
+
+  .review-strip__dismiss {
+    margin-left: var(--space-3);
+  }
+}
+/* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-graph>>[init] */
 @layer components {

@@ -41,11 +41,7 @@ export function DiffPane({
       <InterdiffRows
         rows={rows}
         sources={sources}
-        onMarkSeen={review.markSeen}
-        onAddComment={review.addComment}
-        onResolveComment={review.resolveComment}
-        onDropComment={review.dropComment}
-        onToggleViewed={review.toggleViewed}
+        review={review.status === "ready" ? review.actions : null}
       />
     </>
   );

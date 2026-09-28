@@ -134,11 +134,7 @@ export function DiffPane({
       <InterdiffRows
         rows={rows}
         sources={sources}
-        onMarkSeen={review.markSeen}
-        onAddComment={review.addComment}
-        onResolveComment={review.resolveComment}
-        onDropComment={review.dropComment}
-        onToggleViewed={review.toggleViewed}
+        review={review.status === "ready" ? review.actions : null}
       />
     </>
   );
@@ -2693,7 +2689,7 @@ not a unique React key even though it now sits on the row.
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
 import { useState } from "react";
-import type { Anchor, FileVersion, ReviewedRow } from "../model/review";
+import type { ReviewActions, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../model/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
@@ -2701,19 +2697,13 @@ import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 export function InterdiffRows({
   rows,
   sources,
-  onMarkSeen,
-  onAddComment,
-  onResolveComment,
-  onDropComment,
-  onToggleViewed,
+  review,
 }: {
   rows: ReviewedRow[];
   sources: SourceLookup;
-  onMarkSeen: (row: ReviewedRow) => void;
-  onAddComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
-  onResolveComment: (id: string, resolved: boolean) => void;
-  onDropComment: (id: string) => void;
-  onToggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  /** Null while there is no review document to change, which draws each
+   *  row with nothing on it that would write one. */
+  review: ReviewActions | null;
 }) {
   const [composing, setComposing] = useState<string | null>(null);
 
@@ -2723,26 +2713,28 @@ export function InterdiffRows({
         <section key={rowKey(row)}>
           <ComparisonHeader
             row={row}
-            onMarkSeen={() => onMarkSeen(row)}
-            onComment={() => setComposing(rowKey(row))}
+            onMarkSeen={review && (() => review.markSeen(row))}
+            onComment={review && (() => setComposing(rowKey(row)))}
           />
-          {composing === rowKey(row) && (
+          {review !== null && composing === rowKey(row) && (
             <CommentComposer
               anchor={{ kind: "comparison" }}
               onCancel={() => setComposing(null)}
               onSubmit={(anchor, body) => {
-                onAddComment(row, anchor, body);
+                review.addComment(row, anchor, body);
                 setComposing(null);
               }}
             />
           )}
-          <CommentThreads
-            comments={row.comments.filter(
-              (comment) => comment.kind === "comparison",
-            )}
-            onResolveComment={onResolveComment}
-            onDropComment={onDropComment}
-          />
+          {review !== null && (
+            <CommentThreads
+              comments={row.comments.filter(
+                (comment) => comment.kind === "comparison",
+              )}
+              onResolveComment={review.resolveComment}
+              onDropComment={review.dropComment}
+            />
+          )}
           {row.files.length === 0 ? (
             <p className="interdiff-empty">
               {row.from !== null && row.to !== null
@@ -2754,14 +2746,19 @@ export function InterdiffRows({
               files={row.files}
               sources={sources}
               scope={rowKey(row)}
-              review={{
-                comments: row.comments,
-                onAddComment: (anchor, body) => onAddComment(row, anchor, body),
-                onResolveComment,
-                onDropComment,
-                viewed: row.viewed,
-                onToggleViewed: (file) => onToggleViewed(row, file),
-              }}
+              review={
+                review === null
+                  ? undefined
+                  : {
+                      comments: row.comments,
+                      onAddComment: (anchor, body) =>
+                        review.addComment(row, anchor, body),
+                      onResolveComment: review.resolveComment,
+                      onDropComment: review.dropComment,
+                      viewed: row.viewed,
+                      onToggleViewed: (file) => review.toggleViewed(row, file),
+                    }
+              }
             />
           )}
         </section>
@@ -2821,8 +2818,9 @@ export function ComparisonHeader({
   onComment,
 }: {
   row: ReviewedRow;
-  onMarkSeen: () => void;
-  onComment: () => void;
+  /** Null when there is no review document to write to. */
+  onMarkSeen: (() => void) | null;
+  onComment: (() => void) | null;
 }) {
   const openComments = row.comments.filter(
     (comment) => !comment.resolved,
@@ -2843,20 +2841,24 @@ export function ComparisonHeader({
             {viewed} / {row.files.length} files viewed
           </span>
         )}
-        <button
-          type="button"
-          onClick={onMarkSeen}
-          className="comparison-header__mark-seen"
-        >
-          {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
-        </button>
-        <button
-          type="button"
-          onClick={onComment}
-          className="comparison-header__comment"
-        >
-          comment on comparison
-        </button>
+        {onMarkSeen !== null && (
+          <button
+            type="button"
+            onClick={onMarkSeen}
+            className="comparison-header__mark-seen"
+          >
+            {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+          </button>
+        )}
+        {onComment !== null && (
+          <button
+            type="button"
+            onClick={onComment}
+            className="comparison-header__comment"
+          >
+            comment on comparison
+          </button>
+        )}
       </div>
     </header>
   );

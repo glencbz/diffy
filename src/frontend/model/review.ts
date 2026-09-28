@@ -68,10 +68,20 @@ export const ViewedFile = FileVersion.extend({
 });
 export type ViewedFile = z.infer<typeof ViewedFile>;
 
+/** One version of a series the reader said they reviewed: a head of a pull
+ *  request, named by its oid. */
+export const ReviewedVersion = z.object({
+  series: z.string(),
+  version: z.string(),
+  reviewedAt: z.string(),
+});
+export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
+  reviewed: z.array(ReviewedVersion).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -79,7 +89,30 @@ export const EMPTY_REVIEW: ReviewDocument = {
   marks: [],
   comments: [],
   viewed: [],
+  reviewed: [],
 };
+
+export function isEmptyReview(document: ReviewDocument): boolean {
+  return (
+    document.marks.length === 0 &&
+    document.comments.length === 0 &&
+    document.viewed.length === 0 &&
+    document.reviewed.length === 0
+  );
+}
+
+/** The series a pull request's versions are marked reviewed under. */
+export function pullSeries(repo: string, number: number): string {
+  return `pull:${repo}#${number}`;
+}
+
+/** The versions of one series the reader marked reviewed. */
+export function reviewedIn(
+  document: ReviewDocument,
+  series: string,
+): ReviewedVersion[] {
+  return document.reviewed.filter((version) => version.series === series);
+}
 
 /** The document as the server holds it, and how many writes made it. */
 export const ReviewSnapshot = z.object({
@@ -246,6 +279,13 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     resolved: z.boolean(),
   }),
   z.object({ kind: z.literal("delete-comment"), id: z.string() }),
+  z.object({
+    kind: z.literal("mark-reviewed"),
+    series: z.string(),
+    version: z.string(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
 
@@ -307,7 +347,68 @@ export function applyCommand(
           (comment) => comment.id !== command.id,
         ),
       };
+    case "mark-reviewed":
+      return {
+        ...document,
+        reviewed: added(
+          document.reviewed,
+          [
+            {
+              series: command.series,
+              version: command.version,
+              reviewedAt: command.at,
+            },
+          ],
+          sameReviewedVersion,
+        ),
+      };
+    case "import":
+      return {
+        marks: added(document.marks, command.document.marks, sameComparison),
+        comments: added(
+          document.comments,
+          command.document.comments,
+          (a, b) => a.id === b.id,
+        ),
+        viewed: added(
+          document.viewed,
+          command.document.viewed,
+          (a, b) => a.reviewKey === b.reviewKey && sameVersion(a, b),
+        ),
+        reviewed: added(
+          document.reviewed,
+          command.document.reviewed,
+          sameReviewedVersion,
+        ),
+      };
   }
+}
+
+function sameReviewedVersion(a: ReviewedVersion, b: ReviewedVersion): boolean {
+  return a.series === b.series && a.version === b.version;
+}
+
+/** `existing` with each of `incoming` that names nothing already there. */
+function added<T>(
+  existing: T[],
+  incoming: T[],
+  same: (a: T, b: T) => boolean,
+): T[] {
+  const result = [...existing];
+  for (const item of incoming) {
+    if (!result.some((kept) => same(kept, item))) result.push(item);
+  }
+  return result;
+}
+
+/** What a screen can do to the review document, once it has one to change. */
+export interface ReviewActions {
+  markSeen: (row: ReviewedRow) => void;
+  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
+  resolveComment: (id: string, resolved: boolean) => void;
+  dropComment: (id: string) => void;
+  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  markReviewed: (series: string, version: string) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */

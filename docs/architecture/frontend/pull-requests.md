@@ -141,10 +141,10 @@ export function usePullCommits(
 ## The head last reviewed
 
 A reader who has been through a pull request once wants the second visit to
-start on what moved since, not on the whole thing again. The browser keeps,
-per pull request, the head the reader last said they reviewed, and a pull
+start on what moved since, not on the whole thing again. The review document
+keeps every head of a pull request the reader said they reviewed, and a pull
 request opened with nothing in the address after its number starts on the
-comparison from that head to the latest one.
+comparison from the last of them to the latest head.
 
 Reviewed means the reader pressed "Mark reviewed" with that head as the after
 end. Inferring it from what was on screen would be quieter and wrong: a
@@ -153,21 +153,18 @@ to one line, has not reviewed the head it was on, and the next visit would
 then hide everything they never read behind an interdiff that starts past it.
 An explicit mark costs one click and says only what the reader said.
 
-Each pull request is stored under a key of its own, `repo#number` under a
-`diffy.last-reviewed.v1:` prefix, holding `{ head }`. One blob for every pull
-request was the alternative, and it loses twice. A value that fails to parse
-would take every other pull request's mark down with it, and two tabs marking
-two pull requests would each write back a copy missing the other's mark.
-Separate keys leave the [review](review.md#storage) and
-[settings](settings.md) keys alone for the same reason. Reading and writing
-go through a [repository](index.md#local-storage) the way those two do, so a
-value that does not parse reads as no mark and a write that throws is
-dropped. Since each pull request has a key of its own, there is a repository
-per pull request rather than one for the app.
+A marked head is a version marked reviewed in the
+[review document](review.md#review-state), under the series
+`pull:<repo>#<number>`, so it reaches the server with every other mark and
+any browser reads it. Marking a head keeps the heads marked before it rather
+than replacing them, so a reader who steps back to read an older head does
+not lose the newer one they reviewed. The head last reviewed is the newest
+marked head the history still lists. When the history lists none of them,
+it is the one marked most recently, which the strip below names as gone.
 
-The stored `{ head }` is the document's shape, kept in the model beside the
-rule that reads it. The hook hands out the head alone, and no view names the
-wrapper.
+`LastReviewed`, the shape the browser kept one head under before the server
+kept review state, stays in the model for the
+[import](review.md#moving-what-the-browser-kept) to read it with.
 
 ```ts
 //| id: frontend-model-last-reviewed
@@ -175,55 +172,31 @@ wrapper.
 import * as z from "zod";
 import { GitOid, type PullVersion } from "../api";
 import type { PullPlace } from "./place";
+import type { ReviewedVersion } from "./review";
 
+/** What the browser kept per pull request before the server kept review
+ *  state, read once to import it. */
 export const LastReviewed = z.object({ head: GitOid });
 export type LastReviewed = z.infer<typeof LastReviewed>;
-```
 
-```ts
-//| id: frontend-persistence-last-reviewed
-//| file: src/frontend/persistence/lastReviewed.ts
-import { LastReviewed } from "../model/lastReviewed";
-import { localRepository, type Repository } from "./local";
+/** The head the reader last reviewed, out of every head they marked on one
+ *  pull request: the newest the history still lists, or, when it lists
+ *  none of them, the one marked most recently. */
+export function lastReviewed(
+  marked: ReviewedVersion[],
+  states: PullVersion[],
+): GitOid | null {
+  const heads = new Set(marked.map((mark) => mark.version));
+  const listed = [...states].reverse().find((state) => heads.has(state.head));
+  if (listed !== undefined) return listed.head;
 
-/** The head this reader last marked reviewed on one pull request. */
-export function lastReviewedRepository(
-  repo: string,
-  number: number,
-): Repository<LastReviewed | null> {
-  return localRepository<LastReviewed | null>(
-    `diffy.last-reviewed.v1:${repo}#${number}`,
-    LastReviewed,
+  const latest = marked.reduce<ReviewedVersion | null>(
+    (found, mark) =>
+      found === null || mark.reviewedAt > found.reviewedAt ? mark : found,
     null,
   );
-}
-```
-
-`useLastReviewed` builds the repository once per pull request and holds its
-value through [`useStored`](index.md#local-storage).
-
-```ts
-//| id: frontend-state-last-reviewed
-//| file: src/frontend/state/lastReviewed.ts
-import { useCallback, useMemo } from "react";
-import type { GitOid } from "../api";
-import { lastReviewedRepository } from "../persistence/lastReviewed";
-import { useStored } from "./stored";
-
-export function useLastReviewed(
-  repo: string,
-  number: number,
-): [GitOid | null, (head: GitOid) => void] {
-  const repository = useMemo(
-    () => lastReviewedRepository(repo, number),
-    [repo, number],
-  );
-  const [stored, update] = useStored(repository);
-  const mark = useCallback(
-    (head: GitOid) => update(() => ({ head })),
-    [update],
-  );
-  return [stored?.head ?? null, mark];
+  const head = GitOid.safeParse(latest?.version);
+  return head.success ? head.data : null;
 }
 ```
 
@@ -264,58 +237,13 @@ export function opening(
 ```
 
 ```ts
-//| id: frontend-persistence-last-reviewed-test
-//| file: src/frontend/persistence/lastReviewed.test.ts
-import { beforeEach, describe, expect, test } from "bun:test";
-import { GitOid } from "../api";
-import { lastReviewedRepository } from "./lastReviewed";
-import { memoryStorage } from "./memoryStorage";
-
-beforeEach(() => {
-  globalThis.localStorage = memoryStorage() as unknown as Storage;
-});
-
-function oid(ch: string): GitOid {
-  return GitOid.parse(ch.repeat(40));
-}
-
-describe("lastReviewedRepository", () => {
-  test("round-trips a head through save, per pull request", () => {
-    // arrange
-    lastReviewedRepository("o/r", 7).save({ head: oid("a") });
-    lastReviewedRepository("o/r", 8).save({ head: oid("b") });
-
-    // act
-    // assert
-    expect(lastReviewedRepository("o/r", 7).load()).toEqual({ head: oid("a") });
-    expect(lastReviewedRepository("o/r", 8).load()).toEqual({ head: oid("b") });
-    expect(lastReviewedRepository("o/other", 7).load()).toBeNull();
-  });
-
-  test("reads a value that does not parse as no mark, and keeps the others", () => {
-    // arrange
-    lastReviewedRepository("o/r", 8).save({ head: oid("b") });
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
-    localStorage.setItem("diffy.session.v1", '{"marks":[],"comments":[]}');
-
-    // act
-    // assert
-    expect(lastReviewedRepository("o/r", 9).load()).toBeNull();
-    expect(lastReviewedRepository("o/r", 8).load()).toEqual({ head: oid("b") });
-    expect(localStorage.getItem("diffy.session.v1")).toBe(
-      '{"marks":[],"comments":[]}',
-    );
-  });
-});
-```
-
-```ts
 //| id: frontend-model-last-reviewed-test
 //| file: src/frontend/model/lastReviewed.test.ts
 import { describe, expect, test } from "bun:test";
 import { GitOid, type PullVersion } from "../api";
-import { opening } from "./lastReviewed";
+import { lastReviewed, opening } from "./lastReviewed";
 import { openPull, type PullPlace } from "./place";
+import type { ReviewedVersion } from "./review";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -361,13 +289,45 @@ describe("opening", () => {
     }
   });
 });
+
+describe("lastReviewed", () => {
+  const states = [version(1, "a"), version(2, "b"), version(3, "c")];
+
+  function mark(ch: string, reviewedAt: string): ReviewedVersion {
+    return { series: "pull:o/r#7", version: oid(ch), reviewedAt };
+  }
+
+  test("takes the newest head marked, whenever it was marked", () => {
+    // arrange
+    const marked = [mark("b", "t1"), mark("a", "t2")];
+
+    // act
+    // assert
+    expect(lastReviewed(marked, states)).toBe(oid("b"));
+  });
+
+  test("takes the head marked last when the history lists none", () => {
+    // arrange
+    const marked = [mark("e", "t2"), mark("f", "t1")];
+
+    // act
+    // assert
+    expect(lastReviewed(marked, states)).toBe(oid("e"));
+  });
+
+  test("reads nothing reviewed when nothing is marked", () => {
+    expect(lastReviewed([], states)).toBeNull();
+  });
+});
 ```
 
 `LastReviewed` is the strip under the comparison picker that shows all of
 this. It names the head last reviewed when the comparison on screen starts
 there and ends on the latest head, with a button back to the whole pull
 request; it says so when the head last reviewed is gone from the history; and
-it holds the button that marks the head on the after end reviewed. The note
+it holds the button that marks the head on the after end reviewed, which
+reads as done once that head is marked and is missing while there is no
+review document to mark it in. The note
 follows the comparison rather than how it was reached, so a link to the same
 two heads reads the same as the default that opened them.
 
@@ -385,6 +345,7 @@ export function LastReviewed({
   reviewed,
   from,
   to,
+  toMarked,
   onMark,
   onWhole,
 }: {
@@ -392,7 +353,10 @@ export function LastReviewed({
   reviewed: GitOid | null;
   from: PullBaseline;
   to: GitOid;
-  onMark: () => void;
+  /** Whether the reader has marked the after head reviewed. */
+  toMarked: boolean;
+  /** Null when there is no review document to write to. */
+  onMark: (() => void) | null;
   onWhole: () => void;
 }) {
   const known = states.find((state) => state.head === reviewed);
@@ -424,16 +388,18 @@ export function LastReviewed({
           history no longer lists, so it opens whole.
         </p>
       ) : null}
-      <button
-        type="button"
-        className="last-reviewed__action"
-        onClick={onMark}
-        disabled={to === reviewed}
-      >
-        {to === reviewed
-          ? `Reviewed at ${name(states, to)}`
-          : `Mark reviewed at ${name(states, to)}`}
-      </button>
+      {(toMarked || onMark !== null) && (
+        <button
+          type="button"
+          className="last-reviewed__action"
+          onClick={onMark ?? undefined}
+          disabled={toMarked}
+        >
+          {toMarked
+            ? `Reviewed at ${name(states, to)}`
+            : `Mark reviewed at ${name(states, to)}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -523,6 +489,7 @@ import { useState } from "react";
 import type { PullSummary } from "../api";
 import { openPull, type PullPlace } from "../model/place";
 import { usePulls } from "../state/pulls";
+import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { type PullChoice, PullPanes } from "../views/PullPanes";
@@ -531,10 +498,12 @@ import { PullReview } from "./PullReview";
 export function PullRequests({
   repo,
   place,
+  review,
   onGo,
 }: {
   repo: string;
   place: PullPlace | null;
+  review: ReviewHandle;
   onGo: (place: PullPlace | null) => void;
 }) {
   const pulls = usePulls(repo);
@@ -573,6 +542,7 @@ export function PullRequests({
             repo={repo}
             pull={choice.pull}
             place={place}
+            review={review}
             onGo={onGo}
           />
         )
@@ -847,7 +817,7 @@ import type {
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
-import { opening } from "../model/lastReviewed";
+import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
 import {
   type FileSpot,
@@ -855,12 +825,13 @@ import {
   type PullPlace,
   pullHref,
 } from "../model/place";
-import { useLastReviewed } from "../state/lastReviewed";
+import { pullSeries, reviewedIn } from "../model/review";
 import { usePairing } from "../state/pairing";
 import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
+import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
 import { useSources } from "../state/source";
 import {
@@ -1000,15 +971,22 @@ export function PullReview({
   repo,
   pull,
   place: asked,
+  review,
   onGo,
 }: {
   repo: string;
   pull: PullSummary;
   place: PullPlace;
+  review: ReviewHandle;
   onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
-  const [reviewed, markReviewed] = useLastReviewed(repo, pull.number);
+  const series = pullSeries(repo, pull.number);
+  const marked = reviewedIn(review.document, series);
+  const reviewed = lastReviewed(
+    marked,
+    history.status === "ready" ? history.data.states : [],
+  );
   const place = opening(
     asked,
     reviewed,
@@ -1125,10 +1103,15 @@ export function PullReview({
             reviewed={reviewed}
             from={from}
             to={to}
-            onMark={() => {
-              markReviewed(to);
-              onGo({ ...place, to });
-            }}
+            toMarked={marked.some((mark) => mark.version === to)}
+            onMark={
+              review.status === "ready"
+                ? () => {
+                    review.actions.markReviewed(series, to);
+                    onGo({ ...place, to });
+                  }
+                : null
+            }
             onWhole={() => onGo({ ...openPull(number), to: latest.head })}
           />
         </>

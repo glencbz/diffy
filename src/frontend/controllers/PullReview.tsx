@@ -8,7 +8,7 @@ import type {
   PullVersion,
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
-import { opening } from "../model/lastReviewed";
+import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
 import {
   type FileSpot,
@@ -16,12 +16,13 @@ import {
   type PullPlace,
   pullHref,
 } from "../model/place";
-import { useLastReviewed } from "../state/lastReviewed";
+import { pullSeries, reviewedIn } from "../model/review";
 import { usePairing } from "../state/pairing";
 import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
+import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
 import { useSources } from "../state/source";
 import {
@@ -161,15 +162,22 @@ export function PullReview({
   repo,
   pull,
   place: asked,
+  review,
   onGo,
 }: {
   repo: string;
   pull: PullSummary;
   place: PullPlace;
+  review: ReviewHandle;
   onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
-  const [reviewed, markReviewed] = useLastReviewed(repo, pull.number);
+  const series = pullSeries(repo, pull.number);
+  const marked = reviewedIn(review.document, series);
+  const reviewed = lastReviewed(
+    marked,
+    history.status === "ready" ? history.data.states : [],
+  );
   const place = opening(
     asked,
     reviewed,
@@ -286,10 +294,15 @@ export function PullReview({
             reviewed={reviewed}
             from={from}
             to={to}
-            onMark={() => {
-              markReviewed(to);
-              onGo({ ...place, to });
-            }}
+            toMarked={marked.some((mark) => mark.version === to)}
+            onMark={
+              review.status === "ready"
+                ? () => {
+                    review.actions.markReviewed(series, to);
+                    onGo({ ...place, to });
+                  }
+                : null
+            }
             onWhole={() => onGo({ ...openPull(number), to: latest.head })}
           />
         </>

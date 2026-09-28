@@ -181,7 +181,7 @@ describe("openReviewStore", () => {
     // assert
     expect(store.read()).toEqual({
       revision: 0,
-      document: { marks: [], comments: [], viewed: [] },
+      document: { marks: [], comments: [], viewed: [], reviewed: [] },
     });
   });
 

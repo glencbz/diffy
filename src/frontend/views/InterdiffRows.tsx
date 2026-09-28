@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import { useState } from "react";
-import type { Anchor, FileVersion, ReviewedRow } from "../model/review";
+import type { ReviewActions, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../model/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
@@ -8,19 +8,13 @@ import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 export function InterdiffRows({
   rows,
   sources,
-  onMarkSeen,
-  onAddComment,
-  onResolveComment,
-  onDropComment,
-  onToggleViewed,
+  review,
 }: {
   rows: ReviewedRow[];
   sources: SourceLookup;
-  onMarkSeen: (row: ReviewedRow) => void;
-  onAddComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
-  onResolveComment: (id: string, resolved: boolean) => void;
-  onDropComment: (id: string) => void;
-  onToggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  /** Null while there is no review document to change, which draws each
+   *  row with nothing on it that would write one. */
+  review: ReviewActions | null;
 }) {
   const [composing, setComposing] = useState<string | null>(null);
 
@@ -30,26 +24,28 @@ export function InterdiffRows({
         <section key={rowKey(row)}>
           <ComparisonHeader
             row={row}
-            onMarkSeen={() => onMarkSeen(row)}
-            onComment={() => setComposing(rowKey(row))}
+            onMarkSeen={review && (() => review.markSeen(row))}
+            onComment={review && (() => setComposing(rowKey(row)))}
           />
-          {composing === rowKey(row) && (
+          {review !== null && composing === rowKey(row) && (
             <CommentComposer
               anchor={{ kind: "comparison" }}
               onCancel={() => setComposing(null)}
               onSubmit={(anchor, body) => {
-                onAddComment(row, anchor, body);
+                review.addComment(row, anchor, body);
                 setComposing(null);
               }}
             />
           )}
-          <CommentThreads
-            comments={row.comments.filter(
-              (comment) => comment.kind === "comparison",
-            )}
-            onResolveComment={onResolveComment}
-            onDropComment={onDropComment}
-          />
+          {review !== null && (
+            <CommentThreads
+              comments={row.comments.filter(
+                (comment) => comment.kind === "comparison",
+              )}
+              onResolveComment={review.resolveComment}
+              onDropComment={review.dropComment}
+            />
+          )}
           {row.files.length === 0 ? (
             <p className="interdiff-empty">
               {row.from !== null && row.to !== null
@@ -61,14 +57,19 @@ export function InterdiffRows({
               files={row.files}
               sources={sources}
               scope={rowKey(row)}
-              review={{
-                comments: row.comments,
-                onAddComment: (anchor, body) => onAddComment(row, anchor, body),
-                onResolveComment,
-                onDropComment,
-                viewed: row.viewed,
-                onToggleViewed: (file) => onToggleViewed(row, file),
-              }}
+              review={
+                review === null
+                  ? undefined
+                  : {
+                      comments: row.comments,
+                      onAddComment: (anchor, body) =>
+                        review.addComment(row, anchor, body),
+                      onResolveComment: review.resolveComment,
+                      onDropComment: review.dropComment,
+                      viewed: row.viewed,
+                      onToggleViewed: (file) => review.toggleViewed(row, file),
+                    }
+              }
             />
           )}
         </section>

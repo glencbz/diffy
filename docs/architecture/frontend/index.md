@@ -74,8 +74,8 @@ The document tree answers what you are changing.
 
 ### transport
 
-`api.ts` does all the talking to the backend. It knows the backend's URLs and
-their wire formats. It knows nothing about React. It holds one schema and one
+`api.ts` does the talking to the backend about the repository and GitHub. It
+knows those URLs and their wire formats. It knows nothing about React. It holds one schema and one
 wrapper per endpoint, and every wrapper parses its response through that
 [Zod](https://zod.dev/) schema before returning it, so a drift in a backend
 shape fails at the fetch with a named parse error instead of reaching a view as
@@ -142,15 +142,18 @@ model in `api.ts` and gets no `model/` module for symmetry.
 
 ### persistence
 
-A module in `persistence/` is a repository for one document the app keeps in
-the browser between visits. The key the document is kept under is the only
-thing it adds. The schema that reads the document back and the document to
-start from when nothing usable is there both come from the document's model.
-It offers two operations, load the document and save it, and knows nothing
-about React. The state hook that owns the document holds it in memory,
-applies each change from the model to the current value, and hands the
-result to the repository. [Local storage](#local-storage) holds the one
-implementation every repository shares.
+A module in `persistence/` is a repository for one document the app keeps
+between visits, and it decides where the document is kept. Settings belong to
+one browser and stay in its `localStorage`, where the key the document is kept
+under is the only thing its repository adds. The
+[review document](review.md#storage) is shared by every browser and any agent,
+so its repository reads it from the server and sends each change there as a
+command. Either way the schema that reads the document back and the document
+to start from both come from the document's model, and the repository knows
+nothing about React. The state hook that owns the document holds it in
+memory and applies each change from the model to the current value.
+[Local storage](#local-storage) holds the one implementation every
+`localStorage` repository shares.
 
 "Repository" here is the storage pattern, not the jj or GitHub repository the
 app reviews. The code spells that one `repo`.
@@ -223,7 +226,8 @@ Allowed import edges:
   which is what this rule exists to protect.
 - `persistence/` imports `model/`, for the schema and the starting document
   of what it stores, and the other `persistence/` modules. It is the only
-  layer that touches `localStorage`.
+  layer that touches `localStorage`, and the only one besides `api.ts` that
+  talks to the server, for the review store.
 - `state/` imports React, `api.ts`, `persistence/`, `model/`, and other
   `state/` modules.
 - `views/` imports React, other `views/`, `model/`, and *types* from
@@ -383,9 +387,9 @@ export type AsyncState<T> =
 
 ## Local storage
 
-Every repository keeps its document the same way: as JSON under one
-`localStorage` key. `localRepository` is that once, given the key, the schema,
-and the empty document.
+Every repository that keeps its document in the browser keeps it the same
+way: as JSON under one `localStorage` key. `localRepository` is that once,
+given the key, the schema, and the empty document.
 
 `load` parses whatever sits under the key with the schema and falls back to
 the empty document on anything that does not parse: absent, truncated by a
@@ -492,12 +496,22 @@ install the same in-memory stand-in before each test.
 ```ts
 //| id: frontend-persistence-memory-storage
 //| file: src/frontend/persistence/memoryStorage.ts
-export function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
+export function memoryStorage(): Pick<
+  Storage,
+  "getItem" | "setItem" | "removeItem" | "key" | "length"
+> {
   const store = new Map<string, string>();
   return {
     getItem: (key) => store.get(key) ?? null,
     setItem: (key, value) => {
       store.set(key, value);
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+    key: (index) => [...store.keys()][index] ?? null,
+    get length() {
+      return store.size;
     },
   };
 }
