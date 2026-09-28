@@ -77,11 +77,20 @@ export const ReviewedVersion = z.object({
 });
 export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
 
+/** The key a commit was last written on under, for a commit whose own id
+ *  does not survive a rewrite. */
+export const KeptKey = z.object({
+  commitId: z.string(),
+  reviewKey: z.string(),
+});
+export type KeptKey = z.infer<typeof KeptKey>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
+  keys: z.array(KeptKey).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -90,6 +99,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   comments: [],
   viewed: [],
   reviewed: [],
+  keys: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -97,7 +107,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.marks.length === 0 &&
     document.comments.length === 0 &&
     document.viewed.length === 0 &&
-    document.reviewed.length === 0
+    document.reviewed.length === 0 &&
+    document.keys.length === 0
   );
 }
 
@@ -133,12 +144,22 @@ export type RowReview =
 
 export type RowComment = Comment & { stale: boolean };
 
-export interface ReviewedRow extends InterdiffRow {
+/** What the reader has kept about one comparison: the key it is filed
+ *  under, the commit on each side, and everything filed under that key. */
+export interface ComparisonReview {
   reviewKey: string;
+  fromCommitId: string | null;
+  toCommitId: string | null;
+  /** The commit to record under `reviewKey` when the reader writes anything
+   *  here, so that the row it becomes in a later version inherits the key.
+   *  Null for a key that survives a rewrite on its own, as a change id does. */
+  keeps: string | null;
   review: RowReview;
   comments: RowComment[];
   viewed: ViewedFile[];
 }
+
+export type ReviewedRow = InterdiffRow & ComparisonReview;
 
 /** What a mark uses to find its row again. A change id survives a rewrite, so
  *  a mark under one is still recognisable after the commit is amended. A
@@ -203,35 +224,74 @@ function reviewFor(
   };
 }
 
+/** Everything the document holds under `key`, read against the commits a
+ *  comparison has on each side now. */
+export function reviewComparison(
+  document: ReviewDocument,
+  key: string,
+  fromCommitId: string | null,
+  toCommitId: string | null,
+  keeps: string | null,
+): ComparisonReview {
+  const comments = document.comments
+    .filter((comment) => comment.reviewKey === key)
+    .map((comment) => ({
+      ...comment,
+      stale:
+        comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
+    }))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  return {
+    reviewKey: key,
+    fromCommitId,
+    toCommitId,
+    keeps,
+    review: reviewFor(
+      document.marks.filter((mark) => mark.reviewKey === key),
+      fromCommitId,
+      toCommitId,
+    ),
+    comments,
+    viewed: document.viewed.filter((mark) => mark.reviewKey === key),
+  };
+}
+
 export function reviewRows(
   rows: InterdiffRow[],
   document: ReviewDocument,
 ): ReviewedRow[] {
-  return rows.map((row) => {
-    const key = reviewKey(row);
-    const fromCommitId = row.from?.commitId ?? null;
-    const toCommitId = row.to?.commitId ?? null;
-    const marksForChange = document.marks.filter(
-      (mark) => mark.reviewKey === key,
-    );
+  return rows.map((row) => ({
+    ...row,
+    ...reviewComparison(
+      document,
+      reviewKey(row),
+      row.from?.commitId ?? null,
+      row.to?.commitId ?? null,
+      null,
+    ),
+  }));
+}
 
-    const comments = document.comments
-      .filter((comment) => comment.reviewKey === key)
-      .map((comment) => ({
-        ...comment,
-        stale:
-          comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
-      }))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-    return {
-      ...row,
-      reviewKey: key,
-      review: reviewFor(marksForChange, fromCommitId, toCommitId),
-      comments,
-      viewed: document.viewed.filter((mark) => mark.reviewKey === key),
-    };
-  });
+/** The key a pull request row is filed under. A commit has no id of its own
+ *  that survives a force push, so a row takes the key its before commit was
+ *  given when the reader last wrote on it, and a row whose before commit was
+ *  never written on, or that has none, starts a key from its own commit.
+ *  Writing on the row records that key for the row's own commit, which is
+ *  what the row it becomes in the next version inherits. */
+export function pullRowKey(
+  document: ReviewDocument,
+  before: string | null,
+  after: string | null,
+): { reviewKey: string; keeps: string } {
+  const own = after ?? before;
+  if (own === null) throw new Error("a pull request row has no commit");
+  const kept = (commitId: string | null) =>
+    commitId === null
+      ? undefined
+      : document.keys.find((key) => key.commitId === commitId)?.reviewKey;
+  const inherited = before !== null ? kept(before) : kept(after);
+  return { reviewKey: inherited ?? `rev:${own}`, keeps: own };
 }
 
 /** Whether two marks (or a mark and a comparison) name the same row: the
@@ -284,6 +344,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     series: z.string(),
     version: z.string(),
     at: z.string(),
+  }),
+  z.object({
+    kind: z.literal("set-key"),
+    commitId: z.string(),
+    reviewKey: z.string(),
   }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
@@ -362,6 +427,14 @@ export function applyCommand(
           sameReviewedVersion,
         ),
       };
+    case "set-key":
+      return {
+        ...document,
+        keys: [
+          ...document.keys.filter((key) => key.commitId !== command.commitId),
+          { commitId: command.commitId, reviewKey: command.reviewKey },
+        ],
+      };
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -379,6 +452,11 @@ export function applyCommand(
           document.reviewed,
           command.document.reviewed,
           sameReviewedVersion,
+        ),
+        keys: added(
+          document.keys,
+          command.document.keys,
+          (a, b) => a.commitId === b.commitId,
         ),
       };
   }
@@ -403,25 +481,25 @@ function added<T>(
 
 /** What a screen can do to the review document, once it has one to change. */
 export interface ReviewActions {
-  markSeen: (row: ReviewedRow) => void;
-  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
+  markSeen: (row: ComparisonReview) => void;
+  addComment: (row: ComparisonReview, anchor: Anchor, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
-  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   markReviewed: (series: string, version: string) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */
-function comparisonOf(row: ReviewedRow): Comparison {
+function comparisonOf(row: ComparisonReview): Comparison {
   return {
     reviewKey: row.reviewKey,
-    fromCommitId: row.from?.commitId ?? null,
-    toCommitId: row.to?.commitId ?? null,
+    fromCommitId: row.fromCommitId,
+    toCommitId: row.toCommitId,
   };
 }
 
 /** Marks the row seen, or unseen if it reads reviewed. */
-export function markSeen(row: ReviewedRow, at: string): ReviewCommand {
+export function markSeen(row: ComparisonReview, at: string): ReviewCommand {
   return {
     kind: "set-seen",
     comparison: comparisonOf(row),
@@ -432,7 +510,7 @@ export function markSeen(row: ReviewedRow, at: string): ReviewCommand {
 
 /** Marks one file of a row viewed, or not viewed if it is. */
 export function markViewed(
-  row: ReviewedRow,
+  row: ComparisonReview,
   file: FileVersion,
   at: string,
 ): ReviewCommand {
@@ -448,21 +526,28 @@ export function markViewed(
 /** Adds a comment on a row, pinned to the commit what it is about was read
  *  against. */
 export function commentOn(
-  row: ReviewedRow,
+  row: ComparisonReview,
   comment: Anchor & Pick<Comment, "id" | "body" | "createdAt" | "author">,
 ): ReviewCommand {
-  const commit =
+  const commitId =
     comment.kind === "line" && comment.side === "before"
-      ? (row.from ?? row.to)
-      : (row.to ?? row.from);
+      ? (row.fromCommitId ?? row.toCommitId)
+      : (row.toCommitId ?? row.fromCommitId);
   return {
     kind: "add-comment",
     comment: {
       ...comment,
       reviewKey: row.reviewKey,
-      commitId: commit?.commitId ?? "",
+      commitId: commitId ?? "",
       resolved: false,
     },
   };
+}
+
+/** What writing on a row records first, so its key outlives the row. */
+export function keepKey(row: ComparisonReview): ReviewCommand[] {
+  return row.keeps === null
+    ? []
+    : [{ kind: "set-key", commitId: row.keeps, reviewKey: row.reviewKey }];
 }
 // ~/~ end

@@ -782,6 +782,13 @@ asked to see plain. `CommitLog` already draws one lane well, so a base
 comparison keeps that lane and builds its stack rows straight from the
 commit list instead of from a pairing with nothing on one side.
 
+Every row is reviewed as the two commits it compares: a dropped row as its
+old commit with nothing after it, and every other row as its commit against
+the one it was, if any. `reviewOf` files the row under the key
+[`pullRowKey`](review.md#review-state) gives it for those two commits, so a
+row reads the marks and comments the pairing on screen carries to it, and a
+card moved in the graph moves them along with it.
+
 Only an open row draws its diff, so only an open row's files are handed to
 [`useSources`](syntax.md#loading-each-side) to load. A stack of twenty commits
 then costs nothing extra until someone opens one of them.
@@ -838,7 +845,13 @@ import {
   type PullPlace,
   pullHref,
 } from "../model/place";
-import { pullSeries, reviewedIn } from "../model/review";
+import {
+  type ComparisonReview,
+  pullRowKey,
+  pullSeries,
+  reviewComparison,
+  reviewedIn,
+} from "../model/review";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals } from "../state/place";
@@ -1104,6 +1117,15 @@ export function PullReview({
     if (next !== undefined) pick(next.commit.commitId);
   };
 
+  const reviewOf = (row: StackRow): ComparisonReview => {
+    const before = row.kind === "dropped" ? row.commit : row.was;
+    const after = row.kind === "dropped" ? null : row.commit;
+    const from = before?.commitId ?? null;
+    const to = after?.commitId ?? null;
+    const { reviewKey, keeps } = pullRowKey(review.document, from, to);
+    return reviewComparison(review.document, reviewKey, from, to, keeps);
+  };
+
   const links = (row: StackRow): DiffLinks => {
     const at = (file: FileSpot): PullPlace => ({
       ...place,
@@ -1192,6 +1214,8 @@ export function PullReview({
             current={currentKey}
             reveal={picks + arrivals}
             links={links}
+            reviewOf={reviewOf}
+            actions={review.status === "ready" ? review.actions : null}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

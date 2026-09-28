@@ -12,12 +12,20 @@ sees what every commit is and opens only the ones that matter to them.
 ```ts
 //| id: frontend-view-commit-stack
 //| file: src/frontend/views/CommitStack.tsx
-import { type ReactElement, useEffect, useRef } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { ComparisonReview, ReviewActions } from "../model/review";
 import type { SourceLookup } from "../model/source";
 import { CommitMessage } from "./CommitMessage";
-import { type DiffLinks, DiffView } from "./DiffView";
+import {
+  CommentComposer,
+  CommentThreads,
+  type DiffLinks,
+  type DiffReview,
+  DiffView,
+} from "./DiffView";
+import { ReviewBar } from "./ReviewBar";
 
 ```
 
@@ -41,6 +49,14 @@ A reworded row always has contents to show. `jj interdiff` reports a changed
 message as a synthetic `JJ-COMMIT-DESCRIPTION` file, so the row's contents
 are the old message against the new one, captioned as a change like any
 other.
+
+Under the message sits the [review bar](review.md#the-review-bar), the same
+line a comparison carries on the local history screen, and under that the
+comments on the whole commit. The row's diff takes line and file comments and
+viewed marks the way a comparison's does. What the row reads and writes is
+`reviewOf(row)`, the review of the two commits it compares under the key its
+pairing gives it, which the controller works out; the view only draws it.
+Without a review document the row draws its diff read-only.
 
 Picking a commit in the graph pane scrolls its row to the top of the stack.
 A highlight on a row the reader cannot see answers nothing. Picking the same
@@ -116,6 +132,10 @@ export interface CommitStackProps {
   /** The older version every non-plain row is read against, as its chip
    *  names it: `v5`. */
   since: string;
+  /** What the reader has kept on each row. */
+  reviewOf: (row: StackRow) => ComparisonReview;
+  /** Null while there is no review document to write to. */
+  actions: ReviewActions | null;
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
@@ -159,6 +179,8 @@ export function CommitStack({
   reveal,
   links,
   since,
+  reviewOf,
+  actions,
 }: CommitStackProps): ReactElement {
   return (
     <div className="commit-stack">
@@ -175,6 +197,8 @@ export function CommitStack({
           reveal={reveal}
           links={links(row)}
           since={since}
+          review={reviewOf(row)}
+          actions={actions}
         />
       ))}
     </div>
@@ -192,6 +216,8 @@ function StackSection({
   reveal,
   links,
   since,
+  review,
+  actions,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -203,8 +229,11 @@ function StackSection({
   reveal: number;
   links: DiffLinks;
   since: string;
+  review: ComparisonReview;
+  actions: ReviewActions | null;
 }) {
   const section = useRef<HTMLElement>(null);
+  const [composing, setComposing] = useState(false);
   const diffScrolls = links.selected !== null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
@@ -245,6 +274,32 @@ function StackSection({
             isExpanded={isExpanded}
             onExpand={onExpand}
           />
+          <ReviewBar
+            review={review}
+            files={row.files.status === "ready" ? row.files.data : []}
+            commentLabel="comment on this commit"
+            onMarkSeen={actions && (() => actions.markSeen(review))}
+            onComment={actions && (() => setComposing(true))}
+          />
+          {actions !== null && composing && (
+            <CommentComposer
+              anchor={{ kind: "comparison" }}
+              onCancel={() => setComposing(false)}
+              onSubmit={(anchor, body) => {
+                actions.addComment(review, anchor, body);
+                setComposing(false);
+              }}
+            />
+          )}
+          {actions !== null && (
+            <CommentThreads
+              comments={review.comments.filter(
+                (comment) => comment.kind === "comparison",
+              )}
+              onResolveComment={actions.resolveComment}
+              onDropComment={actions.dropComment}
+            />
+          )}
           <StackContents
             row={row}
             sources={sources}
@@ -252,6 +307,20 @@ function StackSection({
             onToggle={onToggle}
             links={links}
             reveal={reveal}
+            review={
+              actions === null
+                ? undefined
+                : {
+                    comments: review.comments,
+                    onAddComment: (anchor, body) =>
+                      actions.addComment(review, anchor, body),
+                    onResolveComment: actions.resolveComment,
+                    onDropComment: actions.dropComment,
+                    viewed: review.viewed,
+                    onToggleViewed: (file) =>
+                      actions.toggleViewed(review, file),
+                  }
+            }
           />
         </>
       )}
@@ -368,6 +437,7 @@ function StackContents({
   onToggle,
   links,
   reveal,
+  review,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -375,6 +445,7 @@ function StackContents({
   onToggle: () => void;
   links: DiffLinks;
   reveal: number;
+  review: DiffReview | undefined;
 }) {
   if (row.files.status === "loading") {
     return (
@@ -405,6 +476,7 @@ function StackContents({
           scope={row.commit.commitId}
           links={links}
           reveal={reveal}
+          review={review}
         />
       )}
     </div>
@@ -475,6 +547,10 @@ mark that reads as gone before a caption has to say so.
     padding: var(--space-2) var(--space-5) 0;
     font-size: var(--text-size-small);
     color: var(--text-muted);
+  }
+
+  .commit-stack__row > .review-bar {
+    padding: 0 var(--space-5);
   }
 
   .commit-stack__message {

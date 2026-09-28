@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AsyncState } from "../model/asyncState";
 import {
   applyCommand,
+  type ComparisonReview,
   commentOn,
   EMPTY_REVIEW,
+  keepKey,
   markSeen,
   markViewed,
   type ReviewActions,
@@ -110,10 +112,15 @@ export function useReview(): ReviewHandle {
         },
       );
     };
+    const write = (row: ComparisonReview, command: ReviewCommand) => {
+      for (const kept of keepKey(row)) send(kept);
+      send(command);
+    };
     return {
-      markSeen: (row) => send(markSeen(row, now())),
+      markSeen: (row) => write(row, markSeen(row, now())),
       addComment: (row, anchor, body) =>
-        send(
+        write(
+          row,
           commentOn(row, {
             id: crypto.randomUUID(),
             ...anchor,
@@ -125,7 +132,7 @@ export function useReview(): ReviewHandle {
       resolveComment: (id, resolved) =>
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),
-      toggleViewed: (row, file) => send(markViewed(row, file, now())),
+      toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       markReviewed: (series, version) =>
         send({ kind: "mark-reviewed", series, version, at: now() }),
     };

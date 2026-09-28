@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReviewCommand } from "../../frontend/model/review";
+import { EMPTY_REVIEW, type ReviewCommand } from "../../frontend/model/review";
 import { openReviewStore, reviewStorePath, watchReview } from "./store";
 
 let dir: string;
@@ -34,7 +34,7 @@ describe("openReviewStore", () => {
     // assert
     expect(store.read()).toEqual({
       revision: 0,
-      document: { marks: [], comments: [], viewed: [], reviewed: [] },
+      document: EMPTY_REVIEW,
     });
   });
 
