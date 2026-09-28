@@ -3,14 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
 import {
-  addComment,
-  dropComment,
+  applyCommand,
+  commentOn,
   type FileVersion,
-  flipSeen,
-  flipViewed,
   isViewed,
+  markSeen,
+  markViewed,
+  type ReviewCommand,
   ReviewDocument,
-  resolveComment,
+  type ReviewedRow,
   reviewKey,
   reviewRows,
 } from "./review";
@@ -227,6 +228,7 @@ describe("reviewRows", () => {
           body: "old",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
@@ -256,6 +258,7 @@ describe("reviewRows", () => {
           body: "removed too soon",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
@@ -283,6 +286,7 @@ describe("reviewRows", () => {
           body: "split this file",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
@@ -309,6 +313,7 @@ describe("reviewRows", () => {
           body: "squash this into its parent",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
@@ -442,6 +447,30 @@ describe("ReviewDocument", () => {
     });
   });
 
+  test("reads a comment kept before comments had authors as the reader's", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "comparison",
+          commitId: "a2",
+          body: "written before authors",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]?.author).toBe("reader");
+  });
+
   test("reads file and comparison comments back as themselves", () => {
     // arrange
     const written = {
@@ -450,6 +479,7 @@ describe("ReviewDocument", () => {
       body: "",
       resolved: false,
       createdAt: "2026-09-14T09:00:00.000Z",
+      author: "agent",
     };
     const stored = {
       marks: [],
@@ -516,36 +546,51 @@ describe("reviewKey", () => {
   });
 });
 
+const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
+
+function reviewedRow(row: InterdiffRow, document: ReviewDocument): ReviewedRow {
+  const [reviewed] = reviewRows([row], document);
+  if (reviewed === undefined) throw new Error("no row");
+  return reviewed;
+}
+
+/** Each command in turn, as the server and the browser both apply them. */
+function applied(
+  document: ReviewDocument,
+  ...commands: ReviewCommand[]
+): ReviewDocument {
+  return commands.reduce(applyCommand, document);
+}
+
 describe("viewed files", () => {
-  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
   const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
+  const row = pairRow("a", "a1", "a2");
 
   test("reads a file viewed on its row once it is marked", () => {
     // arrange
-    const document = flipViewed(
+    const document = applied(
       empty,
-      "change:a",
-      file,
-      "2026-09-25T09:00:00Z",
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const [row] = reviewRows([pairRow("a", "a1", "a2")], document);
+    const viewed = reviewedRow(row, document).viewed;
 
     // assert
-    expect(isViewed(row?.viewed ?? [], file)).toBe(true);
+    expect(isViewed(viewed, file)).toBe(true);
   });
 
   test("unmarks a file marked a second time", () => {
     // arrange
-    const marked = flipViewed(empty, "change:a", file, "2026-09-25T09:00:00Z");
+    const marked = applied(
+      empty,
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
+    );
 
     // act
-    const unmarked = flipViewed(
+    const unmarked = applied(
       marked,
-      "change:a",
-      file,
-      "2026-09-25T09:01:00Z",
+      markViewed(reviewedRow(row, marked), file, "2026-09-25T09:01:00Z"),
     );
 
     // assert
@@ -554,55 +599,42 @@ describe("viewed files", () => {
 
   test("reads a file not viewed once its after side has changed", () => {
     // arrange
-    const document = flipViewed(
+    const document = applied(
       empty,
-      "change:a",
-      file,
-      "2026-09-25T09:00:00Z",
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const [row] = reviewRows([pairRow("a", "a1", "a3")], document);
+    const viewed = reviewedRow(pairRow("a", "a1", "a3"), document).viewed;
 
     // assert
-    expect(isViewed(row?.viewed ?? [], { ...file, newBlob: "b3" })).toBe(false);
+    expect(isViewed(viewed, { ...file, newBlob: "b3" })).toBe(false);
   });
 
   test("keeps a viewed mark to the row it was made on", () => {
     // arrange
-    const document = flipViewed(
+    const document = applied(
       empty,
-      "change:a",
-      file,
-      "2026-09-25T09:00:00Z",
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const [row] = reviewRows([pairRow("b", "b1", "b2")], document);
+    const viewed = reviewedRow(pairRow("b", "b1", "b2"), document).viewed;
 
     // assert
-    expect(isViewed(row?.viewed ?? [], file)).toBe(false);
+    expect(isViewed(viewed, file)).toBe(false);
   });
 });
 
 describe("changes to the document", () => {
-  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
-
-  function reviewedRow(row: InterdiffRow, document: ReviewDocument) {
-    const [reviewed] = reviewRows([row], document);
-    if (reviewed === undefined) throw new Error("no row");
-    return reviewed;
-  }
-
   test("marks a row seen, and reads it reviewed", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
 
     // act
-    const document = flipSeen(
+    const document = applied(
       empty,
-      reviewedRow(row, empty),
-      "2026-09-25T09:00:00Z",
+      markSeen(reviewedRow(row, empty), "2026-09-25T09:00:00Z"),
     );
 
     // assert
@@ -615,17 +647,15 @@ describe("changes to the document", () => {
   test("unmarks a reviewed row", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const marked = flipSeen(
+    const marked = applied(
       empty,
-      reviewedRow(row, empty),
-      "2026-09-25T09:00:00Z",
+      markSeen(reviewedRow(row, empty), "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const document = flipSeen(
+    const document = applied(
       marked,
-      reviewedRow(row, marked),
-      "2026-09-25T09:01:00Z",
+      markSeen(reviewedRow(row, marked), "2026-09-25T09:01:00Z"),
     );
 
     // assert
@@ -634,18 +664,19 @@ describe("changes to the document", () => {
 
   test("keeps the old mark when a changed row is marked again", () => {
     // arrange
-    const marked = flipSeen(
+    const marked = applied(
       empty,
-      reviewedRow(pairRow("a", "a1", "a2"), empty),
-      "2026-09-25T09:00:00Z",
+      markSeen(
+        reviewedRow(pairRow("a", "a1", "a2"), empty),
+        "2026-09-25T09:00:00Z",
+      ),
     );
     const amended = pairRow("a", "a1", "a3");
 
     // act
-    const document = flipSeen(
+    const document = applied(
       marked,
-      reviewedRow(amended, marked),
-      "2026-09-25T09:01:00Z",
+      markSeen(reviewedRow(amended, marked), "2026-09-25T09:01:00Z"),
     );
 
     // assert
@@ -662,13 +693,14 @@ describe("changes to the document", () => {
       line: 3,
       body: "hm",
       createdAt: "t",
+      author: "reader",
     } as const;
 
     // act
-    const document = addComment(
-      addComment(empty, row, { ...at, id: "c1", side: "before" }),
-      row,
-      { ...at, id: "c2", side: "after" },
+    const document = applied(
+      empty,
+      commentOn(row, { ...at, id: "c1", side: "before" }),
+      commentOn(row, { ...at, id: "c2", side: "after" }),
     );
 
     // assert
@@ -686,15 +718,19 @@ describe("changes to the document", () => {
     );
 
     // act
-    const document = addComment(empty, row, {
-      id: "c1",
-      kind: "line",
-      path: "f.ts",
-      side: "before",
-      line: 3,
-      body: "hm",
-      createdAt: "t",
-    });
+    const document = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "line",
+        path: "f.ts",
+        side: "before",
+        line: 3,
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+    );
 
     // assert
     expect(document.comments[0]?.commitId).toBe("a2");
@@ -703,13 +739,13 @@ describe("changes to the document", () => {
   test("pins a file or comparison comment to the row's after side", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
-    const at = { body: "hm", createdAt: "t" };
+    const at = { body: "hm", createdAt: "t", author: "reader" };
 
     // act
-    const document = addComment(
-      addComment(empty, row, { ...at, id: "c1", kind: "file", path: "f.ts" }),
-      row,
-      { ...at, id: "c2", kind: "comparison" },
+    const document = applied(
+      empty,
+      commentOn(row, { ...at, id: "c1", kind: "file", path: "f.ts" }),
+      commentOn(row, { ...at, id: "c2", kind: "comparison" }),
     );
 
     // assert
@@ -728,16 +764,21 @@ describe("changes to the document", () => {
       line: 3,
       side: "after",
       body: "hm",
+      author: "reader",
     } as const;
-    const two = addComment(
-      addComment(empty, row, { ...at, id: "c1", createdAt: "t1" }),
-      row,
-      { ...at, id: "c2", createdAt: "t2" },
+    const two = applied(
+      empty,
+      commentOn(row, { ...at, id: "c1", createdAt: "t1" }),
+      commentOn(row, { ...at, id: "c2", createdAt: "t2" }),
     );
 
     // act
-    const resolved = resolveComment(two, "c1", true);
-    const dropped = dropComment(resolved, "c1");
+    const resolved = applied(two, {
+      kind: "resolve-comment",
+      id: "c1",
+      resolved: true,
+    });
+    const dropped = applied(resolved, { kind: "delete-comment", id: "c1" });
 
     // assert
     expect(resolved.comments.map((comment) => comment.resolved)).toEqual([
@@ -745,6 +786,34 @@ describe("changes to the document", () => {
       false,
     ]);
     expect(dropped.comments.map((comment) => comment.id)).toEqual(["c2"]);
+  });
+
+  test("leaves the document of one application when a command lands twice", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
+    const commands: ReviewCommand[] = [
+      markSeen(row, "t"),
+      markViewed(row, file, "t"),
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+      { kind: "resolve-comment", id: "c1", resolved: true },
+    ];
+
+    // act
+    const once = applied(empty, ...commands);
+    const twice = applied(
+      empty,
+      ...commands.flatMap((command) => [command, command]),
+    );
+
+    // assert
+    expect(twice).toEqual(once);
   });
 });
 // ~/~ end

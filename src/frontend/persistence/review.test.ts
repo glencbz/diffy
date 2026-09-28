@@ -81,7 +81,7 @@ describe("reviewRepository", () => {
     // act
     // assert
     expect(reviewRepository.load().comments).toEqual([
-      { ...comment, kind: "line", side: "after" },
+      { ...comment, kind: "line", side: "after", author: "reader" },
     ]);
   });
 

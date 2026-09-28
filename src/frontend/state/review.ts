@@ -2,14 +2,14 @@
 import { useMemo } from "react";
 import {
   type Anchor,
-  addComment,
-  dropComment,
+  applyCommand,
+  commentOn,
   type FileVersion,
-  flipSeen,
-  flipViewed,
+  markSeen,
+  markViewed,
+  type ReviewCommand,
   type ReviewDocument,
   type ReviewedRow,
-  resolveComment,
 } from "../model/review";
 import { reviewRepository } from "../persistence/review";
 import { useStored } from "./stored";
@@ -28,22 +28,24 @@ export function useReview(): ReviewHandle {
 
   const mutators = useMemo<Omit<ReviewHandle, "document">>(() => {
     const now = () => new Date().toISOString();
+    const send = (command: ReviewCommand) =>
+      update((current) => applyCommand(current, command));
     return {
-      markSeen: (row) => update((current) => flipSeen(current, row, now())),
+      markSeen: (row) => send(markSeen(row, now())),
       addComment: (row, anchor, body) =>
-        update((current) =>
-          addComment(current, row, {
+        send(
+          commentOn(row, {
             id: crypto.randomUUID(),
             ...anchor,
             body,
             createdAt: now(),
+            author: "reader",
           }),
         ),
       resolveComment: (id, resolved) =>
-        update((current) => resolveComment(current, id, resolved)),
-      dropComment: (id) => update((current) => dropComment(current, id)),
-      toggleViewed: (row, file) =>
-        update((current) => flipViewed(current, row.reviewKey, file, now())),
+        send({ kind: "resolve-comment", id, resolved }),
+      dropComment: (id) => send({ kind: "delete-comment", id }),
+      toggleViewed: (row, file) => send(markViewed(row, file, now())),
     };
   }, [update]);
 

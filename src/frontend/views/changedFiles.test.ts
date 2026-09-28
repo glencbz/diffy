@@ -52,6 +52,7 @@ function comment(path: string, resolved: boolean): RowComment {
     body: "hi",
     resolved,
     createdAt: "2024-01-01T00:00:00Z",
+    author: "reader",
     stale: false,
   };
 }
@@ -180,6 +181,7 @@ describe("fileTree", () => {
       body: "hi",
       resolved: false,
       createdAt: "2024-01-01T00:00:00Z",
+      author: "reader",
       stale: false,
     };
 
