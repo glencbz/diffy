@@ -27,25 +27,31 @@ error.
 //| id: frontend-model-place
 //| file: src/frontend/model/place.ts
 import { GitOid } from "./history";
-import type { PullBaseline } from "./pull";
+import type { SeriesBaseline } from "./series";
 
 export type Place =
   | { tab: "local" }
   | { tab: "settings" }
   | { tab: "pulls"; pull: PullPlace | null };
 
-export interface PullPlace {
-  number: number;
-  from: PullBaseline;
-  /** `null` is whichever head is latest when the place is opened. Picking a
-   *  commit pins it, since a commit id only means something under its head. */
-  to: GitOid | null;
+/** Where the reader is in one series: the two versions compared, and what
+ *  they picked out of them. */
+export interface SeriesPlace {
+  from: SeriesBaseline;
+  /** `null` is whichever version is newest when the place is opened. Picking
+   *  a commit pins it, since a commit id only means something under its
+   *  version. */
+  to: string | null;
   spot: CommitSpot | null;
+}
+
+export interface PullPlace extends SeriesPlace {
+  number: number;
 }
 
 /** A commit picked in the graph, and what in its diff is picked. */
 export interface CommitSpot {
-  commit: GitOid;
+  commit: string;
   file: FileSpot | null;
 }
 
@@ -92,8 +98,8 @@ function readPull(
   const params = new URLSearchParams(search);
   const fromParam = params.get("from");
   const fromHead = oid(fromParam);
-  const from: PullBaseline =
-    fromHead === null ? { kind: "base" } : { kind: "version", head: fromHead };
+  const from: SeriesBaseline =
+    fromHead === null ? { kind: "base" } : { kind: "version", id: fromHead };
   const toParam = params.get("to");
   const to = oid(toParam);
   // A head that does not parse is a link to a version nobody can find, and
@@ -154,7 +160,7 @@ export function writePlace(place: Place): string {
   }
 
   const params = new URLSearchParams();
-  if (from.kind === "version") params.set("from", from.head);
+  if (from.kind === "version") params.set("from", from.id);
   if (to !== null) params.set("to", to);
   const search = params.toString();
 
@@ -256,7 +262,7 @@ describe("readPlace", () => {
       tab: "pulls",
       pull: {
         number: 41,
-        from: { kind: "version", head: oid("a") },
+        from: { kind: "version", id: oid("a") },
         to: oid("b"),
         spot: {
           commit: oid("c"),
@@ -334,7 +340,7 @@ describe("writePlace", () => {
       tab: "pulls",
       pull: {
         number: 7,
-        from: { kind: "version", head: oid("a") },
+        from: { kind: "version", id: oid("a") },
         to: oid("b"),
         spot: { commit: oid("c"), file: null },
       },
