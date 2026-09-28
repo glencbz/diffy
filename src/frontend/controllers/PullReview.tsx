@@ -7,16 +7,18 @@ import type {
   PullSummary,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
-import { opening, useLastReviewed } from "../state/lastReviewed";
-import { type Slot, usePairing } from "../state/pairing";
+import type { AsyncState } from "../model/asyncState";
+import { opening } from "../model/lastReviewed";
+import type { Slot } from "../model/pairing";
 import {
   type FileSpot,
   openPull,
   type PullPlace,
   pullHref,
-  useArrivals,
-} from "../state/place";
+} from "../model/place";
+import { useLastReviewed } from "../state/lastReviewed";
+import { usePairing } from "../state/pairing";
+import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";

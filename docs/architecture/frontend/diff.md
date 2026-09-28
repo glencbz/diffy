@@ -23,7 +23,7 @@ depends on a source's.
 //| file: src/frontend/state/comparison.ts
 import { useEffect, useState } from "react";
 import { fetchInterdiff, type InterdiffRow } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** What the diff panel is being asked for. */
 export interface Comparison {
@@ -297,6 +297,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import type { FileSpot } from "../model/place";
 import {
   type Anchor,
   type FileVersion,
@@ -310,8 +311,7 @@ import {
   type DiffLayout,
   type DiffMode,
 } from "../model/settings";
-import type { FileSpot } from "../state/place";
-import type { SourceLookup } from "../state/source";
+import type { SourceLookup } from "../model/source";
 import {
   afterPathOf,
   type ChangedFile,
@@ -2617,7 +2617,7 @@ not a unique React key even though it now sits on the row.
 //| file: src/frontend/views/InterdiffRows.tsx
 import { useState } from "react";
 import type { Anchor, FileVersion, ReviewedRow } from "../model/review";
-import type { SourceLookup } from "../state/source";
+import type { SourceLookup } from "../model/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 

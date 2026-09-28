@@ -53,9 +53,8 @@ link is followed, but a commit id only means something under the head that
 has it, so picking one pins the head it was picked under.
 
 ```ts
-//| id: frontend-state-place
-//| file: src/frontend/state/place.ts
-import { useCallback, useEffect, useState } from "react";
+//| id: frontend-model-place
+//| file: src/frontend/model/place.ts
 import { GitOid, type PullBaseline } from "../api";
 
 export type Place =
@@ -95,7 +94,7 @@ untrusted input: anything a reader could have typed is parsed, and a part that
 does not parse ends the place there.
 
 ```ts
-//| id: frontend-state-place
+//| id: frontend-model-place
 /** The parts of a URL a place is read from. `window.location` is one. */
 export type Address = Pick<URL, "pathname" | "search" | "hash">;
 
@@ -208,6 +207,10 @@ instead of only after a reload.
 
 ```ts
 //| id: frontend-state-place
+//| file: src/frontend/state/place.ts
+import { useCallback, useEffect, useState } from "react";
+import { type Place, readPlace, writePlace } from "../model/place";
+
 export function usePlace(): [Place, (next: Place) => void] {
   const [place, setPlace] = useState<Place>(() => readPlace(window.location));
 
@@ -258,8 +261,8 @@ export function useArrivals(): number {
 ## Tests
 
 ```ts
-//| id: frontend-state-place-test
-//| file: src/frontend/state/place.test.ts
+//| id: frontend-model-place-test
+//| file: src/frontend/model/place.test.ts
 import { describe, expect, test } from "bun:test";
 import { GitOid } from "../api";
 import { type Place, readPlace, writePlace } from "./place";

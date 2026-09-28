@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import type { FileSpot } from "../model/place";
 import {
   type Anchor,
   type FileVersion,
@@ -23,8 +24,7 @@ import {
   type DiffLayout,
   type DiffMode,
 } from "../model/settings";
-import type { FileSpot } from "../state/place";
-import type { SourceLookup } from "../state/source";
+import type { SourceLookup } from "../model/source";
 import {
   afterPathOf,
   type ChangedFile,

@@ -72,6 +72,12 @@ export const ReviewDocument = z.object({
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
+export const EMPTY_REVIEW: ReviewDocument = {
+  marks: [],
+  comments: [],
+  viewed: [],
+};
+
 export type RowReview =
   | { state: "unseen" }
   | { state: "reviewed"; seenAt: string }

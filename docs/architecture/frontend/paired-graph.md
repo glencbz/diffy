@@ -59,7 +59,7 @@ back as it mounts, so holding a key walks a card as far as it can go.
 //| file: src/frontend/views/PairedGraph.tsx
 import { Fragment, type RefObject, useRef, useState } from "react";
 import type { GitCommit } from "../api";
-import type { Pairing, Side, Slot } from "../state/pairing";
+import type { Pairing, Side, Slot } from "../model/pairing";
 
 export type RowKind = "added" | "dropped" | "paired";
 

@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-last-reviewed-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-model-last-reviewed-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { GitOid, type PullVersion } from "../api";
 import { opening } from "./lastReviewed";

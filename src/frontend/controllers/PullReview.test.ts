@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-review-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { type FileDiff, type GitCommit, GitOid } from "../api";
-import type { AsyncState } from "../state/asyncState";
-import type { Slot } from "../state/pairing";
+import type { AsyncState } from "../model/asyncState";
+import type { Slot } from "../model/pairing";
 import { baseStackRows, stackRows } from "./PullReview";
 
 function oid(ch: string): GitOid {

@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/address.md#frontend-state-place-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { GitOid } from "../api";
 import { type Place, readPlace, writePlace } from "./place";

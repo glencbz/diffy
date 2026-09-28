@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import { useState } from "react";
 import type { Anchor, FileVersion, ReviewedRow } from "../model/review";
-import type { SourceLookup } from "../state/source";
+import type { SourceLookup } from "../model/source";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 

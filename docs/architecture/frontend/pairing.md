@@ -63,9 +63,8 @@ screen. `reset` runs the same recomputation on demand, for a reader who wants
 the guess back without switching to a different pull request to get it.
 
 ```ts
-//| id: frontend-state-pairing
-//| file: src/frontend/state/pairing.ts
-import { useState } from "react";
+//| id: frontend-model-pairing
+//| file: src/frontend/model/pairing.ts
 import { alignSeries, type SeriesCommit } from "../../backend/commit/series";
 
 export type Side = "left" | "right";
@@ -193,6 +192,21 @@ export interface Pairing {
   edited: boolean;
 }
 
+```
+
+```ts
+//| id: frontend-state-pairing
+//| file: src/frontend/state/pairing.ts
+import { useState } from "react";
+import type { SeriesCommit } from "../../backend/commit/series";
+import {
+  heuristicSlots,
+  legalTargets,
+  moved,
+  nudged,
+  type Pairing,
+} from "../model/pairing";
+
 /** The heuristic pairing for a pair of series, and no edits yet. */
 function fresh(before: SeriesCommit[], after: SeriesCommit[]) {
   return { before, after, slots: heuristicSlots(before, after), edited: false };
@@ -256,8 +270,8 @@ order it started with. The generator is a tiny seeded LCG rather than
 chasing rather than a flake to shrug off.
 
 ```ts
-//| id: frontend-state-pairing-test
-//| file: src/frontend/state/pairing.test.ts
+//| id: frontend-model-pairing-test
+//| file: src/frontend/model/pairing.test.ts
 import { describe, expect, test } from "bun:test";
 import type { SeriesCommit } from "../../backend/commit/series";
 import {

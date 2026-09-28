@@ -125,36 +125,30 @@ only drifts from the original.
 
 ### model
 
-A module in `model/` says what the app's own data can be and what it starts
-as: a Zod schema, the type it infers, and the defaults. It holds no state,
-touches no storage, and imports nothing but Zod and the types of the wire
-shapes it is built on. `api.ts` is the same kind of module for the shapes the backend sends; `model/` is for the ones that never
-cross the wire, such as [settings](settings.md#display).
+A module in `model/` says what the app's own data can be and what can be
+done with it: its types, the schema and the starting value of any document the
+browser keeps, and the pure functions that read and change it. It holds no
+state and touches neither storage nor any browser API. `api.ts` is the same
+kind of module for the shapes the backend sends; `model/` is for the ones that
+never cross the wire, such as [settings](settings.md#display).
 
-A shape goes in `model/` when a view needs it and the layer that loads it is
-`state/`. The view can then name the shape without reaching into the module
-that owns the loading. The module holds the shape, its schema, its defaults,
-and any pure function that is part of what the shape means.
-
-The pattern is meant to spread. A feature whose views name a shape its state
-hook produces keeps that shape in `model/<feature>.ts` from the start, and
-the hook imports it from there. A feature whose shapes all come off the wire
-already has its model in `api.ts` and gets no `model/` module for symmetry.
-
-Shapes that predate the layer still sit in `state/` beside their hooks, and
-any type a view imports from `state/` is one of them. Move one into `model/`
-when its feature next changes, not in a sweep of its own. Views may import
-types from `state/` only until the last of them has moved. After that the
-rule is that views never import `state/`.
+The line between `model/` and `state/` is React. A `state/` module holds a
+value and keeps it loaded or stored. Any rule for that value worth a test is
+a function in the model that the hook calls, so it is tested without
+rendering anything, and a view that names a shape imports it from `model/`. A helper that only one hook
+uses to build its request, such as the sides `useSources` asks for, stays
+beside that hook. A feature whose shapes all come off the wire already has its
+model in `api.ts` and gets no `model/` module for symmetry.
 
 ### persistence
 
 A module in `persistence/` is a repository for one document the app keeps in
-the browser between visits. It knows the key the document is kept under, the
-schema that reads it back, and what to start from when nothing usable is
-there, and it offers two operations: load the document and save it. It knows
-nothing about React. The state hook that owns the document holds it in memory,
-computes each change as a plain function of the current value, and hands the
+the browser between visits. The key the document is kept under is the only
+thing it adds. The schema that reads the document back and the document to
+start from when nothing usable is there both come from the document's model.
+It offers two operations, load the document and save it, and knows nothing
+about React. The state hook that owns the document holds it in memory,
+applies each change from the model to the current value, and hands the
 result to the repository. [Local storage](#local-storage) holds the one
 implementation every repository shares.
 
@@ -218,26 +212,22 @@ code, not to add an exception.
 
 Allowed import edges:
 
-- `api.ts` imports Zod only. `model/` imports Zod and *types* from `api.ts`,
-  since a model such as a reviewed row is a wire shape with the app's own
-  fields added, and a type-only import erases at compile time.
-- `persistence/` imports Zod, `model/`, and the `api.ts` schemas of values it
-  stores, such as a pull request head. It is the only layer that touches
-  `localStorage`.
-- `state/` imports React, `api.ts`, `persistence/`, `model/`, and other
-  `state/` modules.
-- `state/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
+- `api.ts` imports Zod only. `model/` imports Zod, `api.ts`, and other
+  `model/` modules, since a model such as a reviewed row is a wire shape with
+  the app's own fields added, and a place holds pull request heads it parses
+  with the wire schema.
+- `model/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
   `../../backend/commit/series`. `alignSeries` is a pure function with no
   transport and no React, so importing it needs no running server to test,
   which is what this rule exists to protect.
-- `views/` imports React, other `views/`, `model/`, and *types* from `api.ts`
-  and `state/`. A view is written against a model, `ReviewedRow` or
-  `Settings`, as often as against a wire type. A shape a view names from
-  `state/` is one that [predates `model/`](#model), and a type-only import
-  erases at compile time, so pulling one in adds no runtime coupling to fetch
-  or React state. The line is drawn at values, not at where a name is
-  declared, so importing a *function* from `state/` is the boundary
-  violation.
+- `persistence/` imports `model/`, for the schema and the starting document
+  of what it stores, and the other `persistence/` modules. It is the only
+  layer that touches `localStorage`.
+- `state/` imports React, `api.ts`, `persistence/`, `model/`, and other
+  `state/` modules.
+- `views/` imports React, other `views/`, `model/`, and *types* from
+  `api.ts`. A view never imports `state/`; a shape it names lives in
+  `model/`.
 - `controllers/` import `state/`, `views/`, `model/`, and `api.ts` *types*.
 - `App.tsx` imports `controllers/`, `views/`, `model/`, `api.ts` *types*,
   and the `state/` hooks for what it holds for the whole app: the address,
@@ -380,8 +370,8 @@ reference here, anywhere.
 Every slice reports its status as an `AsyncState<T>`.
 
 ```ts
-//| id: frontend-async-state
-//| file: src/frontend/state/asyncState.ts
+//| id: frontend-model-async-state
+//| file: src/frontend/model/asyncState.ts
 export type AsyncState<T> =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -493,19 +483,13 @@ export function useStored<T>(repository: Repository<T>): [T, Update<T>] {
 }
 ```
 
-The tests use an in-memory `localStorage` stand-in, since `bun test` has no
-DOM to provide the real thing, and a schema of their own, since what they
-check holds for any document. Each repository's tests cover only what its own
-schema adds, such as reading a document an older version saved.
+`bun test` has no DOM to provide `localStorage`, so every repository's tests
+install the same in-memory stand-in before each test.
 
 ```ts
-//| id: frontend-persistence-local-test
-//| file: src/frontend/persistence/local.test.ts
-import { beforeEach, describe, expect, test } from "bun:test";
-import * as z from "zod";
-import { localRepository } from "./local";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
+//| id: frontend-persistence-memory-storage
+//| file: src/frontend/persistence/memoryStorage.ts
+export function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
   return {
     getItem: (key) => store.get(key) ?? null,
@@ -514,6 +498,19 @@ function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
     },
   };
 }
+```
+
+The tests below use a schema of their own, since what they check holds for
+any document. Each repository's tests cover only what its own schema adds,
+such as reading a document an older version saved.
+
+```ts
+//| id: frontend-persistence-local-test
+//| file: src/frontend/persistence/local.test.ts
+import { beforeEach, describe, expect, test } from "bun:test";
+import * as z from "zod";
+import { localRepository } from "./local";
+import { memoryStorage } from "./memoryStorage";
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;

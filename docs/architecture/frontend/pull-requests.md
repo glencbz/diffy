@@ -14,7 +14,7 @@ back, and a list of open ones would never reach it.
 //| file: src/frontend/state/pulls.ts
 import { useEffect, useState } from "react";
 import { fetchPulls, type PullSummary } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 export function usePulls(repo: string): AsyncState<PullSummary[]> {
   const [state, setState] = useState<AsyncState<PullSummary[]>>({
@@ -49,7 +49,7 @@ latest, so it loads first and on its own.
 //| file: src/frontend/state/pullHistory.ts
 import { useEffect, useState } from "react";
 import { fetchPullHistory, type PullHistory } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 export function usePullHistory(
   repo: string,
@@ -98,7 +98,7 @@ and the commit stack cannot disagree about which end is up.
 //| file: src/frontend/state/pullCommits.ts
 import { useEffect, useState } from "react";
 import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** One version's commits, oldest first, as the pull request's own, so the
  *  pairing can read the identity the graph deliberately drops. */
@@ -165,18 +165,26 @@ value that does not parse reads as no mark and a write that throws is
 dropped. Since each pull request has a key of its own, there is a repository
 per pull request rather than one for the app.
 
-The stored `{ head }` is the repository's own shape. The hook hands out the
-head alone, and nothing outside `persistence/` names the wrapper.
+The stored `{ head }` is the document's shape, kept in the model beside the
+rule that reads it. The hook hands out the head alone, and no view names the
+wrapper.
+
+```ts
+//| id: frontend-model-last-reviewed
+//| file: src/frontend/model/lastReviewed.ts
+import * as z from "zod";
+import { GitOid, type PullVersion } from "../api";
+import type { PullPlace } from "./place";
+
+export const LastReviewed = z.object({ head: GitOid });
+export type LastReviewed = z.infer<typeof LastReviewed>;
+```
 
 ```ts
 //| id: frontend-persistence-last-reviewed
 //| file: src/frontend/persistence/lastReviewed.ts
-import * as z from "zod";
-import { GitOid } from "../api";
+import { LastReviewed } from "../model/lastReviewed";
 import { localRepository, type Repository } from "./local";
-
-const LastReviewed = z.object({ head: GitOid });
-type LastReviewed = z.infer<typeof LastReviewed>;
 
 /** The head this reader last marked reviewed on one pull request. */
 export function lastReviewedRepository(
@@ -198,9 +206,8 @@ value through [`useStored`](index.md#local-storage).
 //| id: frontend-state-last-reviewed
 //| file: src/frontend/state/lastReviewed.ts
 import { useCallback, useMemo } from "react";
-import type { GitOid, PullVersion } from "../api";
+import type { GitOid } from "../api";
 import { lastReviewedRepository } from "../persistence/lastReviewed";
-import type { PullPlace } from "./place";
 import { useStored } from "./stored";
 
 export function useLastReviewed(
@@ -238,7 +245,7 @@ compares heads the history lists, so there is no version to start from, and
 the pull request opens whole with a note saying why.
 
 ```ts
-//| id: frontend-state-last-reviewed
+//| id: frontend-model-last-reviewed
 /** The place a pull request opens on, given the head this reader last
  *  reviewed and the heads the pull request has had, oldest first. */
 export function opening(
@@ -262,16 +269,7 @@ export function opening(
 import { beforeEach, describe, expect, test } from "bun:test";
 import { GitOid } from "../api";
 import { lastReviewedRepository } from "./lastReviewed";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key) => store.get(key) ?? null,
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}
+import { memoryStorage } from "./memoryStorage";
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
@@ -312,8 +310,8 @@ describe("lastReviewedRepository", () => {
 ```
 
 ```ts
-//| id: frontend-state-last-reviewed-test
-//| file: src/frontend/state/lastReviewed.test.ts
+//| id: frontend-model-last-reviewed-test
+//| file: src/frontend/model/lastReviewed.test.ts
 import { describe, expect, test } from "bun:test";
 import { GitOid, type PullVersion } from "../api";
 import { opening } from "./lastReviewed";
@@ -524,7 +522,7 @@ messages are expanded, starts again with it.
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
 import type { PullSummary } from "../api";
-import { openPull, type PullPlace } from "../state/place";
+import { openPull, type PullPlace } from "../model/place";
 import { usePulls } from "../state/pulls";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
@@ -630,8 +628,8 @@ import {
   type PullBaseline,
   type PullDiffScope,
 } from "../api";
-import type { AsyncState } from "./asyncState";
-import type { Slot } from "./pairing";
+import type { AsyncState } from "../model/asyncState";
+import type { Slot } from "../model/pairing";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything
@@ -729,7 +727,7 @@ asked about.
 //| file: src/frontend/state/pullFiles.ts
 import { useEffect, useState } from "react";
 import { type FileDiff, fetchPullDiff, type GitOid } from "../api";
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../model/asyncState";
 
 /** Every file one version changes against its base, as the pull request
  *  would land it. */
@@ -849,16 +847,18 @@ import type {
   PullSummary,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
-import { opening, useLastReviewed } from "../state/lastReviewed";
-import { type Slot, usePairing } from "../state/pairing";
+import type { AsyncState } from "../model/asyncState";
+import { opening } from "../model/lastReviewed";
+import type { Slot } from "../model/pairing";
 import {
   type FileSpot,
   openPull,
   type PullPlace,
   pullHref,
-  useArrivals,
-} from "../state/place";
+} from "../model/place";
+import { useLastReviewed } from "../state/lastReviewed";
+import { usePairing } from "../state/pairing";
+import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
@@ -1198,8 +1198,8 @@ screen, so they are what gets pinned, the way `heuristicSlots` is pinned in
 //| file: src/frontend/controllers/PullReview.test.ts
 import { describe, expect, test } from "bun:test";
 import { type FileDiff, type GitCommit, GitOid } from "../api";
-import type { AsyncState } from "../state/asyncState";
-import type { Slot } from "../state/pairing";
+import type { AsyncState } from "../model/asyncState";
+import type { Slot } from "../model/pairing";
 import { baseStackRows, stackRows } from "./PullReview";
 
 function oid(ch: string): GitOid {
@@ -1699,7 +1699,7 @@ import type {
   PullHistory,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
+import type { AsyncState } from "../model/asyncState";
 import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({

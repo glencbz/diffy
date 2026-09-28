@@ -183,6 +183,12 @@ export const ReviewDocument = z.object({
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
+export const EMPTY_REVIEW: ReviewDocument = {
+  marks: [],
+  comments: [],
+  viewed: [],
+};
+
 export type RowReview =
   | { state: "unseen" }
   | { state: "reviewed"; seenAt: string }
@@ -1270,7 +1276,7 @@ gone, and each mutator below builds the next document directly.
 `useReview` holds the document through [`useStored`](index.md#local-storage),
 which reads it once from `reviewRepository` and saves every change back.
 The repository parses the stored document with the `ReviewDocument` schema
-and falls back to an empty one. A document saved before viewed marks existed
+and falls back to `EMPTY_REVIEW`. A document saved before viewed marks existed
 has no `viewed` list, and the schema reads that as an empty one rather than as
 a bad blob, so adding viewed marks cost no reader their marks and comments.
 The key is still `diffy.session.v1`, from when this document was called the
@@ -1280,13 +1286,13 @@ the key's name costs nothing.
 ```ts
 //| id: frontend-persistence-review
 //| file: src/frontend/persistence/review.ts
-import { ReviewDocument } from "../model/review";
+import { EMPTY_REVIEW, ReviewDocument } from "../model/review";
 import { localRepository } from "./local";
 
 export const reviewRepository = localRepository<ReviewDocument>(
   "diffy.session.v1",
   ReviewDocument,
-  { marks: [], comments: [], viewed: [] },
+  EMPTY_REVIEW,
 );
 ```
 
@@ -1367,17 +1373,8 @@ The repository's tests cover what its schema adds to
 //| file: src/frontend/persistence/review.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ReviewDocument } from "../model/review";
+import { memoryStorage } from "./memoryStorage";
 import { reviewRepository } from "./review";
-
-function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key) => store.get(key) ?? null,
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;

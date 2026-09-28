@@ -7,7 +7,7 @@ import type {
   PullHistory,
   PullVersion,
 } from "../api";
-import type { AsyncState } from "../state/asyncState";
+import type { AsyncState } from "../model/asyncState";
 import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({

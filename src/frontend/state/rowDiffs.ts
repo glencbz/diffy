@@ -7,8 +7,8 @@ import {
   type PullBaseline,
   type PullDiffScope,
 } from "../api";
-import type { AsyncState } from "./asyncState";
-import type { Slot } from "./pairing";
+import type { AsyncState } from "../model/asyncState";
+import type { Slot } from "../model/pairing";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything
