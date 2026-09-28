@@ -31,6 +31,16 @@ export function PullPanes({
         </button>
       )}
       <div className={`panes panes--${choice.phase}`}>
+        {choice.phase === "reviewing" && (
+          <button
+            type="button"
+            aria-label="show the pull request list"
+            onClick={onOpen}
+            className="pull-rail"
+          >
+            pull requests
+          </button>
+        )}
         <div className="pane pane--list">
           {choice.phase === "picking" && (
             <header className="pull-sheet__header">

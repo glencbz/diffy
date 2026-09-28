@@ -1977,7 +1977,7 @@
   }
 
   .pull-sheet__header {
-    display: none;
+    display: flex;
     position: sticky;
     top: 0;
     flex: none;
@@ -2015,13 +2015,16 @@
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .pull-bar,
-    .pull-sheet__header {
+    .pull-bar {
       display: flex;
     }
 
     .pull-scrim {
       display: block;
+    }
+
+    .pull-rail {
+      display: none;
     }
 
     .panes--browsing .pane--main {
@@ -2034,6 +2037,7 @@
 
     .panes--reviewing .pane--list,
     .panes--picking .pane--list {
+      display: flex;
       position: fixed;
       z-index: 2;
       right: 0;
@@ -2055,6 +2059,32 @@
       visibility: visible;
       transform: translateY(0);
     }
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[2] */
+@layer components {
+  .pull-rail {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding: var(--space-5) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    background: var(--surface-raised);
+    border: none;
+    border-right: 1px solid var(--border);
+  }
+
+  .pull-rail:hover {
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+
+  .panes--reviewing .pane--list {
+    display: none;
   }
 }
 /* ~/~ end */
