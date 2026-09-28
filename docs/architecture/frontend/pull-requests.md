@@ -494,16 +494,15 @@ request number, the heads, the commit, and the line, is handed straight on to
 
 A `PullChoice` says which of three things a reader is in the middle of:
 browsing the list, reading a review, or picking a different pull request over
-the one they are reading. The sheet the list opens in is the one part of that
-not in the address, since it is how a narrow window shows the list and not a
-place to link to. It is held as the number of the pull request it was opened
+the one they are reading. Whether the list is open over the review is the one
+part of that not in the address, since it is how the window shows the list
+and not a place to link to. It is held as the number of the pull request it was opened
 over rather than as a flag. A flag would say the same until it said a sheet
 was open with nothing under it, and [the layout](layout.md) has no such
 screen to draw. Going back to another pull request, or to none, leaves the
-number behind, so the sheet closes without anything having to close it.
-
-Only a narrow window puts those three anywhere, since a wide one shows the
-list and the review side by side and has nothing to collapse.
+number behind, so the list folds away without anything having to close it.
+That holds at every width: a narrow window shows the list as a sheet and a
+wide one as a column, and both fold it once a pull request is chosen.
 
 A pull request the list does not hold reads as none at all, which is the one
 place `chosen` can answer something the reader did not ask for. A number in

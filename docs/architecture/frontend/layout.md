@@ -205,8 +205,9 @@ picker over a narrow commit strip and the diff, which is the part being read
 and so gets the room.
 
 The outer one also carries the bar and the scrim that [the list as a
-sheet](#the-list-as-a-sheet) needs, since both belong to the same choice
-between the list and the review.
+sheet](#the-list-as-a-sheet) needs, and the rail that [the list as a
+column](#the-list-as-a-column) folds to, since all three belong to the same
+choice between the list and the review.
 
 ```tsx
 //| id: frontend-view-pull-panes
@@ -243,6 +244,16 @@ export function PullPanes({
         </button>
       )}
       <div className={`panes panes--${choice.phase}`}>
+        {choice.phase === "reviewing" && (
+          <button
+            type="button"
+            aria-label="show the pull request list"
+            onClick={onOpen}
+            className="pull-rail"
+          >
+            pull requests
+          </button>
+        )}
         <div className="pane pane--list">
           {choice.phase === "picking" && (
             <header className="pull-sheet__header">
@@ -324,13 +335,14 @@ the bar needs to name the choice.
 
 The phase lands on the row of panes and not on the list pane, because each of
 the three says how the row is divided: the list has the window, the review has
-it, or the list is over the review. A wide window reads none of it, the way
-`pane--showing` is inert outside the narrow rules.
+it, or the list is over the review. A wide window reads the same three,
+[as a column](#the-list-as-a-column).
 
-The bar, the sheet's header and the scrim are drawn whole here and left
-switched off, for the reason the tab list above is: how a component looks
-belongs to the `components` layer, and the narrow rules decide only whether it
-is on screen. The scrim is a `<button>` because it is a control, and a click
+The bar and the scrim are drawn whole here and left switched off, for the
+reason the tab list above is: how a component looks belongs to the
+`components` layer, and the narrow rules decide only whether it is on screen.
+The sheet's header is on wherever it is rendered, since a column opened over
+a review needs the same caption and the same way to put it away. The scrim is a `<button>` because it is a control, and a click
 handler on a `<div>` is a control a keyboard cannot reach.
 
 ```css
@@ -363,7 +375,7 @@ handler on a `<div>` is a control a keyboard cannot reach.
   }
 
   .pull-sheet__header {
-    display: none;
+    display: flex;
     position: sticky;
     top: 0;
     flex: none;
@@ -415,13 +427,16 @@ the window back.
 /*| id: design-pull-sheet
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .pull-bar,
-    .pull-sheet__header {
+    .pull-bar {
       display: flex;
     }
 
     .pull-scrim {
       display: block;
+    }
+
+    .pull-rail {
+      display: none;
     }
 
     .panes--browsing .pane--main {
@@ -434,6 +449,7 @@ the window back.
 
     .panes--reviewing .pane--list,
     .panes--picking .pane--list {
+      display: flex;
       position: fixed;
       z-index: 2;
       right: 0;
@@ -455,6 +471,54 @@ the window back.
       visibility: visible;
       transform: translateY(0);
     }
+  }
+}
+```
+
+## The list as a column
+
+A wide window has room for the list beside the review, but the list is still
+an answered question once a pull request is open, and the diff is the thing
+that wants the width. So the three phases divide a wide row too. Browsing, the
+list is a column beside a review that has nothing in it yet. Choosing a pull
+request folds the column to a rail down the left edge, and the review takes
+the width back. Pressing the rail opens the column again beside the review,
+with the sheet's header to fold it, and choosing out of it folds it by
+itself, because the controller's phase is the only state there is and the
+choice ends picking.
+
+The rail is the wide window's bar, not the bar itself. The review's own header
+already names the pull request across the top of a wide window, so a bar
+there would say it twice; a rail spends thirty pixels of width instead of a
+row of height, and says only what pressing it brings back. Nothing is over
+anything, so there is no scrim, and the column takes its place in the row
+rather than sliding over the review, which keeps the diff where the reader
+left it.
+
+```css
+/*| id: design-pull-sheet
+@layer components {
+  .pull-rail {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding: var(--space-5) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    background: var(--surface-raised);
+    border: none;
+    border-right: 1px solid var(--border);
+  }
+
+  .pull-rail:hover {
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+
+  .panes--reviewing .pane--list {
+    display: none;
   }
 }
 ```
