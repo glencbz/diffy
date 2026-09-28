@@ -4,7 +4,7 @@ import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { type GitCommit, GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
-import { baseStackRows, stackRows } from "./PullReview";
+import { baseStackRows, stackRows } from "./SeriesReview";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));

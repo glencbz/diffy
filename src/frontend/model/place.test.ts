@@ -28,7 +28,7 @@ describe("readPlace", () => {
       tab: "pulls",
       pull: {
         number: 41,
-        from: { kind: "version", head: oid("a") },
+        from: { kind: "version", id: oid("a") },
         to: oid("b"),
         spot: {
           commit: oid("c"),
@@ -106,7 +106,7 @@ describe("writePlace", () => {
       tab: "pulls",
       pull: {
         number: 7,
-        from: { kind: "version", head: oid("a") },
+        from: { kind: "version", id: oid("a") },
         to: oid("b"),
         spot: { commit: oid("c"), file: null },
       },

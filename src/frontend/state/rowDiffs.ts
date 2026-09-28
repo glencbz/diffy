@@ -5,7 +5,8 @@ import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
-import type { PullBaseline, PullDiffScope } from "../model/pull";
+import type { PullDiffScope } from "../model/pull";
+import type { RowAsk } from "../model/series";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything
@@ -31,19 +32,22 @@ function slotScope(slot: Slot): PullDiffScope | null {
   return null;
 }
 
+/** One slot's comparison, or null for a slot with no commit in it. */
+function slotDiff(ask: RowAsk, slot: Slot): Promise<FileDiff[]> | null {
+  const scope = slotScope(slot);
+  if (scope === null) return null;
+  return fetchPullDiff(ask.repo, ask.number, ask.to, ask.from, scope).then(
+    (answer) => answer.files,
+  );
+}
+
 export type RowDiffs = Map<string, AsyncState<FileDiff[]>>;
 
 const NO_DIFFS: RowDiffs = new Map();
 
 /** The comparison behind each row, keyed the way a row is keyed. */
-export function useRowDiffs(
-  repo: string,
-  number: number,
-  from: PullBaseline,
-  to: GitOid,
-  slots: Slot[],
-): RowDiffs {
-  const of = `${repo}#${number}:${from.kind === "base" ? "base" : from.head}:${to}`;
+export function useRowDiffs(ask: RowAsk, slots: Slot[]): RowDiffs {
+  const of = JSON.stringify(ask);
   const [state, setState] = useState<{ of: string; cache: RowDiffs }>({
     of,
     cache: new Map(),
@@ -55,14 +59,16 @@ export function useRowDiffs(
     keys: new Set(),
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `of` stands for `ask`
   useEffect(() => {
     if (asked.current.of !== of) asked.current = { of, keys: new Set() };
     const { keys } = asked.current;
 
     for (const slot of slots) {
       const key = slotKey(slot);
-      const scope = slotScope(slot);
-      if (scope === null || keys.has(key)) continue;
+      if (keys.has(key)) continue;
+      const diff = slotDiff(ask, slot);
+      if (diff === null) continue;
       keys.add(key);
 
       const put = (value: AsyncState<FileDiff[]>) => {
@@ -72,12 +78,12 @@ export function useRowDiffs(
           cache: new Map(now.of === of ? now.cache : []).set(key, value),
         }));
       };
-      fetchPullDiff(repo, number, to, from, scope).then(
-        (answer) => put({ status: "ready", data: answer.files }),
+      diff.then(
+        (files) => put({ status: "ready", data: files }),
         (err: unknown) => put({ status: "error", message: String(err) }),
       );
     }
-  }, [of, repo, number, from, to, slots]);
+  }, [of, slots]);
 
   return state.of === of ? state.cache : NO_DIFFS;
 }

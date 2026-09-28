@@ -1,39 +1,46 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-last-reviewed>>[init]
-import type { GitOid } from "../model/history";
-import type { PullBaseline, PullVersion } from "../model/pull";
+import {
+  type SeriesBaseline,
+  type SeriesVersion,
+  versionName,
+} from "../model/series";
 
 export function LastReviewed({
-  states,
+  versions,
   reviewed,
   from,
   to,
   toMarked,
+  wholeLabel,
   onMark,
   onWhole,
 }: {
-  states: PullVersion[];
-  reviewed: GitOid | null;
-  from: PullBaseline;
-  to: GitOid;
-  /** Whether the reader has marked the after head reviewed. */
+  versions: SeriesVersion[];
+  reviewed: string | null;
+  from: SeriesBaseline;
+  to: string;
+  /** Whether the reader has marked the after version reviewed. */
   toMarked: boolean;
+  /** What reading the newest version whole is called: `the whole pull
+   *  request`. */
+  wholeLabel: string;
   /** Null when there is no review document to write to. */
   onMark: (() => void) | null;
   onWhole: () => void;
 }) {
-  const known = states.find((state) => state.head === reviewed);
+  const known = versions.find((version) => version.id === reviewed);
   const since =
     known !== undefined &&
     from.kind === "version" &&
-    from.head === known.head &&
-    to === states.at(-1)?.head;
+    from.id === known.id &&
+    to === versions.at(-1)?.id;
 
   return (
     <div className="last-reviewed">
       {since ? (
         <>
           <p className="last-reviewed__note">
-            Showing what changed since v{known.version}, the head you last
+            Showing what changed since v{known.number}, the version you last
             reviewed.
           </p>
           <button
@@ -41,13 +48,13 @@ export function LastReviewed({
             className="last-reviewed__action"
             onClick={onWhole}
           >
-            Show the whole pull request
+            Show {wholeLabel}
           </button>
         </>
       ) : reviewed !== null && known === undefined ? (
         <p className="last-reviewed__note">
-          You last reviewed {reviewed.slice(0, 7)}, which this pull request's
-          history no longer lists, so it opens whole.
+          You last reviewed {reviewed.slice(0, 7)}, which this history no longer
+          lists, so it opens whole.
         </p>
       ) : null}
       {(toMarked || onMark !== null) && (
@@ -58,16 +65,11 @@ export function LastReviewed({
           disabled={toMarked}
         >
           {toMarked
-            ? `Reviewed at ${name(states, to)}`
-            : `Mark reviewed at ${name(states, to)}`}
+            ? `Reviewed at ${versionName(versions, to)}`
+            : `Mark reviewed at ${versionName(versions, to)}`}
         </button>
       )}
     </div>
   );
-}
-
-function name(states: PullVersion[], head: GitOid): string {
-  const state = states.find((candidate) => candidate.head === head);
-  return state === undefined ? head.slice(0, 7) : `v${state.version}`;
 }
 // ~/~ end
