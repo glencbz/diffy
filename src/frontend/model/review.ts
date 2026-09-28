@@ -85,12 +85,24 @@ export const KeptKey = z.object({
 });
 export type KeptKey = z.infer<typeof KeptKey>;
 
+/** A pairing the reader corrected by hand, for the two heads it pairs. */
+export const KeptPairing = z.object({
+  series: z.string(),
+  before: z.string(),
+  after: z.string(),
+  slots: z.array(
+    z.object({ left: z.string().nullable(), right: z.string().nullable() }),
+  ),
+});
+export type KeptPairing = z.infer<typeof KeptPairing>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
   keys: z.array(KeptKey).default([]),
+  pairings: z.array(KeptPairing).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -100,6 +112,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   viewed: [],
   reviewed: [],
   keys: [],
+  pairings: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -108,7 +121,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.comments.length === 0 &&
     document.viewed.length === 0 &&
     document.reviewed.length === 0 &&
-    document.keys.length === 0
+    document.keys.length === 0 &&
+    document.pairings.length === 0
   );
 }
 
@@ -350,6 +364,14 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     commitId: z.string(),
     reviewKey: z.string(),
   }),
+  z.object({
+    kind: z.literal("set-pairing"),
+    series: z.string(),
+    before: z.string(),
+    after: z.string(),
+    /** Null puts the heuristic back. */
+    slots: KeptPairing.shape.slots.nullable(),
+  }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -435,6 +457,19 @@ export function applyCommand(
           { commitId: command.commitId, reviewKey: command.reviewKey },
         ],
       };
+    case "set-pairing": {
+      const pairings = document.pairings.filter(
+        (kept) => !samePairing(kept, command),
+      );
+      const { series, before, after, slots } = command;
+      return {
+        ...document,
+        pairings:
+          slots === null
+            ? pairings
+            : [...pairings, { series, before, after, slots }],
+      };
+    }
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -458,8 +493,29 @@ export function applyCommand(
           command.document.keys,
           (a, b) => a.commitId === b.commitId,
         ),
+        pairings: added(
+          document.pairings,
+          command.document.pairings,
+          samePairing,
+        ),
       };
   }
+}
+
+type PairingHeads = Pick<KeptPairing, "series" | "before" | "after">;
+
+function samePairing(a: PairingHeads, b: PairingHeads): boolean {
+  return a.series === b.series && a.before === b.before && a.after === b.after;
+}
+
+/** The pairing the reader kept for two heads of a series, if they kept one. */
+export function keptPairing(
+  document: ReviewDocument,
+  heads: PairingHeads,
+): KeptPairing["slots"] | null {
+  return (
+    document.pairings.find((kept) => samePairing(kept, heads))?.slots ?? null
+  );
 }
 
 function sameReviewedVersion(a: ReviewedVersion, b: ReviewedVersion): boolean {
@@ -487,6 +543,12 @@ export interface ReviewActions {
   dropComment: (id: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   markReviewed: (series: string, version: string) => void;
+  keepPairing: (
+    series: string,
+    before: string,
+    after: string,
+    slots: KeptPairing["slots"] | null,
+  ) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */

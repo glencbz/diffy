@@ -24,6 +24,24 @@ export function heuristicSlots(
     }));
 }
 
+/** Whether `slots` pairs exactly these two series: every commit on each
+ *  side once, in the order its series runs. */
+export function fits(
+  slots: Slot[],
+  before: SeriesCommit[],
+  after: SeriesCommit[],
+): boolean {
+  const ids = (side: Side) =>
+    slots.flatMap((slot) => (slot[side] === null ? [] : [slot[side]]));
+  const same = (a: (string | null)[], b: SeriesCommit[]) =>
+    a.length === b.length && a.every((id, index) => id === b[index]?.commitId);
+  return (
+    slots.every((slot) => slot.left !== null || slot.right !== null) &&
+    same(ids("left"), before) &&
+    same(ids("right"), after)
+  );
+}
+
 function hasCard(slots: Slot[], side: Side, row: number): boolean {
   const slot = slots[row];
   return slot !== undefined && slot[side] !== null;

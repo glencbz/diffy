@@ -18,6 +18,7 @@ import {
 } from "../model/place";
 import {
   type ComparisonReview,
+  keptPairing,
   pullRowKey,
   pullSeries,
   reviewComparison,
@@ -216,7 +217,24 @@ export function PullReview({
     afterState.status === "ready" ? afterState.data : NO_COMMITS;
 
   const pullFiles = usePullFiles(repo, number, to);
-  const pairing = usePairing(beforeCommits, afterCommits);
+  const pairingHeads =
+    beforeHead === null ? null : { series, before: beforeHead, after: to };
+  const pairing = usePairing(
+    beforeCommits,
+    afterCommits,
+    pairingHeads === null || review.status !== "ready"
+      ? null
+      : {
+          slots: keptPairing(review.document, pairingHeads),
+          keep: (slots) =>
+            review.actions.keepPairing(
+              series,
+              pairingHeads.before,
+              pairingHeads.after,
+              slots,
+            ),
+        },
+  );
   const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
   const sources = useSources(
     [...open].flatMap((key) => {

@@ -11,9 +11,8 @@ not good enough to build a review screen on.
 That is why the pairing is a `Slot[]` the reader edits, not a value
 recomputed from `before` and `after` on every render. A purely derived
 pairing would throw the reader's correction away the instant anything else on
-the page caused a re-render. Holding it in state gives the correction
-somewhere to live until `before` or `after` actually change, at which point
-the guess is worth taking again because the reader has not seen this one yet.
+the page caused a re-render, and a correction is kept past the page as well,
+so the next visit to the same two heads reads it back.
 
 ## Moving a card
 
@@ -56,11 +55,9 @@ other, for no gain a reader would notice over calling the one that already
 exists.
 
 `usePairing` calls `heuristicSlots` once for the initial state and again
-whenever `before` or `after` change identity, discarding whatever the reader
-had moved. The pull request's commits are being read afresh at that point, so
-a pairing built against the old commits no longer describes anything on
-screen. `reset` runs the same recomputation on demand, for a reader who wants
-the guess back without switching to a different pull request to get it.
+whenever `before` or `after` change identity. The pull request's commits are
+being read afresh at that point, so a pairing built against the old commits
+no longer describes anything on screen.
 
 ```ts
 //| id: frontend-model-pairing
@@ -88,6 +85,24 @@ export function heuristicSlots(
       left: pair.from?.commitId ?? null,
       right: pair.to?.commitId ?? null,
     }));
+}
+
+/** Whether `slots` pairs exactly these two series: every commit on each
+ *  side once, in the order its series runs. */
+export function fits(
+  slots: Slot[],
+  before: SeriesCommit[],
+  after: SeriesCommit[],
+): boolean {
+  const ids = (side: Side) =>
+    slots.flatMap((slot) => (slot[side] === null ? [] : [slot[side]]));
+  const same = (a: (string | null)[], b: SeriesCommit[]) =>
+    a.length === b.length && a.every((id, index) => id === b[index]?.commitId);
+  return (
+    slots.every((slot) => slot.left !== null || slot.right !== null) &&
+    same(ids("left"), before) &&
+    same(ids("right"), after)
+  );
 }
 
 function hasCard(slots: Slot[], side: Side, row: number): boolean {
@@ -194,27 +209,68 @@ export interface Pairing {
 
 ```
 
+## Keeping a correction
+
+A correction is kept in the [review document](review.md#review-state), under
+the series and the two heads it pairs, and read back whenever the reader
+opens the same two heads again, in this browser or any other. A correction
+made against other heads describes commits that are not on screen, so it is
+applied nowhere else. Every move sends the whole pairing as it now stands,
+and `reset` sends none, which forgets the correction and puts the guess
+back, for a reader who wants it without switching to a different pull
+request to get it.
+
+The pairing on screen is the kept one if there is one, then any edits with
+nowhere to be kept, then the guess. A kept pairing is checked against the
+series before it is used: every commit on each side once, in its series'
+order, which is what `fits` asks. Two heads name the same commits every time,
+so a pairing that fails is one written by something other than this screen,
+and the guess serves better than a pairing that points at nothing. Edits
+with nowhere to be kept are the reader's moves while the review document
+has not loaded or cannot be read. They hold until the series change, as
+every edit did before there was a document to keep them in.
+
+The key each row is [filed under](review.md#review-state) is read through
+the pairing, so a kept correction also keeps the reader's marks and comments
+on the commits they paired by hand.
+
 ```ts
 //| id: frontend-state-pairing
 //| file: src/frontend/state/pairing.ts
 import { useState } from "react";
 import type { SeriesCommit } from "../../backend/commit/series";
 import {
+  fits,
   heuristicSlots,
   legalTargets,
   moved,
   nudged,
   type Pairing,
+  type Slot,
 } from "../model/pairing";
 
-/** The heuristic pairing for a pair of series, and no edits yet. */
+/** Where a correction to the pairing is kept, when there is somewhere to
+ *  keep it: what was kept for these two series, and how to keep another. */
+export interface KeptSlots {
+  slots: Slot[] | null;
+  keep: (slots: Slot[] | null) => void;
+}
+
+/** The heuristic for a pair of series, and the reader's edits to it that
+ *  have nowhere to be kept. */
 function fresh(before: SeriesCommit[], after: SeriesCommit[]) {
-  return { before, after, slots: heuristicSlots(before, after), edited: false };
+  return {
+    before,
+    after,
+    heuristic: heuristicSlots(before, after),
+    edits: null as Slot[] | null,
+  };
 }
 
 export function usePairing(
   before: SeriesCommit[],
   after: SeriesCommit[],
+  kept: KeptSlots | null,
 ): Pairing {
   const [state, setState] = useState(() => fresh(before, after));
 
@@ -228,30 +284,23 @@ export function usePairing(
     setState(current);
   }
 
+  const keptSlots =
+    kept?.slots != null && fits(kept.slots, before, after) ? kept.slots : null;
+  const slots = keptSlots ?? current.edits ?? current.heuristic;
+  const change = (next: Slot[] | null) => {
+    if (kept !== null) kept.keep(next);
+    else setState((now) => ({ ...now, edits: next }));
+  };
+
   return {
-    slots: current.slots,
-    legalTargets: (side, index) => legalTargets(current.slots, side, index),
-    move(side, from, to) {
-      setState((now) => ({
-        ...now,
-        slots: moved(now.slots, side, from, to),
-        edited: true,
-      }));
-    },
-    nudge(side, index, step) {
-      setState((now) => ({
-        ...now,
-        slots: nudged(now.slots, side, index, step),
-        edited: true,
-      }));
-    },
-    reset() {
-      setState(fresh(before, after));
-    },
-    edited: current.edited,
+    slots,
+    legalTargets: (side, index) => legalTargets(slots, side, index),
+    move: (side, from, to) => change(moved(slots, side, from, to)),
+    nudge: (side, index, step) => change(nudged(slots, side, index, step)),
+    reset: () => change(null),
+    edited: slots !== current.heuristic,
   };
 }
-
 ```
 
 `heuristicSlots`'s own tests fixture `SeriesCommit` lists directly, the same
@@ -275,6 +324,7 @@ chasing rather than a flake to shrug off.
 import { describe, expect, test } from "bun:test";
 import type { SeriesCommit } from "../../backend/commit/series";
 import {
+  fits,
   heuristicSlots,
   legalTargets,
   moved,
@@ -471,6 +521,49 @@ describe("nudged", () => {
       .filter((id): id is string => id !== null);
     expect(leftOrder).toEqual(before.map((commit) => commit.commitId));
     expect(rightOrder).toEqual(after.map((commit) => commit.commitId));
+  });
+});
+describe("fits", () => {
+  const before = series("a b", "1");
+  const after = series("a b", "2");
+
+  test("accepts a pairing of exactly these series, however it pairs them", () => {
+    // arrange
+    const swapped: Slot[] = [
+      { left: "a1", right: null },
+      { left: "b1", right: "a2" },
+      { left: null, right: "b2" },
+    ];
+
+    // act
+    // assert
+    expect(fits(heuristicSlots(before, after), before, after)).toBe(true);
+    expect(fits(swapped, before, after)).toBe(true);
+  });
+
+  test("refuses a pairing that misses, repeats, or reorders a commit", () => {
+    // arrange
+    const pairings: Slot[][] = [
+      [{ left: "a1", right: "a2" }],
+      [
+        { left: "a1", right: "a2" },
+        { left: "b1", right: "a2" },
+      ],
+      [
+        { left: "b1", right: "a2" },
+        { left: "a1", right: "b2" },
+      ],
+      [
+        { left: "a1", right: "a2" },
+        { left: null, right: null },
+        { left: "b1", right: "b2" },
+      ],
+    ];
+
+    // act
+    // assert
+    for (const slots of pairings)
+      expect(fits(slots, before, after)).toBe(false);
   });
 });
 ```
