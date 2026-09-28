@@ -58,6 +58,13 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import {
+  localCommits,
+  localDiff,
+  localSize,
+  RegistrationError,
+  resolveRegistration,
+} from "./backend/review/local";
 import type { ReviewStore } from "./backend/review/store";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
@@ -76,8 +83,10 @@ async function jjJson(build: () => Promise<unknown>): Promise<Response> {
 }
 
 export function handleLog(req: Request): Promise<Response> {
-  const atOperation = new URL(req.url).searchParams.get("op") ?? undefined;
-  return jjJson(() => jjLog({ atOperation }));
+  const params = new URL(req.url).searchParams;
+  const atOperation = params.get("op") ?? undefined;
+  const revset = params.get("revset") ?? undefined;
+  return jjJson(() => jjLog({ revset, atOperation }));
 }
 
 export function handleOperations(): Promise<Response> {
@@ -479,6 +488,83 @@ export const reviewSocket: Bun.WebSocketHandler<undefined> = {
 };
 ```
 
+### Local reviews
+
+A `POST` to `/api/local/reviews` registers a [local review](local-reviews.md),
+each field left out taking its default, and answers with the name and the
+review document it left. An agent declares its work ready this way, and the
+commit graph sends the same request with every field filled in, at the
+operation the graph is drawn at. `/api/log` takes a `revset` so the graph can
+show what a typed one names before it is registered. It is a route rather than a review
+command because the server has to evaluate the revset before there is a
+version to record. The reads mirror the pull request routes, keyed by commit
+ids instead of heads.
+
+```ts
+//| id: backend-server
+
+const RegistrationBody = z.object({
+  name: z.string().min(1).optional(),
+  revset: z.string().min(1).optional(),
+  operation: z.string().min(1).optional(),
+});
+
+/** A local-review body; what the repository refuses becomes a 400. */
+async function localJson(build: () => Promise<unknown>): Promise<Response> {
+  try {
+    return Response.json(await build());
+  } catch (error) {
+    if (
+      error instanceof RegistrationError ||
+      error instanceof JjError ||
+      error instanceof z.ZodError
+    ) {
+      const message =
+        error instanceof z.ZodError ? z.prettifyError(error) : error.message;
+      return Response.json({ error: message }, { status: 400 });
+    }
+    throw error;
+  }
+}
+
+export function localReviewsRoute(store: ReviewStore) {
+  return {
+    POST: (req: Request) =>
+      localJson(async () => {
+        const asked = RegistrationBody.parse(
+          await req.json().catch(() => ({})),
+        );
+        const { name, version } = await resolveRegistration(
+          store.read().document,
+          asked,
+          new Date().toISOString(),
+        );
+        return {
+          name,
+          snapshot: store.apply({ kind: "register", name, version }),
+        };
+      }),
+  };
+}
+
+export function handleLocalCommits(req: Request): Promise<Response> {
+  const ids = new URL(req.url).searchParams.getAll("id");
+  return localJson(() => localCommits(ids));
+}
+
+export function handleLocalDiff(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  return localJson(async () => ({
+    files: await localDiff(params.get("fromCommit"), params.get("toCommit")),
+  }));
+}
+
+export function handleLocalSize(req: Request): Promise<Response> {
+  const ids = new URL(req.url).searchParams.getAll("id");
+  return localJson(async () => ({ files: await localSize(ids) }));
+}
+```
+
 Every non-API path serves the page, since the frontend keeps the reader's
 place in [the path](../frontend/address.md). An unknown API path is a 404.
 
@@ -501,6 +587,10 @@ export function routes(store: ReviewStore) {
     "/api/github/pull/diff": handleGithubPullDiff,
     "/api/review": reviewRoute(store),
     "/api/review/changes": reviewChanges,
+    "/api/local/reviews": localReviewsRoute(store),
+    "/api/local/commits": handleLocalCommits,
+    "/api/local/diff": handleLocalDiff,
+    "/api/local/size": handleLocalSize,
   };
 }
 ```
@@ -527,6 +617,7 @@ import {
   handleLog,
   handleOperations,
   handleSource,
+  localReviewsRoute,
   pullDiffResponse,
   REVIEW_TOPIC,
   reviewChanges,
@@ -552,6 +643,17 @@ describe("handleLog", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBeGreaterThan(0);
+  });
+
+  test("reads only what a revset names", async () => {
+    // arrange
+    // act
+    const res = await handleLog(new Request("http://test/api/log?revset=@"));
+    const body = (await res.json()) as unknown[];
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body).toHaveLength(1);
   });
 
   test("reports an unknown operation as 400 with jj's message", async () => {
@@ -889,6 +991,38 @@ describe("the review route", () => {
       );
       expect(read.revision).toBe(0);
     }));
+
+  test("registers a local review and answers with its name", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    const route = localReviewsRoute(store);
+    const post = (body: unknown) =>
+      route.POST(
+        new Request("http://test/api/local/reviews", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+
+    try {
+      // act
+      const res = await post({ name: "t", revset: "trunk()" });
+      const refused = await post({ name: "t", revset: "none()" });
+
+      // assert
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        name: string;
+        snapshot: { document: { localReviews: unknown[] } };
+      };
+      expect(body.name).toBe("t");
+      expect(body.snapshot.document.localReviews).toHaveLength(1);
+      expect(refused.status).toBe(400);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test("announces a new revision to an open socket", async () => {
     // arrange

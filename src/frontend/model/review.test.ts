@@ -984,4 +984,39 @@ describe("kept pairings", () => {
     expect(keptPairing(reset, heads)).toBeNull();
   });
 });
+describe("registered local reviews", () => {
+  const version = (operation: string, revset: string) => ({
+    operation,
+    revset,
+    commits: ["c"],
+    registeredAt: "t",
+  });
+  const register = (name: string, operation: string, revset: string) =>
+    ({
+      kind: "register",
+      name,
+      version: version(operation, revset),
+    }) satisfies ReviewCommand;
+
+  test("adds a version per operation, and replaces one at the same operation", () => {
+    // arrange
+    // act
+    const document = applied(
+      empty,
+      register("x", "o1", "trunk()..x"),
+      register("x", "o2", "trunk()..x"),
+      register("x", "o2", "trunk()..y"),
+      register("other", "o1", "trunk()..o"),
+    );
+
+    // assert
+    expect(document.localReviews).toEqual([
+      {
+        name: "x",
+        versions: [version("o1", "trunk()..x"), version("o2", "trunk()..y")],
+      },
+      { name: "other", versions: [version("o1", "trunk()..o")] },
+    ]);
+  });
+});
 // ~/~ end
