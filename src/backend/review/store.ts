@@ -16,6 +16,8 @@ import { jjRepoDir } from "../commit/jj";
 export interface ReviewStore {
   read(): ReviewSnapshot;
   apply(command: ReviewCommand): ReviewSnapshot;
+  /** The revision alone, without reading the document. */
+  revision(): number;
 }
 
 /** The review store of the repository the server was started in. */
@@ -43,6 +45,9 @@ export function openReviewStore(path: string): ReviewStore {
      )`,
   );
 
+  const selectRevision = db.query<{ revision: number }, []>(
+    "SELECT revision FROM review WHERE id = 1",
+  );
   const select = db.query<{ revision: number; document: string }, []>(
     "SELECT revision, document FROM review WHERE id = 1",
   );
@@ -75,6 +80,29 @@ export function openReviewStore(path: string): ReviewStore {
     return next;
   });
 
-  return { read, apply: (command) => apply.immediate(command) };
+  return {
+    read,
+    apply: (command) => apply.immediate(command),
+    revision: () => selectRevision.get()?.revision ?? 0,
+  };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/review-store.md#backend-review-store>>[1]
+
+/** Calls `publish` with each revision the store reaches, from any writer,
+ *  until the returned function is called. */
+export function watchReview(
+  store: ReviewStore,
+  publish: (revision: number) => void,
+  everyMs = 500,
+): () => void {
+  let seen = store.revision();
+  const timer = setInterval(() => {
+    const revision = store.revision();
+    if (revision === seen) return;
+    seen = revision;
+    publish(revision);
+  }, everyMs);
+  return () => clearInterval(timer);
 }
 // ~/~ end

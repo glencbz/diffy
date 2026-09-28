@@ -353,6 +353,25 @@ export function reviewRoute(store: ReviewStore) {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
 
+export const REVIEW_TOPIC = "review";
+
+export function reviewChanges(
+  req: Request,
+  server: Bun.Server<undefined>,
+): Response | undefined {
+  if (server.upgrade(req)) return undefined;
+  return Response.json({ error: "expected a WebSocket" }, { status: 400 });
+}
+
+export const reviewSocket: Bun.WebSocketHandler<undefined> = {
+  open(ws) {
+    ws.subscribe(REVIEW_TOPIC);
+  },
+  message() {},
+};
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
+
 export function routes(store: ReviewStore) {
   return {
     "/*": index,
@@ -367,6 +386,7 @@ export function routes(store: ReviewStore) {
     "/api/github/pull/commits": handleGithubPullCommits,
     "/api/github/pull/diff": handleGithubPullDiff,
     "/api/review": reviewRoute(store),
+    "/api/review/changes": reviewChanges,
   };
 }
 // ~/~ end

@@ -29,8 +29,9 @@ import {
   openReviewStore,
   type ReviewStore,
   reviewStorePath,
+  watchReview,
 } from "./backend/review/store";
-import { routes } from "./server";
+import { REVIEW_TOPIC, reviewSocket, routes } from "./server";
 
 const USAGE = "usage: diffy [--port <n>]";
 
@@ -88,7 +89,9 @@ fail, so diffy stops with jj's own explanation instead of serving a page that
 cannot load. Inside one, it answers with the root to print, which tells a
 reader who started diffy from a subdirectory which repository they got. The
 [review store](review-store.md) is named after that repository, so it opens
-only once the check has passed.
+only once the check has passed. Once the server is up, every revision the
+store reaches is [published to open screens](server.md), whichever process
+wrote it.
 
 ```ts
 //| id: cli-module
@@ -102,7 +105,11 @@ function listen(choice: PortChoice, store: ReviewStore): Bun.Server<undefined> {
   const first = choice.kind === "given" ? choice.port : choice.from;
   for (let port = first; ; port++) {
     try {
-      return Bun.serve({ port, routes: routes(store) });
+      return Bun.serve({
+        port,
+        routes: routes(store),
+        websocket: reviewSocket,
+      });
     } catch (error) {
       if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
       if (choice.kind === "given") fail(1, `port ${port} is in use`);
@@ -116,6 +123,9 @@ async function serve(choice: PortChoice): Promise<void> {
 
   const store = openReviewStore(await reviewStorePath());
   const server = listen(choice, store);
+  watchReview(store, (revision) =>
+    server.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+  );
   console.log(
     `diffy serving ${root.stdout.toString().trim()} at ${server.url}`,
   );

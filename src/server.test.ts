@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
-import { openReviewStore } from "./backend/review/store";
+import { openReviewStore, watchReview } from "./backend/review/store";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -17,7 +17,10 @@ import {
   handleOperations,
   handleSource,
   pullDiffResponse,
+  REVIEW_TOPIC,
+  reviewChanges,
   reviewRoute,
+  reviewSocket,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -367,6 +370,44 @@ describe("the review route", () => {
       );
       expect(read.revision).toBe(0);
     }));
+
+  test("announces a new revision to an open socket", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    const server = Bun.serve({
+      port: 0,
+      routes: { "/api/review/changes": reviewChanges },
+      websocket: reviewSocket,
+    });
+    const stop = watchReview(
+      store,
+      (revision) => server.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+      10,
+    );
+    const socket = new WebSocket(
+      `ws://localhost:${server.port}/api/review/changes`,
+    );
+    const heard = new Promise<unknown>((resolve) => {
+      socket.onmessage = (event) => resolve(JSON.parse(String(event.data)));
+    });
+    await new Promise((resolve) => {
+      socket.onopen = resolve;
+    });
+
+    try {
+      // act
+      store.apply({ kind: "delete-comment", id: "none" });
+
+      // assert
+      expect(await heard).toEqual({ revision: 1 });
+    } finally {
+      socket.close();
+      stop();
+      server.stop(true);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[3]

@@ -74,6 +74,8 @@ import { jjRepoDir } from "../commit/jj";
 export interface ReviewStore {
   read(): ReviewSnapshot;
   apply(command: ReviewCommand): ReviewSnapshot;
+  /** The revision alone, without reading the document. */
+  revision(): number;
 }
 
 /** The review store of the repository the server was started in. */
@@ -101,6 +103,9 @@ export function openReviewStore(path: string): ReviewStore {
      )`,
   );
 
+  const selectRevision = db.query<{ revision: number }, []>(
+    "SELECT revision FROM review WHERE id = 1",
+  );
   const select = db.query<{ revision: number; document: string }, []>(
     "SELECT revision, document FROM review WHERE id = 1",
   );
@@ -133,7 +138,49 @@ export function openReviewStore(path: string): ReviewStore {
     return next;
   });
 
-  return { read, apply: (command) => apply.immediate(command) };
+  return {
+    read,
+    apply: (command) => apply.immediate(command),
+    revision: () => selectRevision.get()?.revision ?? 0,
+  };
+}
+```
+
+## Telling screens about changes
+
+An open screen learns that the document changed without asking over and
+over. The server keeps a WebSocket to each screen, and says the new revision
+whenever the document moves on, and the screen reads the document again. An
+agent's comment then reaches the reader's open screen without a reload.
+
+A write can come from this server or from another one, since every
+workspace's server writes the same file, and a server hears nothing of the
+other's writes. `watchReview` asks the store for its revision twice a second
+and passes on each new one, which finds both kinds of write the same way. The
+query reads one integer and parses nothing. Publishing straight after this
+server's own writes would reach its screens half a second sooner, but it
+would be a second path to keep right beside the one other servers' writes
+need anyway, and the screen that wrote already has the answer to its own
+command.
+
+```ts
+//| id: backend-review-store
+
+/** Calls `publish` with each revision the store reaches, from any writer,
+ *  until the returned function is called. */
+export function watchReview(
+  store: ReviewStore,
+  publish: (revision: number) => void,
+  everyMs = 500,
+): () => void {
+  let seen = store.revision();
+  const timer = setInterval(() => {
+    const revision = store.revision();
+    if (revision === seen) return;
+    seen = revision;
+    publish(revision);
+  }, everyMs);
+  return () => clearInterval(timer);
 }
 ```
 
@@ -153,7 +200,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReviewCommand } from "../../frontend/model/review";
-import { openReviewStore, reviewStorePath } from "./store";
+import { openReviewStore, reviewStorePath, watchReview } from "./store";
 
 let dir: string;
 
@@ -260,6 +307,24 @@ describe("reviewStorePath", () => {
     expect(path.startsWith(join(dir, "diffy"))).toBe(true);
     expect(path).toMatch(/-[0-9a-f]{16}\.sqlite$/);
     expect(await reviewStorePath({ XDG_DATA_HOME: dir })).toBe(path);
+  });
+});
+
+describe("watchReview", () => {
+  test("hears a write another store made to the same file", async () => {
+    // arrange
+    const path = join(dir, "r.sqlite");
+    const watched = openReviewStore(path);
+    const heard: number[] = [];
+    const stop = watchReview(watched, (revision) => heard.push(revision), 10);
+
+    // act
+    openReviewStore(path).apply(seen);
+    await Bun.sleep(60);
+    stop();
+
+    // assert
+    expect(heard).toEqual([1]);
   });
 });
 ```

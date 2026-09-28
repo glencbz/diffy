@@ -32,5 +32,36 @@ export const reviewStore = {
       }),
     );
   },
+  /** Calls `onChange` with each revision the server announces, and once
+   *  each time the socket opens, since a write may have landed while it
+   *  was closed. Reconnects until the returned function is called. */
+  watch(onChange: (revision: number | null) => void): () => void {
+    let socket: WebSocket | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const url = new URL("/api/review/changes", location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+
+    const connect = () => {
+      socket = new WebSocket(url);
+      socket.onopen = () => onChange(null);
+      socket.onmessage = (event) => {
+        const change = Change.safeParse(JSON.parse(String(event.data)));
+        if (change.success) onChange(change.data.revision);
+      };
+      socket.onclose = () => {
+        if (!stopped) retry = setTimeout(connect, 2000);
+      };
+    };
+    connect();
+
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      socket?.close();
+    };
+  },
 };
+
+const Change = z.object({ revision: z.number().int() });
 // ~/~ end

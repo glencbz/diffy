@@ -77,6 +77,20 @@ export function useReview(): ReviewHandle {
     };
   }, [accept]);
 
+  // Another writer's change reaches this screen as an announced revision.
+  // One this screen already holds needs no read.
+  const held = confirmed.status === "ready" ? confirmed.data.revision : -1;
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  useEffect(
+    () =>
+      reviewStore.watch((revision) => {
+        if (revision !== null && revision <= heldRef.current) return;
+        reviewStore.load().then(accept, () => {});
+      }),
+    [accept],
+  );
+
   const actions = useMemo<ReviewActions>(() => {
     const now = () => new Date().toISOString();
     const send = (command: ReviewCommand) => {

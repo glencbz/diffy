@@ -6,7 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReviewCommand } from "../../frontend/model/review";
-import { openReviewStore, reviewStorePath } from "./store";
+import { openReviewStore, reviewStorePath, watchReview } from "./store";
 
 let dir: string;
 
@@ -113,6 +113,24 @@ describe("reviewStorePath", () => {
     expect(path.startsWith(join(dir, "diffy"))).toBe(true);
     expect(path).toMatch(/-[0-9a-f]{16}\.sqlite$/);
     expect(await reviewStorePath({ XDG_DATA_HOME: dir })).toBe(path);
+  });
+});
+
+describe("watchReview", () => {
+  test("hears a write another store made to the same file", async () => {
+    // arrange
+    const path = join(dir, "r.sqlite");
+    const watched = openReviewStore(path);
+    const heard: number[] = [];
+    const stop = watchReview(watched, (revision) => heard.push(revision), 10);
+
+    // act
+    openReviewStore(path).apply(seen);
+    await Bun.sleep(60);
+    stop();
+
+    // assert
+    expect(heard).toEqual([1]);
   });
 });
 // ~/~ end

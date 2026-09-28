@@ -1629,7 +1629,38 @@ export const reviewStore = {
       }),
     );
   },
+  /** Calls `onChange` with each revision the server announces, and once
+   *  each time the socket opens, since a write may have landed while it
+   *  was closed. Reconnects until the returned function is called. */
+  watch(onChange: (revision: number | null) => void): () => void {
+    let socket: WebSocket | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const url = new URL("/api/review/changes", location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+
+    const connect = () => {
+      socket = new WebSocket(url);
+      socket.onopen = () => onChange(null);
+      socket.onmessage = (event) => {
+        const change = Change.safeParse(JSON.parse(String(event.data)));
+        if (change.success) onChange(change.data.revision);
+      };
+      socket.onclose = () => {
+        if (!stopped) retry = setTimeout(connect, 2000);
+      };
+    };
+    connect();
+
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      socket?.close();
+    };
+  },
 };
+
+const Change = z.object({ revision: z.number().int() });
 ```
 
 ### Holding it while it changes
@@ -1656,6 +1687,15 @@ kept in `failure` for the screen to say.
 Holding the server's document apart from the commands in flight is what makes
 a failure safe to undo. Undoing a failed change by restoring the document
 from before it would also undo any change made since that did land.
+
+Another writer's change arrives as a revision announced over
+[a WebSocket](../backend/review-store.md#telling-screens-about-changes), and a
+revision newer than the one held reads the document again. The socket also
+counts as news each time it opens, since a write may have landed while it was
+closed, and it reconnects after it drops, so a restarted server finds the
+screen again. A read that fails leaves the document as it was, and the next
+announcement tries again. Commands in flight stay applied on top of the new
+document the way they sat on the old one.
 
 Two answers can arrive in the order opposite to the one the server wrote
 them in, and taking the second as it came would show the first command
@@ -1742,6 +1782,20 @@ export function useReview(): ReviewHandle {
       cancelled = true;
     };
   }, [accept]);
+
+  // Another writer's change reaches this screen as an announced revision.
+  // One this screen already holds needs no read.
+  const held = confirmed.status === "ready" ? confirmed.data.revision : -1;
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  useEffect(
+    () =>
+      reviewStore.watch((revision) => {
+        if (revision !== null && revision <= heldRef.current) return;
+        reviewStore.load().then(accept, () => {});
+      }),
+    [accept],
+  );
 
   const actions = useMemo<ReviewActions>(() => {
     const now = () => new Date().toISOString();
