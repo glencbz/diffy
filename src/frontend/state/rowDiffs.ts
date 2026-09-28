@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-row-diffs>>[init]
 import { useEffect, useRef, useState } from "react";
-import { fetchPullDiff } from "../api";
+import { fetchLocalDiff, fetchPullDiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { GitOid } from "../model/history";
@@ -34,6 +34,8 @@ function slotScope(slot: Slot): PullDiffScope | null {
 
 /** One slot's comparison, or null for a slot with no commit in it. */
 function slotDiff(ask: RowAsk, slot: Slot): Promise<FileDiff[]> | null {
+  if (slot.left === null && slot.right === null) return null;
+  if (ask.kind === "local") return fetchLocalDiff(slot.left, slot.right);
   const scope = slotScope(slot);
   if (scope === null) return null;
   return fetchPullDiff(ask.repo, ask.number, ask.to, ask.from, scope).then(

@@ -1,6 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/series.md#frontend-state-series>>[init]
 import { useEffect, useState } from "react";
-import { fetchPullCommits, fetchPullDiff } from "../api";
+import {
+  fetchLocalCommits,
+  fetchLocalSize,
+  fetchPullCommits,
+  fetchPullDiff,
+} from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
@@ -9,6 +14,7 @@ import type { VersionAsk } from "../model/series";
 /** One version's commits, oldest first, the order the pairing and the stack
  *  read in. The backend lists them newest first, as `git log` does. */
 function versionCommits(ask: VersionAsk): Promise<GitCommit[]> {
+  if (ask.kind === "local") return fetchLocalCommits(ask.commits);
   return fetchPullCommits(ask.repo, ask.number, ask.head).then((answer) =>
     [...answer.commits].reverse(),
   );
@@ -16,6 +22,7 @@ function versionCommits(ask: VersionAsk): Promise<GitCommit[]> {
 
 /** Every file one version changes against its base. */
 function versionSize(ask: VersionAsk): Promise<FileDiff[]> {
+  if (ask.kind === "local") return fetchLocalSize(ask.commits);
   return fetchPullDiff(
     ask.repo,
     ask.number,

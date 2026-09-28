@@ -506,7 +506,7 @@ of the comparison.
 //| id: frontend-state-row-diffs
 //| file: src/frontend/state/rowDiffs.ts
 import { useEffect, useRef, useState } from "react";
-import { fetchPullDiff } from "../api";
+import { fetchLocalDiff, fetchPullDiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { GitOid } from "../model/history";
@@ -540,6 +540,8 @@ function slotScope(slot: Slot): PullDiffScope | null {
 
 /** One slot's comparison, or null for a slot with no commit in it. */
 function slotDiff(ask: RowAsk, slot: Slot): Promise<FileDiff[]> | null {
+  if (slot.left === null && slot.right === null) return null;
+  if (ask.kind === "local") return fetchLocalDiff(slot.left, slot.right);
   const scope = slotScope(slot);
   if (scope === null) return null;
   return fetchPullDiff(ask.repo, ask.number, ask.to, ask.from, scope).then(
@@ -605,7 +607,8 @@ alone, whatever the before end is.
 
 ## Series review controller
 
-`SeriesReview` reads one series version by version through a
+`SeriesReview` reads one series version by version, a pull request's heads
+or a [local review](local-reviews.md)'s registrations, through a
 [`SeriesScreen`](series.md), which holds what differs between kinds of
 series: where versions and commits come from, what the whole is called, how
 a row is filed, and where a base comparison's single lane reads from.

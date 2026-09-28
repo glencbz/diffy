@@ -54,6 +54,8 @@ under the series and the two heads ([pairing](pairing.md#keeping-a-correction)).
 version, starting the review if there is none; a second registration at an
 operation the review already has replaces that version, since it is the reader
 correcting the first.
+A local review's row is filed by `localRowKey`, under its change id the way
+`reviewKey` files one.
 
 ```ts
 //| id: frontend-model-review
@@ -398,6 +400,20 @@ export function pullRowKey(
       : document.keys.find((key) => key.commitId === commitId)?.reviewKey;
   const inherited = before !== null ? kept(before) : kept(after);
   return { reviewKey: inherited ?? `rev:${own}`, keeps: own };
+}
+
+/** The key a local review's row is filed under: its change id, which
+ *  survives the rewrites between one registration and the next, so there is
+ *  nothing to record for the next version to inherit. */
+export function localRowKey(
+  before: { commitId: string; changeId: string | null } | null,
+  after: { commitId: string; changeId: string | null } | null,
+): { reviewKey: string; keeps: null } {
+  const own = after ?? before;
+  if (own === null) throw new Error("a local review row has no commit");
+  const reviewKey =
+    own.changeId === null ? `rev:${own.commitId}` : `change:${own.changeId}`;
+  return { reviewKey, keeps: null };
 }
 
 /** Whether two marks (or a mark and a comparison) name the same row: the
@@ -778,6 +794,7 @@ import {
   isViewed,
   keepKey,
   keptPairing,
+  localRowKey,
   markSeen,
   markViewed,
   pullRowKey,
@@ -1784,6 +1801,22 @@ describe("registered local reviews", () => {
       },
       { name: "other", versions: [version("o1", "trunk()..o")] },
     ]);
+  });
+});
+describe("localRowKey", () => {
+  test("files a row under its change id, whichever side holds it", () => {
+    const before = { commitId: "b1", changeId: "kx" };
+    const after = { commitId: "a1", changeId: "kx" };
+
+    expect(localRowKey(before, after).reviewKey).toBe("change:kx");
+    expect(localRowKey(before, null).reviewKey).toBe("change:kx");
+  });
+
+  test("falls back to the commit when it has no change id", () => {
+    expect(localRowKey(null, { commitId: "a1", changeId: null })).toEqual({
+      reviewKey: "rev:a1",
+      keeps: null,
+    });
   });
 });
 ```
