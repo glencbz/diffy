@@ -49,6 +49,12 @@ and deleting the last comment would lose the key. `set-key` is its own
 command so one command records one fact. Corrected pairings are kept too,
 under the series and the two heads ([pairing](pairing.md#keeping-a-correction)).
 
+**Local reviews** live here too, each a name and the
+[versions](../backend/local-reviews.md) registered under it. `register` adds a
+version, starting the review if there is none; a second registration at an
+operation the review already has replaces that version, since it is the reader
+correcting the first.
+
 ```ts
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
@@ -149,6 +155,24 @@ export const KeptPairing = z.object({
 });
 export type KeptPairing = z.infer<typeof KeptPairing>;
 
+/** One version of a local review: a revset, the operation it was read at,
+ *  and the commits it named then, oldest first. */
+export const LocalVersion = z.object({
+  operation: z.string(),
+  revset: z.string(),
+  commits: z.array(z.string()),
+  registeredAt: z.string(),
+});
+export type LocalVersion = z.infer<typeof LocalVersion>;
+
+/** A series someone said is ready for review, and every version of it they
+ *  registered, oldest first. */
+export const LocalReview = z.object({
+  name: z.string(),
+  versions: z.array(LocalVersion),
+});
+export type LocalReview = z.infer<typeof LocalReview>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
@@ -156,6 +180,7 @@ export const ReviewDocument = z.object({
   reviewed: z.array(ReviewedVersion).default([]),
   keys: z.array(KeptKey).default([]),
   pairings: z.array(KeptPairing).default([]),
+  localReviews: z.array(LocalReview).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -166,6 +191,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   reviewed: [],
   keys: [],
   pairings: [],
+  localReviews: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -175,13 +201,26 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.viewed.length === 0 &&
     document.reviewed.length === 0 &&
     document.keys.length === 0 &&
-    document.pairings.length === 0
+    document.pairings.length === 0 &&
+    document.localReviews.length === 0
   );
 }
 
 /** The series a pull request's versions are marked reviewed under. */
 export function pullSeries(repo: string, number: number): string {
   return `pull:${repo}#${number}`;
+}
+
+/** The series a local review's versions are marked reviewed under. */
+export function localSeries(name: string): string {
+  return `local:${name}`;
+}
+
+export function localReview(
+  document: ReviewDocument,
+  name: string,
+): LocalReview | undefined {
+  return document.localReviews.find((review) => review.name === name);
 }
 
 /** The versions of one series the reader marked reviewed. */
@@ -425,6 +464,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     /** Null puts the heuristic back. */
     slots: KeptPairing.shape.slots.nullable(),
   }),
+  z.object({
+    kind: z.literal("register"),
+    name: z.string().min(1),
+    version: LocalVersion,
+  }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -523,6 +567,15 @@ export function applyCommand(
             : [...pairings, { series, before, after, slots }],
       };
     }
+    case "register":
+      return {
+        ...document,
+        localReviews: registered(
+          document.localReviews,
+          command.name,
+          command.version,
+        ),
+      };
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -551,8 +604,48 @@ export function applyCommand(
           command.document.pairings,
           samePairing,
         ),
+        localReviews: command.document.localReviews.reduce(
+          (reviews, review) =>
+            review.versions.reduce(
+              (all, version) =>
+                all.some(
+                  (kept) =>
+                    kept.name === review.name &&
+                    kept.versions.some(
+                      (held) => held.operation === version.operation,
+                    ),
+                )
+                  ? all
+                  : registered(all, review.name, version),
+              reviews,
+            ),
+          document.localReviews,
+        ),
       };
   }
+}
+
+/** `reviews` with `version` added to the review called `name`, which is
+ *  started if there is none. A version read at an operation the review
+ *  already has a version for replaces it, since both describe the same
+ *  moment of the repository. */
+function registered(
+  reviews: LocalReview[],
+  name: string,
+  version: LocalVersion,
+): LocalReview[] {
+  const review = reviews.find((candidate) => candidate.name === name);
+  if (review === undefined) return [...reviews, { name, versions: [version] }];
+  const at = review.versions.findIndex(
+    (kept) => kept.operation === version.operation,
+  );
+  const versions =
+    at === -1
+      ? [...review.versions, version]
+      : review.versions.map((kept, index) => (index === at ? version : kept));
+  return reviews.map((candidate) =>
+    candidate === review ? { name, versions } : candidate,
+  );
 }
 
 type PairingHeads = Pick<KeptPairing, "series" | "before" | "after">;
@@ -1656,6 +1749,41 @@ describe("kept pairings", () => {
     expect(keptPairing(twice, heads)).toEqual(slots);
     expect(keptPairing(twice, { ...heads, after: "h3" })).toBeNull();
     expect(keptPairing(reset, heads)).toBeNull();
+  });
+});
+describe("registered local reviews", () => {
+  const version = (operation: string, revset: string) => ({
+    operation,
+    revset,
+    commits: ["c"],
+    registeredAt: "t",
+  });
+  const register = (name: string, operation: string, revset: string) =>
+    ({
+      kind: "register",
+      name,
+      version: version(operation, revset),
+    }) satisfies ReviewCommand;
+
+  test("adds a version per operation, and replaces one at the same operation", () => {
+    // arrange
+    // act
+    const document = applied(
+      empty,
+      register("x", "o1", "trunk()..x"),
+      register("x", "o2", "trunk()..x"),
+      register("x", "o2", "trunk()..y"),
+      register("other", "o1", "trunk()..o"),
+    );
+
+    // assert
+    expect(document.localReviews).toEqual([
+      {
+        name: "x",
+        versions: [version("o1", "trunk()..x"), version("o2", "trunk()..y")],
+      },
+      { name: "other", versions: [version("o1", "trunk()..o")] },
+    ]);
   });
 });
 ```
