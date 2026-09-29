@@ -823,7 +823,8 @@ function patchBody(text: string): Body {
 }
 
 /** Difftastic's hunks, with a note in place of them when it found the
- *  change was only layout. */
+ *  change was only layout. Where it fell back to comparing text, its
+ *  ranges are whole lines, so the words are paired as a patch's are. */
 function structuralBody(
   diff: Extract<StructuralDiff, { kind: "structural" }>,
   wordMarkLimit: number,
@@ -836,15 +837,16 @@ function structuralBody(
           : [],
       hunks: diff.hunks,
     },
-    changed: diff.hunks.map(
-      (hunk) =>
-        new Map(
-          hunk.lines.flatMap((line, index) =>
-            line.kind === "context"
-              ? []
-              : [[index, markable(line.code, line.changes, wordMarkLimit)]],
+    changed: diff.hunks.map((hunk) =>
+      diff.language.startsWith("Text")
+        ? changedLines(hunk.lines)
+        : new Map(
+            hunk.lines.flatMap((line, index) =>
+              line.kind === "context"
+                ? []
+                : [[index, markable(line.code, line.changes, wordMarkLimit)]],
+            ),
           ),
-        ),
     ),
   };
 }

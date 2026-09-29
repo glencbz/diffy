@@ -1109,7 +1109,8 @@ function patchBody(text: string): Body {
 }
 
 /** Difftastic's hunks, with a note in place of them when it found the
- *  change was only layout. */
+ *  change was only layout. Where it fell back to comparing text, its
+ *  ranges are whole lines, so the words are paired as a patch's are. */
 function structuralBody(
   diff: Extract<StructuralDiff, { kind: "structural" }>,
   wordMarkLimit: number,
@@ -1122,15 +1123,16 @@ function structuralBody(
           : [],
       hunks: diff.hunks,
     },
-    changed: diff.hunks.map(
-      (hunk) =>
-        new Map(
-          hunk.lines.flatMap((line, index) =>
-            line.kind === "context"
-              ? []
-              : [[index, markable(line.code, line.changes, wordMarkLimit)]],
+    changed: diff.hunks.map((hunk) =>
+      diff.language.startsWith("Text")
+        ? changedLines(hunk.lines)
+        : new Map(
+            hunk.lines.flatMap((line, index) =>
+              line.kind === "context"
+                ? []
+                : [[index, markable(line.code, line.changes, wordMarkLimit)]],
+            ),
           ),
-        ),
     ),
   };
 }
@@ -2197,6 +2199,16 @@ those ranges to the same rule as a pair's: when they touch the reader's
 counting whitespace, the line gets no ranges and its tint alone says it
 changed. The limit reaches the diff view through `WordMarkLimitSetting`,
 beside `DiffModeDefault`.
+
+Difftastic only names tokens in a file it parsed. A file in a language it
+has no parser for, such as Markdown, or one past its size limits, it
+compares as text, reports as a language whose name starts with `Text`, and
+marks every changed line whole. No limit lets those ranges through, so in
+this repository, where most of a change is prose in `docs/`, the structural
+view would mark no words at all. Those files take their words from
+`changedLines` instead, the pairing the line view uses. Keying on the name
+rather than on whole-line ranges keeps a parsed line difftastic really did
+rewrite from being re-paired into marks it chose not to give.
 
 `paintWords` cuts a line's syntax tokens at those ranges so the marks and the
 colours can be drawn together, each piece keeping its token's kind.
