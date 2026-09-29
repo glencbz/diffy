@@ -414,7 +414,8 @@ async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
 
 The structural half is the same jj command run a second time with
 [difftastic](difft.md) as its diff tool. jj writes both sides of every
-changed file into two directories and runs `difft.ts` on them, which is the
+changed file into two directories and runs [`diffy
+difft`](cli.md#difftastic-as-jjs-diff-tool) on them, which is the
 only way to diff an interdiff's before side, a tree no id names once jj has
 exited. The tool is configured on the command line rather than in the
 user's jj config, so what diffy shows never depends on how the reader set up
@@ -430,7 +431,11 @@ does not hand to external tools.
 ```ts
 //| id: jj-module
 
-const DIFFT_TOOL = `${import.meta.dir}/difft.ts`;
+/** How to run `diffy`: a compiled executable is the command itself, and
+ *  from source it is Bun running `cli.ts`. */
+const DIFFY = import.meta.dir.startsWith("/$bunfs/")
+  ? []
+  : [`${import.meta.dir}/../../cli.ts`];
 
 /** Every changed file as difftastic reads it, by path, or why there is
  *  nothing to read. */
@@ -444,7 +449,7 @@ async function structuralDiffs(
     "--config",
     `merge-tools.diffy-difft.program=${JSON.stringify(process.execPath)}`,
     "--config",
-    `merge-tools.diffy-difft.diff-args=${JSON.stringify([DIFFT_TOOL, "$left", "$right"])}`,
+    `merge-tools.diffy-difft.diff-args=${JSON.stringify([...DIFFY, "difft", "$left", "$right"])}`,
   ]);
 
   try {

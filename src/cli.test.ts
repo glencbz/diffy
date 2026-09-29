@@ -29,6 +29,16 @@ test("unknown flags and stray arguments are usage errors", () => {
   expect(parseCommand(["somewhere"]).kind).toBe("usage-error");
 });
 
+test("difft takes exactly two directories", () => {
+  expect(parseCommand(["difft", "a", "b"])).toEqual({
+    kind: "difft",
+    left: "a",
+    right: "b",
+  });
+  expect(parseCommand(["difft", "a"]).kind).toBe("usage-error");
+  expect(parseCommand(["difft", "a", "b", "c"]).kind).toBe("usage-error");
+});
+
 test("--help asks for the usage", () => {
   expect(parseCommand(["--help"])).toEqual({ kind: "help" });
 });

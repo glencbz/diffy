@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/cli.md#cli-module>>[init]
 import { parseArgs } from "node:util";
 import { $ } from "bun";
+import { difftDirectories } from "./backend/commit/difft";
 import { routes } from "./server";
 
 const USAGE = "usage: diffy [--port <n>]";
@@ -11,10 +12,18 @@ export type PortChoice =
 
 export type Command =
   | { kind: "serve"; port: PortChoice }
+  | { kind: "difft"; left: string; right: string }
   | { kind: "help" }
   | { kind: "usage-error"; reason: string };
 
 export function parseCommand(argv: string[]): Command {
+  if (argv[0] === "difft") {
+    const [, left, right, ...rest] = argv;
+    return left === undefined || right === undefined || rest.length > 0
+      ? { kind: "usage-error", reason: "difft takes two directories" }
+      : { kind: "difft", left, right };
+  }
+
   let values: { port?: string; help?: boolean };
   try {
     ({ values } = parseArgs({
@@ -79,6 +88,11 @@ if (import.meta.main) {
       break;
     case "serve":
       await serve(command.port);
+      break;
+    case "difft":
+      process.stdout.write(
+        JSON.stringify(await difftDirectories(command.left, command.right)),
+      );
       break;
   }
 }

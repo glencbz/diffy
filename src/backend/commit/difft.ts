@@ -355,12 +355,4 @@ export async function difftDirectories(
   );
   return answers;
 }
-
-if (import.meta.main) {
-  const [left, right] = process.argv.slice(2);
-  if (left === undefined || right === undefined) {
-    throw new Error("usage: difft.ts <left> <right>");
-  }
-  process.stdout.write(JSON.stringify(await difftDirectories(left, right)));
-}
 // ~/~ end

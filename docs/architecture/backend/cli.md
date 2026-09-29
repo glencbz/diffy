@@ -24,6 +24,7 @@ so they are two variants rather than a number that might be missing.
 //| file: src/cli.ts
 import { parseArgs } from "node:util";
 import { $ } from "bun";
+import { difftDirectories } from "./backend/commit/difft";
 import { routes } from "./server";
 
 const USAGE = "usage: diffy [--port <n>]";
@@ -34,10 +35,18 @@ export type PortChoice =
 
 export type Command =
   | { kind: "serve"; port: PortChoice }
+  | { kind: "difft"; left: string; right: string }
   | { kind: "help" }
   | { kind: "usage-error"; reason: string };
 
 export function parseCommand(argv: string[]): Command {
+  if (argv[0] === "difft") {
+    const [, left, right, ...rest] = argv;
+    return left === undefined || right === undefined || rest.length > 0
+      ? { kind: "usage-error", reason: "difft takes two directories" }
+      : { kind: "difft", left, right };
+  }
+
   let values: { port?: string; help?: boolean };
   try {
     ({ values } = parseArgs({
@@ -116,9 +125,24 @@ if (import.meta.main) {
     case "serve":
       await serve(command.port);
       break;
+    case "difft":
+      process.stdout.write(
+        JSON.stringify(await difftDirectories(command.left, command.right)),
+      );
+      break;
   }
 }
 ```
+
+## Difftastic as jj's diff tool
+
+[Structural diffs](difft.md) come from jj running diffy as an external diff
+tool, `diffy difft <left> <right>`, once per diff. It is left out of the usage
+because nobody types it. jj runs the program that is already running, found
+through `process.execPath`, so the helper is always the same build as the
+server. Installed, that program is the compiled `diffy` itself, which holds
+no source files a separate script could be read from. From source it is Bun,
+which needs `cli.ts` named first.
 
 ```ts
 //| id: cli-test
@@ -151,6 +175,16 @@ test("a port that is not one is a usage error", () => {
 test("unknown flags and stray arguments are usage errors", () => {
   expect(parseCommand(["--bogus"]).kind).toBe("usage-error");
   expect(parseCommand(["somewhere"]).kind).toBe("usage-error");
+});
+
+test("difft takes exactly two directories", () => {
+  expect(parseCommand(["difft", "a", "b"])).toEqual({
+    kind: "difft",
+    left: "a",
+    right: "b",
+  });
+  expect(parseCommand(["difft", "a"]).kind).toBe("usage-error");
+  expect(parseCommand(["difft", "a", "b", "c"]).kind).toBe("usage-error");
 });
 
 test("--help asks for the usage", () => {

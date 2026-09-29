@@ -398,10 +398,11 @@ it over by id afterwards. What jj can do is run an external diff tool with
 both sides written out as two directories, `left` and `right`, which it
 deletes once the tool exits. That is the only moment both files exist, so
 the text of each line has to be read then, which is why the tool jj runs is
-this module rather than `difft` itself.
+this module rather than `difft` itself. jj runs it as [`diffy
+difft`](cli.md#difftastic-as-jjs-diff-tool).
 
-Run as a script, it diffs every file present in both directories and prints
-one JSON object keyed by path. jj only writes the files the diff touches, so
+`difftDirectories` diffs every file present in both directories and answers
+with one object keyed by path. jj only writes the files the diff touches, so
 nothing is diffed that the patch does not also report. A file on only one
 side is left out. Added and deleted files read the same either way, and a
 rename puts its two halves under different paths, so there is no pair to
@@ -448,14 +449,6 @@ export async function difftDirectories(
     ),
   );
   return answers;
-}
-
-if (import.meta.main) {
-  const [left, right] = process.argv.slice(2);
-  if (left === undefined || right === undefined) {
-    throw new Error("usage: difft.ts <left> <right>");
-  }
-  process.stdout.write(JSON.stringify(await difftDirectories(left, right)));
 }
 ```
 

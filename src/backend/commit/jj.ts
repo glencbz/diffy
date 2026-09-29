@@ -294,7 +294,11 @@ async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[5]
 
-const DIFFT_TOOL = `${import.meta.dir}/difft.ts`;
+/** How to run `diffy`: a compiled executable is the command itself, and
+ *  from source it is Bun running `cli.ts`. */
+const DIFFY = import.meta.dir.startsWith("/$bunfs/")
+  ? []
+  : [`${import.meta.dir}/../../cli.ts`];
 
 /** Every changed file as difftastic reads it, by path, or why there is
  *  nothing to read. */
@@ -308,7 +312,7 @@ async function structuralDiffs(
     "--config",
     `merge-tools.diffy-difft.program=${JSON.stringify(process.execPath)}`,
     "--config",
-    `merge-tools.diffy-difft.diff-args=${JSON.stringify([DIFFT_TOOL, "$left", "$right"])}`,
+    `merge-tools.diffy-difft.diff-args=${JSON.stringify([...DIFFY, "difft", "$left", "$right"])}`,
   ]);
 
   try {
