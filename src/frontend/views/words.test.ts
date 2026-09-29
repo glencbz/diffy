@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-words-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { HunkLine } from "./patch";
-import { changedLines, changedWords, paintWords } from "./words";
+import { changedLines, changedWords, markable, paintWords } from "./words";
 
 describe("changedWords", () => {
   test("marks the words an edit changed on each side", () => {
@@ -90,6 +90,26 @@ describe("paintWords", () => {
       { text: "newPath", kind: null, changed: true },
       { text: " = 1;", kind: null, changed: false },
     ]);
+  });
+});
+
+describe("markable", () => {
+  test("keeps ranges that touch few of a line's words", () => {
+    // arrange
+    const ranges = [{ start: 6, end: 13 }];
+
+    // act
+    // assert
+    expect(markable("const newPath = 1;", ranges)).toEqual(ranges);
+  });
+
+  test("drops ranges that touch most of a line's words", () => {
+    // arrange
+    const ranges = [{ start: 0, end: 17 }];
+
+    // act
+    // assert: four of the five words changed, and only `;` did not.
+    expect(markable("const newPath = 1;", ranges)).toEqual([]);
   });
 });
 // ~/~ end

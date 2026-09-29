@@ -330,6 +330,7 @@ import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import { splitRows } from "./split";
 import {
   changedLines,
+  markable,
   type PaintedToken,
   paintWords,
   type Range,
@@ -1120,7 +1121,9 @@ function structuralBody(
       (hunk) =>
         new Map(
           hunk.lines.flatMap((line, index) =>
-            line.kind === "context" ? [] : [[index, line.changes]],
+            line.kind === "context"
+              ? []
+              : [[index, markable(line.code, line.changes)]],
           ),
         ),
     ),
@@ -2182,6 +2185,12 @@ nearly everything in both says less than marking nothing, so such a pair gets
 no ranges. A pair too long to compare in reasonable time, past `MAX_CELLS`
 cells of the comparison table, gets none either.
 
+Difftastic names a structural line's changed tokens itself, and it names
+them on a line it rewrote as readily as on one it edited. `markable` holds
+those ranges to the same rule as a pair's: when they touch `MAX_CHANGED` or
+more of the line's words, not counting whitespace, the line gets no ranges
+and its tint alone says it changed.
+
 `paintWords` cuts a line's syntax tokens at those ranges so the marks and the
 colours can be drawn together, each piece keeping its token's kind.
 
@@ -2206,6 +2215,8 @@ export interface PaintedToken {
 
 /** Below this share of the longer line in common, a pair is a rewrite. */
 export const MIN_SHARED = 0.4;
+/** From this share of a line's words changed, a line is marked whole. */
+export const MAX_CHANGED = 0.7;
 /** The largest comparison table worth filling for one pair of lines. */
 export const MAX_CELLS = 40_000;
 
@@ -2337,6 +2348,25 @@ export function paintWords(
 
   return painted;
 }
+
+/** `ranges`, or none when they cover `MAX_CHANGED` or more of the words in
+ *  `code`. */
+export function markable(code: string, ranges: Range[]): Range[] {
+  let words = 0;
+  let changed = 0;
+  let offset = 0;
+  for (const word of code.match(WORD) ?? []) {
+    const end = offset + word.length;
+    if (word.trim() !== "") {
+      words++;
+      if (ranges.some((range) => range.start < end && offset < range.end)) {
+        changed++;
+      }
+    }
+    offset = end;
+  }
+  return changed < MAX_CHANGED * words ? ranges : [];
+}
 ```
 
 ### Test
@@ -2346,7 +2376,7 @@ export function paintWords(
 //| file: src/frontend/views/words.test.ts
 import { describe, expect, test } from "bun:test";
 import type { HunkLine } from "./patch";
-import { changedLines, changedWords, paintWords } from "./words";
+import { changedLines, changedWords, markable, paintWords } from "./words";
 
 describe("changedWords", () => {
   test("marks the words an edit changed on each side", () => {
@@ -2435,6 +2465,26 @@ describe("paintWords", () => {
       { text: "newPath", kind: null, changed: true },
       { text: " = 1;", kind: null, changed: false },
     ]);
+  });
+});
+
+describe("markable", () => {
+  test("keeps ranges that touch few of a line's words", () => {
+    // arrange
+    const ranges = [{ start: 6, end: 13 }];
+
+    // act
+    // assert
+    expect(markable("const newPath = 1;", ranges)).toEqual(ranges);
+  });
+
+  test("drops ranges that touch most of a line's words", () => {
+    // arrange
+    const ranges = [{ start: 0, end: 17 }];
+
+    // act
+    // assert: four of the five words changed, and only `;` did not.
+    expect(markable("const newPath = 1;", ranges)).toEqual([]);
   });
 });
 ```

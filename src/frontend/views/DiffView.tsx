@@ -40,6 +40,7 @@ import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
 import { splitRows } from "./split";
 import {
   changedLines,
+  markable,
   type PaintedToken,
   paintWords,
   type Range,
@@ -830,7 +831,9 @@ function structuralBody(
       (hunk) =>
         new Map(
           hunk.lines.flatMap((line, index) =>
-            line.kind === "context" ? [] : [[index, line.changes]],
+            line.kind === "context"
+              ? []
+              : [[index, markable(line.code, line.changes)]],
           ),
         ),
     ),
