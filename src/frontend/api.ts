@@ -64,12 +64,14 @@ export const StructuralDiff = z.discriminatedUnion("kind", [
       z.object({
         header: z.string(),
         newStart: z.number(),
+        oldStart: z.number(),
         lines: z.array(
           z.discriminatedUnion("kind", [
             z.object({
               kind: z.literal("context"),
               code: z.string(),
               newLine: z.number(),
+              oldLine: z.number().optional(),
             }),
             z.object({
               kind: z.literal("removed"),

@@ -13,8 +13,7 @@ export interface Hunk {
   /** The after-side number of the hunk's first line, or of the line that
    *  would follow it when the hunk only removes. */
   newStart: number;
-  /** The same on the before side, where the hunk says. A structural hunk
-   *  does not. */
+  /** The same on the before side, where the hunk says. */
   oldStart?: number;
   lines: HunkLine[];
 }

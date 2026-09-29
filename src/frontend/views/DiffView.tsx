@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { FileSpot } from "../model/place";
@@ -105,7 +104,6 @@ export function DiffView({
 }) {
   const [composer, setComposer] = useState<Anchor | null>(null);
   const layout = useContext(DiffLayoutSetting);
-  const narrow = useNarrow();
 
   const changedFiles = useMemo(
     () =>
@@ -131,7 +129,7 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
-            split={layout === "split" && !narrow}
+            split={layout === "split"}
             links={links === undefined ? undefined : fileLinks(links, file)}
             reveal={reveal}
             review={
@@ -220,21 +218,6 @@ function jumpTo(file: ChangedFile): void {
   document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
 
-/** The width under which the panes stop being columns, and a diff has one
- *  column too. */
-const NARROW = "(max-width: 1000px)";
-
-function useNarrow(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = matchMedia(NARROW);
-      query.addEventListener("change", onChange);
-      return () => query.removeEventListener("change", onChange);
-    },
-    () => matchMedia(NARROW).matches,
-  );
-}
-
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
@@ -314,7 +297,7 @@ function FileRow({
   file: FileDiff;
   anchor: string;
   sides: FileSides;
-  /** Whether the reader asked for two columns, where there is room. */
+  /** Whether the reader asked for two columns. */
   split: boolean;
   review?: FileReview;
   links?: FileLinks;
@@ -465,7 +448,7 @@ function FileRow({
       )}
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
-      ) : split && mode === "line" ? (
+      ) : split ? (
         <pre className="diff-file__patch diff-file__patch--split">
           {splitRows(lines).flatMap((row, index) =>
             row.kind === "across"

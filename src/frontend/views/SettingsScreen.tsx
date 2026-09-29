@@ -21,7 +21,7 @@ const DIFF_MODES: { value: DiffMode; caption: string }[] = [
 
 const DIFF_LAYOUTS: { value: DiffLayout; caption: string }[] = [
   { value: "unified", caption: "One column" },
-  { value: "split", caption: "Side by side, for line diffs on wide screens" },
+  { value: "split", caption: "Side by side" },
 ];
 
 const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [
