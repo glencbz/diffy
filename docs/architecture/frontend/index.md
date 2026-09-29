@@ -163,8 +163,8 @@ has no markup of its own.
 
 When there is no diff to show yet, the controller decides what goes on screen,
 so `DiffView` stays at "render these files" with no null checks and one panel's
-branching sits in one file. `OperationLog` drives `OperationPicker`. `CommitLog`
-drives `CommitGraph`. `DiffPane` drives `InterdiffRows`.
+branching sits in one file. `CommitLog` drives `CommitGraph`. `DiffPane` drives
+`InterdiffRows`.
 
 `PullReview` bends the one-hook-one-view rule and is the only thing that does.
 It mounts the commit list and the diff panel itself, because neither can be
@@ -174,25 +174,21 @@ cannot compute, and an effect to fill it in later.
 
 ### root
 
-`App.tsx` holds two things per side: the `Source` its commits come from, and
-which of those commits are selected. Each is read by more than one controller,
-and `App` is their common parent, so `App` is where they live. `useSide` is
-that pair and its two setters, written once and called twice, because the two
-sides differ in nothing but which half of the comparison they feed. It is
-generic over the kind of source, so a screen that only ever shows jj operations
-holds a side whose source is known to be one and reaches the operation id
-without a runtime check. It stays in `App.tsx` rather than `state/`, which is
-for slices backed by the server; this one never touches the network.
+Local history's two sides, which jj operation each reads at and which of its
+commits are selected, live in [`useLocalHistory`](local-history.md), called
+once by `App` and read by more than one controller below it. It sits in
+`state/`, not `App.tsx`, because it polls the operation log itself, and a
+slice that touches the network belongs there. Picking a different operation
+clears that side's selected commits, since a commit listed at one operation
+need not appear at another.
 
-Changing a side's source also clears its selected commits, since a commit
-listed under one source need not appear under another. `ReviewPanes` handles
-the layout: the two pickers as narrow columns, the diff taking the rest, and
-one of the three at a time when the window is too narrow for all of them.
-
-`App` also holds the mode switch, which pane a narrow window is showing, and
-the repository the pull request screen reads. The repository is one named
+`App.tsx` holds the mode switch, which pane a narrow window is showing,
+and the repository the pull request screen reads directly, since none of
+those comes from the server or needs polling. The repository is one named
 constant and is the next thing here worth making configurable; a view never
-sees it except as a prop.
+sees it except as a prop. `ReviewPanes` handles the layout: the two pickers as
+narrow columns, the diff taking the rest, and one of the three at a time when
+the window is too narrow for all of them.
 
 Which screen is open, and on the pull request screen which pull request,
 heads, commit, file, and line, is not React state at all but the
@@ -327,6 +323,8 @@ reference here, anywhere.
 <<design-message>>
 
 <<design-operation-picker>>
+
+<<design-newer-operation>>
 
 <<design-commit-label>>
 

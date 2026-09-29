@@ -29,7 +29,7 @@ export function OperationPicker({
   );
 }
 
-function optionLabel(operation: OpLogEntry): string {
+export function optionLabel(operation: OpLogEntry): string {
   const when = operation.time.slice(0, 19).replace("T", " ");
   const what = operation.description || operation.args;
   return `${operation.id.slice(0, 8)}  ${what}  ${when}`;

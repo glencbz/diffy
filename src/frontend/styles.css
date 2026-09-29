@@ -549,6 +549,36 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-newer-operation>>[init] */
+@layer components {
+  .newer-operation {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-faint);
+  }
+
+  .newer-operation__note {
+    flex: 1 1 auto;
+    margin: 0;
+  }
+
+  .newer-operation__action {
+    min-height: 44px;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/commit-history.md#design-commit-label>>[init] */
 @layer components {
   .commit-label {
