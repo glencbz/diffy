@@ -43,8 +43,17 @@ a phone does not, and a diff on a narrow window is drawn in one column
 whatever the setting says. It reaches the diff view through
 [`DiffLayoutSetting`](diff.md#side-by-side), beside `DiffModeDefault`.
 
-`diffMode` and `diffLayout` each parse with a default of their own.
-Settings saved before either choice existed do not have it, and without the
+A structural line marks the words difftastic says changed, until so much of
+it changed that the marks cover nearly everything and say less than the
+line's own tint. Where that point sits is a matter of taste, so the reader
+picks it: the share of a line's words that can change before
+[its marks go](diff.md#changed-words). The choices are a few fixed steps,
+because a reader can tell 50% from 90% on screen but not 70% from 75%. It
+reaches the diff view through `WordMarkLimitSetting`, beside
+`DiffModeDefault`.
+
+`diffMode`, `diffLayout`, and `wordMarkLimit` each parse with a default of
+their own. Settings saved before a choice existed do not have it, and without the
 default they would fail to parse and reset the reader's text size along
 with it.
 
@@ -71,10 +80,18 @@ export type DiffMode = z.infer<typeof DiffMode>;
 export const DiffLayout = z.enum(["unified", "split"]);
 export type DiffLayout = z.infer<typeof DiffLayout>;
 
+export const WordMarkLimit = z.union([
+  z.literal(0.5),
+  z.literal(0.7),
+  z.literal(0.9),
+]);
+export type WordMarkLimit = z.infer<typeof WordMarkLimit>;
+
 const DEFAULT_DISPLAY = {
   textSize: "standard",
   diffMode: "structural",
   diffLayout: "unified",
+  wordMarkLimit: 0.7,
 } as const;
 
 export const Settings = z.object({
@@ -82,6 +99,7 @@ export const Settings = z.object({
     textSize: TextSize,
     diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
     diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
+    wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
   }),
 });
 export type Settings = z.infer<typeof Settings>;
@@ -124,7 +142,12 @@ describe("settingsRepository", () => {
   test("round-trips settings through save", () => {
     // arrange
     const settings: Settings = {
-      display: { textSize: "large", diffMode: "line", diffLayout: "split" },
+      display: {
+        textSize: "large",
+        diffMode: "line",
+        diffLayout: "split",
+        wordMarkLimit: 0.9,
+      },
     };
 
     // act
@@ -143,6 +166,7 @@ describe("settingsRepository", () => {
         textSize: "standard",
         diffMode: "structural",
         diffLayout: "unified",
+        wordMarkLimit: 0.7,
       },
     });
   });
@@ -161,6 +185,7 @@ describe("settingsRepository", () => {
         textSize: "large",
         diffMode: "structural",
         diffLayout: "unified",
+        wordMarkLimit: 0.7,
       },
     });
   });
@@ -175,7 +200,12 @@ describe("settingsRepository", () => {
     // act
     // assert
     expect(settingsRepository.load()).toEqual({
-      display: { textSize: "large", diffMode: "line", diffLayout: "unified" },
+      display: {
+        textSize: "large",
+        diffMode: "line",
+        diffLayout: "unified",
+        wordMarkLimit: 0.7,
+      },
     });
   });
 });
@@ -194,6 +224,7 @@ import type {
   DiffMode,
   Settings,
   TextSize,
+  WordMarkLimit,
 } from "../model/settings";
 import { settingsRepository } from "../persistence/settings";
 import { useStored } from "./stored";
@@ -203,6 +234,7 @@ export interface SettingsHandle {
   setTextSize: (textSize: TextSize) => void;
   setDiffMode: (diffMode: DiffMode) => void;
   setDiffLayout: (diffLayout: DiffLayout) => void;
+  setWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -234,7 +266,18 @@ export function useSettings(): SettingsHandle {
     [setDisplay],
   );
 
-  return { settings, setTextSize, setDiffMode, setDiffLayout };
+  const setWordMarkLimit = useCallback(
+    (wordMarkLimit: WordMarkLimit) => setDisplay({ wordMarkLimit }),
+    [setDisplay],
+  );
+
+  return {
+    settings,
+    setTextSize,
+    setDiffMode,
+    setDiffLayout,
+    setWordMarkLimit,
+  };
 }
 ```
 
@@ -267,7 +310,7 @@ size the reader picked beats any default a breakpoint sets.
 ## Settings screen
 
 One `<fieldset>` per choice. A radio group is the right control for a
-size, a diff view, and a layout alike: the choices are mutually exclusive, there are few
+size, a diff view, a layout, and a word mark limit alike: the choices are mutually exclusive, there are few
 enough to show all at once, and a native `<input type="radio">` gets
 keyboard and screen reader behaviour for free that a row of buttons would
 have to reimplement.
@@ -285,6 +328,7 @@ import type {
   DiffMode,
   Settings,
   TextSize,
+  WordMarkLimit,
 } from "../model/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
@@ -304,16 +348,24 @@ const DIFF_LAYOUTS: { value: DiffLayout; caption: string }[] = [
   { value: "split", caption: "Side by side, for line diffs on wide screens" },
 ];
 
+const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [
+  { value: 0.5, caption: "Until half of a line changed" },
+  { value: 0.7, caption: "Until 70% of a line changed" },
+  { value: 0.9, caption: "Until 90% of a line changed" },
+];
+
 export function SettingsScreen({
   settings,
   onSetTextSize,
   onSetDiffMode,
   onSetDiffLayout,
+  onSetWordMarkLimit,
 }: {
   settings: Settings;
   onSetTextSize: (textSize: TextSize) => void;
   onSetDiffMode: (diffMode: DiffMode) => void;
   onSetDiffLayout: (diffLayout: DiffLayout) => void;
+  onSetWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
 }) {
   return (
     <div className="settings">
@@ -357,6 +409,21 @@ export function SettingsScreen({
               value={value}
               checked={settings.display.diffLayout === value}
               onChange={() => onSetDiffLayout(value)}
+            />
+            {caption}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="settings__section">
+        <legend>Structural diffs mark changed words</legend>
+        {WORD_MARK_LIMITS.map(({ value, caption }) => (
+          <label key={value} className="settings__option">
+            <input
+              type="radio"
+              name="word-mark-limit"
+              value={value}
+              checked={settings.display.wordMarkLimit === value}
+              onChange={() => onSetWordMarkLimit(value)}
             />
             {caption}
           </label>

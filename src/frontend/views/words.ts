@@ -148,4 +148,27 @@ export function paintWords(
 
   return painted;
 }
+
+/** `ranges`, or none when they cover `limit` or more of the words in
+ *  `code`, as a share of them. */
+export function markable(
+  code: string,
+  ranges: Range[],
+  limit: number,
+): Range[] {
+  let words = 0;
+  let changed = 0;
+  let offset = 0;
+  for (const word of code.match(WORD) ?? []) {
+    const end = offset + word.length;
+    if (word.trim() !== "") {
+      words++;
+      if (ranges.some((range) => range.start < end && offset < range.end)) {
+        changed++;
+      }
+    }
+    offset = end;
+  }
+  return changed < limit * words ? ranges : [];
+}
 // ~/~ end
