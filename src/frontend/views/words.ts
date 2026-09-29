@@ -17,8 +17,6 @@ export interface PaintedToken {
 
 /** Below this share of the longer line in common, a pair is a rewrite. */
 export const MIN_SHARED = 0.4;
-/** From this share of a line's words changed, a line is marked whole. */
-export const MAX_CHANGED = 0.7;
 /** The largest comparison table worth filling for one pair of lines. */
 export const MAX_CELLS = 40_000;
 
@@ -151,9 +149,13 @@ export function paintWords(
   return painted;
 }
 
-/** `ranges`, or none when they cover `MAX_CHANGED` or more of the words in
- *  `code`. */
-export function markable(code: string, ranges: Range[]): Range[] {
+/** `ranges`, or none when they cover `limit` or more of the words in
+ *  `code`, as a share of them. */
+export function markable(
+  code: string,
+  ranges: Range[],
+  limit: number,
+): Range[] {
   let words = 0;
   let changed = 0;
   let offset = 0;
@@ -167,6 +169,6 @@ export function markable(code: string, ranges: Range[]): Range[] {
     }
     offset = end;
   }
-  return changed < MAX_CHANGED * words ? ranges : [];
+  return changed < limit * words ? ranges : [];
 }
 // ~/~ end

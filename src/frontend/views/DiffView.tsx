@@ -23,6 +23,7 @@ import {
   DEFAULT_SETTINGS,
   type DiffLayout,
   type DiffMode,
+  type WordMarkLimit,
 } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import {
@@ -54,6 +55,12 @@ export const DiffModeDefault = createContext<DiffMode>(
 /** Whether a line diff is drawn in one column or two, where there is room. */
 export const DiffLayoutSetting = createContext<DiffLayout>(
   DEFAULT_SETTINGS.display.diffLayout,
+);
+
+/** The share of a structural line's words that can change before the line
+ *  loses its word marks. */
+export const WordMarkLimitSetting = createContext<WordMarkLimit>(
+  DEFAULT_SETTINGS.display.wordMarkLimit,
 );
 
 /** Review memory for the files on screen. A diff that has one lets every
@@ -323,6 +330,7 @@ function FileRow({
       ?.scrollIntoView({ block: "center" });
   }, [reveal]);
   const defaultMode = useContext(DiffModeDefault);
+  const wordMarkLimit = useContext(WordMarkLimitSetting);
   const [chosen, setChosen] = useState<DiffMode | null>(null);
   const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
     { structural: new Set(), line: new Set() },
@@ -333,7 +341,7 @@ function FileRow({
   const mode = structural === null ? "line" : (chosen ?? defaultMode);
   const body =
     structural !== null && mode === "structural"
-      ? structuralBody(structural)
+      ? structuralBody(structural, wordMarkLimit)
       : patchBody(file.patch);
   const shown = shownIn[mode];
   const reason = collapseReason(file);
@@ -818,6 +826,7 @@ function patchBody(text: string): Body {
  *  change was only layout. */
 function structuralBody(
   diff: Extract<StructuralDiff, { kind: "structural" }>,
+  wordMarkLimit: number,
 ): Body {
   return {
     patch: {
@@ -833,7 +842,7 @@ function structuralBody(
           hunk.lines.flatMap((line, index) =>
             line.kind === "context"
               ? []
-              : [[index, markable(line.code, line.changes)]],
+              : [[index, markable(line.code, line.changes, wordMarkLimit)]],
           ),
         ),
     ),

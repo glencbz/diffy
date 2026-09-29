@@ -4,6 +4,7 @@ import type {
   DiffMode,
   Settings,
   TextSize,
+  WordMarkLimit,
 } from "../model/settings";
 
 const TEXT_SIZES: { value: TextSize; caption: string }[] = [
@@ -23,16 +24,24 @@ const DIFF_LAYOUTS: { value: DiffLayout; caption: string }[] = [
   { value: "split", caption: "Side by side, for line diffs on wide screens" },
 ];
 
+const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [
+  { value: 0.5, caption: "Until half of a line changed" },
+  { value: 0.7, caption: "Until 70% of a line changed" },
+  { value: 0.9, caption: "Until 90% of a line changed" },
+];
+
 export function SettingsScreen({
   settings,
   onSetTextSize,
   onSetDiffMode,
   onSetDiffLayout,
+  onSetWordMarkLimit,
 }: {
   settings: Settings;
   onSetTextSize: (textSize: TextSize) => void;
   onSetDiffMode: (diffMode: DiffMode) => void;
   onSetDiffLayout: (diffLayout: DiffLayout) => void;
+  onSetWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
 }) {
   return (
     <div className="settings">
@@ -76,6 +85,21 @@ export function SettingsScreen({
               value={value}
               checked={settings.display.diffLayout === value}
               onChange={() => onSetDiffLayout(value)}
+            />
+            {caption}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="settings__section">
+        <legend>Structural diffs mark changed words</legend>
+        {WORD_MARK_LIMITS.map(({ value, caption }) => (
+          <label key={value} className="settings__option">
+            <input
+              type="radio"
+              name="word-mark-limit"
+              value={value}
+              checked={settings.display.wordMarkLimit === value}
+              onChange={() => onSetWordMarkLimit(value)}
             />
             {caption}
           </label>

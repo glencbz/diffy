@@ -12,7 +12,12 @@ describe("settingsRepository", () => {
   test("round-trips settings through save", () => {
     // arrange
     const settings: Settings = {
-      display: { textSize: "large", diffMode: "line", diffLayout: "split" },
+      display: {
+        textSize: "large",
+        diffMode: "line",
+        diffLayout: "split",
+        wordMarkLimit: 0.9,
+      },
     };
 
     // act
@@ -31,6 +36,7 @@ describe("settingsRepository", () => {
         textSize: "standard",
         diffMode: "structural",
         diffLayout: "unified",
+        wordMarkLimit: 0.7,
       },
     });
   });
@@ -49,6 +55,7 @@ describe("settingsRepository", () => {
         textSize: "large",
         diffMode: "structural",
         diffLayout: "unified",
+        wordMarkLimit: 0.7,
       },
     });
   });
@@ -63,7 +70,12 @@ describe("settingsRepository", () => {
     // act
     // assert
     expect(settingsRepository.load()).toEqual({
-      display: { textSize: "large", diffMode: "line", diffLayout: "unified" },
+      display: {
+        textSize: "large",
+        diffMode: "line",
+        diffLayout: "unified",
+        wordMarkLimit: 0.7,
+      },
     });
   });
 });

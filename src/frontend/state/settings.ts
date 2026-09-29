@@ -5,6 +5,7 @@ import type {
   DiffMode,
   Settings,
   TextSize,
+  WordMarkLimit,
 } from "../model/settings";
 import { settingsRepository } from "../persistence/settings";
 import { useStored } from "./stored";
@@ -14,6 +15,7 @@ export interface SettingsHandle {
   setTextSize: (textSize: TextSize) => void;
   setDiffMode: (diffMode: DiffMode) => void;
   setDiffLayout: (diffLayout: DiffLayout) => void;
+  setWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -45,6 +47,17 @@ export function useSettings(): SettingsHandle {
     [setDisplay],
   );
 
-  return { settings, setTextSize, setDiffMode, setDiffLayout };
+  const setWordMarkLimit = useCallback(
+    (wordMarkLimit: WordMarkLimit) => setDisplay({ wordMarkLimit }),
+    [setDisplay],
+  );
+
+  return {
+    settings,
+    setTextSize,
+    setDiffMode,
+    setDiffLayout,
+    setWordMarkLimit,
+  };
 }
 // ~/~ end

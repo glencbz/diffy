@@ -100,7 +100,7 @@ describe("markable", () => {
 
     // act
     // assert
-    expect(markable("const newPath = 1;", ranges)).toEqual(ranges);
+    expect(markable("const newPath = 1;", ranges, 0.7)).toEqual(ranges);
   });
 
   test("drops ranges that touch most of a line's words", () => {
@@ -109,7 +109,16 @@ describe("markable", () => {
 
     // act
     // assert: four of the five words changed, and only `;` did not.
-    expect(markable("const newPath = 1;", ranges)).toEqual([]);
+    expect(markable("const newPath = 1;", ranges, 0.7)).toEqual([]);
+  });
+
+  test("keeps the same ranges under a higher limit", () => {
+    // arrange
+    const ranges = [{ start: 0, end: 17 }];
+
+    // act
+    // assert
+    expect(markable("const newPath = 1;", ranges, 0.9)).toEqual(ranges);
   });
 });
 // ~/~ end

@@ -313,6 +313,7 @@ import {
   DEFAULT_SETTINGS,
   type DiffLayout,
   type DiffMode,
+  type WordMarkLimit,
 } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import {
@@ -344,6 +345,12 @@ export const DiffModeDefault = createContext<DiffMode>(
 /** Whether a line diff is drawn in one column or two, where there is room. */
 export const DiffLayoutSetting = createContext<DiffLayout>(
   DEFAULT_SETTINGS.display.diffLayout,
+);
+
+/** The share of a structural line's words that can change before the line
+ *  loses its word marks. */
+export const WordMarkLimitSetting = createContext<WordMarkLimit>(
+  DEFAULT_SETTINGS.display.wordMarkLimit,
 );
 
 /** Review memory for the files on screen. A diff that has one lets every
@@ -613,6 +620,7 @@ function FileRow({
       ?.scrollIntoView({ block: "center" });
   }, [reveal]);
   const defaultMode = useContext(DiffModeDefault);
+  const wordMarkLimit = useContext(WordMarkLimitSetting);
   const [chosen, setChosen] = useState<DiffMode | null>(null);
   const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
     { structural: new Set(), line: new Set() },
@@ -623,7 +631,7 @@ function FileRow({
   const mode = structural === null ? "line" : (chosen ?? defaultMode);
   const body =
     structural !== null && mode === "structural"
-      ? structuralBody(structural)
+      ? structuralBody(structural, wordMarkLimit)
       : patchBody(file.patch);
   const shown = shownIn[mode];
   const reason = collapseReason(file);
@@ -1108,6 +1116,7 @@ function patchBody(text: string): Body {
  *  change was only layout. */
 function structuralBody(
   diff: Extract<StructuralDiff, { kind: "structural" }>,
+  wordMarkLimit: number,
 ): Body {
   return {
     patch: {
@@ -1123,7 +1132,7 @@ function structuralBody(
           hunk.lines.flatMap((line, index) =>
             line.kind === "context"
               ? []
-              : [[index, markable(line.code, line.changes)]],
+              : [[index, markable(line.code, line.changes, wordMarkLimit)]],
           ),
         ),
     ),
@@ -2187,9 +2196,11 @@ cells of the comparison table, gets none either.
 
 Difftastic names a structural line's changed tokens itself, and it names
 them on a line it rewrote as readily as on one it edited. `markable` holds
-those ranges to the same rule as a pair's: when they touch `MAX_CHANGED` or
-more of the line's words, not counting whitespace, the line gets no ranges
-and its tint alone says it changed.
+those ranges to the same rule as a pair's: when they touch the reader's
+[word mark limit](settings.md#display) or more of the line's words, not
+counting whitespace, the line gets no ranges and its tint alone says it
+changed. The limit reaches the diff view through `WordMarkLimitSetting`,
+beside `DiffModeDefault`.
 
 `paintWords` cuts a line's syntax tokens at those ranges so the marks and the
 colours can be drawn together, each piece keeping its token's kind.
@@ -2215,8 +2226,6 @@ export interface PaintedToken {
 
 /** Below this share of the longer line in common, a pair is a rewrite. */
 export const MIN_SHARED = 0.4;
-/** From this share of a line's words changed, a line is marked whole. */
-export const MAX_CHANGED = 0.7;
 /** The largest comparison table worth filling for one pair of lines. */
 export const MAX_CELLS = 40_000;
 
@@ -2349,9 +2358,13 @@ export function paintWords(
   return painted;
 }
 
-/** `ranges`, or none when they cover `MAX_CHANGED` or more of the words in
- *  `code`. */
-export function markable(code: string, ranges: Range[]): Range[] {
+/** `ranges`, or none when they cover `limit` or more of the words in
+ *  `code`, as a share of them. */
+export function markable(
+  code: string,
+  ranges: Range[],
+  limit: number,
+): Range[] {
   let words = 0;
   let changed = 0;
   let offset = 0;
@@ -2365,7 +2378,7 @@ export function markable(code: string, ranges: Range[]): Range[] {
     }
     offset = end;
   }
-  return changed < MAX_CHANGED * words ? ranges : [];
+  return changed < limit * words ? ranges : [];
 }
 ```
 
@@ -2475,7 +2488,7 @@ describe("markable", () => {
 
     // act
     // assert
-    expect(markable("const newPath = 1;", ranges)).toEqual(ranges);
+    expect(markable("const newPath = 1;", ranges, 0.7)).toEqual(ranges);
   });
 
   test("drops ranges that touch most of a line's words", () => {
@@ -2484,7 +2497,16 @@ describe("markable", () => {
 
     // act
     // assert: four of the five words changed, and only `;` did not.
-    expect(markable("const newPath = 1;", ranges)).toEqual([]);
+    expect(markable("const newPath = 1;", ranges, 0.7)).toEqual([]);
+  });
+
+  test("keeps the same ranges under a higher limit", () => {
+    // arrange
+    const ranges = [{ start: 0, end: 17 }];
+
+    // act
+    // assert
+    expect(markable("const newPath = 1;", ranges, 0.9)).toEqual(ranges);
   });
 });
 ```
