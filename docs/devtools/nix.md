@@ -100,9 +100,9 @@ nix_runtime := "nix --extra-experimental-features 'nix-command flakes' develop p
 
 ## Installing diffy
 
-The flake's default package is `diffy`, the server as one executable. Run it
-from inside a jj repository and it serves that repository on `$PORT`, or 3000,
-in production mode, with its own pinned `jj`, `git`, and difftastic. Install it from a checkout of `main`:
+The flake's default package is the `diffy` command. Run it from inside a jj
+repository and it serves that repository, in production mode, with its own
+pinned `jj`, `git`, and difftastic. Install it from a checkout of `main`:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' \
@@ -120,7 +120,7 @@ URL with `?dir=nix` copies the whole tracked tree, which leaves out
 `path:nix`; evaluating them never touches the package, so they still work from
 a jj workspace.
 
-The package is `src/server.ts` compiled by `bun build --compile` into one
+The command is `src/cli.ts` compiled by `bun build --compile` into one
 executable. The frontend is bundled into it at build time, so starting diffy
 does no bundling and the installed closure holds no Bun and no
 `node_modules`. Running the source through a wrapped `bun run` would avoid
@@ -139,7 +139,7 @@ definitions and tools the compiled executable never loads.
 
 ```nix
 #| id: nix-diffy-package
-# The diffy server: src/server.ts compiled with its frontend inside it.
+# The diffy command: src/cli.ts compiled with its frontend inside it.
 diffy =
   pkgs:
   let
@@ -183,7 +183,7 @@ diffy =
     # path, and a store path has no node_modules above it.
     buildPhase = ''
       cp -r ${nodeModules} node_modules
-      bun build --compile --minify src/server.ts --outfile diffy
+      bun build --compile --minify src/cli.ts --outfile diffy
     '';
     installPhase = ''
       install -Dm755 diffy $out/libexec/diffy

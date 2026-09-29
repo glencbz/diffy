@@ -344,9 +344,4 @@ export const routes = {
   "/api/github/pull/commits": handleGithubPullCommits,
   "/api/github/pull/diff": handleGithubPullDiff,
 };
-
-if (import.meta.main) {
-  const server = Bun.serve({ routes });
-  console.log(`Listening on ${server.url}`);
-}
 // ~/~ end

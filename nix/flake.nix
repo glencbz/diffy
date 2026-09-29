@@ -32,7 +32,7 @@
       ];
 
       # ~/~ begin <<docs/devtools/nix.md#nix-diffy-package>>[init]
-      # The diffy server: src/server.ts compiled with its frontend inside it.
+      # The diffy command: src/cli.ts compiled with its frontend inside it.
       diffy =
         pkgs:
         let
@@ -76,7 +76,7 @@
           # path, and a store path has no node_modules above it.
           buildPhase = ''
             cp -r ${nodeModules} node_modules
-            bun build --compile --minify src/server.ts --outfile diffy
+            bun build --compile --minify src/cli.ts --outfile diffy
           '';
           installPhase = ''
             install -Dm755 diffy $out/libexec/diffy

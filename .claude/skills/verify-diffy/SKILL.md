@@ -185,9 +185,9 @@ full surface. It launches `harness/serve.ts`, which imports the real `routes`
 from `src/server.ts` and binds port 0, so the kernel picks a port no other
 session holds. It runs the server inside the pinned `nix#runtime` shell, the
 same one `just run` uses, because difftastic is only on the `PATH` there; a
-server without it disables every file's `structural` view. Running
-`src/server.ts` itself takes `$PORT` or falls back to 3000, which is the port a
-developer's own `just run` is already on.
+server without it disables every file's `structural` view. Running the
+`diffy` command, `src/cli.ts`, would bind every interface on a port found by
+walking up from 3000, where a developer's own `just run` already sits.
 
 Both files are verification scaffolding under `.claude/`, deliberately outside
 Entangled's `docs/**/*.md` sources. Edit them directly; do not tangle them.
