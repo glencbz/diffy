@@ -39,7 +39,7 @@ nix_runtime := "nix --extra-experimental-features 'nix-command flakes' develop p
 # ~/~ begin <<docs/architecture/backend/server.md#just-bun>>[init]
 # Run the app
 @run port="3000":
-  PORT={{port}} {{nix_runtime}} bun run src/server.ts
+  {{nix_runtime}} bun run src/cli.ts --port {{port}}
 
 # ~/~ end
 

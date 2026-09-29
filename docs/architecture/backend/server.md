@@ -8,17 +8,15 @@ A just rule runs the backend:
 #| id: just-bun
 # Run the app
 @run port="3000":
-  PORT={{port}} {{nix_runtime}} bun run src/server.ts
+  {{nix_runtime}} bun run src/cli.ts --port {{port}}
 
 ```
 
-The entrypoint is a single ts file with a web server. Route handlers and the
-route table are exported so tests can call them directly; `Bun.serve` only runs
-when the file is the process entrypoint (`import.meta.main`).
-
-`Bun.serve` is given no port, which makes it read `$PORT` and fall back to 3000.
-Every workspace serves the repo it sits in, so several of them run side by side
-during review, each on a port of its own.
+This file is the web server. Route handlers and the route table are exported
+so tests can call them directly. Nothing here binds a port; the [command
+line](cli.md) does, and it is the only place that does. Every workspace
+serves the repo it sits in, so several of them run side by side during
+review, each on a port of its own.
 
 `just run` leaves `NODE_ENV` alone, so Bun serves in dev mode with hot reload,
 which is what a frontend change wants locally. Dev mode also checks the `Host`
@@ -535,11 +533,6 @@ export const routes = {
   "/api/github/pull/commits": handleGithubPullCommits,
   "/api/github/pull/diff": handleGithubPullDiff,
 };
-
-if (import.meta.main) {
-  const server = Bun.serve({ routes });
-  console.log(`Listening on ${server.url}`);
-}
 ```
 
 ### Route tests

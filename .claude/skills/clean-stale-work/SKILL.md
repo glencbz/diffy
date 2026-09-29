@@ -48,7 +48,7 @@ Two checks are easy to get wrong by hand:
 - **Old pid files.** `/tmp/diffy-serve/<dir>/*.pid` outlives its server, and
   PIDs get reused. The script kills a process group only while its leader's
   cwd is still inside that workspace. Never `pkill` by pattern: every
-  workspace runs the same `bun run src/server.ts`.
+  workspace runs the same `bun run src/cli.ts`.
 
 ## Staying off GitHub
 
