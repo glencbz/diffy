@@ -780,7 +780,7 @@ const SIGNS: Record<CodeKind, string> = {
   removed: "-",
 };
 
-/** One line as drawn. Header lines, hunk headers, and notes are text in one
+/** One line as drawn. Hunk headers and notes are text in one
  *  colour. A line of the file is its tokens and where it sits: a removed line
  *  on the before side, every other line on the after side. It also carries
  *  its before-side number where it has one, for the before column of a
@@ -803,11 +803,13 @@ interface Body {
   changed: Map<number, Range[]>[];
 }
 
+/** A patch's hunks, without the `diff --git` lines above them, which say
+ *  nothing the file's own header does not. */
 function patchBody(text: string): Body {
-  const patch = readPatch(text);
+  const { hunks } = readPatch(text);
   return {
-    patch,
-    changed: patch.hunks.map((hunk) => changedLines(hunk.lines)),
+    patch: { header: [], hunks },
+    changed: hunks.map((hunk) => changedLines(hunk.lines)),
   };
 }
 

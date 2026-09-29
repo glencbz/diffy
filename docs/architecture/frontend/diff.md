@@ -157,7 +157,7 @@ function rowLabel(row: ReviewedRow): string {
 ## Diff view
 
 Renders each file's `git`-format patch, in colour. `+` lines sit on green and
-`-` lines on red, `@@` hunk headers are blue, and file headers grey. The code
+`-` lines on red, `@@` hunk headers are blue, and notes grey. The code
 on each line is coloured by its language, taken from whichever side of the
 file the line belongs to through the `sources` lookup a
 [controller loads](syntax.md#loading-each-side). A binary file gets a
@@ -167,7 +167,10 @@ a rendered diff.
 
 The patch is not drawn as text. [`readPatch`](#reading-a-patch) reads it into
 a header and hunks first, and every drawn line comes from a hunk line that
-already knows its kind and its line numbers. A removed line is looked up on the
+already knows its kind and its line numbers. The header's `diff --git`,
+`index`, `---`, and `+++` lines name the path the file's own header already
+shows, so they are not drawn, and a file starts at its first hunk in both
+views. A removed line is looked up on the
 before side by its old number, and every other line on the after side by its
 new one. The lookup is checked against the patch: when the highlighted line
 does not read the same as the patch's, or its side has not loaded, the line is
@@ -187,7 +190,7 @@ since nothing outside that file cares.
 A left gutter adds the after-side line number to each context and added line,
 the line as it reads in the version being approved, not an offset into the
 raw patch text. A `-` line has no after-side line, so its gutter is blank.
-Header lines, hunk headers, and git's `\ No newline at end of file` note are
+Hunk headers and git's `\ No newline at end of file` note are
 not lines of the file on either side, so they show a blank gutter and are not
 clickable.
 
@@ -1067,7 +1070,7 @@ const SIGNS: Record<CodeKind, string> = {
   removed: "-",
 };
 
-/** One line as drawn. Header lines, hunk headers, and notes are text in one
+/** One line as drawn. Hunk headers and notes are text in one
  *  colour. A line of the file is its tokens and where it sits: a removed line
  *  on the before side, every other line on the after side. It also carries
  *  its before-side number where it has one, for the before column of a
@@ -1090,11 +1093,13 @@ interface Body {
   changed: Map<number, Range[]>[];
 }
 
+/** A patch's hunks, without the `diff --git` lines above them, which say
+ *  nothing the file's own header does not. */
 function patchBody(text: string): Body {
-  const patch = readPatch(text);
+  const { hunks } = readPatch(text);
   return {
-    patch,
-    changed: patch.hunks.map((hunk) => changedLines(hunk.lines)),
+    patch: { header: [], hunks },
+    changed: hunks.map((hunk) => changedLines(hunk.lines)),
   };
 }
 
@@ -1217,7 +1222,7 @@ function tokensAt(
 
 A patch line's kind is one of the fixed set a unified diff always has, so
 each drawn line carries it as a modifier class instead of a lookup table of
-colours. Header lines and hunk headers are coloured text. An added or removed
+colours. Hunk headers and notes are coloured text. An added or removed
 line is tinted behind its text and only its sign takes the line's colour,
 because the text is [coloured by its syntax](syntax.md#colours) and green or
 red text would drown that out. [Changed words](#changed-words) take a stronger
