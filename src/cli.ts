@@ -2,6 +2,11 @@
 import { parseArgs } from "node:util";
 import { $ } from "bun";
 import { difftDirectories } from "./backend/commit/difft";
+import {
+  openReviewStore,
+  type ReviewStore,
+  reviewStorePath,
+} from "./backend/review/store";
 import { routes } from "./server";
 
 const USAGE = "usage: diffy [--port <n>]";
@@ -55,11 +60,11 @@ function fail(status: number, message: string): never {
   process.exit(status);
 }
 
-function listen(choice: PortChoice): Bun.Server<undefined> {
+function listen(choice: PortChoice, store: ReviewStore): Bun.Server<undefined> {
   const first = choice.kind === "given" ? choice.port : choice.from;
   for (let port = first; ; port++) {
     try {
-      return Bun.serve({ port, routes });
+      return Bun.serve({ port, routes: routes(store) });
     } catch (error) {
       if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
       if (choice.kind === "given") fail(1, `port ${port} is in use`);
@@ -71,7 +76,8 @@ async function serve(choice: PortChoice): Promise<void> {
   const root = await $`jj root`.quiet().nothrow();
   if (root.exitCode !== 0) fail(1, root.stderr.toString().trim());
 
-  const server = listen(choice);
+  const store = openReviewStore(await reviewStorePath());
+  const server = listen(choice, store);
   console.log(
     `diffy serving ${root.stdout.toString().trim()} at ${server.url}`,
   );

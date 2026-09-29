@@ -20,6 +20,7 @@ import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { NewerOperation } from "./views/NewerOperation";
 import { OperationPicker } from "./views/OperationPicker";
 import { type Pane, ReviewPanes } from "./views/ReviewPanes";
+import { ReviewStrip } from "./views/ReviewStrip";
 import { SettingsScreen } from "./views/SettingsScreen";
 
 /** The repository the pull request screen reads. Next up for configuring. */
@@ -51,6 +52,15 @@ export function App() {
                 if (mode !== place.tab) go(modePlace(mode));
               }}
             />
+            {place.tab !== "settings" && (
+              <ReviewStrip
+                unavailable={
+                  review.status === "unavailable" ? review.message : null
+                }
+                failure={review.failure}
+                onDismiss={review.dismissFailure}
+              />
+            )}
             {place.tab === "local" && (
               <ReviewPanes
                 before={
@@ -90,6 +100,7 @@ export function App() {
               <PullRequests
                 repo={REPO}
                 place={place.pull}
+                review={review}
                 onGo={(pull) => go({ tab: "pulls", pull })}
               />
             )}

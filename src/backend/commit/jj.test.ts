@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
+import { stat } from "node:fs/promises";
 import {
   COMMIT_MARKERS,
   JjError,
@@ -9,6 +10,7 @@ import {
   jjInterdiff,
   jjLog,
   jjOpLog,
+  jjRepoDir,
   parseFileDiff,
 } from "./jj";
 
@@ -117,6 +119,18 @@ describe("jjOpLog", () => {
 
     // assert
     expect(operations).toHaveLength(1);
+  });
+});
+
+describe("jjRepoDir", () => {
+  test("names the store directory behind this workspace", async () => {
+    // arrange
+    // act
+    const dir = await jjRepoDir();
+
+    // assert
+    expect(dir.endsWith("/.jj/repo")).toBe(true);
+    expect((await stat(dir)).isDirectory()).toBe(true);
   });
 });
 // ~/~ end

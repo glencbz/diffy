@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { PullSummary } from "../api";
 import { openPull, type PullPlace } from "../model/place";
 import { usePulls } from "../state/pulls";
+import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
 import { PullList } from "../views/PullList";
 import { type PullChoice, PullPanes } from "../views/PullPanes";
@@ -11,10 +12,12 @@ import { PullReview } from "./PullReview";
 export function PullRequests({
   repo,
   place,
+  review,
   onGo,
 }: {
   repo: string;
   place: PullPlace | null;
+  review: ReviewHandle;
   onGo: (place: PullPlace | null) => void;
 }) {
   const pulls = usePulls(repo);
@@ -53,6 +56,7 @@ export function PullRequests({
             repo={repo}
             pull={choice.pull}
             place={place}
+            review={review}
             onGo={onGo}
           />
         )

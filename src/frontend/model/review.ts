@@ -45,6 +45,9 @@ export const Comment = z.intersection(
     body: z.string(),
     resolved: z.boolean(),
     createdAt: z.string(),
+    /** Who wrote it. A comment kept before comments had authors was the
+     *  reader's, since nothing else could write one. */
+    author: z.string().default("reader"),
   }),
   Anchor,
 );
@@ -65,10 +68,20 @@ export const ViewedFile = FileVersion.extend({
 });
 export type ViewedFile = z.infer<typeof ViewedFile>;
 
+/** One version of a series the reader said they reviewed: a head of a pull
+ *  request, named by its oid. */
+export const ReviewedVersion = z.object({
+  series: z.string(),
+  version: z.string(),
+  reviewedAt: z.string(),
+});
+export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
+  reviewed: z.array(ReviewedVersion).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -76,7 +89,37 @@ export const EMPTY_REVIEW: ReviewDocument = {
   marks: [],
   comments: [],
   viewed: [],
+  reviewed: [],
 };
+
+export function isEmptyReview(document: ReviewDocument): boolean {
+  return (
+    document.marks.length === 0 &&
+    document.comments.length === 0 &&
+    document.viewed.length === 0 &&
+    document.reviewed.length === 0
+  );
+}
+
+/** The series a pull request's versions are marked reviewed under. */
+export function pullSeries(repo: string, number: number): string {
+  return `pull:${repo}#${number}`;
+}
+
+/** The versions of one series the reader marked reviewed. */
+export function reviewedIn(
+  document: ReviewDocument,
+  series: string,
+): ReviewedVersion[] {
+  return document.reviewed.filter((version) => version.series === series);
+}
+
+/** The document as the server holds it, and how many writes made it. */
+export const ReviewSnapshot = z.object({
+  revision: z.number().int(),
+  document: ReviewDocument,
+});
+export type ReviewSnapshot = z.infer<typeof ReviewSnapshot>;
 
 export type RowReview =
   | { state: "unseen" }
@@ -201,74 +244,6 @@ function sameComparison(a: Comparison, b: Comparison): boolean {
   );
 }
 
-/** The document with the row's mark added, or removed if the row reads
- * reviewed. Any mark on the same comparison is replaced rather than kept
- * beside the new one. */
-export function flipSeen(
-  document: ReviewDocument,
-  row: ReviewedRow,
-  seenAt: string,
-): ReviewDocument {
-  const comparison: Comparison = {
-    reviewKey: row.reviewKey,
-    fromCommitId: row.from?.commitId ?? null,
-    toCommitId: row.to?.commitId ?? null,
-  };
-  const marks = document.marks.filter(
-    (mark) => !sameComparison(mark, comparison),
-  );
-  if (row.review.state === "reviewed") return { ...document, marks };
-  return { ...document, marks: [...marks, { ...comparison, seenAt }] };
-}
-
-/** The document with a comment added on a row, pinned to the commit what it
- * is about was read against. */
-export function addComment(
-  document: ReviewDocument,
-  row: ReviewedRow,
-  comment: Anchor & Pick<Comment, "id" | "body" | "createdAt">,
-): ReviewDocument {
-  const commit =
-    comment.kind === "line" && comment.side === "before"
-      ? (row.from ?? row.to)
-      : (row.to ?? row.from);
-  return {
-    ...document,
-    comments: [
-      ...document.comments,
-      {
-        ...comment,
-        reviewKey: row.reviewKey,
-        commitId: commit?.commitId ?? "",
-        resolved: false,
-      },
-    ],
-  };
-}
-
-export function resolveComment(
-  document: ReviewDocument,
-  id: string,
-  resolved: boolean,
-): ReviewDocument {
-  return {
-    ...document,
-    comments: document.comments.map((comment) =>
-      comment.id === id ? { ...comment, resolved } : comment,
-    ),
-  };
-}
-
-export function dropComment(
-  document: ReviewDocument,
-  id: string,
-): ReviewDocument {
-  return {
-    ...document,
-    comments: document.comments.filter((comment) => comment.id !== id),
-  };
-}
-
 function sameVersion(a: FileVersion, b: FileVersion): boolean {
   return (
     a.path === b.path && a.oldBlob === b.oldBlob && a.newBlob === b.newBlob
@@ -280,23 +255,214 @@ export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
   return viewed.some((mark) => sameVersion(mark, file));
 }
 
-/** The document with one file's viewed mark added, or removed if it is
- * there. */
-export function flipViewed(
+/** One change a reader or an agent makes to the review document. Each says
+ *  what the state should become, so applying one twice leaves what applying
+ *  it once did. */
+export const ReviewCommand = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("set-seen"),
+    comparison: Comparison,
+    seen: z.boolean(),
+    at: z.string(),
+  }),
+  z.object({
+    kind: z.literal("set-viewed"),
+    reviewKey: z.string(),
+    file: FileVersion,
+    viewed: z.boolean(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("add-comment"), comment: Comment }),
+  z.object({
+    kind: z.literal("resolve-comment"),
+    id: z.string(),
+    resolved: z.boolean(),
+  }),
+  z.object({ kind: z.literal("delete-comment"), id: z.string() }),
+  z.object({
+    kind: z.literal("mark-reviewed"),
+    series: z.string(),
+    version: z.string(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("import"), document: ReviewDocument }),
+]);
+export type ReviewCommand = z.infer<typeof ReviewCommand>;
+
+export function applyCommand(
   document: ReviewDocument,
-  reviewKey: string,
-  file: FileVersion,
-  viewedAt: string,
+  command: ReviewCommand,
 ): ReviewDocument {
-  const others = document.viewed.filter(
-    (mark) => mark.reviewKey !== reviewKey || !sameVersion(mark, file),
-  );
-  if (others.length < document.viewed.length) {
-    return { ...document, viewed: others };
+  switch (command.kind) {
+    case "set-seen": {
+      const marks = document.marks.filter(
+        (mark) => !sameComparison(mark, command.comparison),
+      );
+      return {
+        ...document,
+        marks: command.seen
+          ? [...marks, { ...command.comparison, seenAt: command.at }]
+          : marks,
+      };
+    }
+    case "set-viewed": {
+      const viewed = document.viewed.filter(
+        (mark) =>
+          mark.reviewKey !== command.reviewKey ||
+          !sameVersion(mark, command.file),
+      );
+      return {
+        ...document,
+        viewed: command.viewed
+          ? [
+              ...viewed,
+              {
+                ...command.file,
+                reviewKey: command.reviewKey,
+                viewedAt: command.at,
+              },
+            ]
+          : viewed,
+      };
+    }
+    case "add-comment":
+      return document.comments.some(
+        (comment) => comment.id === command.comment.id,
+      )
+        ? document
+        : { ...document, comments: [...document.comments, command.comment] };
+    case "resolve-comment":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.id
+            ? { ...comment, resolved: command.resolved }
+            : comment,
+        ),
+      };
+    case "delete-comment":
+      return {
+        ...document,
+        comments: document.comments.filter(
+          (comment) => comment.id !== command.id,
+        ),
+      };
+    case "mark-reviewed":
+      return {
+        ...document,
+        reviewed: added(
+          document.reviewed,
+          [
+            {
+              series: command.series,
+              version: command.version,
+              reviewedAt: command.at,
+            },
+          ],
+          sameReviewedVersion,
+        ),
+      };
+    case "import":
+      return {
+        marks: added(document.marks, command.document.marks, sameComparison),
+        comments: added(
+          document.comments,
+          command.document.comments,
+          (a, b) => a.id === b.id,
+        ),
+        viewed: added(
+          document.viewed,
+          command.document.viewed,
+          (a, b) => a.reviewKey === b.reviewKey && sameVersion(a, b),
+        ),
+        reviewed: added(
+          document.reviewed,
+          command.document.reviewed,
+          sameReviewedVersion,
+        ),
+      };
   }
+}
+
+function sameReviewedVersion(a: ReviewedVersion, b: ReviewedVersion): boolean {
+  return a.series === b.series && a.version === b.version;
+}
+
+/** `existing` with each of `incoming` that names nothing already there. */
+function added<T>(
+  existing: T[],
+  incoming: T[],
+  same: (a: T, b: T) => boolean,
+): T[] {
+  const result = [...existing];
+  for (const item of incoming) {
+    if (!result.some((kept) => same(kept, item))) result.push(item);
+  }
+  return result;
+}
+
+/** What a screen can do to the review document, once it has one to change. */
+export interface ReviewActions {
+  markSeen: (row: ReviewedRow) => void;
+  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
+  resolveComment: (id: string, resolved: boolean) => void;
+  dropComment: (id: string) => void;
+  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  markReviewed: (series: string, version: string) => void;
+}
+
+/** The comparison a row stands for, as a mark names it. */
+function comparisonOf(row: ReviewedRow): Comparison {
   return {
-    ...document,
-    viewed: [...others, { ...file, reviewKey, viewedAt }],
+    reviewKey: row.reviewKey,
+    fromCommitId: row.from?.commitId ?? null,
+    toCommitId: row.to?.commitId ?? null,
+  };
+}
+
+/** Marks the row seen, or unseen if it reads reviewed. */
+export function markSeen(row: ReviewedRow, at: string): ReviewCommand {
+  return {
+    kind: "set-seen",
+    comparison: comparisonOf(row),
+    seen: row.review.state !== "reviewed",
+    at,
+  };
+}
+
+/** Marks one file of a row viewed, or not viewed if it is. */
+export function markViewed(
+  row: ReviewedRow,
+  file: FileVersion,
+  at: string,
+): ReviewCommand {
+  return {
+    kind: "set-viewed",
+    reviewKey: row.reviewKey,
+    file,
+    viewed: !isViewed(row.viewed, file),
+    at,
+  };
+}
+
+/** Adds a comment on a row, pinned to the commit what it is about was read
+ *  against. */
+export function commentOn(
+  row: ReviewedRow,
+  comment: Anchor & Pick<Comment, "id" | "body" | "createdAt" | "author">,
+): ReviewCommand {
+  const commit =
+    comment.kind === "line" && comment.side === "before"
+      ? (row.from ?? row.to)
+      : (row.to ?? row.from);
+  return {
+    kind: "add-comment",
+    comment: {
+      ...comment,
+      reviewKey: row.reviewKey,
+      commitId: commit?.commitId ?? "",
+      resolved: false,
+    },
   };
 }
 // ~/~ end

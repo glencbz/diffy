@@ -1,8 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-model-last-reviewed-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { GitOid, type PullVersion } from "../api";
-import { opening } from "./lastReviewed";
+import { lastReviewed, opening } from "./lastReviewed";
 import { openPull, type PullPlace } from "./place";
+import type { ReviewedVersion } from "./review";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -46,6 +47,36 @@ describe("opening", () => {
     for (const place of places) {
       expect(opening(place, oid("a"), states)).toEqual(place);
     }
+  });
+});
+
+describe("lastReviewed", () => {
+  const states = [version(1, "a"), version(2, "b"), version(3, "c")];
+
+  function mark(ch: string, reviewedAt: string): ReviewedVersion {
+    return { series: "pull:o/r#7", version: oid(ch), reviewedAt };
+  }
+
+  test("takes the newest head marked, whenever it was marked", () => {
+    // arrange
+    const marked = [mark("b", "t1"), mark("a", "t2")];
+
+    // act
+    // assert
+    expect(lastReviewed(marked, states)).toBe(oid("b"));
+  });
+
+  test("takes the head marked last when the history lists none", () => {
+    // arrange
+    const marked = [mark("e", "t2"), mark("f", "t1")];
+
+    // act
+    // assert
+    expect(lastReviewed(marked, states)).toBe(oid("e"));
+  });
+
+  test("reads nothing reviewed when nothing is marked", () => {
+    expect(lastReviewed([], states)).toBeNull();
   });
 });
 // ~/~ end

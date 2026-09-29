@@ -1,8 +1,12 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { openReviewStore } from "./backend/review/store";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -13,6 +17,7 @@ import {
   handleOperations,
   handleSource,
   pullDiffResponse,
+  reviewRoute,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -303,6 +308,68 @@ describe("the GitHub routes", () => {
 });
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[2]
+
+describe("the review route", () => {
+  async function withStore(
+    run: (route: ReturnType<typeof reviewRoute>) => Promise<void>,
+  ) {
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    try {
+      await run(reviewRoute(openReviewStore(join(dir, "r.sqlite"))));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  function post(body: unknown): Request {
+    return new Request("http://test/api/review", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("answers a command with the document it left", () =>
+    withStore(async (route) => {
+      // arrange
+      const command = {
+        kind: "set-seen",
+        comparison: {
+          reviewKey: "change:a",
+          fromCommitId: null,
+          toCommitId: "a",
+        },
+        seen: true,
+        at: "2026-09-28T09:00:00.000Z",
+      };
+
+      // act
+      const res = await route.POST(post(command));
+      const read = await (await route.GET()).json();
+
+      // assert
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(read);
+      expect(read.revision).toBe(1);
+      expect(read.document.marks).toHaveLength(1);
+    }));
+
+  test("reports a body that is not a command as 400 and writes nothing", () =>
+    withStore(async (route) => {
+      // arrange
+      // act
+      const res = await route.POST(post({ kind: "set-seen" }));
+      const read = await (await route.GET()).json();
+
+      // assert
+      expect(res.status).toBe(400);
+      expect(typeof ((await res.json()) as { error: string }).error).toBe(
+        "string",
+      );
+      expect(read.revision).toBe(0);
+    }));
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[3]
 
 describe("pullDiffResponse", () => {
   /** A pull request whose base and heads are commits every clone of this repo has. */

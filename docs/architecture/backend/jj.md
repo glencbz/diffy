@@ -20,6 +20,8 @@ and propagates untouched for the caller to turn into a 500.
 ```ts
 //| id: jj-module
 //| file: src/backend/commit/jj.ts
+import { realpath, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
 import { type StructuralDiff, StructuralDiffs } from "./difft";
@@ -329,6 +331,32 @@ export async function jjOpLog(
 }
 ```
 
+### Finding the repository
+
+A workspace is a working copy with a `.jj/` of its own, and every workspace
+of one repository shares that repository's store. `jj workspace root` names
+the workspace the server was started in. Its `.jj/repo` is the store itself in
+the workspace that made the repository, and in any other workspace a file
+holding the path to that store, relative to the `.jj/` it sits in.
+`jjRepoDir` follows the file when there is one and resolves the result to a
+real path, so every workspace of one repository names the same directory.
+
+```ts
+//| id: jj-module
+
+/** The real path of the repository store behind the current workspace,
+ *  the same for every workspace of one repository. */
+export async function jjRepoDir(): Promise<string> {
+  const root = (await runJj(["workspace", "root"])).trim();
+  const dotJj = join(root, ".jj");
+  const repo = join(dotJj, "repo");
+  const target = (await stat(repo)).isFile()
+    ? resolve(dotJj, (await Bun.file(repo).text()).trim())
+    : repo;
+  return realpath(target);
+}
+```
+
 ### Reading a commit's diff
 
 `jj diff --git -r <revision>` prints a standard `git`-format unified diff of a
@@ -588,6 +616,7 @@ specific commit history: the root commit always exists, always sorts last in
 //| id: jj-module-test
 //| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
+import { stat } from "node:fs/promises";
 import {
   COMMIT_MARKERS,
   JjError,
@@ -597,6 +626,7 @@ import {
   jjInterdiff,
   jjLog,
   jjOpLog,
+  jjRepoDir,
   parseFileDiff,
 } from "./jj";
 
@@ -705,6 +735,18 @@ describe("jjOpLog", () => {
 
     // assert
     expect(operations).toHaveLength(1);
+  });
+});
+
+describe("jjRepoDir", () => {
+  test("names the store directory behind this workspace", async () => {
+    // arrange
+    // act
+    const dir = await jjRepoDir();
+
+    // assert
+    expect(dir.endsWith("/.jj/repo")).toBe(true);
+    expect((await stat(dir)).isDirectory()).toBe(true);
   });
 });
 ```

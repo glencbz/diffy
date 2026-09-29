@@ -69,8 +69,10 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import type { ReviewStore } from "./backend/review/store";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
+import { ReviewCommand } from "./frontend/model/review";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {
@@ -512,27 +514,65 @@ async function pullDiffFiles(
 }
 ```
 
-The route table is the list of handlers the server exposes. Every path that is
-not an API route is the page, since the frontend keeps the reader's place in
+### Reading and writing the review document
+
+`/api/review` is the [review store](review-store.md) over HTTP. A `GET`
+answers with the document and its revision. A `POST` carries one
+[command](../frontend/review.md#review-state), and answers with the document
+and revision the command left. A body that is not a command is a 400 naming
+what is wrong with it, so a writer that is not the browser, such as an
+agent, learns what it sent wrong.
+
+The handler takes the store as an argument rather than opening it, so the
+route tests hand it one on a file of their own and never touch the reader's.
+
+```ts
+//| id: backend-server
+
+export function reviewRoute(store: ReviewStore) {
+  return {
+    GET: () => Response.json(store.read()),
+    POST: async (req: Request) => {
+      const command = ReviewCommand.safeParse(
+        await req.json().catch(() => undefined),
+      );
+      if (!command.success) {
+        return Response.json(
+          { error: z.prettifyError(command.error) },
+          { status: 400 },
+        );
+      }
+      return Response.json(store.apply(command.data));
+    },
+  };
+}
+```
+
+The route table is the list of handlers the server exposes, given the review
+store [the command line](cli.md) opened at startup. Every path that is not an
+API route is the page, since the frontend keeps the reader's place in
 [the path](../frontend/address.md). An API path with no handler is a 404
 rather than the page, so a mistyped request fails as one.
 
 ```ts
 //| id: backend-server
 
-export const routes = {
-  "/*": index,
-  "/api/*": () => new Response("Not found", { status: 404 }),
-  "/api/log": handleLog,
-  "/api/operations": handleOperations,
-  "/api/diff": handleDiff,
-  "/api/interdiff": handleInterdiff,
-  "/api/source": handleSource,
-  "/api/github/pulls": handleGithubPulls,
-  "/api/github/pull/history": handleGithubPullHistory,
-  "/api/github/pull/commits": handleGithubPullCommits,
-  "/api/github/pull/diff": handleGithubPullDiff,
-};
+export function routes(store: ReviewStore) {
+  return {
+    "/*": index,
+    "/api/*": () => new Response("Not found", { status: 404 }),
+    "/api/log": handleLog,
+    "/api/operations": handleOperations,
+    "/api/diff": handleDiff,
+    "/api/interdiff": handleInterdiff,
+    "/api/source": handleSource,
+    "/api/github/pulls": handleGithubPulls,
+    "/api/github/pull/history": handleGithubPullHistory,
+    "/api/github/pull/commits": handleGithubPullCommits,
+    "/api/github/pull/diff": handleGithubPullDiff,
+    "/api/review": reviewRoute(store),
+  };
+}
 ```
 
 ### Route tests
@@ -544,9 +584,13 @@ without binding a port.
 //| id: backend-server-test
 //| file: src/server.test.ts
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { openReviewStore } from "./backend/review/store";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -557,6 +601,7 @@ import {
   handleOperations,
   handleSource,
   pullDiffResponse,
+  reviewRoute,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -852,6 +897,73 @@ describe("the GitHub routes", () => {
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/40-character/);
   });
+});
+```
+
+The review route is tested against a store on a file of the test's own, for
+what it answers and for what it refuses.
+
+```ts
+//| id: backend-server-test
+
+describe("the review route", () => {
+  async function withStore(
+    run: (route: ReturnType<typeof reviewRoute>) => Promise<void>,
+  ) {
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    try {
+      await run(reviewRoute(openReviewStore(join(dir, "r.sqlite"))));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  function post(body: unknown): Request {
+    return new Request("http://test/api/review", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("answers a command with the document it left", () =>
+    withStore(async (route) => {
+      // arrange
+      const command = {
+        kind: "set-seen",
+        comparison: {
+          reviewKey: "change:a",
+          fromCommitId: null,
+          toCommitId: "a",
+        },
+        seen: true,
+        at: "2026-09-28T09:00:00.000Z",
+      };
+
+      // act
+      const res = await route.POST(post(command));
+      const read = await (await route.GET()).json();
+
+      // assert
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(read);
+      expect(read.revision).toBe(1);
+      expect(read.document.marks).toHaveLength(1);
+    }));
+
+  test("reports a body that is not a command as 400 and writes nothing", () =>
+    withStore(async (route) => {
+      // arrange
+      // act
+      const res = await route.POST(post({ kind: "set-seen" }));
+      const read = await (await route.GET()).json();
+
+      // assert
+      expect(res.status).toBe(400);
+      expect(typeof ((await res.json()) as { error: string }).error).toBe(
+        "string",
+      );
+      expect(read.revision).toBe(0);
+    }));
 });
 ```
 

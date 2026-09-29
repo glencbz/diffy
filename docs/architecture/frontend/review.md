@@ -8,7 +8,7 @@ where the answer is kept between visits.
 `/api/interdiff` must never learn that review state exists. Every row it
 returns costs a `jj` process, so a mark that triggered a refetch would spawn a
 subprocess to record a click. The review document is read from
-[`localStorage`](#storage) on its own, independently of the interdiff fetch;
+[the review store](#storage) on its own, independently of the interdiff fetch;
 whichever row a mark or comment belongs to is worked out here, client-side,
 from ids both already carry.
 
@@ -66,8 +66,9 @@ of their own, so a line comment stored before files and comparisons took
 comments is still a valid line comment: the `kind` it lacks defaults to
 `line`, the way its missing `side` defaults to `after`. Nesting the anchor
 would need a migration written in front of the schema, and a document that
-fails to parse is [replaced with an empty one](#storage), so a bug in that
-migration would cost every reader every comment.
+fails to parse [cannot be read or written](../backend/review-store.md#the-document-as-one-row)
+until someone repairs it, so a bug in that migration would cost every reader
+their review state.
 
 A comment's `stale` flag asks whether what the note is about still reads as
 it did when the note was written, a narrower question than a mark's `changed`
@@ -100,12 +101,34 @@ hashing the patch, because the patch is drawn from them. A mark that no longer
 matches is left in place rather than pruned, as a stale comparison mark is:
 nothing reads it, and a later rewrite that puts the old blobs back finds it.
 
+Every comment names who wrote it. A comment written on this screen is the
+reader's, and a comment kept before comments had authors reads as the
+reader's too, since nothing else could have written it. The field is there
+from the first comment so that once something other than the browser writes
+comments, none of the earlier ones are left unattributed.
+
+A change to the document is a `ReviewCommand`, a value that says what the
+state should become: this comparison seen or not, this file viewed or not,
+this comment added under the id its writer chose, resolved or not, or gone.
+`applyCommand` turns a document and a command into the next document. None of
+them says which way to flip anything, so a command applied twice leaves what
+applying it once did, and whoever sends one can send it again after a failure
+without asking whether the first attempt landed. A flip would undo itself on
+the retry. Adding a comment under an id that is already there changes
+nothing, for the same reason.
+
+The screen still offers toggles, and the toggle is decided where the reader
+clicked, from what the row reads at that moment. `markSeen` builds a command
+that marks the row seen unless it reads reviewed, and `markViewed` one that
+marks the file viewed unless it is. `commentOn` pins a new comment to the
+commit it was read against, as described above.
+
 All of this is the review [model](index.md#model): marks, comments, and
 viewed files, each with the Zod schema that reads it back from storage; how
-the stored document is read against the rows the interdiff returns; and each
-change a reader can make to it, as a plain function from one document to the
-next. The views name these shapes and call the readers, and none of it needs
-React or storage, so it sits apart from the state that holds the document.
+the stored document is read against the rows the interdiff returns; and the
+commands that change it. The views name these shapes and call the readers,
+and none of it needs React or storage, so it sits apart from the state that
+holds the document.
 
 ```ts
 //| id: frontend-model-review
@@ -156,6 +179,9 @@ export const Comment = z.intersection(
     body: z.string(),
     resolved: z.boolean(),
     createdAt: z.string(),
+    /** Who wrote it. A comment kept before comments had authors was the
+     *  reader's, since nothing else could write one. */
+    author: z.string().default("reader"),
   }),
   Anchor,
 );
@@ -176,10 +202,20 @@ export const ViewedFile = FileVersion.extend({
 });
 export type ViewedFile = z.infer<typeof ViewedFile>;
 
+/** One version of a series the reader said they reviewed: a head of a pull
+ *  request, named by its oid. */
+export const ReviewedVersion = z.object({
+  series: z.string(),
+  version: z.string(),
+  reviewedAt: z.string(),
+});
+export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
+  reviewed: z.array(ReviewedVersion).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -187,7 +223,37 @@ export const EMPTY_REVIEW: ReviewDocument = {
   marks: [],
   comments: [],
   viewed: [],
+  reviewed: [],
 };
+
+export function isEmptyReview(document: ReviewDocument): boolean {
+  return (
+    document.marks.length === 0 &&
+    document.comments.length === 0 &&
+    document.viewed.length === 0 &&
+    document.reviewed.length === 0
+  );
+}
+
+/** The series a pull request's versions are marked reviewed under. */
+export function pullSeries(repo: string, number: number): string {
+  return `pull:${repo}#${number}`;
+}
+
+/** The versions of one series the reader marked reviewed. */
+export function reviewedIn(
+  document: ReviewDocument,
+  series: string,
+): ReviewedVersion[] {
+  return document.reviewed.filter((version) => version.series === series);
+}
+
+/** The document as the server holds it, and how many writes made it. */
+export const ReviewSnapshot = z.object({
+  revision: z.number().int(),
+  document: ReviewDocument,
+});
+export type ReviewSnapshot = z.infer<typeof ReviewSnapshot>;
 
 export type RowReview =
   | { state: "unseen" }
@@ -312,74 +378,6 @@ function sameComparison(a: Comparison, b: Comparison): boolean {
   );
 }
 
-/** The document with the row's mark added, or removed if the row reads
- * reviewed. Any mark on the same comparison is replaced rather than kept
- * beside the new one. */
-export function flipSeen(
-  document: ReviewDocument,
-  row: ReviewedRow,
-  seenAt: string,
-): ReviewDocument {
-  const comparison: Comparison = {
-    reviewKey: row.reviewKey,
-    fromCommitId: row.from?.commitId ?? null,
-    toCommitId: row.to?.commitId ?? null,
-  };
-  const marks = document.marks.filter(
-    (mark) => !sameComparison(mark, comparison),
-  );
-  if (row.review.state === "reviewed") return { ...document, marks };
-  return { ...document, marks: [...marks, { ...comparison, seenAt }] };
-}
-
-/** The document with a comment added on a row, pinned to the commit what it
- * is about was read against. */
-export function addComment(
-  document: ReviewDocument,
-  row: ReviewedRow,
-  comment: Anchor & Pick<Comment, "id" | "body" | "createdAt">,
-): ReviewDocument {
-  const commit =
-    comment.kind === "line" && comment.side === "before"
-      ? (row.from ?? row.to)
-      : (row.to ?? row.from);
-  return {
-    ...document,
-    comments: [
-      ...document.comments,
-      {
-        ...comment,
-        reviewKey: row.reviewKey,
-        commitId: commit?.commitId ?? "",
-        resolved: false,
-      },
-    ],
-  };
-}
-
-export function resolveComment(
-  document: ReviewDocument,
-  id: string,
-  resolved: boolean,
-): ReviewDocument {
-  return {
-    ...document,
-    comments: document.comments.map((comment) =>
-      comment.id === id ? { ...comment, resolved } : comment,
-    ),
-  };
-}
-
-export function dropComment(
-  document: ReviewDocument,
-  id: string,
-): ReviewDocument {
-  return {
-    ...document,
-    comments: document.comments.filter((comment) => comment.id !== id),
-  };
-}
-
 function sameVersion(a: FileVersion, b: FileVersion): boolean {
   return (
     a.path === b.path && a.oldBlob === b.oldBlob && a.newBlob === b.newBlob
@@ -391,23 +389,214 @@ export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
   return viewed.some((mark) => sameVersion(mark, file));
 }
 
-/** The document with one file's viewed mark added, or removed if it is
- * there. */
-export function flipViewed(
+/** One change a reader or an agent makes to the review document. Each says
+ *  what the state should become, so applying one twice leaves what applying
+ *  it once did. */
+export const ReviewCommand = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("set-seen"),
+    comparison: Comparison,
+    seen: z.boolean(),
+    at: z.string(),
+  }),
+  z.object({
+    kind: z.literal("set-viewed"),
+    reviewKey: z.string(),
+    file: FileVersion,
+    viewed: z.boolean(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("add-comment"), comment: Comment }),
+  z.object({
+    kind: z.literal("resolve-comment"),
+    id: z.string(),
+    resolved: z.boolean(),
+  }),
+  z.object({ kind: z.literal("delete-comment"), id: z.string() }),
+  z.object({
+    kind: z.literal("mark-reviewed"),
+    series: z.string(),
+    version: z.string(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("import"), document: ReviewDocument }),
+]);
+export type ReviewCommand = z.infer<typeof ReviewCommand>;
+
+export function applyCommand(
   document: ReviewDocument,
-  reviewKey: string,
-  file: FileVersion,
-  viewedAt: string,
+  command: ReviewCommand,
 ): ReviewDocument {
-  const others = document.viewed.filter(
-    (mark) => mark.reviewKey !== reviewKey || !sameVersion(mark, file),
-  );
-  if (others.length < document.viewed.length) {
-    return { ...document, viewed: others };
+  switch (command.kind) {
+    case "set-seen": {
+      const marks = document.marks.filter(
+        (mark) => !sameComparison(mark, command.comparison),
+      );
+      return {
+        ...document,
+        marks: command.seen
+          ? [...marks, { ...command.comparison, seenAt: command.at }]
+          : marks,
+      };
+    }
+    case "set-viewed": {
+      const viewed = document.viewed.filter(
+        (mark) =>
+          mark.reviewKey !== command.reviewKey ||
+          !sameVersion(mark, command.file),
+      );
+      return {
+        ...document,
+        viewed: command.viewed
+          ? [
+              ...viewed,
+              {
+                ...command.file,
+                reviewKey: command.reviewKey,
+                viewedAt: command.at,
+              },
+            ]
+          : viewed,
+      };
+    }
+    case "add-comment":
+      return document.comments.some(
+        (comment) => comment.id === command.comment.id,
+      )
+        ? document
+        : { ...document, comments: [...document.comments, command.comment] };
+    case "resolve-comment":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.id
+            ? { ...comment, resolved: command.resolved }
+            : comment,
+        ),
+      };
+    case "delete-comment":
+      return {
+        ...document,
+        comments: document.comments.filter(
+          (comment) => comment.id !== command.id,
+        ),
+      };
+    case "mark-reviewed":
+      return {
+        ...document,
+        reviewed: added(
+          document.reviewed,
+          [
+            {
+              series: command.series,
+              version: command.version,
+              reviewedAt: command.at,
+            },
+          ],
+          sameReviewedVersion,
+        ),
+      };
+    case "import":
+      return {
+        marks: added(document.marks, command.document.marks, sameComparison),
+        comments: added(
+          document.comments,
+          command.document.comments,
+          (a, b) => a.id === b.id,
+        ),
+        viewed: added(
+          document.viewed,
+          command.document.viewed,
+          (a, b) => a.reviewKey === b.reviewKey && sameVersion(a, b),
+        ),
+        reviewed: added(
+          document.reviewed,
+          command.document.reviewed,
+          sameReviewedVersion,
+        ),
+      };
   }
+}
+
+function sameReviewedVersion(a: ReviewedVersion, b: ReviewedVersion): boolean {
+  return a.series === b.series && a.version === b.version;
+}
+
+/** `existing` with each of `incoming` that names nothing already there. */
+function added<T>(
+  existing: T[],
+  incoming: T[],
+  same: (a: T, b: T) => boolean,
+): T[] {
+  const result = [...existing];
+  for (const item of incoming) {
+    if (!result.some((kept) => same(kept, item))) result.push(item);
+  }
+  return result;
+}
+
+/** What a screen can do to the review document, once it has one to change. */
+export interface ReviewActions {
+  markSeen: (row: ReviewedRow) => void;
+  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
+  resolveComment: (id: string, resolved: boolean) => void;
+  dropComment: (id: string) => void;
+  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  markReviewed: (series: string, version: string) => void;
+}
+
+/** The comparison a row stands for, as a mark names it. */
+function comparisonOf(row: ReviewedRow): Comparison {
   return {
-    ...document,
-    viewed: [...others, { ...file, reviewKey, viewedAt }],
+    reviewKey: row.reviewKey,
+    fromCommitId: row.from?.commitId ?? null,
+    toCommitId: row.to?.commitId ?? null,
+  };
+}
+
+/** Marks the row seen, or unseen if it reads reviewed. */
+export function markSeen(row: ReviewedRow, at: string): ReviewCommand {
+  return {
+    kind: "set-seen",
+    comparison: comparisonOf(row),
+    seen: row.review.state !== "reviewed",
+    at,
+  };
+}
+
+/** Marks one file of a row viewed, or not viewed if it is. */
+export function markViewed(
+  row: ReviewedRow,
+  file: FileVersion,
+  at: string,
+): ReviewCommand {
+  return {
+    kind: "set-viewed",
+    reviewKey: row.reviewKey,
+    file,
+    viewed: !isViewed(row.viewed, file),
+    at,
+  };
+}
+
+/** Adds a comment on a row, pinned to the commit what it is about was read
+ *  against. */
+export function commentOn(
+  row: ReviewedRow,
+  comment: Anchor & Pick<Comment, "id" | "body" | "createdAt" | "author">,
+): ReviewCommand {
+  const commit =
+    comment.kind === "line" && comment.side === "before"
+      ? (row.from ?? row.to)
+      : (row.to ?? row.from);
+  return {
+    kind: "add-comment",
+    comment: {
+      ...comment,
+      reviewKey: row.reviewKey,
+      commitId: commit?.commitId ?? "",
+      resolved: false,
+    },
   };
 }
 ```
@@ -424,14 +613,16 @@ import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
 import type { InterdiffRow, LogEntry } from "../api";
 import {
-  addComment,
-  dropComment,
+  applyCommand,
+  commentOn,
+  EMPTY_REVIEW,
   type FileVersion,
-  flipSeen,
-  flipViewed,
   isViewed,
+  markSeen,
+  markViewed,
+  type ReviewCommand,
   ReviewDocument,
-  resolveComment,
+  type ReviewedRow,
   reviewKey,
   reviewRows,
 } from "./review";
@@ -471,7 +662,7 @@ describe("reviewRows", () => {
   test("leaves a row unseen against an empty document", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: ReviewDocument = { marks: [], comments: [], viewed: [] };
+    const document = EMPTY_REVIEW;
 
     // act
     const [reviewed] = reviewRows([row], document);
@@ -494,6 +685,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -520,6 +712,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -548,6 +741,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -576,6 +770,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -598,11 +793,9 @@ describe("reviewRows", () => {
       ...pair,
       files: [],
     }));
-    const changeARows = reviewRows(rows, {
-      marks: [],
-      comments: [],
-      viewed: [],
-    }).filter((row) => row.reviewKey === "change:aaaa");
+    const changeARows = reviewRows(rows, EMPTY_REVIEW).filter(
+      (row) => row.reviewKey === "change:aaaa",
+    );
     const dropped = changeARows.find((row) => row.to === null);
     if (dropped === undefined) {
       throw new Error("expected a dropped row for change aaaa");
@@ -618,6 +811,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -648,9 +842,11 @@ describe("reviewRows", () => {
           body: "old",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -677,9 +873,11 @@ describe("reviewRows", () => {
           body: "removed too soon",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -704,9 +902,11 @@ describe("reviewRows", () => {
           body: "split this file",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -730,9 +930,11 @@ describe("reviewRows", () => {
           body: "squash this into its parent",
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
         },
       ],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -760,6 +962,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -790,6 +993,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -817,6 +1021,7 @@ describe("reviewRows", () => {
       ],
       comments: [],
       viewed: [],
+      reviewed: [],
     };
 
     // act
@@ -863,6 +1068,30 @@ describe("ReviewDocument", () => {
     });
   });
 
+  test("reads a comment kept before comments had authors as the reader's", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "comparison",
+          commitId: "a2",
+          body: "written before authors",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]?.author).toBe("reader");
+  });
+
   test("reads file and comparison comments back as themselves", () => {
     // arrange
     const written = {
@@ -871,6 +1100,7 @@ describe("ReviewDocument", () => {
       body: "",
       resolved: false,
       createdAt: "2026-09-14T09:00:00.000Z",
+      author: "agent",
     };
     const stored = {
       marks: [],
@@ -937,36 +1167,51 @@ describe("reviewKey", () => {
   });
 });
 
+const empty = EMPTY_REVIEW;
+
+function reviewedRow(row: InterdiffRow, document: ReviewDocument): ReviewedRow {
+  const [reviewed] = reviewRows([row], document);
+  if (reviewed === undefined) throw new Error("no row");
+  return reviewed;
+}
+
+/** Each command in turn, as the server and the browser both apply them. */
+function applied(
+  document: ReviewDocument,
+  ...commands: ReviewCommand[]
+): ReviewDocument {
+  return commands.reduce(applyCommand, document);
+}
+
 describe("viewed files", () => {
-  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
   const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
+  const row = pairRow("a", "a1", "a2");
 
   test("reads a file viewed on its row once it is marked", () => {
     // arrange
-    const document = flipViewed(
+    const document = applied(
       empty,
-      "change:a",
-      file,
-      "2026-09-25T09:00:00Z",
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const [row] = reviewRows([pairRow("a", "a1", "a2")], document);
+    const viewed = reviewedRow(row, document).viewed;
 
     // assert
-    expect(isViewed(row?.viewed ?? [], file)).toBe(true);
+    expect(isViewed(viewed, file)).toBe(true);
   });
 
   test("unmarks a file marked a second time", () => {
     // arrange
-    const marked = flipViewed(empty, "change:a", file, "2026-09-25T09:00:00Z");
+    const marked = applied(
+      empty,
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
+    );
 
     // act
-    const unmarked = flipViewed(
+    const unmarked = applied(
       marked,
-      "change:a",
-      file,
-      "2026-09-25T09:01:00Z",
+      markViewed(reviewedRow(row, marked), file, "2026-09-25T09:01:00Z"),
     );
 
     // assert
@@ -975,55 +1220,42 @@ describe("viewed files", () => {
 
   test("reads a file not viewed once its after side has changed", () => {
     // arrange
-    const document = flipViewed(
+    const document = applied(
       empty,
-      "change:a",
-      file,
-      "2026-09-25T09:00:00Z",
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const [row] = reviewRows([pairRow("a", "a1", "a3")], document);
+    const viewed = reviewedRow(pairRow("a", "a1", "a3"), document).viewed;
 
     // assert
-    expect(isViewed(row?.viewed ?? [], { ...file, newBlob: "b3" })).toBe(false);
+    expect(isViewed(viewed, { ...file, newBlob: "b3" })).toBe(false);
   });
 
   test("keeps a viewed mark to the row it was made on", () => {
     // arrange
-    const document = flipViewed(
+    const document = applied(
       empty,
-      "change:a",
-      file,
-      "2026-09-25T09:00:00Z",
+      markViewed(reviewedRow(row, empty), file, "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const [row] = reviewRows([pairRow("b", "b1", "b2")], document);
+    const viewed = reviewedRow(pairRow("b", "b1", "b2"), document).viewed;
 
     // assert
-    expect(isViewed(row?.viewed ?? [], file)).toBe(false);
+    expect(isViewed(viewed, file)).toBe(false);
   });
 });
 
 describe("changes to the document", () => {
-  const empty: ReviewDocument = { marks: [], comments: [], viewed: [] };
-
-  function reviewedRow(row: InterdiffRow, document: ReviewDocument) {
-    const [reviewed] = reviewRows([row], document);
-    if (reviewed === undefined) throw new Error("no row");
-    return reviewed;
-  }
-
   test("marks a row seen, and reads it reviewed", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
 
     // act
-    const document = flipSeen(
+    const document = applied(
       empty,
-      reviewedRow(row, empty),
-      "2026-09-25T09:00:00Z",
+      markSeen(reviewedRow(row, empty), "2026-09-25T09:00:00Z"),
     );
 
     // assert
@@ -1036,17 +1268,15 @@ describe("changes to the document", () => {
   test("unmarks a reviewed row", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const marked = flipSeen(
+    const marked = applied(
       empty,
-      reviewedRow(row, empty),
-      "2026-09-25T09:00:00Z",
+      markSeen(reviewedRow(row, empty), "2026-09-25T09:00:00Z"),
     );
 
     // act
-    const document = flipSeen(
+    const document = applied(
       marked,
-      reviewedRow(row, marked),
-      "2026-09-25T09:01:00Z",
+      markSeen(reviewedRow(row, marked), "2026-09-25T09:01:00Z"),
     );
 
     // assert
@@ -1055,18 +1285,19 @@ describe("changes to the document", () => {
 
   test("keeps the old mark when a changed row is marked again", () => {
     // arrange
-    const marked = flipSeen(
+    const marked = applied(
       empty,
-      reviewedRow(pairRow("a", "a1", "a2"), empty),
-      "2026-09-25T09:00:00Z",
+      markSeen(
+        reviewedRow(pairRow("a", "a1", "a2"), empty),
+        "2026-09-25T09:00:00Z",
+      ),
     );
     const amended = pairRow("a", "a1", "a3");
 
     // act
-    const document = flipSeen(
+    const document = applied(
       marked,
-      reviewedRow(amended, marked),
-      "2026-09-25T09:01:00Z",
+      markSeen(reviewedRow(amended, marked), "2026-09-25T09:01:00Z"),
     );
 
     // assert
@@ -1083,13 +1314,14 @@ describe("changes to the document", () => {
       line: 3,
       body: "hm",
       createdAt: "t",
+      author: "reader",
     } as const;
 
     // act
-    const document = addComment(
-      addComment(empty, row, { ...at, id: "c1", side: "before" }),
-      row,
-      { ...at, id: "c2", side: "after" },
+    const document = applied(
+      empty,
+      commentOn(row, { ...at, id: "c1", side: "before" }),
+      commentOn(row, { ...at, id: "c2", side: "after" }),
     );
 
     // assert
@@ -1107,15 +1339,19 @@ describe("changes to the document", () => {
     );
 
     // act
-    const document = addComment(empty, row, {
-      id: "c1",
-      kind: "line",
-      path: "f.ts",
-      side: "before",
-      line: 3,
-      body: "hm",
-      createdAt: "t",
-    });
+    const document = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "line",
+        path: "f.ts",
+        side: "before",
+        line: 3,
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+    );
 
     // assert
     expect(document.comments[0]?.commitId).toBe("a2");
@@ -1124,13 +1360,13 @@ describe("changes to the document", () => {
   test("pins a file or comparison comment to the row's after side", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
-    const at = { body: "hm", createdAt: "t" };
+    const at = { body: "hm", createdAt: "t", author: "reader" };
 
     // act
-    const document = addComment(
-      addComment(empty, row, { ...at, id: "c1", kind: "file", path: "f.ts" }),
-      row,
-      { ...at, id: "c2", kind: "comparison" },
+    const document = applied(
+      empty,
+      commentOn(row, { ...at, id: "c1", kind: "file", path: "f.ts" }),
+      commentOn(row, { ...at, id: "c2", kind: "comparison" }),
     );
 
     // assert
@@ -1149,16 +1385,21 @@ describe("changes to the document", () => {
       line: 3,
       side: "after",
       body: "hm",
+      author: "reader",
     } as const;
-    const two = addComment(
-      addComment(empty, row, { ...at, id: "c1", createdAt: "t1" }),
-      row,
-      { ...at, id: "c2", createdAt: "t2" },
+    const two = applied(
+      empty,
+      commentOn(row, { ...at, id: "c1", createdAt: "t1" }),
+      commentOn(row, { ...at, id: "c2", createdAt: "t2" }),
     );
 
     // act
-    const resolved = resolveComment(two, "c1", true);
-    const dropped = dropComment(resolved, "c1");
+    const resolved = applied(two, {
+      kind: "resolve-comment",
+      id: "c1",
+      resolved: true,
+    });
+    const dropped = applied(resolved, { kind: "delete-comment", id: "c1" });
 
     // assert
     expect(resolved.comments.map((comment) => comment.resolved)).toEqual([
@@ -1166,6 +1407,107 @@ describe("changes to the document", () => {
       false,
     ]);
     expect(dropped.comments.map((comment) => comment.id)).toEqual(["c2"]);
+  });
+
+  test("leaves the document of one application when a command lands twice", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const file: FileVersion = { path: "f.ts", oldBlob: "b1", newBlob: "b2" };
+    const commands: ReviewCommand[] = [
+      markSeen(row, "t"),
+      markViewed(row, file, "t"),
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+      { kind: "resolve-comment", id: "c1", resolved: true },
+    ];
+
+    // act
+    const once = applied(empty, ...commands);
+    const twice = applied(
+      empty,
+      ...commands.flatMap((command) => [command, command]),
+    );
+
+    // assert
+    expect(twice).toEqual(once);
+  });
+});
+
+describe("reviewed versions", () => {
+  test("keeps every version marked, once each", () => {
+    // arrange
+    const mark = (version: string, at: string): ReviewCommand => ({
+      kind: "mark-reviewed",
+      series: "pull:o/r#7",
+      version,
+      at,
+    });
+
+    // act
+    const document = applied(
+      empty,
+      mark("v1", "t1"),
+      mark("v2", "t2"),
+      mark("v1", "t3"),
+    );
+
+    // assert
+    expect(document.reviewed).toEqual([
+      { series: "pull:o/r#7", version: "v1", reviewedAt: "t1" },
+      { series: "pull:o/r#7", version: "v2", reviewedAt: "t2" },
+    ]);
+  });
+});
+
+describe("import", () => {
+  const row = pairRow("a", "a1", "a2");
+  const comment = {
+    id: "c1",
+    kind: "comparison",
+    body: "hm",
+    createdAt: "t",
+    author: "reader",
+  } as const;
+
+  test("adds what the document lacks and keeps what it has", () => {
+    // arrange
+    const held = applied(empty, markSeen(reviewedRow(row, empty), "t-held"));
+    const incoming = applied(
+      empty,
+      markSeen(reviewedRow(row, empty), "t-incoming"),
+      commentOn(reviewedRow(row, empty), comment),
+    );
+
+    // act
+    const document = applied(held, { kind: "import", document: incoming });
+
+    // assert
+    expect(document.marks.map((mark) => mark.seenAt)).toEqual(["t-held"]);
+    expect(document.comments.map((kept) => kept.id)).toEqual(["c1"]);
+  });
+
+  test("leaves the document of one import when it lands twice", () => {
+    // arrange
+    const incoming = applied(
+      empty,
+      markSeen(reviewedRow(row, empty), "t"),
+      commentOn(reviewedRow(row, empty), comment),
+      { kind: "mark-reviewed", series: "pull:o/r#7", version: "v1", at: "t" },
+    );
+    const command: ReviewCommand = { kind: "import", document: incoming };
+
+    // act
+    const once = applied(empty, command);
+    const twice = applied(empty, command, command);
+
+    // assert
+    expect(twice).toEqual(once);
+    expect(once).toEqual(incoming);
   });
 });
 ```
@@ -1229,211 +1571,438 @@ colour without either file naming it.
 ```
 ## Storage
 
-The review document belongs to whoever is reading, not to the repository being read,
-so it lives in the browser. It used to live in a SQLite file under `.jj/`,
-which put diffy's own bookkeeping inside the directory of the tool being
-reviewed. `.jj/` is jj's. A reviewer's marks and comments are diffy's
-business, and a database only jj is supposed to manage sitting in that
-directory was a surprise waiting to happen, whatever the file format. A
-different path on the server would not have fixed that.
+The review document lives on the server, in the
+[review store](../backend/review-store.md), so a second browser, a second tab,
+and an agent all read and write the one the reader does. It used to live in
+the browser's `localStorage`, which made a read synchronous and a write
+unable to fail. Both come back with the server: the document arrives some
+time after the screen does, and a write can be refused or never answered.
 
-`window.localStorage` replaces it: built into every browser, no dependency to
-add, and synchronous. `IndexedDB` was the other browser-native option and
-loses on that last point. A `fetch` needs a loading state; a synchronous read
-does not, because the data is there by the time a component first renders. A
-`fetch` needs an optimistic update held apart from server truth until a
-response confirms it; a synchronous write has no "in flight" to be optimistic
-about. A `fetch` needs a failure path that reconciles a rejected write against
-whatever the server ended up holding; a synchronous write either succeeds or
-throws where it is called. All three collapse into a plain `useState`, because
-all three only existed to cover a round trip that is now gone.
+### Reading it from the server
 
-The review document follows the browser rather than the repo, and that costs
-something. It does not survive clearing site data. It is not shared between
-two browsers, or between two machines working from the same clone. Because
-[`just serve` gives each workspace its own port](../../devtools/serving.md),
-browser storage is partitioned by origin, and an origin includes the port, two
-workspaces of the same repo reviewed side by side get two separate review documents,
-which is usually what is wanted. A different repo served later on a port an
-earlier repo used inherits that repo's stored marks. Those marks carry change
-ids no row in the new repo will ever match, so they render as nothing, but
-they accumulate in `localStorage`. That is accepted on the same "good enough
-for one reader in one browser" grounds as the rest of this design. A reviewer
-working from two machines, or a review that has to outlive clearing browser
-data, wants a server-side store keyed by repo, which is a feature to build
-rather than a small addition to this one.
+`reviewStore` is the review document's repository, the same role
+`localRepository` plays for [settings](settings.md), with the server behind
+it instead of `localStorage`. It loads the document with its revision and
+sends one command, answering with the document and revision the command
+left. A refusal comes back as an `Error` carrying the server's own message.
 
-`SessionEdit` is gone along with the database. It existed so one edit value
-could be applied to a local copy and posted verbatim, letting the client's
-`applyEdit` and the backend's `applyEdit` compute the same document from the
-same input without being reconciled. That argument needs two implementations
-that could disagree. With no server there is one mutation and one place it
-runs, so `SessionEdit` had stopped describing a mutation and become a dispatch
-layer between a mutator that knew what it wanted to do and a `switch` that
-re-derived the same thing from a `kind` field. The union and `applyEdit` are
-gone, and each mutator below builds the next document directly.
-
-`useReview` holds the document through [`useStored`](index.md#local-storage),
-which reads it once from `reviewRepository` and saves every change back.
-The repository parses the stored document with the `ReviewDocument` schema
-and falls back to `EMPTY_REVIEW`. A document saved before viewed marks existed
-has no `viewed` list, and the schema reads that as an empty one rather than as
-a bad blob, so adding viewed marks cost no reader their marks and comments.
-The key is still `diffy.session.v1`, from when this document was called the
-session. Renaming the key would lose every reader's marks and comments, and
-the key's name costs nothing.
+It sits in `persistence/` rather than beside the other endpoints in
+[`api.ts`](transport.md). `api.ts` reads what the repository and GitHub
+say, and nothing it reads is the app's to change. `persistence/` is where
+the app keeps its own documents, and which store keeps one is that layer's
+decision, so moving the review document to the server changed that layer and
+left `state/review.ts` talking to a repository as before.
 
 ```ts
 //| id: frontend-persistence-review
 //| file: src/frontend/persistence/review.ts
-import { EMPTY_REVIEW, ReviewDocument } from "../model/review";
-import { localRepository } from "./local";
+import * as z from "zod";
+import { type ReviewCommand, ReviewSnapshot } from "../model/review";
 
-export const reviewRepository = localRepository<ReviewDocument>(
-  "diffy.session.v1",
-  ReviewDocument,
-  EMPTY_REVIEW,
-);
+const ErrorAnswer = z.object({ error: z.string() });
+
+/** The server's answer, or the error it gave in its place. */
+async function snapshotOf(res: Response): Promise<ReviewSnapshot> {
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const error = ErrorAnswer.safeParse(body);
+    throw new Error(
+      error.success
+        ? error.data.error
+        : `the review store answered ${res.status}`,
+    );
+  }
+  return ReviewSnapshot.parse(body);
+}
+
+/** The review document as the server keeps it. */
+export const reviewStore = {
+  async load(): Promise<ReviewSnapshot> {
+    return snapshotOf(await fetch("/api/review"));
+  },
+  async send(command: ReviewCommand): Promise<ReviewSnapshot> {
+    return snapshotOf(
+      await fetch("/api/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      }),
+    );
+  },
+};
 ```
 
-`ReviewHandle` has no `error` field, because a failed write is dropped rather than
-reported; [Local storage](index.md#local-storage) says why.
+### Holding it while it changes
 
-Each mutator hands `update` a pure change from the review model, which
-computes the next document from the current one; `update` is the one place
-the document is saved and set. The changes live in the model rather than in
-the hook so the review tests reach them without rendering a component, and
-what the hook adds is only what a pure function cannot make up for itself:
-the time and a fresh comment id. `markSeen` decides mark versus unmark from
-the row's own `review.state`, so callers never build a comparison by hand.
-The mutators close only over the stable `update` function rather than over
-`document`, so a component handed one does not re-render when the document
-changes.
+`useReview` loads the document once, when the app starts, and holds it for
+every screen. Until it arrives the handle is `loading` and the document is
+empty, so a diff draws without review state rather than waiting for it,
+since the diff is what the reader came for. A document the server cannot
+read makes the handle `unavailable`, and the diff draws the same way. Only a
+`ready` handle has `actions`, so a screen that draws the diff while nothing
+has loaded has nothing to offer the reader that would write, and the type
+says so rather than a flag each view has to remember to check.
+
+A change shows at once. Each command the reader makes is applied to what
+the screen shows before the server answers, and kept in a list of commands
+in flight. The document on screen is the last one the server answered with,
+with every command still in flight applied on top, through the same
+`applyCommand` the server runs. An answer replaces the server's document and
+takes its command off the list, and the answer already holds that command's
+effect, so nothing on screen moves. A refused or unanswered command is taken
+off the list too, which puts back what the server holds, and the reason is
+kept in `failure` for the screen to say.
+
+Holding the server's document apart from the commands in flight is what makes
+a failure safe to undo. Undoing a failed change by restoring the document
+from before it would also undo any change made since that did land.
+
+Two answers can arrive in the order opposite to the one the server wrote
+them in, and taking the second as it came would show the first command
+undone until the next write. An answer replaces the document only when its
+revision is higher than the one held.
 
 ```tsx
 //| id: frontend-state-review
 //| file: src/frontend/state/review.ts
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AsyncState } from "../model/asyncState";
 import {
-  type Anchor,
-  addComment,
-  dropComment,
-  type FileVersion,
-  flipSeen,
-  flipViewed,
+  applyCommand,
+  commentOn,
+  EMPTY_REVIEW,
+  markSeen,
+  markViewed,
+  type ReviewActions,
+  type ReviewCommand,
   type ReviewDocument,
-  type ReviewedRow,
-  resolveComment,
+  type ReviewSnapshot,
 } from "../model/review";
-import { reviewRepository } from "../persistence/review";
-import { useStored } from "./stored";
+import { clearLegacyReview, legacyReview } from "../persistence/legacyReview";
+import { reviewStore } from "../persistence/review";
 
-export interface ReviewHandle {
+/** The review document and what a screen can do with it. Only a document
+ *  the server has answered with can be changed, so `actions` exists only
+ *  once it is ready. */
+export type ReviewHandle = (
+  | { status: "loading" }
+  | { status: "unavailable"; message: string }
+  | { status: "ready"; actions: ReviewActions }
+) & {
+  /** The server's document with every command still in flight applied. */
   document: ReviewDocument;
-  markSeen: (row: ReviewedRow) => void;
-  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
-  resolveComment: (id: string, resolved: boolean) => void;
-  dropComment: (id: string) => void;
-  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  /** Why the last change could not be saved, until the reader dismisses it. */
+  failure: string | null;
+  dismissFailure: () => void;
+};
+
+interface Pending {
+  id: number;
+  command: ReviewCommand;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function useReview(): ReviewHandle {
-  const [document, update] = useStored(reviewRepository);
+  const [confirmed, setConfirmed] = useState<AsyncState<ReviewSnapshot>>({
+    status: "loading",
+  });
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [failure, setFailure] = useState<string | null>(null);
+  const nextId = useRef(0);
 
-  const mutators = useMemo<Omit<ReviewHandle, "document">>(() => {
+  // Answers can arrive out of order, and an older one would undo a newer
+  // one's command on screen, so only a higher revision replaces what is held.
+  const accept = useCallback((snapshot: ReviewSnapshot) => {
+    setConfirmed((now) =>
+      now.status === "ready" && now.data.revision >= snapshot.revision
+        ? now
+        : { status: "ready", data: snapshot },
+    );
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let snapshot = await reviewStore.load();
+      const legacy = legacyReview(new Date().toISOString());
+      if (legacy !== null) {
+        snapshot = await reviewStore.send({ kind: "import", document: legacy });
+        clearLegacyReview();
+      }
+      if (!cancelled) accept(snapshot);
+    })().catch((error: unknown) => {
+      if (!cancelled) {
+        setConfirmed({ status: "error", message: messageOf(error) });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accept]);
+
+  const actions = useMemo<ReviewActions>(() => {
     const now = () => new Date().toISOString();
+    const send = (command: ReviewCommand) => {
+      const id = nextId.current;
+      nextId.current += 1;
+      const settle = () =>
+        setPending((all) => all.filter((entry) => entry.id !== id));
+      setPending((all) => [...all, { id, command }]);
+      reviewStore.send(command).then(
+        (snapshot) => {
+          accept(snapshot);
+          settle();
+        },
+        (error: unknown) => {
+          settle();
+          setFailure(`Could not save that change: ${messageOf(error)}`);
+        },
+      );
+    };
     return {
-      markSeen: (row) => update((current) => flipSeen(current, row, now())),
+      markSeen: (row) => send(markSeen(row, now())),
       addComment: (row, anchor, body) =>
-        update((current) =>
-          addComment(current, row, {
+        send(
+          commentOn(row, {
             id: crypto.randomUUID(),
             ...anchor,
             body,
             createdAt: now(),
+            author: "reader",
           }),
         ),
       resolveComment: (id, resolved) =>
-        update((current) => resolveComment(current, id, resolved)),
-      dropComment: (id) => update((current) => dropComment(current, id)),
-      toggleViewed: (row, file) =>
-        update((current) => flipViewed(current, row.reviewKey, file, now())),
+        send({ kind: "resolve-comment", id, resolved }),
+      dropComment: (id) => send({ kind: "delete-comment", id }),
+      toggleViewed: (row, file) => send(markViewed(row, file, now())),
+      markReviewed: (series, version) =>
+        send({ kind: "mark-reviewed", series, version, at: now() }),
     };
-  }, [update]);
+  }, [accept]);
 
-  return { document, ...mutators };
+  const dismissFailure = useCallback(() => setFailure(null), []);
+  const shared = { failure, dismissFailure };
+
+  if (confirmed.status === "loading") {
+    return { status: "loading", document: EMPTY_REVIEW, ...shared };
+  }
+  if (confirmed.status === "error") {
+    return {
+      status: "unavailable",
+      message: confirmed.message,
+      document: EMPTY_REVIEW,
+      ...shared,
+    };
+  }
+  return {
+    status: "ready",
+    actions,
+    document: pending.reduce(
+      (document, entry) => applyCommand(document, entry.command),
+      confirmed.data.document,
+    ),
+    ...shared,
+  };
 }
 ```
 
-The repository's tests cover what its schema adds to
-[`localRepository`](index.md#local-storage)'s.
+The strip under the mode tabs says when review state is missing or a change
+was lost, and says nothing otherwise. A lost change stays on the strip until
+the reader dismisses it, since it has already disappeared from the screen
+and the strip is the only place left that says it happened.
+
+```tsx
+//| id: frontend-view-review-strip
+//| file: src/frontend/views/ReviewStrip.tsx
+/** A line across the screen when review state cannot be shown or a change
+ *  to it was lost. Nothing at all while it loads or once it has loaded. */
+export function ReviewStrip({
+  unavailable,
+  failure,
+  onDismiss,
+}: {
+  /** Why the review document could not be read, if it could not. */
+  unavailable: string | null;
+  /** Why the last change could not be saved, if it could not. */
+  failure: string | null;
+  onDismiss: () => void;
+}) {
+  if (unavailable === null && failure === null) return null;
+  return (
+    <div className="review-strip" role="status">
+      {unavailable !== null && (
+        <p className="review-strip__note">
+          Review state is unavailable, so marks and comments are hidden:{" "}
+          {unavailable}
+        </p>
+      )}
+      {failure !== null && (
+        <p className="review-strip__note">
+          {failure}{" "}
+          <button
+            type="button"
+            className="review-strip__dismiss"
+            onClick={onDismiss}
+          >
+            dismiss
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
+```
+
+```css
+/*| id: design-review-state
+@layer components {
+  .review-strip {
+    flex: none;
+    padding: var(--space-2) var(--space-5);
+    border-bottom: 1px solid var(--review-changed-border);
+    background: var(--review-changed-surface);
+  }
+
+  .review-strip__note {
+    margin: 0;
+  }
+
+  .review-strip__dismiss {
+    margin-left: var(--space-3);
+  }
+}
+```
+
+### Moving what the browser kept
+
+A reader who marked and commented before the server kept review state still
+has all of it in `localStorage`, under `diffy.session.v1` and one
+`diffy.last-reviewed.v1:` key per pull request. `legacyReview` reads all of
+it into one document, and `useReview` sends that to the server as an
+`import` command whenever the keys hold anything, then clears them.
+
+An import adds what the server's document lacks and keeps what it has, so
+sending one twice changes nothing, and one from a second browser, or from a
+workspace served on another port with a `localStorage` of its own, adds that
+browser's marks beside the first one's. Importing only into an empty
+document was the other rule, and it would drop everything but the first
+browser's for good. A clear that fails leaves the keys to be imported again,
+which is the same harmless repeat.
+
+A pull request's last reviewed head becomes a version
+[marked reviewed](pull-requests.md#the-head-last-reviewed). The browser never
+kept when it was marked, so it is dated at the import.
 
 ```ts
-//| id: frontend-persistence-review-test
-//| file: src/frontend/persistence/review.test.ts
+//| id: frontend-persistence-legacy-review
+//| file: src/frontend/persistence/legacyReview.ts
+import { LastReviewed } from "../model/lastReviewed";
+import {
+  EMPTY_REVIEW,
+  isEmptyReview,
+  ReviewDocument,
+  type ReviewedVersion,
+} from "../model/review";
+import { localRepository } from "./local";
+
+const SESSION_KEY = "diffy.session.v1";
+const LAST_REVIEWED_PREFIX = "diffy.last-reviewed.v1:";
+
+function lastReviewedKeys(): string[] {
+  const keys: string[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(LAST_REVIEWED_PREFIX)) keys.push(key);
+  }
+  return keys;
+}
+
+/** What this browser kept of the review before the server did, as one
+ *  document, or null when it kept nothing. A pull request's last reviewed
+ *  head becomes a version marked reviewed at `now`, since the browser never
+ *  kept when it was marked. */
+export function legacyReview(now: string): ReviewDocument | null {
+  const session = localRepository(
+    SESSION_KEY,
+    ReviewDocument,
+    EMPTY_REVIEW,
+  ).load();
+  const reviewed = lastReviewedKeys().flatMap((key): ReviewedVersion[] => {
+    const mark = localRepository(key, LastReviewed, null).load();
+    if (mark === null) return [];
+    const series = `pull:${key.slice(LAST_REVIEWED_PREFIX.length)}`;
+    return [{ series, version: mark.head, reviewedAt: now }];
+  });
+  const document = { ...session, reviewed };
+  return isEmptyReview(document) ? null : document;
+}
+
+/** Forgets what `legacyReview` read, once the server holds it. */
+export function clearLegacyReview(): void {
+  for (const key of [SESSION_KEY, ...lastReviewedKeys()]) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Left behind, it is imported again next time, which changes nothing.
+    }
+  }
+}
+```
+
+```ts
+//| id: frontend-persistence-legacy-review-test
+//| file: src/frontend/persistence/legacyReview.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { ReviewDocument } from "../model/review";
+import { clearLegacyReview, legacyReview } from "./legacyReview";
 import { memoryStorage } from "./memoryStorage";
-import { reviewRepository } from "./review";
 
 beforeEach(() => {
   globalThis.localStorage = memoryStorage() as unknown as Storage;
 });
 
-describe("reviewRepository", () => {
-  test("round-trips a document through save", () => {
+const mark = {
+  reviewKey: "change:a",
+  fromCommitId: "a1",
+  toCommitId: "a2",
+  seenAt: "2026-09-14T09:00:00.000Z",
+};
+const head = "b".repeat(40);
+
+describe("legacyReview", () => {
+  test("reads nothing when the browser kept nothing", () => {
     // arrange
-    const document: ReviewDocument = {
-      marks: [
-        {
-          reviewKey: "a",
-          fromCommitId: "a1",
-          toCommitId: "a2",
-          seenAt: "2026-09-14T09:00:00.000Z",
-        },
-      ],
-      comments: [],
-      viewed: [
-        {
-          reviewKey: "a",
-          path: "f.ts",
-          oldBlob: null,
-          newBlob: "b1",
-          viewedAt: "2026-09-25T09:00:00.000Z",
-        },
-      ],
-    };
-
     // act
-    reviewRepository.save(document);
-
     // assert
-    expect(reviewRepository.load()).toEqual(document);
+    expect(legacyReview("now")).toBeNull();
   });
 
-  test("loads a document saved before viewed marks, with none viewed", () => {
+  test("reads the session and each pull request's head into one document", () => {
     // arrange
-    const mark = {
-      reviewKey: "a",
-      fromCommitId: "a1",
-      toCommitId: "a2",
-      seenAt: "2026-09-14T09:00:00.000Z",
-    };
     localStorage.setItem(
       "diffy.session.v1",
       JSON.stringify({ marks: [mark], comments: [] }),
     );
+    localStorage.setItem(
+      "diffy.last-reviewed.v1:o/r#7",
+      JSON.stringify({ head }),
+    );
 
     // act
+    const document = legacyReview("now");
+
     // assert
-    expect(reviewRepository.load()).toEqual({
+    expect(document).toEqual({
       marks: [mark],
       comments: [],
       viewed: [],
+      reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "now" }],
     });
   });
 
-  test("keeps the comments of a document saved before comments had kinds", () => {
+  test("keeps the comments of a session saved before comments had kinds", () => {
     // arrange
     const comment = {
       id: "c1",
@@ -1452,20 +2021,34 @@ describe("reviewRepository", () => {
 
     // act
     // assert
-    expect(reviewRepository.load().comments).toEqual([
-      { ...comment, kind: "line", side: "after" },
+    expect(legacyReview("now")?.comments).toEqual([
+      { ...comment, kind: "line", side: "after", author: "reader" },
     ]);
   });
 
-  test("loads an empty document when nothing is stored", () => {
+  test("skips a pull request's head that does not parse", () => {
     // arrange
+    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
+
     // act
     // assert
-    expect(reviewRepository.load()).toEqual({
-      marks: [],
-      comments: [],
-      viewed: [],
-    });
+    expect(legacyReview("now")).toBeNull();
+  });
+});
+
+describe("clearLegacyReview", () => {
+  test("forgets the review keys and leaves the settings", () => {
+    // arrange
+    localStorage.setItem("diffy.session.v1", "{}");
+    localStorage.setItem("diffy.last-reviewed.v1:o/r#7", "{}");
+    localStorage.setItem("diffy.settings.v1", "{}");
+
+    // act
+    clearLegacyReview();
+
+    // assert
+    expect(localStorage.length).toBe(1);
+    expect(localStorage.getItem("diffy.settings.v1")).toBe("{}");
   });
 });
 ```

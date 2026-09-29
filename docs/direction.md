@@ -251,10 +251,11 @@ them.
 
 ### Moving what the browser holds
 
-The first time a screen finds the server's document empty and the browser's
-`diffy.session.v1` and `diffy.last-reviewed.v1:` keys holding anything, it sends them to
-the server as one import and clears them once the server has them. Nobody
-loses the review state already written.
+Whenever a screen finds the browser's `diffy.session.v1` and
+`diffy.last-reviewed.v1:` keys holding anything, it sends them to the server
+as one import, which adds what the server lacks and keeps what it has, and
+clears them once the server has them. Nobody loses the review state already
+written, including a second browser's.
 
 ## Order of work
 

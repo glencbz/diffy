@@ -6,6 +6,7 @@ export function LastReviewed({
   reviewed,
   from,
   to,
+  toMarked,
   onMark,
   onWhole,
 }: {
@@ -13,7 +14,10 @@ export function LastReviewed({
   reviewed: GitOid | null;
   from: PullBaseline;
   to: GitOid;
-  onMark: () => void;
+  /** Whether the reader has marked the after head reviewed. */
+  toMarked: boolean;
+  /** Null when there is no review document to write to. */
+  onMark: (() => void) | null;
   onWhole: () => void;
 }) {
   const known = states.find((state) => state.head === reviewed);
@@ -45,16 +49,18 @@ export function LastReviewed({
           history no longer lists, so it opens whole.
         </p>
       ) : null}
-      <button
-        type="button"
-        className="last-reviewed__action"
-        onClick={onMark}
-        disabled={to === reviewed}
-      >
-        {to === reviewed
-          ? `Reviewed at ${name(states, to)}`
-          : `Mark reviewed at ${name(states, to)}`}
-      </button>
+      {(toMarked || onMark !== null) && (
+        <button
+          type="button"
+          className="last-reviewed__action"
+          onClick={onMark ?? undefined}
+          disabled={toMarked}
+        >
+          {toMarked
+            ? `Reviewed at ${name(states, to)}`
+            : `Mark reviewed at ${name(states, to)}`}
+        </button>
+      )}
     </div>
   );
 }
