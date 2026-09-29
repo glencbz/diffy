@@ -548,6 +548,34 @@ export function reviewRoute(store: ReviewStore) {
 }
 ```
 
+`/api/review/changes` upgrades to a WebSocket over which the server sends
+`{ "revision": n }` each time the [review store](review-store.md#telling-screens-about-changes)
+reaches a new revision. Every socket subscribes to one topic, so one publish
+reaches every open screen. The socket carries nothing from the screen: a
+change still goes through a `POST`, which answers with its result, and a
+socket that only announces keeps one way to write.
+
+```ts
+//| id: backend-server
+
+export const REVIEW_TOPIC = "review";
+
+export function reviewChanges(
+  req: Request,
+  server: Bun.Server<undefined>,
+): Response | undefined {
+  if (server.upgrade(req)) return undefined;
+  return Response.json({ error: "expected a WebSocket" }, { status: 400 });
+}
+
+export const reviewSocket: Bun.WebSocketHandler<undefined> = {
+  open(ws) {
+    ws.subscribe(REVIEW_TOPIC);
+  },
+  message() {},
+};
+```
+
 The route table is the list of handlers the server exposes, given the review
 store [the command line](cli.md) opened at startup. Every path that is not an
 API route is the page, since the frontend keeps the reader's place in
@@ -571,6 +599,7 @@ export function routes(store: ReviewStore) {
     "/api/github/pull/commits": handleGithubPullCommits,
     "/api/github/pull/diff": handleGithubPullDiff,
     "/api/review": reviewRoute(store),
+    "/api/review/changes": reviewChanges,
   };
 }
 ```
@@ -590,7 +619,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
-import { openReviewStore } from "./backend/review/store";
+import { openReviewStore, watchReview } from "./backend/review/store";
 import {
   handleDiff,
   handleGithubPullCommits,
@@ -601,7 +630,10 @@ import {
   handleOperations,
   handleSource,
   pullDiffResponse,
+  REVIEW_TOPIC,
+  reviewChanges,
   reviewRoute,
+  reviewSocket,
 } from "./server";
 
 /** The commit id of the single commit `revset` names. */
@@ -964,6 +996,44 @@ describe("the review route", () => {
       );
       expect(read.revision).toBe(0);
     }));
+
+  test("announces a new revision to an open socket", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    const server = Bun.serve({
+      port: 0,
+      routes: { "/api/review/changes": reviewChanges },
+      websocket: reviewSocket,
+    });
+    const stop = watchReview(
+      store,
+      (revision) => server.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+      10,
+    );
+    const socket = new WebSocket(
+      `ws://localhost:${server.port}/api/review/changes`,
+    );
+    const heard = new Promise<unknown>((resolve) => {
+      socket.onmessage = (event) => resolve(JSON.parse(String(event.data)));
+    });
+    await new Promise((resolve) => {
+      socket.onopen = resolve;
+    });
+
+    try {
+      // act
+      store.apply({ kind: "delete-comment", id: "none" });
+
+      // assert
+      expect(await heard).toEqual({ revision: 1 });
+    } finally {
+      socket.close();
+      stop();
+      server.stop(true);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 ```
 
