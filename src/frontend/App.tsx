@@ -7,6 +7,7 @@ import type { LocalHistory } from "./model/localHistory";
 import { newerOperation, pickerValue } from "./model/localHistory";
 import type { Place } from "./model/place";
 import { useLocalHistory } from "./state/localHistory";
+import { usePaneSizes } from "./state/paneSizes";
 import { usePlace } from "./state/place";
 import { useReview } from "./state/review";
 import { useSettings } from "./state/settings";
@@ -29,6 +30,7 @@ const REPO = "glencbz/diffy";
 export function App() {
   const [place, go] = usePlace();
   const [pane, setPane] = useState<Pane>("before");
+  const [sizes, resize] = usePaneSizes();
   const { history, pickOperation, selectCommits } = useLocalHistory();
   const review = useReview();
   const {
@@ -94,6 +96,8 @@ export function App() {
                   before: before?.commits.length ?? 0,
                   after: after?.commits.length ?? 0,
                 }}
+                sizes={sizes}
+                onResize={resize}
               />
             )}
             {place.tab === "pulls" && (

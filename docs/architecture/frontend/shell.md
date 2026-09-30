@@ -70,6 +70,11 @@ value is carried and never read. It stays out of the address because it says
 how big the window is, not where the reader is, and a link opened on a wide
 screen would carry it for nothing.
 
+The widths a reader has dragged the pickers to are held here for the same
+reason and kept in the browser, through
+[`usePaneSizes`](layout.md#resizing-a-pane), since unlike the pane showing
+they are a preference about this window that should outlast the visit.
+
 `App` calls `useReview()` once, alongside the [`useLocalHistory()`](local-history.md)
 call it already owns, and passes it down to the local history's `DiffPane`.
 The pull request screen reads commit by commit and keeps no marks yet, so it
@@ -95,6 +100,7 @@ import type { LocalHistory } from "./model/localHistory";
 import { newerOperation, pickerValue } from "./model/localHistory";
 import type { Place } from "./model/place";
 import { useLocalHistory } from "./state/localHistory";
+import { usePaneSizes } from "./state/paneSizes";
 import { usePlace } from "./state/place";
 import { useReview } from "./state/review";
 import { useSettings } from "./state/settings";
@@ -117,6 +123,7 @@ const REPO = "glencbz/diffy";
 export function App() {
   const [place, go] = usePlace();
   const [pane, setPane] = useState<Pane>("before");
+  const [sizes, resize] = usePaneSizes();
   const { history, pickOperation, selectCommits } = useLocalHistory();
   const review = useReview();
   const {
@@ -182,6 +189,8 @@ export function App() {
                   before: before?.commits.length ?? 0,
                   after: after?.commits.length ?? 0,
                 }}
+                sizes={sizes}
+                onResize={resize}
               />
             )}
             {place.tab === "pulls" && (

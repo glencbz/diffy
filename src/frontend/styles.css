@@ -429,7 +429,7 @@
   }
 
   .pane--picker {
-    width: var(--pane-picker-width);
+    width: var(--pane-size, var(--pane-picker-width));
     min-width: var(--pane-picker-min);
   }
 
@@ -457,6 +457,69 @@
     min-width: 0;
     overflow: auto;
     border-right: none;
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-splitter>>[init] */
+@layer components {
+  .splitter {
+    position: relative;
+    z-index: 1;
+    flex: none;
+    background: var(--border);
+    touch-action: none;
+  }
+
+  .splitter::before {
+    position: absolute;
+    content: "";
+  }
+
+  .splitter--x {
+    width: 1px;
+    cursor: col-resize;
+  }
+
+  .splitter--x::before {
+    inset: 0 calc(-1 * var(--space-1));
+  }
+
+  .splitter--y {
+    height: 1px;
+    cursor: row-resize;
+  }
+
+  .splitter--y::before {
+    inset: calc(-1 * var(--space-1)) 0;
+  }
+
+  .splitter:hover,
+  .splitter:focus-visible,
+  .splitter:active {
+    background: var(--accent);
+    outline: none;
+  }
+
+  .pane:has(+ .splitter--x) {
+    border-right: none;
+  }
+
+  .pane:has(+ .splitter--y) {
+    border-bottom: none;
+  }
+
+  .pane.pane--sized {
+    min-width: 0;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-splitter>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .panes--review .splitter {
+      display: none;
+    }
   }
 }
 /* ~/~ end */

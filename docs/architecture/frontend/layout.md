@@ -7,8 +7,8 @@ request screen stacks.
 
 ## Review panes
 
-Three columns: the two pickers, then the diff. The pickers are narrow and
-fixed; the diff takes what is left, because it is the thing being read. Each
+Three columns: the two pickers, then the diff. The pickers are narrow, as
+wide as the reader has dragged them; the diff takes what is left, because it is the thing being read. Each
 picker column carries its own caption, since "before" and "after" are the only
 labels that say which direction the interdiff runs.
 
@@ -34,6 +34,11 @@ picked on its side as well as its name, because a pane off screen is a pane
 whose state the reader has no other way to see, and a count answers the
 question a picker raises.
 
+Each picker column is followed by a [splitter](#resizing-a-pane) that sets
+its width, and the sizes come in as props like everything else here, so the
+view stays a function of what it is handed and `App` owns the document they
+are kept in.
+
 `pane--showing` is computed in React rather than left for CSS to work out
 from an attribute, which makes the narrow rule two selectors: every pane
 hidden, the one carrying the class shown. On a wide screen the class is inert
@@ -43,6 +48,8 @@ because nothing outside the media query reads it.
 //| id: frontend-view-review-panes
 //| file: src/frontend/views/ReviewPanes.tsx
 import type { ReactNode } from "react";
+import type { PaneKey, PaneSizes } from "../model/paneSizes";
+import { paneSize, Splitter } from "./Splitter";
 
 export type Pane = "before" | "after" | "diff";
 
@@ -59,6 +66,8 @@ export function ReviewPanes({
   showing,
   onShow,
   selected,
+  sizes,
+  onResize,
 }: {
   before: ReactNode;
   after: ReactNode;
@@ -66,15 +75,27 @@ export function ReviewPanes({
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
+  sizes: PaneSizes;
+  onResize: (pane: PaneKey, size: number | null) => void;
 }) {
   return (
     <>
       <PaneTabs showing={showing} onShow={onShow} selected={selected} />
       <div className="panes panes--review">
-        <PickerColumn pane="before" showing={showing}>
+        <PickerColumn
+          pane="before"
+          showing={showing}
+          size={sizes["local-before"] ?? null}
+          onResize={(size) => onResize("local-before", size)}
+        >
           {before}
         </PickerColumn>
-        <PickerColumn pane="after" showing={showing}>
+        <PickerColumn
+          pane="after"
+          showing={showing}
+          size={sizes["local-after"] ?? null}
+          onResize={(size) => onResize("local-after", size)}
+        >
           {after}
         </PickerColumn>
         <div className={paneClass("pane pane--diff", showing === "diff")}>
@@ -124,17 +145,34 @@ function picked(commits: number): string {
 function PickerColumn({
   pane,
   showing,
+  size,
+  onResize,
   children,
 }: {
   pane: "before" | "after";
   showing: Pane;
+  size: number | null;
+  onResize: (size: number | null) => void;
   children: ReactNode;
 }) {
+  const sized =
+    size === null ? "pane pane--picker" : "pane pane--picker pane--sized";
   return (
-    <div className={paneClass("pane pane--picker", pane === showing)}>
-      <h2 className="pane__header">{CAPTIONS[pane]}</h2>
-      <div className="pane__body">{children}</div>
-    </div>
+    <>
+      <div
+        className={paneClass(sized, pane === showing)}
+        style={paneSize(size)}
+      >
+        <h2 className="pane__header">{CAPTIONS[pane]}</h2>
+        <div className="pane__body">{children}</div>
+      </div>
+      <Splitter
+        pane={pane === "before" ? "local-before" : "local-after"}
+        size={size}
+        onResize={onResize}
+        label={`resize the ${CAPTIONS[pane]} column`}
+      />
+    </>
   );
 }
 
@@ -562,7 +600,7 @@ that renders it.
   }
 
   .pane--picker {
-    width: var(--pane-picker-width);
+    width: var(--pane-size, var(--pane-picker-width));
     min-width: var(--pane-picker-min);
   }
 
@@ -671,6 +709,372 @@ metrics edit and lives in [Design tokens](tokens.md).
       flex: 1 0 auto;
       overflow: visible;
       border-bottom: none;
+    }
+  }
+}
+```
+
+## Resizing a pane
+
+A fixed column is a guess about the reader's window and their repository. A
+picker a quarter of the window wide is too narrow for a stack of long
+subjects and too wide for a laptop reading a long diff, and only the reader
+knows which of those they have today. So the picker columns carry a splitter
+on their right edge, and dragging it sets the width they keep.
+
+Every resizable pane in the app is one entry in `PANES`, which says which way
+it grows and how small it may get. A drag is clamped at both ends: at the
+pane's minimum, so a column cannot be dragged down to a sliver nobody can
+grab again, and at whatever leaves the pane giving way `REST` pixels, so the
+diff is never squeezed out of the row. The document the browser keeps is a
+size per pane, each one missing until the reader drags it, because a pane
+nobody has resized should go on following the default in
+[Design tokens](tokens.md) as that changes.
+
+```ts
+//| id: frontend-model-pane-sizes
+//| file: src/frontend/model/paneSizes.ts
+import * as z from "zod";
+
+export type PaneKey = "local-before" | "local-after" | "pull-commits";
+export type Axis = "x" | "y";
+
+/** One entry per resizable pane: which way it grows and how small it may get. */
+export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
+  "local-before": { axis: "x", min: 160 },
+  "local-after": { axis: "x", min: 160 },
+  "pull-commits": { axis: "y", min: 48 },
+};
+
+/** What a drag must always leave the pane that gives way. */
+export const REST = 200;
+
+export const PaneSizes = z.object({
+  "local-before": z.number().optional(),
+  "local-after": z.number().optional(),
+  "pull-commits": z.number().optional(),
+});
+export type PaneSizes = z.infer<typeof PaneSizes>;
+
+/** Clamps a dragged size between the pane's minimum and what leaves the
+ *  neighbouring pane `REST` pixels. The minimum wins when `room` is too small
+ *  for both. */
+export function clampSize(key: PaneKey, size: number, room: number): number {
+  const { min } = PANES[key];
+  return Math.round(Math.max(min, Math.min(size, room - REST)));
+}
+```
+
+```ts
+//| id: frontend-model-pane-sizes-test
+//| file: src/frontend/model/paneSizes.test.ts
+import { describe, expect, test } from "bun:test";
+import { clampSize, REST } from "./paneSizes";
+
+describe("clampSize", () => {
+  test("keeps a size that fits", () => {
+    // arrange
+    const room = 1000;
+
+    // act
+    const size = clampSize("local-before", 300, room);
+
+    // assert
+    expect(size).toBe(300);
+  });
+
+  test("stops at the pane's minimum", () => {
+    // act
+    const size = clampSize("local-before", 20, 1000);
+
+    // assert
+    expect(size).toBe(160);
+  });
+
+  test("leaves the pane giving way its rest", () => {
+    // arrange
+    const room = 1000;
+
+    // act
+    const size = clampSize("pull-commits", 950, room);
+
+    // assert
+    expect(size).toBe(room - REST);
+  });
+
+  test("keeps the minimum when the room cannot hold both", () => {
+    // act
+    const size = clampSize("local-after", 300, 250);
+
+    // assert
+    expect(size).toBe(160);
+  });
+
+  test("rounds to a whole pixel", () => {
+    // act
+    const size = clampSize("pull-commits", 120.6, 1000);
+
+    // assert
+    expect(size).toBe(121);
+  });
+});
+```
+
+The sizes belong to one browser, like [settings](settings.md#display), and
+are kept the same way.
+
+```ts
+//| id: frontend-persistence-pane-sizes
+//| file: src/frontend/persistence/paneSizes.ts
+import { PaneSizes } from "../model/paneSizes";
+import { localRepository } from "./local";
+
+export const paneSizesRepository = localRepository<PaneSizes>(
+  "diffy.panes.v1",
+  PaneSizes,
+  {},
+);
+```
+
+`resize` takes `null` to mean the default, which drops the pane's entry
+rather than writing down whatever the default measured at the time.
+
+```ts
+//| id: frontend-state-pane-sizes
+//| file: src/frontend/state/paneSizes.ts
+import { useCallback } from "react";
+import type { PaneKey, PaneSizes } from "../model/paneSizes";
+import { paneSizesRepository } from "../persistence/paneSizes";
+import { useStored } from "./stored";
+
+export type Resize = (pane: PaneKey, size: number | null) => void;
+
+export function usePaneSizes(): [PaneSizes, Resize] {
+  const [sizes, update] = useStored(paneSizesRepository);
+
+  const resize = useCallback<Resize>(
+    (pane, size) => {
+      update((current) => {
+        const { [pane]: _, ...rest } = current;
+        return size === null ? rest : { ...rest, [pane]: size };
+      });
+    },
+    [update],
+  );
+
+  return [sizes, resize];
+}
+```
+
+`Splitter` is the handle, and it sits in the row right after the pane it
+resizes, so it finds that pane as its previous sibling and needs no ref
+threaded through from the screen. The pane that gives way is the row's last
+child, the diff on both screens, and the pane's own size plus that one's is
+the room a drag has to work with.
+
+A drag does not go through React. The diff beside a picker can be thousands
+of rows, and setting state on every pointer move would render it sixty times
+a second for a change that is one CSS length. The handle writes the clamped
+length straight onto the pane's `--pane-size` while the pointer moves, and
+calls `onResize` once when it is let go, at which point React writes the same
+length and the stored document catches up. `pane--sized` goes onto the pane
+as soon as the drag moves, for the same reason it is on a sized pane at rest:
+the stylesheet's minimum would otherwise stop the drag short of the model's.
+
+The keyboard gets the same control in steps, along the handle's own axis, and
+a double click puts the pane back to its default. `aria-orientation` names
+the line the handle draws, not the way it moves, which is why the handle
+between two columns is `vertical`.
+
+```tsx
+//| id: frontend-view-splitter
+//| file: src/frontend/views/Splitter.tsx
+import type {
+  CSSProperties,
+  KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
+import { useRef } from "react";
+import { clampSize, PANES, type PaneKey } from "../model/paneSizes";
+
+const STEP = 16;
+
+const KEYS: Record<"x" | "y", Record<string, number>> = {
+  x: { ArrowLeft: -STEP, ArrowRight: STEP },
+  y: { ArrowUp: -STEP, ArrowDown: STEP },
+};
+
+/** The inline length a sized pane reads in place of its default. */
+export function paneSize(size: number | null): CSSProperties | undefined {
+  if (size === null) return undefined;
+  return { "--pane-size": `${size}px` } as CSSProperties;
+}
+
+interface Measure {
+  pane: HTMLElement;
+  start: number;
+  room: number;
+}
+
+interface Drag extends Measure {
+  origin: number;
+  last: number | null;
+}
+
+export function Splitter({
+  pane,
+  size,
+  onResize,
+  label,
+}: {
+  pane: PaneKey;
+  size: number | null;
+  onResize: (size: number | null) => void;
+  label: string;
+}) {
+  const { axis } = PANES[pane];
+  const drag = useRef<Drag | null>(null);
+
+  const along = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    return axis === "x" ? rect.width : rect.height;
+  };
+
+  const measure = (handle: HTMLElement): Measure | null => {
+    const target = handle.previousElementSibling;
+    const giving = handle.parentElement?.lastElementChild;
+    if (!(target instanceof HTMLElement) || giving == null) return null;
+    const start = along(target);
+    return { pane: target, start, room: start + along(giving) };
+  };
+
+  const point = (event: ReactPointerEvent) =>
+    axis === "x" ? event.clientX : event.clientY;
+
+  const finish = () => {
+    const last = drag.current?.last ?? null;
+    drag.current = null;
+    if (last !== null) onResize(last);
+  };
+
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a focusable separator the reader drags is a widget, and `<hr>` is a thematic break
+    <div
+      role="separator"
+      aria-orientation={axis === "x" ? "vertical" : "horizontal"}
+      aria-label={label}
+      aria-valuenow={size ?? undefined}
+      aria-valuemin={PANES[pane].min}
+      tabIndex={0}
+      className={`splitter splitter--${axis}`}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        const measured = measure(event.currentTarget);
+        if (measured === null) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = { ...measured, origin: point(event), last: null };
+      }}
+      onPointerMove={(event) => {
+        const now = drag.current;
+        if (now === null) return;
+        const next = clampSize(
+          pane,
+          now.start + point(event) - now.origin,
+          now.room,
+        );
+        now.last = next;
+        now.pane.classList.add("pane--sized");
+        now.pane.style.setProperty("--pane-size", `${next}px`);
+      }}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        const step = KEYS[axis][event.key];
+        if (step === undefined) return;
+        const measured = measure(event.currentTarget);
+        if (measured === null) return;
+        event.preventDefault();
+        onResize(clampSize(pane, measured.start + step, measured.room));
+      }}
+      onDoubleClick={() => onResize(null)}
+    />
+  );
+}
+```
+
+The handle draws the rule between the pane and the one beside it, so the
+pane it follows gives up its own border on that edge rather than doubling it.
+The rule stays one pixel and the handle's reach is wider, from a
+pseudo-element hanging either side of it, because a pixel is too fine a
+target for a mouse and a two-pixel rule would read as a heavier divider than
+every other edge in the app. `touch-action: none` hands the pointer to the
+drag instead of letting a finger on the handle scroll the page.
+
+```css
+/*| id: design-splitter
+@layer components {
+  .splitter {
+    position: relative;
+    z-index: 1;
+    flex: none;
+    background: var(--border);
+    touch-action: none;
+  }
+
+  .splitter::before {
+    position: absolute;
+    content: "";
+  }
+
+  .splitter--x {
+    width: 1px;
+    cursor: col-resize;
+  }
+
+  .splitter--x::before {
+    inset: 0 calc(-1 * var(--space-1));
+  }
+
+  .splitter--y {
+    height: 1px;
+    cursor: row-resize;
+  }
+
+  .splitter--y::before {
+    inset: calc(-1 * var(--space-1)) 0;
+  }
+
+  .splitter:hover,
+  .splitter:focus-visible,
+  .splitter:active {
+    background: var(--accent);
+    outline: none;
+  }
+
+  .pane:has(+ .splitter--x) {
+    border-right: none;
+  }
+
+  .pane:has(+ .splitter--y) {
+    border-bottom: none;
+  }
+
+  .pane.pane--sized {
+    min-width: 0;
+  }
+}
+```
+
+Under the thousand-pixel line the review screen shows one pane at a time, and
+a column's width means nothing there, so its splitters go with the columns
+and the showing pane's `width: auto` already outranks any size it carries.
+
+```css
+/*| id: design-splitter
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .panes--review .splitter {
+      display: none;
     }
   }
 }
