@@ -21,6 +21,17 @@ describe("splitRows", () => {
     ]);
   });
 
+  test("puts a context line with no before side in the after column", () => {
+    // arrange
+    const moved = { kind: "context", code: "moved", beforeLine: null };
+
+    // act
+    const rows = splitRows([moved]);
+
+    // assert
+    expect(rows).toEqual([{ kind: "pair", before: null, after: moved }]);
+  });
+
   test("pairs a removed run with the added run after it, row by row", () => {
     // arrange
     const lines = [removed("a"), removed("b"), added("A"), added("B")];

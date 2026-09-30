@@ -45,8 +45,11 @@ differs. A line that only moved in a reformat is an after-side line with no
 before-side partner and no changed token. It is drawn as context, since it
 is part of the after file and difftastic says nothing about it changed. Its
 mirror, a before-side line that a reformat folded away, is not in the after
-file at all, and is left out. A context line therefore has no before-side
-number, which the frontend never needed.
+file at all, and is left out. A context line carries its before-side
+number where it has a partner, and none where it does not, so a
+[side-by-side](../frontend/diff.md#side-by-side) diff can number the before
+column and keep a moved line out of it. A hunk carries its before-side start
+for the same column's hidden lines.
 
 Three rows of context on either side of a change is what `git` prints, so a
 reader switching a file between the two views sees about the same amount of
@@ -69,6 +72,7 @@ export const StructuralLine = z.discriminatedUnion("kind", [
     kind: z.literal("context"),
     code: z.string(),
     newLine: z.number(),
+    oldLine: z.number().optional(),
   }),
   z.object({
     kind: z.literal("removed"),
@@ -91,6 +95,8 @@ export const StructuralHunk = z.object({
   /** The after-side number of the hunk's first line, or of the line that
    *  would follow it when the hunk only removes. */
   newStart: z.number(),
+  /** The same on the before side. */
+  oldStart: z.number(),
   lines: z.array(StructuralLine),
 });
 export type StructuralHunk = z.infer<typeof StructuralHunk>;
@@ -297,6 +303,7 @@ function hunkOf(
         kind: "context",
         code: newLines[now] ?? "",
         newLine: now + 1,
+        ...(old === null ? {} : { oldLine: old + 1 }),
       });
     }
   }
@@ -308,7 +315,7 @@ function hunkOf(
   const newStart = count(1, 0, start) + 1;
   const header = `@@ -${oldStart},${count(0, start, end)} +${newStart},${count(1, start, end)} @@`;
 
-  return { header, newStart, lines };
+  return { header, newStart, oldStart, lines };
 }
 ```
 
@@ -573,7 +580,7 @@ describe("readDifft", () => {
     // assert
     expect(lines[1]).toMatchObject({ kind: "removed", oldLine: 2 });
     expect(lines[6]).toMatchObject({ kind: "added", newLine: 5 });
-    expect(lines[8]).toMatchObject({ kind: "context", newLine: 7 });
+    expect(lines[8]).toMatchObject({ kind: "context", newLine: 7, oldLine: 6 });
   });
 
   test("keeps only the changed tokens' ranges", () => {

@@ -7,16 +7,20 @@ export type SplitRow<L> =
 
 /** `lines`, in the order a unified diff reads them, laid out in two
  *  columns. */
-export function splitRows<L extends { kind: string }>(
-  lines: L[],
-): SplitRow<L>[] {
+export function splitRows<
+  L extends { kind: string; beforeLine?: number | null },
+>(lines: L[]): SplitRow<L>[] {
   const rows: SplitRow<L>[] = [];
   let index = 0;
 
   while (index < lines.length) {
     const line = lines[index] as L;
     if (line.kind === "context") {
-      rows.push({ kind: "pair", before: line, after: line });
+      rows.push({
+        kind: "pair",
+        before: line.beforeLine === null ? null : line,
+        after: line,
+      });
       index++;
       continue;
     }

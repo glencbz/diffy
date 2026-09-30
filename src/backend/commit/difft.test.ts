@@ -110,7 +110,7 @@ describe("readDifft", () => {
     // assert
     expect(lines[1]).toMatchObject({ kind: "removed", oldLine: 2 });
     expect(lines[6]).toMatchObject({ kind: "added", newLine: 5 });
-    expect(lines[8]).toMatchObject({ kind: "context", newLine: 7 });
+    expect(lines[8]).toMatchObject({ kind: "context", newLine: 7, oldLine: 6 });
   });
 
   test("keeps only the changed tokens' ranges", () => {

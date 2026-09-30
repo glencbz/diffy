@@ -39,9 +39,9 @@ The reader also picks whether a diff is laid out in one column or
 starting point with a switch on every file, since a reader who wants two
 columns wants them for every file at once. It is a setting of the device
 for the same reason the text size is: a laptop has room for two columns and
-a phone does not, and a diff on a narrow window is drawn in one column
-whatever the setting says. It reaches the diff view through
-[`DiffLayoutSetting`](diff.md#side-by-side), beside `DiffModeDefault`.
+a phone has less, so a reader may want them on one and not the other. The
+setting is obeyed at every width and in both views. It reaches the diff
+view through [`DiffLayoutSetting`](diff.md#side-by-side), beside `DiffModeDefault`.
 
 A structural line marks the words difftastic says changed, until so much of
 it changed that the marks cover nearly everything and say less than the
@@ -345,7 +345,7 @@ const DIFF_MODES: { value: DiffMode; caption: string }[] = [
 
 const DIFF_LAYOUTS: { value: DiffLayout; caption: string }[] = [
   { value: "unified", caption: "One column" },
-  { value: "split", caption: "Side by side, for line diffs on wide screens" },
+  { value: "split", caption: "Side by side" },
 ];
 
 const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [

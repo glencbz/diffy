@@ -293,7 +293,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import type { FileSpot } from "../model/place";
@@ -391,7 +390,6 @@ export function DiffView({
 }) {
   const [composer, setComposer] = useState<Anchor | null>(null);
   const layout = useContext(DiffLayoutSetting);
-  const narrow = useNarrow();
 
   const changedFiles = useMemo(
     () =>
@@ -417,7 +415,7 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
-            split={layout === "split" && !narrow}
+            split={layout === "split"}
             links={links === undefined ? undefined : fileLinks(links, file)}
             reveal={reveal}
             review={
@@ -506,21 +504,6 @@ function jumpTo(file: ChangedFile): void {
   document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
 
-/** The width under which the panes stop being columns, and a diff has one
- *  column too. */
-const NARROW = "(max-width: 1000px)";
-
-function useNarrow(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = matchMedia(NARROW);
-      query.addEventListener("change", onChange);
-      return () => query.removeEventListener("change", onChange);
-    },
-    () => matchMedia(NARROW).matches,
-  );
-}
-
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
 interface FileReview {
   comments: RowComment[];
@@ -600,7 +583,7 @@ function FileRow({
   file: FileDiff;
   anchor: string;
   sides: FileSides;
-  /** Whether the reader asked for two columns, where there is room. */
+  /** Whether the reader asked for two columns. */
   split: boolean;
   review?: FileReview;
   links?: FileLinks;
@@ -751,7 +734,7 @@ function FileRow({
       )}
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
-      ) : split && mode === "line" ? (
+      ) : split ? (
         <pre className="diff-file__patch diff-file__patch--split">
           {splitRows(lines).flatMap((row, index) =>
             row.kind === "across"
@@ -1238,7 +1221,7 @@ because the text is [coloured by its syntax](syntax.md#colours) and green or
 red text would drown that out. [Changed words](#changed-words) take a stronger
 tint of the same colour.
 
-The line view can be laid out [side by side](#side-by-side), once the
+Either view can be laid out [side by side](#side-by-side), once the
 reader [picks it](settings.md#display). The choice reaches the view through
 `DiffLayoutSetting`, a context declared beside `DiffModeDefault`. Each column
 has its own gutter, numbered by its own side. A line opens the composer only
@@ -1248,18 +1231,15 @@ in both columns, and commenting from either would pin the comment to the
 same after-side line, so only one of the two is a button. Links go to
 after-side lines, so only the after column carries them.
 
-The structural view stays in one column in either layout. Difftastic's
-hunks read as the after side with removed lines let in, and a line it calls
-unchanged may have no before-side line at all, such as one a reformat
-moved. A before column would have to draw that line as if it were there,
-without a number, and the view exists to say that layout changes do not
-matter rather than to line them up.
+The structural view is laid out the same way. Difftastic's hunks read as
+the after side with removed lines let in, so they split like a patch does.
+A line it calls unchanged but that has no before-side line, such as one a
+reformat moved, is drawn in the after column only, beside an empty cell,
+rather than as if it were on both sides.
 
-A window too narrow for the panes to be columns is too narrow for two
-columns of code, so there every diff is drawn in one column whatever the
-reader picked, and it goes back to two when the window widens. Only the
-width decides this, not the device, so it is read from the same media query
-the stylesheet's `components-narrow` layer uses.
+The layout holds at every width. A reader who picks two columns on a phone
+gets two narrow columns that wrap, not a quiet fallback to one that looks
+as if the setting did nothing.
 
 Each column wraps its long lines rather than scrolling sideways, as the one
 column does. A row is as tall as the taller of its two lines, so both sides
@@ -1631,7 +1611,8 @@ while the pane is the wider of the two, and truncates the line to the pane as
 soon as it is not, which on a phone is most lines. `max-content` with a `100%`
 floor says the same thing at both sizes: as wide as the text, or as wide as
 the pane, whichever is more. The sideways scroll `.diff-file__patch` already
-has then reaches the rest.
+has then reaches the rest. The two columns of a side-by-side diff wrap
+instead, so their cells go back to the width of their column.
 
 ```css
 /*| id: design-diff-view
@@ -1640,6 +1621,12 @@ has then reaches the rest.
     .diff-line {
       width: max-content;
       min-width: 100%;
+    }
+
+    .diff-file__patch--split > .diff-line--before,
+    .diff-file__patch--split > .diff-line--after {
+      width: auto;
+      min-width: 0;
     }
   }
 }
@@ -1882,8 +1869,7 @@ export interface Hunk {
   /** The after-side number of the hunk's first line, or of the line that
    *  would follow it when the hunk only removes. */
   newStart: number;
-  /** The same on the before side, where the hunk says. A structural hunk
-   *  does not. */
+  /** The same on the before side, where the hunk says. */
   oldStart?: number;
   lines: HunkLine[];
 }
@@ -2528,7 +2514,9 @@ the same lines as the one column, rearranged, so `splitRows` works on lines
 already drawn, and the colours, changed words, and hidden lines come across
 unchanged.
 
-A context line is on both sides, so it fills a row, once in each column. A
+A context line is on both sides, so it fills a row, once in each column,
+unless its `beforeLine` is `null`: a structural context line with no
+before-side partner fills only the after column. A
 run of removed lines followed straight away by a run of added ones is laid
 out the way [changed words](#changed-words) pair it: the first removed line
 beside the first added one, and so on, with whatever is left over beside an
@@ -2536,7 +2524,8 @@ empty cell. The two words marked on a line are then the words that differ
 from the line beside it. Anything that is not a line of the file, such as a
 hunk header, a note, or a gap, spans both columns.
 
-`splitRows` takes any line with a `kind` rather than the view's own type, so
+`splitRows` takes any line with a `kind`, and a `beforeLine` where it has
+one, rather than the view's own type, so
 it can be tested with plain objects.
 
 ```ts
@@ -2550,16 +2539,20 @@ export type SplitRow<L> =
 
 /** `lines`, in the order a unified diff reads them, laid out in two
  *  columns. */
-export function splitRows<L extends { kind: string }>(
-  lines: L[],
-): SplitRow<L>[] {
+export function splitRows<
+  L extends { kind: string; beforeLine?: number | null },
+>(lines: L[]): SplitRow<L>[] {
   const rows: SplitRow<L>[] = [];
   let index = 0;
 
   while (index < lines.length) {
     const line = lines[index] as L;
     if (line.kind === "context") {
-      rows.push({ kind: "pair", before: line, after: line });
+      rows.push({
+        kind: "pair",
+        before: line.beforeLine === null ? null : line,
+        after: line,
+      });
       index++;
       continue;
     }
@@ -2611,6 +2604,17 @@ describe("splitRows", () => {
     expect(splitRows([context])).toEqual([
       { kind: "pair", before: context, after: context },
     ]);
+  });
+
+  test("puts a context line with no before side in the after column", () => {
+    // arrange
+    const moved = { kind: "context", code: "moved", beforeLine: null };
+
+    // act
+    const rows = splitRows([moved]);
+
+    // assert
+    expect(rows).toEqual([{ kind: "pair", before: null, after: moved }]);
   });
 
   test("pairs a removed run with the added run after it, row by row", () => {

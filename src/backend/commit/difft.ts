@@ -13,6 +13,7 @@ export const StructuralLine = z.discriminatedUnion("kind", [
     kind: z.literal("context"),
     code: z.string(),
     newLine: z.number(),
+    oldLine: z.number().optional(),
   }),
   z.object({
     kind: z.literal("removed"),
@@ -35,6 +36,8 @@ export const StructuralHunk = z.object({
   /** The after-side number of the hunk's first line, or of the line that
    *  would follow it when the hunk only removes. */
   newStart: z.number(),
+  /** The same on the before side. */
+  oldStart: z.number(),
   lines: z.array(StructuralLine),
 });
 export type StructuralHunk = z.infer<typeof StructuralHunk>;
@@ -241,6 +244,7 @@ function hunkOf(
         kind: "context",
         code: newLines[now] ?? "",
         newLine: now + 1,
+        ...(old === null ? {} : { oldLine: old + 1 }),
       });
     }
   }
@@ -252,7 +256,7 @@ function hunkOf(
   const newStart = count(1, 0, start) + 1;
   const header = `@@ -${oldStart},${count(0, start, end)} +${newStart},${count(1, start, end)} @@`;
 
-  return { header, newStart, lines };
+  return { header, newStart, oldStart, lines };
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/difft.md#difft-module>>[1]
