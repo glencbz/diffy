@@ -1238,6 +1238,20 @@
     font-style: italic;
     color: var(--text-muted);
   }
+
+  .interdiff-message {
+    max-width: 72ch;
+    padding: var(--space-3) var(--space-5);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-interdiff-rows>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .interdiff-message {
+      max-width: none;
+    }
+  }
 }
 /* ~/~ end */
 
@@ -2300,6 +2314,45 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/commit-message.md#design-commit-message>>[init] */
+@layer components {
+  .commit-message__paragraph {
+    margin: 0 0 var(--space-3);
+  }
+
+  .commit-message__bullets {
+    margin: 0 0 var(--space-3);
+    padding-left: var(--space-6);
+  }
+
+  .commit-message__pre {
+    padding: var(--space-3);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: var(--text-size-small);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+  }
+
+  .commit-message__expand {
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .commit-message__trailers {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-size-small);
+    color: var(--text-faint);
+    white-space: pre-line;
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/commit-stack.md#design-commit-stack>>[init] */
 @layer components {
   .commit-stack {
@@ -2355,41 +2408,6 @@
   .commit-stack__message {
     max-width: 72ch;
     padding: var(--space-3) var(--space-5);
-  }
-
-  .commit-stack__paragraph {
-    margin: 0 0 var(--space-3);
-  }
-
-  .commit-stack__bullets {
-    margin: 0 0 var(--space-3);
-    padding-left: var(--space-6);
-  }
-
-  .commit-stack__pre {
-    padding: var(--space-3);
-    overflow-x: auto;
-    font-family: var(--font-mono);
-    font-size: var(--text-size-small);
-    background: var(--surface-sunken);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
-  }
-
-  .commit-stack__expand {
-    padding: 0;
-    font: inherit;
-    color: var(--accent);
-    cursor: pointer;
-    background: transparent;
-    border: none;
-  }
-
-  .commit-stack__trailers {
-    margin: var(--space-3) 0 0;
-    font-size: var(--text-size-small);
-    color: var(--text-faint);
-    white-space: pre-line;
   }
 
   .commit-stack__quiet {

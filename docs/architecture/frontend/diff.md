@@ -2701,12 +2701,24 @@ stays keyed on commit ids as before. [A reordered series can put the same
 change id on two rows](review.md#review-state), so the change id is
 not a unique React key even though it now sits on the row.
 
+Under the header each row shows its commit's message as a
+[`CommitMessage`](commit-message.md), the same opening and "read the rest"
+the pull request screen's commit stack gives. The header's commit labels
+show only subjects, and a reader deciding whether a row is worth reading
+wants the body that says why the commit exists. It is the after commit's
+message, or the before commit's when there is no after. A message that
+changed between the two already shows up as its own file in the row, the
+`JJ-COMMIT-DESCRIPTION` diff `jj interdiff` reports, so drawing the old
+message in full as well would only say it twice. Which rows are expanded
+lives here rather than in `App`, because nothing outside the diff reads it.
+
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
 import { useState } from "react";
 import type { ReviewActions, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../model/source";
+import { CommitMessage } from "./CommitMessage";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 
@@ -2722,6 +2734,15 @@ export function InterdiffRows({
   review: ReviewActions | null;
 }) {
   const [composing, setComposing] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
+  function toggleExpanded(key: string) {
+    setExpanded((now) => {
+      const next = new Set(now);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div>
@@ -2731,6 +2752,12 @@ export function InterdiffRows({
             row={row}
             onMarkSeen={review && (() => review.markSeen(row))}
             onComment={review && (() => setComposing(rowKey(row)))}
+          />
+          <CommitMessage
+            description={(row.to ?? row.from)?.description ?? ""}
+            className="interdiff-message"
+            isExpanded={expanded.has(rowKey(row))}
+            onExpand={() => toggleExpanded(rowKey(row))}
           />
           {review !== null && composing === rowKey(row) && (
             <CommentComposer
@@ -2800,6 +2827,28 @@ gets the same muted italic treatment every empty state in the app uses.
     padding: var(--space-5);
     font-style: italic;
     color: var(--text-muted);
+  }
+
+  .interdiff-message {
+    max-width: 72ch;
+    padding: var(--space-3) var(--space-5);
+  }
+}
+```
+
+The message is held to 72 columns, the width commit bodies are wrapped to,
+so a reflowed paragraph reads at the measure its author wrote it at. Below
+[the thousand-pixel line](layout.md) the pane is narrower than that anyway,
+and the cap comes off rather than add a second limit to the one the pane
+already sets.
+
+```css
+/*| id: design-interdiff-rows
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .interdiff-message {
+      max-width: none;
+    }
   }
 }
 ```

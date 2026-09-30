@@ -372,6 +372,8 @@ reference here, anywhere.
 
 <<design-pull-sheet>>
 
+<<design-commit-message>>
+
 <<design-commit-stack>>
 
 <<design-responsive-panes>>
