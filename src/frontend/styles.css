@@ -1238,6 +1238,20 @@
     font-style: italic;
     color: var(--text-muted);
   }
+
+  .interdiff-message {
+    max-width: 72ch;
+    padding: var(--space-3) var(--space-5);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/diff.md#design-interdiff-rows>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .interdiff-message {
+      max-width: none;
+    }
+  }
 }
 /* ~/~ end */
 

@@ -2,8 +2,8 @@
 
 `CommitMessage` draws a commit's body under a subject something else has
 already shown, cut down to its opening until the reader asks for the rest.
-The [commit stack](commit-stack.md) on the pull request screen shows one per
-row.
+The [commit stack](commit-stack.md) on the pull request screen and each row
+of [the local history diff](diff.md#interdiff-rows) show one.
 
 ## Reading a message
 

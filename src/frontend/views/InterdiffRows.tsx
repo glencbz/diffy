@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { ReviewActions, ReviewedRow } from "../model/review";
 import type { SourceLookup } from "../model/source";
+import { CommitMessage } from "./CommitMessage";
 import { ComparisonHeader } from "./ComparisonHeader";
 import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 
@@ -17,6 +18,15 @@ export function InterdiffRows({
   review: ReviewActions | null;
 }) {
   const [composing, setComposing] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
+  function toggleExpanded(key: string) {
+    setExpanded((now) => {
+      const next = new Set(now);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div>
@@ -26,6 +36,12 @@ export function InterdiffRows({
             row={row}
             onMarkSeen={review && (() => review.markSeen(row))}
             onComment={review && (() => setComposing(rowKey(row)))}
+          />
+          <CommitMessage
+            description={(row.to ?? row.from)?.description ?? ""}
+            className="interdiff-message"
+            isExpanded={expanded.has(rowKey(row))}
+            onExpand={() => toggleExpanded(rowKey(row))}
           />
           {review !== null && composing === rowKey(row) && (
             <CommentComposer
