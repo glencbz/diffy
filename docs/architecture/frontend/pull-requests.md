@@ -799,6 +799,12 @@ file or a line in the diff moves the place too, but the reader is already
 looking at what they clicked, so it scrolls nothing. `reveal` is the count of
 the first two, and the stack scrolls when it moves.
 
+The [drawer's bar](layout.md#the-commit-drawer) is told which row is current
+and steps through `rows` by calling `pick`, the way a click in the graph does.
+A step is then a pick in every respect, so it goes into the address and
+scrolls the stack to the row it lands on, and `pick` already looks a commit up
+on both sides, which is what a dropped row needs.
+
 The place this controller reads is not quite the one it is handed. A bare
 address opens on the changes since the head this reader last reviewed, which
 [`opening`](#the-head-last-reviewed) works out once the history is in, and
@@ -827,6 +833,7 @@ import {
 } from "../model/place";
 import { pullSeries, reviewedIn } from "../model/review";
 import { usePairing } from "../state/pairing";
+import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
@@ -995,6 +1002,7 @@ export function PullReview({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
+  const [sizes, resize] = usePaneSizes();
   const arrivals = useArrivals();
   const { from, spot } = place;
   const current = spot?.commit ?? null;
@@ -1031,10 +1039,11 @@ export function PullReview({
       ? baseStackRows(afterCommits, diffs)
       : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
 
-  const currentKey =
-    rows.find(
-      (row) => row.commit.commitId === current || row.was?.commitId === current,
-    )?.key ?? null;
+  const currentIndex = rows.findIndex(
+    (row) => row.commit.commitId === current || row.was?.commitId === current,
+  );
+  const currentRow = rows[currentIndex];
+  const currentKey = currentRow?.key ?? null;
 
   // A file in the address is a file on screen, so the row it is in opens,
   // on arrival and whenever back or forward lands on another one.
@@ -1072,6 +1081,22 @@ export function PullReview({
     setPicks((now) => now + 1);
   };
 
+  const position = {
+    index: currentRow === undefined ? null : currentIndex,
+    count: rows.length,
+    summary:
+      currentRow === undefined
+        ? ""
+        : `${currentRow.commit.commitId.slice(0, 8)} ${currentRow.commit.description.split("\n")[0] ?? ""}`,
+  };
+
+  // With nothing picked the index is -1, so a step forward lands on the
+  // first row.
+  const step = (by: -1 | 1) => {
+    const next = rows[currentIndex + by];
+    if (next !== undefined) pick(next.commit.commitId);
+  };
+
   const links = (row: StackRow): DiffLinks => {
     const at = (file: FileSpot): PullPlace => ({
       ...place,
@@ -1088,6 +1113,10 @@ export function PullReview({
   return (
     <PullReviewPanes
       header={<PullHeader pull={pull} />}
+      position={position}
+      onStep={step}
+      size={sizes["pull-commits"] ?? null}
+      onResize={(size) => resize("pull-commits", size)}
       picker={
         <>
           <PullComparisonPicker
@@ -1626,7 +1655,7 @@ is keyboard- and screen-reader-complete with no work of its own.
 
 The "from" select offers the base branch tip alongside every version; the
 "to" select offers versions only. The base as the after end is the pull
-request read backwards, which nobody reads, and the commit strip beside the
+request read backwards, which nobody reads, and the commit list above the
 diff takes `to` as a head with nothing to draw for a base. That asymmetry is
 why the component takes `from: PullBaseline` and `to: GitOid` rather than a
 matched pair.

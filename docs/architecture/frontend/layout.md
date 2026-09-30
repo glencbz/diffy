@@ -1,9 +1,10 @@
 # Layout
 
-Both screens put narrow pickers beside a wide diff. These are the two
-components that arrange them, and the rules for a window with no room for
-columns, where the review screen shows one pane at a time and the pull
-request screen stacks.
+Both screens pair a picker with a wide diff: the local history screen puts
+two narrow pickers beside it, and the pull request screen puts its commit
+list in a drawer over it. These are the two components that arrange them,
+and the rules for a window with no room for columns, where the review screen
+shows one pane at a time and the pull request screen stacks.
 
 ## Review panes
 
@@ -239,8 +240,8 @@ rows share.
 
 Two layouts, because the pull request screen nests. The outer one is the list
 against everything else. The inner one stacks the header and the comparison
-picker over a narrow commit strip and the diff, which is the part being read
-and so gets the room.
+picker over [a drawer of commits](#the-commit-drawer) and the diff, which is
+the part being read and so gets the room.
 
 The outer one also carries the bar and the scrim that [the list as a
 sheet](#the-list-as-a-sheet) needs, and the rail that [the list as a
@@ -250,9 +251,10 @@ choice between the list and the review.
 ```tsx
 //| id: frontend-view-pull-panes
 //| file: src/frontend/views/PullPanes.tsx
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { PullSummary } from "../api";
 import { PullStateChip } from "./PullStateChip";
+import { paneSize, Splitter } from "./Splitter";
 
 export type PullChoice =
   | { phase: "browsing" }
@@ -321,27 +323,265 @@ export function PullPanes({
   );
 }
 
+/** Where the reader is in the stack: the row picked, if any, out of how
+ *  many, and a line naming it. */
+export interface StackPosition {
+  index: number | null;
+  count: number;
+  summary: string;
+}
+
 export function PullReviewPanes({
   header,
   picker,
   commits,
   diff,
+  position,
+  onStep,
+  size,
+  onResize,
 }: {
   header: ReactNode;
   picker: ReactNode;
   commits: ReactNode;
   diff: ReactNode;
+  position: StackPosition;
+  onStep: (step: -1 | 1) => void;
+  size: number | null;
+  onResize: (size: number | null) => void;
 }) {
+  const [open, setOpen] = useState(true);
   return (
     <>
       {header}
       {picker}
-      <div className="panes">
-        <div className="pane pane--commits">{commits}</div>
+      <div className="panes panes--drawer">
+        <DrawerBar
+          position={position}
+          onStep={onStep}
+          open={open}
+          onToggle={() => setOpen((now) => !now)}
+        />
+        {open && (
+          <>
+            <div
+              className={
+                size === null
+                  ? "pane pane--commits"
+                  : "pane pane--commits pane--sized"
+              }
+              style={paneSize(size)}
+            >
+              {commits}
+            </div>
+            <Splitter
+              pane="pull-commits"
+              size={size}
+              onResize={onResize}
+              label="resize the commit list"
+            />
+          </>
+        )}
         <div className="pane pane--diff">{diff}</div>
       </div>
     </>
   );
+}
+
+function DrawerBar({
+  position: { index, count, summary },
+  onStep,
+  open,
+  onToggle,
+}: {
+  position: StackPosition;
+  onStep: (step: -1 | 1) => void;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="drawer-bar">
+      <div className="drawer-bar__stepper">
+        <button
+          type="button"
+          aria-label="previous commit"
+          disabled={index === null || index === 0}
+          onClick={() => onStep(-1)}
+          className="drawer-bar__step"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          aria-label="next commit"
+          disabled={index === null ? count === 0 : index >= count - 1}
+          onClick={() => onStep(1)}
+          className="drawer-bar__step"
+        >
+          ›
+        </button>
+      </div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="drawer-bar__toggle"
+      >
+        <span className="drawer-bar__position">
+          {index === null ? commitCount(count) : `${index + 1} of ${count}`}
+        </span>
+        <span className="drawer-bar__summary">{summary}</span>
+        <span className="drawer-bar__fold">
+          {open ? "▾ fold" : "▸ show all"}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function commitCount(count: number): string {
+  return count === 1 ? "1 commit" : `${count} commits`;
+}
+```
+
+## The commit drawer
+
+The commits of a pull request sit above the diff, full width, rather than in
+a column beside it. A column is as narrow as the diff can spare, and the
+paired graph draws two lanes of subjects side by side, so beside the diff
+either the lanes truncate every subject to a stub or the diff gives up a
+third of the window for the whole session. Above the diff the graph has the
+window's width and the diff keeps it too, and what they trade is height,
+which the [splitter](#resizing-a-pane) under the drawer hands to the reader
+to set.
+
+Most of a review is spent reading the diff, not choosing from the list, so
+the drawer folds away to its bar. The bar keeps what the list was for: where
+the reader is in the stack, the row being read, and a stepper that moves to
+the row before or after it without opening the list again. The stepper sits
+apart from the rest of the bar, which is one button that folds or unfolds
+the drawer, so a press on the bar does what it looks like it does wherever
+it lands, and a press on an arrow never also folds.
+
+The drawer opens on every visit. Whether it is folded is the arrangement of
+one sitting, like which rows of the stack are open, and a screen that
+remembered it would open a pull request with its commit list hidden and
+nothing saying there is one, which is the first thing a reader of a new pull
+request needs. So it is plain state in the view, and only its height, a
+preference about the window, is kept.
+
+The bar walks the rows the stack draws, not the commits of one side, so a
+dropped commit is a step like any other. With nothing picked it says how many
+commits there are and a step forward goes to the first.
+
+```css
+/*| id: design-commit-drawer
+@layer components {
+  .panes--drawer {
+    flex-direction: column;
+  }
+
+  .drawer-bar {
+    display: flex;
+    flex: none;
+    align-items: stretch;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .drawer-bar__stepper {
+    display: flex;
+    flex: none;
+    margin: var(--space-2) 0 var(--space-2) var(--space-4);
+  }
+
+  .drawer-bar__step {
+    min-width: 28px;
+    padding: 0 var(--space-4);
+    font: inherit;
+    font-weight: bold;
+    color: var(--text);
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .drawer-bar__step:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+
+  .drawer-bar__step:last-child {
+    border-left: none;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  .drawer-bar__step:hover:not(:disabled) {
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+
+  .drawer-bar__step:disabled {
+    color: var(--text-ghost);
+    cursor: default;
+  }
+
+  .drawer-bar__toggle {
+    display: flex;
+    flex: 1;
+    gap: var(--space-4);
+    align-items: center;
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .drawer-bar__toggle:hover {
+    background: var(--surface-sunken);
+  }
+
+  .drawer-bar__position {
+    flex: none;
+    font-weight: bold;
+  }
+
+  .drawer-bar__summary {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .drawer-bar__fold {
+    flex: none;
+    color: var(--accent);
+  }
+}
+```
+
+On a phone the stepper is the control a thumb reaches for while reading, so
+its buttons grow to a touch target, and the splitter's reach grows with them
+because a finger is wider than a cursor.
+
+```css
+/*| id: design-commit-drawer
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .drawer-bar__step {
+      min-width: 44px;
+      min-height: 44px;
+    }
+
+    .panes--drawer .splitter--y::before {
+      inset: calc(-1 * var(--space-4)) 0;
+    }
+  }
 }
 ```
 
@@ -565,8 +805,8 @@ left it.
 
 Every screen is the same shape: columns that scroll on their own, divided by
 a single-pixel rule. `.panes` is that row, `.pane` is a column, and the
-modifiers say only how wide. Nothing about a pane's width lives in the view
-that renders it.
+modifiers say only how big. Nothing about a pane's default size lives in the
+view that renders it; a size the reader dragged arrives as `--pane-size`.
 
 ```css
 /*| id: design-panes
@@ -611,8 +851,9 @@ that renders it.
   }
 
   .pane--commits {
-    width: var(--pane-commits-width);
+    height: var(--pane-size, var(--pane-drawer-height));
     overflow: auto;
+    border-right: none;
   }
 
   .pane--main {
@@ -634,9 +875,8 @@ that renders it.
 
 Three columns want about 180 pixels for each picker and 680 for the diff, so
 they hold together above roughly 1040 and nowhere below it. Under a thousand a
-row of panes stops being columns at all: it turns into a stack and caps the
-commit strip at a fraction of the viewport so the diff still has somewhere to
-be.
+row of panes stops being columns at all: it turns into a stack that scrolls
+as one page.
 An iPad held in portrait is 834 pixels wide, so a breakpoint drawn any tighter
 than this leaves the commonest tablet with two pickers eating half the window
 and not one description readable.
@@ -648,14 +888,14 @@ second time. The caption earns its place in columns, where nothing else says
 which of the two a column is.
 
 The pull request screen goes on stacking, inside a review. Its inner panes are
-a commit strip over a diff, and nothing offers a reader a way to choose between
+a commit drawer over a diff, and nothing offers a reader a way to choose between
 those, so each rule names `.panes--review` or everything that is not it.
 Scoping the tab rules alone and leaving the stacking rules unscoped would hide
 the pull request screen outright, since none of its panes ever carries
 `pane--showing`. Its outer row asks a different question: the list against the
 review is the choice [the sheet](#the-list-as-a-sheet) takes over, which
-leaves the commit strip as the one pane wanting a cap on how much of a phone
-it may hold.
+leaves the drawer as the one pane wanting a limit on how much of a phone it
+may hold, and it keeps the height its splitter gives it on a wide screen.
 
 A rule that contradicts a component instead of retuning a length belongs to
 the `components-narrow` layer, and it sits in the document that holds the
@@ -699,10 +939,8 @@ metrics edit and lives in [Design tokens](tokens.md).
       border-bottom: 1px solid var(--border);
     }
 
-    .panes:not(.panes--review) .pane--commits {
-      width: auto;
-      min-width: 0;
-      max-height: 30vh;
+    .panes:not(.panes--review) .pane:has(+ .splitter) {
+      border-bottom: none;
     }
 
     .panes:not(.panes--review) .pane--diff {
@@ -720,7 +958,8 @@ A fixed column is a guess about the reader's window and their repository. A
 picker a quarter of the window wide is too narrow for a stack of long
 subjects and too wide for a laptop reading a long diff, and only the reader
 knows which of those they have today. So the picker columns carry a splitter
-on their right edge, and dragging it sets the width they keep.
+on their right edge, and [the commit drawer](#the-commit-drawer) one along its
+foot, and dragging it sets the size the pane keeps.
 
 Every resizable pane in the app is one entry in `PANES`, which says which way
 it grows and how small it may get. A drag is clamped at both ends: at the

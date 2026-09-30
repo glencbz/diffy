@@ -330,6 +330,8 @@ reference here, anywhere.
 
 <<design-splitter>>
 
+<<design-commit-drawer>>
+
 <<design-pane-tabs>>
 
 <<design-message>>

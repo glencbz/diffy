@@ -18,6 +18,7 @@ import {
 } from "../model/place";
 import { pullSeries, reviewedIn } from "../model/review";
 import { usePairing } from "../state/pairing";
+import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
@@ -186,6 +187,7 @@ export function PullReview({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
+  const [sizes, resize] = usePaneSizes();
   const arrivals = useArrivals();
   const { from, spot } = place;
   const current = spot?.commit ?? null;
@@ -222,10 +224,11 @@ export function PullReview({
       ? baseStackRows(afterCommits, diffs)
       : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
 
-  const currentKey =
-    rows.find(
-      (row) => row.commit.commitId === current || row.was?.commitId === current,
-    )?.key ?? null;
+  const currentIndex = rows.findIndex(
+    (row) => row.commit.commitId === current || row.was?.commitId === current,
+  );
+  const currentRow = rows[currentIndex];
+  const currentKey = currentRow?.key ?? null;
 
   // A file in the address is a file on screen, so the row it is in opens,
   // on arrival and whenever back or forward lands on another one.
@@ -263,6 +266,22 @@ export function PullReview({
     setPicks((now) => now + 1);
   };
 
+  const position = {
+    index: currentRow === undefined ? null : currentIndex,
+    count: rows.length,
+    summary:
+      currentRow === undefined
+        ? ""
+        : `${currentRow.commit.commitId.slice(0, 8)} ${currentRow.commit.description.split("\n")[0] ?? ""}`,
+  };
+
+  // With nothing picked the index is -1, so a step forward lands on the
+  // first row.
+  const step = (by: -1 | 1) => {
+    const next = rows[currentIndex + by];
+    if (next !== undefined) pick(next.commit.commitId);
+  };
+
   const links = (row: StackRow): DiffLinks => {
     const at = (file: FileSpot): PullPlace => ({
       ...place,
@@ -279,6 +298,10 @@ export function PullReview({
   return (
     <PullReviewPanes
       header={<PullHeader pull={pull} />}
+      position={position}
+      onStep={step}
+      size={sizes["pull-commits"] ?? null}
+      onResize={(size) => resize("pull-commits", size)}
       picker={
         <>
           <PullComparisonPicker
