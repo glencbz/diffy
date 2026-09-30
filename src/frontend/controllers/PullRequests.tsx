@@ -10,17 +10,15 @@ import { type PullChoice, PullPanes } from "../views/PullPanes";
 import { PullReview } from "./PullReview";
 
 export function PullRequests({
-  repo,
   place,
   review,
   onGo,
 }: {
-  repo: string;
   place: PullPlace | null;
   review: ReviewHandle;
   onGo: (place: PullPlace | null) => void;
 }) {
-  const pulls = usePulls(repo);
+  const pulls = usePulls();
   const [sheetOver, setSheetOver] = useState<number | null>(null);
 
   if (pulls.status === "loading") {
@@ -30,7 +28,8 @@ export function PullRequests({
     return <Message tone="error">{pulls.message}</Message>;
   }
 
-  const choice = chosen(place, sheetOver, pulls.data);
+  const { repo } = pulls.data;
+  const choice = chosen(place, sheetOver, pulls.data.pulls);
 
   return (
     <PullPanes
@@ -39,7 +38,7 @@ export function PullRequests({
       onDismiss={() => setSheetOver(null)}
       list={
         <PullList
-          pulls={pulls.data}
+          pulls={pulls.data.pulls}
           selected={choice.phase === "browsing" ? null : choice.pull.number}
           onSelect={(number) => {
             setSheetOver(null);

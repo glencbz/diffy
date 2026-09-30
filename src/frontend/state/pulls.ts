@@ -1,17 +1,23 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-pulls>>[init]
 import { useEffect, useState } from "react";
-import { fetchPulls, type PullSummary } from "../api";
+import { fetchPulls, fetchRepo, type PullSummary } from "../api";
 import type { AsyncState } from "../model/asyncState";
 
-export function usePulls(repo: string): AsyncState<PullSummary[]> {
-  const [state, setState] = useState<AsyncState<PullSummary[]>>({
+export interface RepoPulls {
+  /** `owner/name`, as the server read it off `origin`. */
+  repo: string;
+  pulls: PullSummary[];
+}
+
+export function usePulls(): AsyncState<RepoPulls> {
+  const [state, setState] = useState<AsyncState<RepoPulls>>({
     status: "loading",
   });
 
   useEffect(() => {
     let live = true;
-    setState({ status: "loading" });
-    fetchPulls(repo, "all")
+    fetchRepo()
+      .then(async (repo) => ({ repo, pulls: await fetchPulls(repo, "all") }))
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -21,7 +27,7 @@ export function usePulls(repo: string): AsyncState<PullSummary[]> {
     return () => {
       live = false;
     };
-  }, [repo]);
+  }, []);
 
   return state;
 }

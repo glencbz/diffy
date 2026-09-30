@@ -119,6 +119,37 @@ export function pullPins(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/github.md#github-module>>[3]
 
+/** The `owner/name` a git remote URL ends in, or null. */
+export function parseRemoteUrl(url: string): RepoRef | null {
+  const path = url
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*\//i, "")
+    .replace(/^[^/:]+:/, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "");
+  const match = /(?:^|\/)([^/\s]+)\/([^/\s]+)$/.exec(path);
+  if (match === null) return null;
+  return RepoRef.parse({ owner: match[1], name: match[2] });
+}
+
+/** The repository the working directory's `origin` remote names. */
+export async function originRepo(): Promise<RepoRef> {
+  const got = await $`git remote get-url origin`.quiet().nothrow();
+  const url = got.stdout.toString().trim();
+  const repo = got.exitCode === 0 ? parseRemoteUrl(url) : null;
+  if (repo === null) {
+    throw new GitHubError(
+      got.exitCode === 0
+        ? `origin ${url} does not name an owner/name repository`
+        : "this repository has no origin remote",
+      "not-found",
+    );
+  }
+  return repo;
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[4]
+
 export interface PullRequestSummary {
   number: PullNumber;
   title: string;
@@ -208,7 +239,7 @@ export async function githubPullRequests(
   }));
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[4]
+// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[5]
 
 /**
  * How a head became the PR's head. A tagged union rather than a nullable
@@ -246,7 +277,7 @@ export interface ForcePushEvent {
   after: GitOid;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[5]
+// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[6]
 
 type Unnumbered = Omit<PullRequestState, "version">;
 
@@ -281,7 +312,7 @@ export function headChain(
     .map((state, index) => ({ version: index + 1, ...state }));
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[6]
+// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[7]
 
 const PullRequestHistoryWire = z.object({
   data: z.object({
@@ -367,7 +398,7 @@ export async function githubPullRequestHistory(
   };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[7]
+// ~/~ begin <<docs/architecture/backend/github.md#github-module>>[8]
 
 /** The state this pull request was in at `head`. Throws if it never had one. */
 export function pullStateAt(

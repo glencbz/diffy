@@ -12,6 +12,7 @@ import {
   PullNumber,
   type PullRequestHistory,
   parsePullNumber,
+  parseRemoteUrl,
   parseRepoRef,
   pullStateAt,
 } from "./github";
@@ -323,6 +324,29 @@ describe("parseRepoRef", () => {
       expect(() => parseRepoRef(raw)).toThrow(z.ZodError);
     },
   );
+});
+
+describe("parseRemoteUrl", () => {
+  test.each([
+    "https://github.com/glencbz/diffy.git",
+    "https://github.int.exe.xyz/glencbz/diffy.git",
+    "https://github.com/glencbz/diffy",
+    "https://github.com/glencbz/diffy/",
+    "ssh://git@github.com/glencbz/diffy.git",
+    "git@github.com:glencbz/diffy.git",
+  ])("reads glencbz/diffy out of %p", (url) => {
+    // arrange
+    // act
+    // assert
+    expect(parseRemoteUrl(url)).toEqual({ owner: "glencbz", name: "diffy" });
+  });
+
+  test.each(["", "diffy", "https://github.com/diffy"])("refuses %p", (url) => {
+    // arrange
+    // act
+    // assert
+    expect(parseRemoteUrl(url)).toBeNull();
+  });
 });
 
 describe("parsePullNumber", () => {
