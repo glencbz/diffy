@@ -377,6 +377,14 @@ const PullDiffResponse = z.object({
 });
 export type PullDiffResponse = z.infer<typeof PullDiffResponse>;
 
+/** The repository the server was started in, as `owner/name`. */
+export async function fetchRepo(): Promise<string> {
+  const body = z
+    .object({ repo: z.string() })
+    .parse(await getJson("/api/github/repo", "GET /api/github/repo"));
+  return body.repo;
+}
+
 export async function fetchPulls(
   repo: string,
   state: "open" | "closed" | "merged" | "all",

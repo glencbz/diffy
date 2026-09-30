@@ -50,6 +50,7 @@ import {
   ghCliGraphQL,
   githubPullRequestHistory,
   githubPullRequests,
+  originRepo,
   type PullRequestHistory,
   type PullRequestState,
   parsePullNumber,
@@ -248,6 +249,23 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
     }
     throw error;
   }
+}
+```
+
+`/api/github/repo` names the repository the server was started in, as the
+[GitHub backend](github.md) reads it off `origin`. The frontend asks for it
+rather than knowing it, so the same build serves any checkout. The other
+routes still take the repository as a parameter; this one only says which to
+pass.
+
+```ts
+//| id: backend-server
+
+export function handleGithubRepo(): Promise<Response> {
+  return githubJson(async () => {
+    const { owner, name } = await originRepo();
+    return { repo: `${owner}/${name}` };
+  });
 }
 ```
 
@@ -594,6 +612,7 @@ export function routes(store: ReviewStore) {
     "/api/diff": handleDiff,
     "/api/interdiff": handleInterdiff,
     "/api/source": handleSource,
+    "/api/github/repo": handleGithubRepo,
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,
     "/api/github/pull/commits": handleGithubPullCommits,

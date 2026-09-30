@@ -7,24 +7,32 @@ to one of the heads the branch has had.
 
 `usePulls` loads the repository's pull requests in every state. A merged pull
 request that was force-pushed on the way is exactly the history worth reading
-back, and a list of open ones would never reach it.
+back, and a list of open ones would never reach it. The repository is whichever
+one the server names from its `origin` remote, asked for first, so a build is
+not tied to the checkout it was built from.
 
 ```tsx
 //| id: frontend-state-pulls
 //| file: src/frontend/state/pulls.ts
 import { useEffect, useState } from "react";
-import { fetchPulls, type PullSummary } from "../api";
+import { fetchPulls, fetchRepo, type PullSummary } from "../api";
 import type { AsyncState } from "../model/asyncState";
 
-export function usePulls(repo: string): AsyncState<PullSummary[]> {
-  const [state, setState] = useState<AsyncState<PullSummary[]>>({
+export interface RepoPulls {
+  /** `owner/name`, as the server read it off `origin`. */
+  repo: string;
+  pulls: PullSummary[];
+}
+
+export function usePulls(): AsyncState<RepoPulls> {
+  const [state, setState] = useState<AsyncState<RepoPulls>>({
     status: "loading",
   });
 
   useEffect(() => {
     let live = true;
-    setState({ status: "loading" });
-    fetchPulls(repo, "all")
+    fetchRepo()
+      .then(async (repo) => ({ repo, pulls: await fetchPulls(repo, "all") }))
       .then((data) => {
         if (live) setState({ status: "ready", data });
       })
@@ -34,7 +42,7 @@ export function usePulls(repo: string): AsyncState<PullSummary[]> {
     return () => {
       live = false;
     };
-  }, [repo]);
+  }, []);
 
   return state;
 }
@@ -496,17 +504,15 @@ import { type PullChoice, PullPanes } from "../views/PullPanes";
 import { PullReview } from "./PullReview";
 
 export function PullRequests({
-  repo,
   place,
   review,
   onGo,
 }: {
-  repo: string;
   place: PullPlace | null;
   review: ReviewHandle;
   onGo: (place: PullPlace | null) => void;
 }) {
-  const pulls = usePulls(repo);
+  const pulls = usePulls();
   const [sheetOver, setSheetOver] = useState<number | null>(null);
 
   if (pulls.status === "loading") {
@@ -516,7 +522,8 @@ export function PullRequests({
     return <Message tone="error">{pulls.message}</Message>;
   }
 
-  const choice = chosen(place, sheetOver, pulls.data);
+  const { repo } = pulls.data;
+  const choice = chosen(place, sheetOver, pulls.data.pulls);
 
   return (
     <PullPanes
@@ -525,7 +532,7 @@ export function PullRequests({
       onDismiss={() => setSheetOver(null)}
       list={
         <PullList
-          pulls={pulls.data}
+          pulls={pulls.data.pulls}
           selected={choice.phase === "browsing" ? null : choice.pull.number}
           onSelect={(number) => {
             setSheetOver(null);

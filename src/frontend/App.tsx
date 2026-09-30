@@ -24,9 +24,6 @@ import { type Pane, ReviewPanes } from "./views/ReviewPanes";
 import { ReviewStrip } from "./views/ReviewStrip";
 import { SettingsScreen } from "./views/SettingsScreen";
 
-/** The repository the pull request screen reads. Next up for configuring. */
-const REPO = "glencbz/diffy";
-
 export function App() {
   const [place, go] = usePlace();
   const [pane, setPane] = useState<Pane>("before");
@@ -102,7 +99,6 @@ export function App() {
             )}
             {place.tab === "pulls" && (
               <PullRequests
-                repo={REPO}
                 place={place.pull}
                 review={review}
                 onGo={(pull) => go({ tab: "pulls", pull })}

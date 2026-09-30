@@ -16,6 +16,7 @@ import {
   ghCliGraphQL,
   githubPullRequestHistory,
   githubPullRequests,
+  originRepo,
   type PullRequestHistory,
   type PullRequestState,
   parsePullNumber,
@@ -166,6 +167,15 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
 
+export function handleGithubRepo(): Promise<Response> {
+  return githubJson(async () => {
+    const { owner, name } = await originRepo();
+    return { repo: `${owner}/${name}` };
+  });
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+
 const PullsQuery = z.object({
   state: z.enum(["open", "closed", "merged", "all"]).optional(),
   limit: z.coerce.number().int().positive().optional(),
@@ -195,7 +205,7 @@ export function handleGithubPullHistory(req: Request): Promise<Response> {
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
 
 export function handleGithubPullCommits(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
@@ -222,7 +232,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
   });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
 export function handleGithubPullDiff(req: Request): Promise<Response> {
   return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
@@ -331,7 +341,7 @@ async function pullDiffFiles(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
 
 export function reviewRoute(store: ReviewStore) {
   return {
@@ -351,7 +361,7 @@ export function reviewRoute(store: ReviewStore) {
   };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
 
 export const REVIEW_TOPIC = "review";
 
@@ -370,7 +380,7 @@ export const reviewSocket: Bun.WebSocketHandler<undefined> = {
   message() {},
 };
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
 
 export function routes(store: ReviewStore) {
   return {
@@ -381,6 +391,7 @@ export function routes(store: ReviewStore) {
     "/api/diff": handleDiff,
     "/api/interdiff": handleInterdiff,
     "/api/source": handleSource,
+    "/api/github/repo": handleGithubRepo,
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,
     "/api/github/pull/commits": handleGithubPullCommits,

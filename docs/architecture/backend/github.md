@@ -186,6 +186,56 @@ export function pullPins(
 }
 ```
 
+### Which repository
+
+The repository is the one the server was started in, named by its `origin`
+remote. That is not a preference: [git](git.md) fetches every pull request's
+commits from `origin`, so a pull request listed from any other repository
+would have heads nobody can fetch. Reading the remote rather than building a
+name in keeps a checkout of a fork, or a clone through the exe.dev proxy,
+listing its own pull requests.
+
+A remote URL names the repository in its last two path segments, whichever
+of the forms git accepts it is written in, `https://host/owner/name.git`,
+`ssh://git@host/owner/name` or scp-like `git@host:owner/name`. The host is
+ignored, which is what lets an origin cloned through the proxy name the same
+`owner/name` a github.com clone does; which host `gh` asks is still
+`GH_HOST`'s to say. A remote that does not end in two
+segments is not a repository this module can ask about, and is a 404.
+
+```ts
+//| id: github-module
+
+/** The `owner/name` a git remote URL ends in, or null. */
+export function parseRemoteUrl(url: string): RepoRef | null {
+  const path = url
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*\//i, "")
+    .replace(/^[^/:]+:/, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "");
+  const match = /(?:^|\/)([^/\s]+)\/([^/\s]+)$/.exec(path);
+  if (match === null) return null;
+  return RepoRef.parse({ owner: match[1], name: match[2] });
+}
+
+/** The repository the working directory's `origin` remote names. */
+export async function originRepo(): Promise<RepoRef> {
+  const got = await $`git remote get-url origin`.quiet().nothrow();
+  const url = got.stdout.toString().trim();
+  const repo = got.exitCode === 0 ? parseRemoteUrl(url) : null;
+  if (repo === null) {
+    throw new GitHubError(
+      got.exitCode === 0
+        ? `origin ${url} does not name an owner/name repository`
+        : "this repository has no origin remote",
+      "not-found",
+    );
+  }
+  return repo;
+}
+```
+
 ### Listing pull requests
 
 The list is a picker's data source, so it is ordered the way a picker wants it,
@@ -596,6 +646,7 @@ import {
   PullNumber,
   type PullRequestHistory,
   parsePullNumber,
+  parseRemoteUrl,
   parseRepoRef,
   pullStateAt,
 } from "./github";
@@ -913,6 +964,29 @@ describe("parseRepoRef", () => {
       expect(() => parseRepoRef(raw)).toThrow(z.ZodError);
     },
   );
+});
+
+describe("parseRemoteUrl", () => {
+  test.each([
+    "https://github.com/glencbz/diffy.git",
+    "https://github.int.exe.xyz/glencbz/diffy.git",
+    "https://github.com/glencbz/diffy",
+    "https://github.com/glencbz/diffy/",
+    "ssh://git@github.com/glencbz/diffy.git",
+    "git@github.com:glencbz/diffy.git",
+  ])("reads glencbz/diffy out of %p", (url) => {
+    // arrange
+    // act
+    // assert
+    expect(parseRemoteUrl(url)).toEqual({ owner: "glencbz", name: "diffy" });
+  });
+
+  test.each(["", "diffy", "https://github.com/diffy"])("refuses %p", (url) => {
+    // arrange
+    // act
+    // assert
+    expect(parseRemoteUrl(url)).toBeNull();
+  });
 });
 
 describe("parsePullNumber", () => {
