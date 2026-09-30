@@ -251,8 +251,7 @@
     --pane-picker-min: 240px;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
-    --pane-commits-width: 360px;
-    --pane-paired-width: 640px;
+    --pane-drawer-height: 30vh;
     --gutter-width: 40px;
     --label-width: 56px;
     --ref-max-width: 14em;
@@ -267,8 +266,6 @@
     :root {
       --pane-picker-min: 180px;
       --pane-list-min: 160px;
-      --pane-commits-width: 260px;
-      --pane-paired-width: 460px;
     }
   }
 }
@@ -429,7 +426,7 @@
   }
 
   .pane--picker {
-    width: var(--pane-picker-width);
+    width: var(--pane-size, var(--pane-picker-width));
     min-width: var(--pane-picker-min);
   }
 
@@ -440,8 +437,9 @@
   }
 
   .pane--commits {
-    width: var(--pane-commits-width);
+    height: var(--pane-size, var(--pane-drawer-height));
     overflow: auto;
+    border-right: none;
   }
 
   .pane--main {
@@ -457,6 +455,173 @@
     min-width: 0;
     overflow: auto;
     border-right: none;
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-splitter>>[init] */
+@layer components {
+  .splitter {
+    position: relative;
+    z-index: 1;
+    flex: none;
+    background: var(--border);
+    touch-action: none;
+  }
+
+  .splitter::before {
+    position: absolute;
+    content: "";
+  }
+
+  .splitter--x {
+    width: 1px;
+    cursor: col-resize;
+  }
+
+  .splitter--x::before {
+    inset: 0 calc(-1 * var(--space-1));
+  }
+
+  .splitter--y {
+    height: 1px;
+    cursor: row-resize;
+  }
+
+  .splitter--y::before {
+    inset: calc(-1 * var(--space-1)) 0;
+  }
+
+  .splitter:hover,
+  .splitter:focus-visible,
+  .splitter:active {
+    background: var(--accent);
+    outline: none;
+  }
+
+  .pane:has(+ .splitter--x) {
+    border-right: none;
+  }
+
+  .pane:has(+ .splitter--y) {
+    border-bottom: none;
+  }
+
+  .pane.pane--sized {
+    min-width: 0;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-splitter>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .panes--review .splitter {
+      display: none;
+    }
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer>>[init] */
+@layer components {
+  .panes--drawer {
+    flex-direction: column;
+  }
+
+  .drawer-bar {
+    display: flex;
+    flex: none;
+    align-items: stretch;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .drawer-bar__stepper {
+    display: flex;
+    flex: none;
+    margin: var(--space-2) 0 var(--space-2) var(--space-4);
+  }
+
+  .drawer-bar__step {
+    min-width: 28px;
+    padding: 0 var(--space-4);
+    font: inherit;
+    font-weight: bold;
+    color: var(--text);
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .drawer-bar__step:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+
+  .drawer-bar__step:last-child {
+    border-left: none;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  .drawer-bar__step:hover:not(:disabled) {
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+
+  .drawer-bar__step:disabled {
+    color: var(--text-ghost);
+    cursor: default;
+  }
+
+  .drawer-bar__toggle {
+    display: flex;
+    flex: 1;
+    gap: var(--space-4);
+    align-items: center;
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .drawer-bar__toggle:hover {
+    background: var(--surface-sunken);
+  }
+
+  .drawer-bar__position {
+    flex: none;
+    font-weight: bold;
+  }
+
+  .drawer-bar__summary {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .drawer-bar__fold {
+    flex: none;
+    color: var(--accent);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .drawer-bar__step {
+      min-width: 44px;
+      min-height: 44px;
+    }
+
+    .panes--drawer .splitter--y::before {
+      inset: calc(-1 * var(--space-4)) 0;
+    }
   }
 }
 /* ~/~ end */
@@ -895,14 +1060,6 @@
 
 /* ~/~ begin <<docs/architecture/frontend/paired-graph.md#design-paired-graph>>[init] */
 @layer components {
-  /* The commits pane is sized for one lane. A paired graph draws two, so
-     the pane it sits in takes the wider metric. Sizing the grid alone would
-     leave it scrolling one of its two lanes out of sight inside a pane that
-     never grew. */
-  .pane--commits:has(.paired-graph) {
-    width: var(--pane-paired-width);
-  }
-
   .paired-graph {
     display: grid;
     /* `minmax(0, 1fr)` and not `1fr`. A bare `1fr` refuses to shrink below
@@ -2350,10 +2507,8 @@
       border-bottom: 1px solid var(--border);
     }
 
-    .panes:not(.panes--review) .pane--commits {
-      width: auto;
-      min-width: 0;
-      max-height: 30vh;
+    .panes:not(.panes--review) .pane:has(+ .splitter) {
+      border-bottom: none;
     }
 
     .panes:not(.panes--review) .pane--diff {

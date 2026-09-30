@@ -235,8 +235,9 @@ Allowed import edges:
   `model/`.
 - `controllers/` import `state/`, `views/`, `model/`, and `api.ts` *types*.
 - `App.tsx` imports `controllers/`, `views/`, `model/`, `api.ts` *types*,
-  and the `state/` hooks for what it holds for the whole app: the address,
-  the review document, and the settings.
+  and the `state/` hooks for what it holds above the screens: the address,
+  the review document, the settings, and the local history screen's column
+  widths.
 
 ## Styling
 
@@ -326,6 +327,10 @@ reference here, anywhere.
 <<design-mode-tabs>>
 
 <<design-panes>>
+
+<<design-splitter>>
+
+<<design-commit-drawer>>
 
 <<design-pane-tabs>>
 

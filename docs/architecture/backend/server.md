@@ -348,7 +348,7 @@ thing to reject.
 
 Only the before end can be the base, which is why `from` is a `PullBaseline`
 and `to` stays a `GitOid`. The base as the after end is the pull request read
-backwards, and nobody reads it that way. The commit strip beside the diff
+backwards, and nobody reads it that way. The commit list above the diff
 takes the same `to`, and a base branch tip has no list of commits to show for
 a pull request.
 

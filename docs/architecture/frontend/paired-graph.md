@@ -364,14 +364,6 @@ read, and the rail's own width.
 ```css
 /*| id: design-paired-graph
 @layer components {
-  /* The commits pane is sized for one lane. A paired graph draws two, so
-     the pane it sits in takes the wider metric. Sizing the grid alone would
-     leave it scrolling one of its two lanes out of sight inside a pane that
-     never grew. */
-  .pane--commits:has(.paired-graph) {
-    width: var(--pane-paired-width);
-  }
-
   .paired-graph {
     display: grid;
     /* `minmax(0, 1fr)` and not `1fr`. A bare `1fr` refuses to shrink below

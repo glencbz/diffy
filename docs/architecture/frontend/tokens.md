@@ -216,8 +216,7 @@ can move it from [Settings](settings.md#display).
     --pane-picker-min: 240px;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
-    --pane-commits-width: 360px;
-    --pane-paired-width: 640px;
+    --pane-drawer-height: 30vh;
     --gutter-width: 40px;
     --label-width: 56px;
     --ref-max-width: 14em;
@@ -244,8 +243,6 @@ metric and is not here. It sits with the panes it rearranges.
     :root {
       --pane-picker-min: 180px;
       --pane-list-min: 160px;
-      --pane-commits-width: 260px;
-      --pane-paired-width: 460px;
     }
   }
 }
