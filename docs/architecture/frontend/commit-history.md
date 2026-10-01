@@ -264,6 +264,11 @@ a taller label leaves a gap in every lane. Lane colour is
 cycled by index so parallel branches stay distinct, and lane zero stays grey,
 so a linear history looks the same as `jj log`.
 
+A lane is twelve pixels, a node and a half. Only one node sits in any row, so
+lanes never have to keep two nodes apart, only the parallel edges running
+past one, and a pixel of gutter is a pixel the label loses. A history with a
+handful of open branches would otherwise spend a phone's width on its lines.
+
 Clicking a row toggles that commit by commit id, never by the change id the
 label leads with. The two are not interchangeable as identifiers. A change id names whichever version of a commit
 the current view holds, so it says something different in each operation's log,
@@ -293,7 +298,7 @@ algorithm to keep agreeing with the first.
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const LANE_WIDTH = 24;
+const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
@@ -527,6 +532,7 @@ row is.
     display: flex;
     align-items: center;
     width: 100%;
+    gap: var(--space-3);
     min-height: calc(40 / 12 * 1em);
     padding: 0 var(--space-4) 0 0;
     border: none;
@@ -905,7 +911,9 @@ at eleven pixels, for a hierarchy their positions already carry.
 ```
 
 Below a thousand pixels the label has the window to itself and can spend a
-second line on the metadata, so the clipping stops there. The two widths
+second line on the metadata and as many as it takes on the description, so
+the clipping stops there. A clipped description stays clipped however far the
+reader zooms or pans, since the row is only ever as wide as the pane. The two widths
 under it are where a second line is not enough either, and each drops the
 field that has the least left to say.
 
@@ -916,6 +924,12 @@ field that has the least left to say.
     .commit-label__meta {
       flex-wrap: wrap;
       overflow: visible;
+    }
+
+    .commit-label__summary {
+      overflow: visible;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
   }
 

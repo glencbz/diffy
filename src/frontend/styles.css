@@ -854,6 +854,12 @@
       flex-wrap: wrap;
       overflow: visible;
     }
+
+    .commit-label__summary {
+      overflow: visible;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
   }
 
   @media (max-width: 480px) {
@@ -987,6 +993,7 @@
     display: flex;
     align-items: center;
     width: 100%;
+    gap: var(--space-3);
     min-height: calc(40 / 12 * 1em);
     padding: 0 var(--space-4) 0 0;
     border: none;

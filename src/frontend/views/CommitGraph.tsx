@@ -2,7 +2,7 @@
 import type { LogEntry } from "../api";
 import { CommitLabel } from "./CommitLabel";
 
-const LANE_WIDTH = 24;
+const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
