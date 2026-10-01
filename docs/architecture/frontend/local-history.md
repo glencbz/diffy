@@ -225,36 +225,50 @@ latest. What value it is passed for `selected` is decided above it, by
 `pickerValue`: a picker never sees a side's pick directly, only where that
 pick lands relative to the current head.
 
+The row also holds whatever controls the side needs beside the select,
+passed in as `children`, such as the [newer operation](#newer-operation)
+notice. They sit on the picker's row so the row is the only thing above the
+graph and never changes height. Anything
+that came and went between the picker and the graph would push one side's
+graph down and leave the two sides of an interdiff out of line.
+
 ```tsx
 //| id: frontend-view-operation-picker
 //| file: src/frontend/views/OperationPicker.tsx
+import type { ReactNode } from "react";
 import type { OpLogEntry } from "../api";
 
 export function OperationPicker({
   operations,
   selected,
   onSelect,
+  children,
 }: {
   operations: OpLogEntry[];
   selected: string | null;
   onSelect: (operationId: string | null) => void;
+  /** Controls that sit on the picker's row after the select. */
+  children?: ReactNode;
 }) {
   return (
-    <label className="operation-picker">
-      <span className="operation-picker__label">operation</span>
-      <select
-        value={selected ?? ""}
-        onChange={(event) => onSelect(event.target.value || null)}
-        className="operation-picker__select"
-      >
-        <option value="">latest (current)</option>
-        {operations.map((operation) => (
-          <option key={operation.id} value={operation.id}>
-            {optionLabel(operation)}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="operation-picker">
+      <label className="operation-picker__field">
+        <span className="operation-picker__label">operation</span>
+        <select
+          value={selected ?? ""}
+          onChange={(event) => onSelect(event.target.value || null)}
+          className="operation-picker__select"
+        >
+          <option value="">latest (current)</option>
+          {operations.map((operation) => (
+            <option key={operation.id} value={operation.id}>
+              {optionLabel(operation)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {children}
+    </div>
   );
 }
 
@@ -267,7 +281,12 @@ export function optionLabel(operation: OpLogEntry): string {
 
 OperationPicker is a label wrapping a native `<select>`, so there is little
 to style beyond lining the caption up with the control and letting the
-select itself take the rest of the row, and no more than that.
+select itself take the rest of the row, less whatever controls follow it.
+
+The select and every button on the row are the same height, `2em`, so the
+row is as tall with a button on it as without one. One side's row can hold a
+button the other's does not, and a row a few pixels taller on one side was
+enough to start its graph that much lower than the other.
 
 A `<select>` asks for the width of its longest option, and an option here is
 an id, a description and a timestamp on one line. A described operation runs
@@ -281,10 +300,19 @@ tap from being read in full, so nothing is lost by cutting it.
 @layer components {
   .operation-picker {
     display: flex;
+    flex: none;
     align-items: center;
     gap: var(--space-4);
     padding: var(--space-4);
     border-bottom: 1px solid var(--border);
+  }
+
+  .operation-picker__field {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-4);
+    min-width: 0;
   }
 
   .operation-picker__label {
@@ -294,7 +322,24 @@ tap from being read in full, so nothing is lost by cutting it.
   .operation-picker__select {
     flex: 1;
     min-width: 0;
+    height: 2em;
     font: inherit;
+  }
+}
+```
+
+On a phone the row's controls grow to the 44 pixel touch target the other
+buttons in the app keep. The select grows with them, so the row stays the
+same height whichever buttons it holds.
+
+```css
+/*| id: design-operation-picker
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .operation-picker__select,
+    .newer-operation {
+      height: 44px;
+    }
   }
 }
 ```
@@ -309,6 +354,12 @@ has already moved past. `onUpdate` picks `null`, the same as the dropdown's
 first option, so updating takes the side to whatever is newest now and drops
 its selected commits.
 
+It is one button on the picker's row, reading `newer` and the operation's
+short id, with the whole label in its tooltip and its accessible name. A
+banner under the picker said more, but it pushed the after graph a few rows
+down the moment an operation landed, out of line with the before graph
+beside it.
+
 ```tsx
 //| id: frontend-view-newer-operation
 //| file: src/frontend/views/NewerOperation.tsx
@@ -322,53 +373,37 @@ export function NewerOperation({
   operation: OpLogEntry;
   onUpdate: () => void;
 }) {
+  const label = `Update to the newer operation ${optionLabel(operation)}`;
   return (
-    <div className="newer-operation">
-      <p className="newer-operation__note">
-        A newer operation is available: {optionLabel(operation)}
-      </p>
-      <button
-        type="button"
-        className="newer-operation__action"
-        onClick={onUpdate}
-      >
-        Update to latest
-      </button>
-    </div>
+    <button
+      type="button"
+      className="newer-operation"
+      onClick={onUpdate}
+      title={label}
+      aria-label={label}
+    >
+      newer: {operation.id.slice(0, 8)}
+    </button>
   );
 }
 ```
 
-It is laid out like `last-reviewed` on the pull request screen, which is the
-same kind of prompt: a note that wraps and an outlined button at the same 44
-pixel touch target, which drops under the note on a phone.
+It is outlined in the accent colour, so it reads as something that wants a
+click rather than another label on the row.
 
 ```css
 /*| id: design-newer-operation
 @layer components {
   .newer-operation {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3) var(--space-5);
-    padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border);
-    color: var(--text-faint);
-  }
-
-  .newer-operation__note {
-    flex: 1 1 auto;
-    margin: 0;
-  }
-
-  .newer-operation__action {
-    min-height: 44px;
-    padding: var(--space-3) var(--space-5);
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
     font: inherit;
     color: var(--accent);
+    white-space: nowrap;
     cursor: pointer;
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid var(--accent);
     border-radius: var(--radius);
   }
 }

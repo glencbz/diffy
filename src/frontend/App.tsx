@@ -126,7 +126,8 @@ function modePlace(mode: Mode): Place {
 }
 
 /** One local history side: its operation picker, its commit log, and, for
- *  the after side, the alert that a newer operation has arrived. */
+ *  the after side, the alert on the picker's row that a newer operation has
+ *  arrived. */
 function SidePicker({
   history,
   side,
@@ -156,10 +157,11 @@ function SidePicker({
         operations={history.operations}
         selected={pickerValue(local.pick, head)}
         onSelect={onPick}
-      />
-      {newer !== null && (
-        <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
-      )}
+      >
+        {newer !== null && (
+          <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
+        )}
+      </OperationPicker>
       <CommitLog
         source={{ kind: "jj", operation: local.pick.at }}
         selected={local.commits}
