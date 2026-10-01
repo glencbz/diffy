@@ -698,18 +698,8 @@
 
   .operation-picker__select {
     flex: 1;
+    min-width: 0;
     font: inherit;
-  }
-}
-/* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[1] */
-@layer components-narrow {
-  @media (max-width: 1000px) {
-    .operation-picker__select {
-      flex: 1;
-      min-width: 0;
-      max-width: 100%;
-    }
   }
 }
 /* ~/~ end */
