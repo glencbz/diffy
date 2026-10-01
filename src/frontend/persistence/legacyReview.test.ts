@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-persistence-legacy-review-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
+import { EMPTY_REVIEW } from "../model/review";
 import { clearLegacyReview, legacyReview } from "./legacyReview";
 import { memoryStorage } from "./memoryStorage";
 
@@ -39,9 +40,8 @@ describe("legacyReview", () => {
 
     // assert
     expect(document).toEqual({
+      ...EMPTY_REVIEW,
       marks: [mark],
-      comments: [],
-      viewed: [],
       reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "now" }],
     });
   });

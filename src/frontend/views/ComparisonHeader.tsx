@@ -1,9 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comparison-header>>[init]
-import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import { isViewed, type ReviewedRow, type RowReview } from "../model/review";
+import type { ReviewedRow } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
-import { fileVersionOf } from "./changedFiles";
+import { ReviewBar } from "./ReviewBar";
 
 export function ComparisonHeader({
   row,
@@ -15,44 +14,17 @@ export function ComparisonHeader({
   onMarkSeen: (() => void) | null;
   onComment: (() => void) | null;
 }) {
-  const openComments = row.comments.filter(
-    (comment) => !comment.resolved,
-  ).length;
-  const viewed = row.files.filter((file) =>
-    isViewed(row.viewed, fileVersionOf(file)),
-  ).length;
-
   return (
     <header className="comparison-header">
       <Row caption="before" commit={row.from} />
       <Row caption="after" commit={row.to} />
-      <div className="comparison-header__actions">
-        <ReviewChip review={row.review} />
-        {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
-        {row.files.length > 0 && (
-          <span className="comparison-header__viewed">
-            {viewed} / {row.files.length} files viewed
-          </span>
-        )}
-        {onMarkSeen !== null && (
-          <button
-            type="button"
-            onClick={onMarkSeen}
-            className="comparison-header__mark-seen"
-          >
-            {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
-          </button>
-        )}
-        {onComment !== null && (
-          <button
-            type="button"
-            onClick={onComment}
-            className="comparison-header__comment"
-          >
-            comment on comparison
-          </button>
-        )}
-      </div>
+      <ReviewBar
+        review={row}
+        files={row.files}
+        commentLabel="comment on comparison"
+        onMarkSeen={onMarkSeen}
+        onComment={onComment}
+      />
     </header>
   );
 }
@@ -74,30 +46,5 @@ function Row({
       )}
     </div>
   );
-}
-
-function ReviewChip({ review }: { review: RowReview }) {
-  if (review.state === "unseen") return null;
-  return review.state === "reviewed" ? (
-    <Chip tone="reviewed">reviewed</Chip>
-  ) : (
-    <Chip tone="changed">changed since you looked</Chip>
-  );
-}
-
-const TONE_CLASS: Record<"reviewed" | "changed" | "open", string> = {
-  reviewed: "review-chip--resolved",
-  changed: "review-chip--stale",
-  open: "review-chip--open",
-};
-
-function Chip({
-  tone,
-  children,
-}: {
-  tone: "reviewed" | "changed" | "open";
-  children: ReactNode;
-}) {
-  return <span className={`review-chip ${TONE_CLASS[tone]}`}>{children}</span>;
 }
 // ~/~ end

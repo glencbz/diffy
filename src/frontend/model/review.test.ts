@@ -8,11 +8,14 @@ import {
   EMPTY_REVIEW,
   type FileVersion,
   isViewed,
+  keepKey,
   markSeen,
   markViewed,
+  pullRowKey,
   type ReviewCommand,
   ReviewDocument,
   type ReviewedRow,
+  reviewComparison,
   reviewKey,
   reviewRows,
 } from "./review";
@@ -65,6 +68,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -73,9 +77,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -92,6 +93,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a3");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -100,9 +102,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -121,6 +120,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a0", "a2");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -129,9 +129,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -150,6 +147,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a3", "a4");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -158,9 +156,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -191,6 +186,7 @@ describe("reviewRows", () => {
       throw new Error("expected a dropped row for change aaaa");
     }
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:aaaa",
@@ -199,9 +195,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -219,7 +212,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -235,8 +228,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -250,7 +241,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -266,8 +257,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -281,7 +270,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -295,8 +284,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -310,7 +297,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a3", "a4");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -323,8 +310,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -342,6 +327,7 @@ describe("reviewRows", () => {
       files: [],
     };
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "rev:g2",
@@ -350,9 +336,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -373,6 +356,7 @@ describe("reviewRows", () => {
       files: [],
     };
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "rev:g2",
@@ -381,9 +365,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -401,6 +382,7 @@ describe("reviewRows", () => {
       files: [],
     };
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "rev:g2",
@@ -409,9 +391,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -898,6 +877,86 @@ describe("import", () => {
     // assert
     expect(twice).toEqual(once);
     expect(once).toEqual(incoming);
+  });
+});
+describe("pullRowKey", () => {
+  const kept = (commitId: string, reviewKey: string): ReviewCommand => ({
+    kind: "set-key",
+    commitId,
+    reviewKey,
+  });
+
+  test("starts a key from the row's own commit when nothing was kept", () => {
+    // arrange
+    // act
+    // assert
+    expect(pullRowKey(empty, "b1", "a1")).toEqual({
+      reviewKey: "rev:a1",
+      keeps: "a1",
+    });
+    expect(pullRowKey(empty, "b1", null)).toEqual({
+      reviewKey: "rev:b1",
+      keeps: "b1",
+    });
+  });
+
+  test("takes the key its before commit was written on under", () => {
+    // arrange
+    const document = applied(empty, kept("a1", "rev:a0"));
+
+    // act
+    // assert
+    expect(pullRowKey(document, "a1", "a2").reviewKey).toBe("rev:a0");
+  });
+
+  test("moves with the pairing, not with the commit", () => {
+    // arrange
+    const document = applied(
+      empty,
+      kept("a1", "rev:a1"),
+      kept("b1", "rev:b1"),
+      kept("a2", "rev:a1"),
+    );
+
+    // act
+    const repaired = pullRowKey(document, "b1", "a2");
+
+    // assert
+    expect(repaired.reviewKey).toBe("rev:b1");
+  });
+
+  test("keeps a row with nothing before it on its own commit's key", () => {
+    // arrange
+    const document = applied(empty, kept("a2", "rev:a1"));
+
+    // act
+    // assert
+    expect(pullRowKey(document, null, "a2").reviewKey).toBe("rev:a1");
+  });
+
+  test("carries a comment through a force push once the row is written on", () => {
+    // arrange
+    const v1 = pullRowKey(empty, null, "a1");
+    const row = reviewComparison(empty, v1.reviewKey, null, "a1", v1.keeps);
+    const document = applied(
+      empty,
+      ...keepKey(row),
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+    );
+
+    // act
+    const v2 = pullRowKey(document, "a1", "a2");
+    const next = reviewComparison(document, v2.reviewKey, "a1", "a2", v2.keeps);
+
+    // assert
+    expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
+    expect(next.comments[0]?.stale).toBe(false);
   });
 });
 // ~/~ end

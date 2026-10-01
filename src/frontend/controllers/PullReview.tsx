@@ -16,7 +16,13 @@ import {
   type PullPlace,
   pullHref,
 } from "../model/place";
-import { pullSeries, reviewedIn } from "../model/review";
+import {
+  type ComparisonReview,
+  pullRowKey,
+  pullSeries,
+  reviewComparison,
+  reviewedIn,
+} from "../model/review";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals } from "../state/place";
@@ -282,6 +288,15 @@ export function PullReview({
     if (next !== undefined) pick(next.commit.commitId);
   };
 
+  const reviewOf = (row: StackRow): ComparisonReview => {
+    const before = row.kind === "dropped" ? row.commit : row.was;
+    const after = row.kind === "dropped" ? null : row.commit;
+    const from = before?.commitId ?? null;
+    const to = after?.commitId ?? null;
+    const { reviewKey, keeps } = pullRowKey(review.document, from, to);
+    return reviewComparison(review.document, reviewKey, from, to, keeps);
+  };
+
   const links = (row: StackRow): DiffLinks => {
     const at = (file: FileSpot): PullPlace => ({
       ...place,
@@ -370,6 +385,8 @@ export function PullReview({
             current={currentKey}
             reveal={picks + arrivals}
             links={links}
+            reviewOf={reviewOf}
+            actions={review.status === "ready" ? review.actions : null}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

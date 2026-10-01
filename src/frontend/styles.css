@@ -890,22 +890,6 @@
     font-style: italic;
     color: var(--text-ghost);
   }
-
-  .comparison-header__actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-2);
-  }
-
-  .comparison-header__viewed {
-    color: var(--text-muted);
-  }
-
-  .comparison-header__mark-seen,
-  .comparison-header__comment {
-    font: inherit;
-  }
 }
 /* ~/~ end */
 
@@ -959,6 +943,25 @@
 }
 /* ~/~ end */
 /* ~/~ begin <<docs/architecture/frontend/review.md#design-review-state>>[1] */
+@layer components {
+  .review-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+
+  .review-bar__viewed {
+    color: var(--text-muted);
+  }
+
+  .review-bar__mark-seen,
+  .review-bar__comment {
+    font: inherit;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/review.md#design-review-state>>[2] */
 @layer components {
   .review-strip {
     flex: none;
@@ -2400,6 +2403,10 @@
     padding: var(--space-2) var(--space-5) 0;
     font-size: var(--text-size-small);
     color: var(--text-muted);
+  }
+
+  .commit-stack__row > .review-bar {
+    padding: 0 var(--space-5);
   }
 
   .commit-stack__message {

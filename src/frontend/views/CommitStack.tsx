@@ -1,10 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/commit-stack.md#frontend-view-commit-stack>>[init]
-import { type ReactElement, useEffect, useRef } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { ComparisonReview, ReviewActions } from "../model/review";
 import type { SourceLookup } from "../model/source";
 import { CommitMessage } from "./CommitMessage";
-import { type DiffLinks, DiffView } from "./DiffView";
+import {
+  CommentComposer,
+  CommentThreads,
+  type DiffLinks,
+  type DiffReview,
+  DiffView,
+} from "./DiffView";
+import { ReviewBar } from "./ReviewBar";
 
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/commit-stack.md#frontend-view-commit-stack>>[1]
@@ -59,6 +67,10 @@ export interface CommitStackProps {
   /** The older version every non-plain row is read against, as its chip
    *  names it: `v5`. */
   since: string;
+  /** What the reader has kept on each row. */
+  reviewOf: (row: StackRow) => ComparisonReview;
+  /** Null while there is no review document to write to. */
+  actions: ReviewActions | null;
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
@@ -102,6 +114,8 @@ export function CommitStack({
   reveal,
   links,
   since,
+  reviewOf,
+  actions,
 }: CommitStackProps): ReactElement {
   return (
     <div className="commit-stack">
@@ -118,6 +132,8 @@ export function CommitStack({
           reveal={reveal}
           links={links(row)}
           since={since}
+          review={reviewOf(row)}
+          actions={actions}
         />
       ))}
     </div>
@@ -135,6 +151,8 @@ function StackSection({
   reveal,
   links,
   since,
+  review,
+  actions,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -146,8 +164,11 @@ function StackSection({
   reveal: number;
   links: DiffLinks;
   since: string;
+  review: ComparisonReview;
+  actions: ReviewActions | null;
 }) {
   const section = useRef<HTMLElement>(null);
+  const [composing, setComposing] = useState(false);
   const diffScrolls = links.selected !== null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
@@ -188,6 +209,32 @@ function StackSection({
             isExpanded={isExpanded}
             onExpand={onExpand}
           />
+          <ReviewBar
+            review={review}
+            files={row.files.status === "ready" ? row.files.data : []}
+            commentLabel="comment on this commit"
+            onMarkSeen={actions && (() => actions.markSeen(review))}
+            onComment={actions && (() => setComposing(true))}
+          />
+          {actions !== null && composing && (
+            <CommentComposer
+              anchor={{ kind: "comparison" }}
+              onCancel={() => setComposing(false)}
+              onSubmit={(anchor, body) => {
+                actions.addComment(review, anchor, body);
+                setComposing(false);
+              }}
+            />
+          )}
+          {actions !== null && (
+            <CommentThreads
+              comments={review.comments.filter(
+                (comment) => comment.kind === "comparison",
+              )}
+              onResolveComment={actions.resolveComment}
+              onDropComment={actions.dropComment}
+            />
+          )}
           <StackContents
             row={row}
             sources={sources}
@@ -195,6 +242,20 @@ function StackSection({
             onToggle={onToggle}
             links={links}
             reveal={reveal}
+            review={
+              actions === null
+                ? undefined
+                : {
+                    comments: review.comments,
+                    onAddComment: (anchor, body) =>
+                      actions.addComment(review, anchor, body),
+                    onResolveComment: actions.resolveComment,
+                    onDropComment: actions.dropComment,
+                    viewed: review.viewed,
+                    onToggleViewed: (file) =>
+                      actions.toggleViewed(review, file),
+                  }
+            }
           />
         </>
       )}
@@ -311,6 +372,7 @@ function StackContents({
   onToggle,
   links,
   reveal,
+  review,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -318,6 +380,7 @@ function StackContents({
   onToggle: () => void;
   links: DiffLinks;
   reveal: number;
+  review: DiffReview | undefined;
 }) {
   if (row.files.status === "loading") {
     return (
@@ -348,6 +411,7 @@ function StackContents({
           scope={row.commit.commitId}
           links={links}
           reveal={reveal}
+          review={review}
         />
       )}
     </div>

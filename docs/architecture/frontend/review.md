@@ -123,6 +123,34 @@ that marks the row seen unless it reads reviewed, and `markViewed` one that
 marks the file viewed unless it is. `commentOn` pins a new comment to the
 commit it was read against, as described above.
 
+A comparison's review reads the same way whichever screen draws it.
+`reviewComparison` gathers everything filed under one key and reads it
+against the commits a comparison has on each side now. A row on the local
+history screen gets its key from `reviewKey`, and a row of a pull request's
+commit stack from `pullRowKey`.
+
+A pull request commit has no id that survives a force push, only the
+subject-line guess its pairing starts from, and a key built from that guess
+would disagree with the pairing as soon as the reader corrected it. So a
+pull request row takes the key of the commit its pairing puts on the before
+side, and a row whose before commit was never written on starts a key from
+its own commit, `rev:<commit id>`. The document keeps, in `keys`, the key each
+commit was last written on under, and writing anything on a row first sends
+`set-key` for the row's own commit, which `keepKey` builds. The row that
+commit's successor lands on in the next version then inherits the key, and a
+reader who pairs a commit with a different one by hand moves the marks and
+comments with the pairing. A row with nothing before it, which is every row
+of a pull request read against its base, takes the key its own commit was
+kept under.
+
+The keys are kept rather than read back off the marks and comments, which
+already name commits. A viewed mark names none, and unmarking a row or
+deleting its last comment would take the evidence of its key with it, so the
+next version would start over. `set-key` is a command of its own, sent before
+the write it serves, rather than a field on each writing command. One
+command then records one fact, and a key that lands while the write after it
+fails records nothing false.
+
 All of this is the review [model](index.md#model): marks, comments, and
 viewed files, each with the Zod schema that reads it back from storage; how
 the stored document is read against the rows the interdiff returns; and the
@@ -211,11 +239,20 @@ export const ReviewedVersion = z.object({
 });
 export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
 
+/** The key a commit was last written on under, for a commit whose own id
+ *  does not survive a rewrite. */
+export const KeptKey = z.object({
+  commitId: z.string(),
+  reviewKey: z.string(),
+});
+export type KeptKey = z.infer<typeof KeptKey>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
+  keys: z.array(KeptKey).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -224,6 +261,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   comments: [],
   viewed: [],
   reviewed: [],
+  keys: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -231,7 +269,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.marks.length === 0 &&
     document.comments.length === 0 &&
     document.viewed.length === 0 &&
-    document.reviewed.length === 0
+    document.reviewed.length === 0 &&
+    document.keys.length === 0
   );
 }
 
@@ -267,12 +306,22 @@ export type RowReview =
 
 export type RowComment = Comment & { stale: boolean };
 
-export interface ReviewedRow extends InterdiffRow {
+/** What the reader has kept about one comparison: the key it is filed
+ *  under, the commit on each side, and everything filed under that key. */
+export interface ComparisonReview {
   reviewKey: string;
+  fromCommitId: string | null;
+  toCommitId: string | null;
+  /** The commit to record under `reviewKey` when the reader writes anything
+   *  here, so that the row it becomes in a later version inherits the key.
+   *  Null for a key that survives a rewrite on its own, as a change id does. */
+  keeps: string | null;
   review: RowReview;
   comments: RowComment[];
   viewed: ViewedFile[];
 }
+
+export type ReviewedRow = InterdiffRow & ComparisonReview;
 
 /** What a mark uses to find its row again. A change id survives a rewrite, so
  *  a mark under one is still recognisable after the commit is amended. A
@@ -337,35 +386,74 @@ function reviewFor(
   };
 }
 
+/** Everything the document holds under `key`, read against the commits a
+ *  comparison has on each side now. */
+export function reviewComparison(
+  document: ReviewDocument,
+  key: string,
+  fromCommitId: string | null,
+  toCommitId: string | null,
+  keeps: string | null,
+): ComparisonReview {
+  const comments = document.comments
+    .filter((comment) => comment.reviewKey === key)
+    .map((comment) => ({
+      ...comment,
+      stale:
+        comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
+    }))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  return {
+    reviewKey: key,
+    fromCommitId,
+    toCommitId,
+    keeps,
+    review: reviewFor(
+      document.marks.filter((mark) => mark.reviewKey === key),
+      fromCommitId,
+      toCommitId,
+    ),
+    comments,
+    viewed: document.viewed.filter((mark) => mark.reviewKey === key),
+  };
+}
+
 export function reviewRows(
   rows: InterdiffRow[],
   document: ReviewDocument,
 ): ReviewedRow[] {
-  return rows.map((row) => {
-    const key = reviewKey(row);
-    const fromCommitId = row.from?.commitId ?? null;
-    const toCommitId = row.to?.commitId ?? null;
-    const marksForChange = document.marks.filter(
-      (mark) => mark.reviewKey === key,
-    );
+  return rows.map((row) => ({
+    ...row,
+    ...reviewComparison(
+      document,
+      reviewKey(row),
+      row.from?.commitId ?? null,
+      row.to?.commitId ?? null,
+      null,
+    ),
+  }));
+}
 
-    const comments = document.comments
-      .filter((comment) => comment.reviewKey === key)
-      .map((comment) => ({
-        ...comment,
-        stale:
-          comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
-      }))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-    return {
-      ...row,
-      reviewKey: key,
-      review: reviewFor(marksForChange, fromCommitId, toCommitId),
-      comments,
-      viewed: document.viewed.filter((mark) => mark.reviewKey === key),
-    };
-  });
+/** The key a pull request row is filed under. A commit has no id of its own
+ *  that survives a force push, so a row takes the key its before commit was
+ *  given when the reader last wrote on it, and a row whose before commit was
+ *  never written on, or that has none, starts a key from its own commit.
+ *  Writing on the row records that key for the row's own commit, which is
+ *  what the row it becomes in the next version inherits. */
+export function pullRowKey(
+  document: ReviewDocument,
+  before: string | null,
+  after: string | null,
+): { reviewKey: string; keeps: string } {
+  const own = after ?? before;
+  if (own === null) throw new Error("a pull request row has no commit");
+  const kept = (commitId: string | null) =>
+    commitId === null
+      ? undefined
+      : document.keys.find((key) => key.commitId === commitId)?.reviewKey;
+  const inherited = before !== null ? kept(before) : kept(after);
+  return { reviewKey: inherited ?? `rev:${own}`, keeps: own };
 }
 
 /** Whether two marks (or a mark and a comparison) name the same row: the
@@ -418,6 +506,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     series: z.string(),
     version: z.string(),
     at: z.string(),
+  }),
+  z.object({
+    kind: z.literal("set-key"),
+    commitId: z.string(),
+    reviewKey: z.string(),
   }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
@@ -496,6 +589,14 @@ export function applyCommand(
           sameReviewedVersion,
         ),
       };
+    case "set-key":
+      return {
+        ...document,
+        keys: [
+          ...document.keys.filter((key) => key.commitId !== command.commitId),
+          { commitId: command.commitId, reviewKey: command.reviewKey },
+        ],
+      };
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -513,6 +614,11 @@ export function applyCommand(
           document.reviewed,
           command.document.reviewed,
           sameReviewedVersion,
+        ),
+        keys: added(
+          document.keys,
+          command.document.keys,
+          (a, b) => a.commitId === b.commitId,
         ),
       };
   }
@@ -537,25 +643,25 @@ function added<T>(
 
 /** What a screen can do to the review document, once it has one to change. */
 export interface ReviewActions {
-  markSeen: (row: ReviewedRow) => void;
-  addComment: (row: ReviewedRow, anchor: Anchor, body: string) => void;
+  markSeen: (row: ComparisonReview) => void;
+  addComment: (row: ComparisonReview, anchor: Anchor, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
-  toggleViewed: (row: ReviewedRow, file: FileVersion) => void;
+  toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   markReviewed: (series: string, version: string) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */
-function comparisonOf(row: ReviewedRow): Comparison {
+function comparisonOf(row: ComparisonReview): Comparison {
   return {
     reviewKey: row.reviewKey,
-    fromCommitId: row.from?.commitId ?? null,
-    toCommitId: row.to?.commitId ?? null,
+    fromCommitId: row.fromCommitId,
+    toCommitId: row.toCommitId,
   };
 }
 
 /** Marks the row seen, or unseen if it reads reviewed. */
-export function markSeen(row: ReviewedRow, at: string): ReviewCommand {
+export function markSeen(row: ComparisonReview, at: string): ReviewCommand {
   return {
     kind: "set-seen",
     comparison: comparisonOf(row),
@@ -566,7 +672,7 @@ export function markSeen(row: ReviewedRow, at: string): ReviewCommand {
 
 /** Marks one file of a row viewed, or not viewed if it is. */
 export function markViewed(
-  row: ReviewedRow,
+  row: ComparisonReview,
   file: FileVersion,
   at: string,
 ): ReviewCommand {
@@ -582,22 +688,29 @@ export function markViewed(
 /** Adds a comment on a row, pinned to the commit what it is about was read
  *  against. */
 export function commentOn(
-  row: ReviewedRow,
+  row: ComparisonReview,
   comment: Anchor & Pick<Comment, "id" | "body" | "createdAt" | "author">,
 ): ReviewCommand {
-  const commit =
+  const commitId =
     comment.kind === "line" && comment.side === "before"
-      ? (row.from ?? row.to)
-      : (row.to ?? row.from);
+      ? (row.fromCommitId ?? row.toCommitId)
+      : (row.toCommitId ?? row.fromCommitId);
   return {
     kind: "add-comment",
     comment: {
       ...comment,
       reviewKey: row.reviewKey,
-      commitId: commit?.commitId ?? "",
+      commitId: commitId ?? "",
       resolved: false,
     },
   };
+}
+
+/** What writing on a row records first, so its key outlives the row. */
+export function keepKey(row: ComparisonReview): ReviewCommand[] {
+  return row.keeps === null
+    ? []
+    : [{ kind: "set-key", commitId: row.keeps, reviewKey: row.reviewKey }];
 }
 ```
 
@@ -618,11 +731,14 @@ import {
   EMPTY_REVIEW,
   type FileVersion,
   isViewed,
+  keepKey,
   markSeen,
   markViewed,
+  pullRowKey,
   type ReviewCommand,
   ReviewDocument,
   type ReviewedRow,
+  reviewComparison,
   reviewKey,
   reviewRows,
 } from "./review";
@@ -675,6 +791,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -683,9 +800,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -702,6 +816,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a3");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -710,9 +825,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -731,6 +843,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a0", "a2");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -739,9 +852,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -760,6 +870,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a3", "a4");
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:a",
@@ -768,9 +879,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -801,6 +909,7 @@ describe("reviewRows", () => {
       throw new Error("expected a dropped row for change aaaa");
     }
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "change:aaaa",
@@ -809,9 +918,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -829,7 +935,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -845,8 +951,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -860,7 +964,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -876,8 +980,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -891,7 +993,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -905,8 +1007,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -920,7 +1020,7 @@ describe("reviewRows", () => {
     // arrange
     const row = pairRow("a", "a3", "a4");
     const document: ReviewDocument = {
-      marks: [],
+      ...EMPTY_REVIEW,
       comments: [
         {
           id: "c1",
@@ -933,8 +1033,6 @@ describe("reviewRows", () => {
           author: "reader",
         },
       ],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -952,6 +1050,7 @@ describe("reviewRows", () => {
       files: [],
     };
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "rev:g2",
@@ -960,9 +1059,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -983,6 +1079,7 @@ describe("reviewRows", () => {
       files: [],
     };
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "rev:g2",
@@ -991,9 +1088,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -1011,6 +1105,7 @@ describe("reviewRows", () => {
       files: [],
     };
     const document: ReviewDocument = {
+      ...EMPTY_REVIEW,
       marks: [
         {
           reviewKey: "rev:g2",
@@ -1019,9 +1114,6 @@ describe("reviewRows", () => {
           seenAt: "2026-09-14T09:00:00.000Z",
         },
       ],
-      comments: [],
-      viewed: [],
-      reviewed: [],
     };
 
     // act
@@ -1510,6 +1602,86 @@ describe("import", () => {
     expect(once).toEqual(incoming);
   });
 });
+describe("pullRowKey", () => {
+  const kept = (commitId: string, reviewKey: string): ReviewCommand => ({
+    kind: "set-key",
+    commitId,
+    reviewKey,
+  });
+
+  test("starts a key from the row's own commit when nothing was kept", () => {
+    // arrange
+    // act
+    // assert
+    expect(pullRowKey(empty, "b1", "a1")).toEqual({
+      reviewKey: "rev:a1",
+      keeps: "a1",
+    });
+    expect(pullRowKey(empty, "b1", null)).toEqual({
+      reviewKey: "rev:b1",
+      keeps: "b1",
+    });
+  });
+
+  test("takes the key its before commit was written on under", () => {
+    // arrange
+    const document = applied(empty, kept("a1", "rev:a0"));
+
+    // act
+    // assert
+    expect(pullRowKey(document, "a1", "a2").reviewKey).toBe("rev:a0");
+  });
+
+  test("moves with the pairing, not with the commit", () => {
+    // arrange
+    const document = applied(
+      empty,
+      kept("a1", "rev:a1"),
+      kept("b1", "rev:b1"),
+      kept("a2", "rev:a1"),
+    );
+
+    // act
+    const repaired = pullRowKey(document, "b1", "a2");
+
+    // assert
+    expect(repaired.reviewKey).toBe("rev:b1");
+  });
+
+  test("keeps a row with nothing before it on its own commit's key", () => {
+    // arrange
+    const document = applied(empty, kept("a2", "rev:a1"));
+
+    // act
+    // assert
+    expect(pullRowKey(document, null, "a2").reviewKey).toBe("rev:a1");
+  });
+
+  test("carries a comment through a force push once the row is written on", () => {
+    // arrange
+    const v1 = pullRowKey(empty, null, "a1");
+    const row = reviewComparison(empty, v1.reviewKey, null, "a1", v1.keeps);
+    const document = applied(
+      empty,
+      ...keepKey(row),
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+    );
+
+    // act
+    const v2 = pullRowKey(document, "a1", "a2");
+    const next = reviewComparison(document, v2.reviewKey, "a1", "a2", v2.keeps);
+
+    // assert
+    expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
+    expect(next.comments[0]?.stale).toBe(false);
+  });
+});
 ```
 
 A comment or a comparison row is always in one of the same three states —
@@ -1569,6 +1741,131 @@ colour without either file naming it.
   }
 }
 ```
+## The review bar
+
+Every reviewed row, a comparison on the local history screen or a commit on
+a pull request's stack, says where the reader stands on it in one line:
+whether it has been looked at, whether it moved since, and how many open
+comments sit on it. The `mark seen` / `mark unseen` button reads its own
+label off the row's review state, so the caller wires the click through
+without working out which action is current. Next to it, the row counts its
+files the reader has marked viewed, read off the same marks the files'
+checkboxes are, so the two never disagree. A bar with no review document
+behind it keeps the chips and drops the two buttons.
+
+```tsx
+//| id: frontend-view-review-bar
+//| file: src/frontend/views/ReviewBar.tsx
+import type { ReactNode } from "react";
+import type { FileDiff } from "../api";
+import {
+  type ComparisonReview,
+  isViewed,
+  type RowReview,
+} from "../model/review";
+import { fileVersionOf } from "./changedFiles";
+
+/** Where the reader stands on one comparison, and the two things they can do
+ *  about the whole of it. */
+export function ReviewBar({
+  review,
+  files,
+  commentLabel,
+  onMarkSeen,
+  onComment,
+}: {
+  review: ComparisonReview;
+  files: FileDiff[];
+  commentLabel: string;
+  /** Null when there is no review document to write to. */
+  onMarkSeen: (() => void) | null;
+  onComment: (() => void) | null;
+}) {
+  const openComments = review.comments.filter(
+    (comment) => !comment.resolved,
+  ).length;
+  const viewed = files.filter((file) =>
+    isViewed(review.viewed, fileVersionOf(file)),
+  ).length;
+
+  return (
+    <div className="review-bar">
+      <ReviewChip review={review.review} />
+      {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
+      {files.length > 0 && (
+        <span className="review-bar__viewed">
+          {viewed} / {files.length} files viewed
+        </span>
+      )}
+      {onMarkSeen !== null && (
+        <button
+          type="button"
+          onClick={onMarkSeen}
+          className="review-bar__mark-seen"
+        >
+          {review.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+        </button>
+      )}
+      {onComment !== null && (
+        <button
+          type="button"
+          onClick={onComment}
+          className="review-bar__comment"
+        >
+          {commentLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ReviewChip({ review }: { review: RowReview }) {
+  if (review.state === "unseen") return null;
+  return review.state === "reviewed" ? (
+    <Chip tone="reviewed">reviewed</Chip>
+  ) : (
+    <Chip tone="changed">changed since you looked</Chip>
+  );
+}
+
+const TONE_CLASS: Record<"reviewed" | "changed" | "open", string> = {
+  reviewed: "review-chip--resolved",
+  changed: "review-chip--stale",
+  open: "review-chip--open",
+};
+
+function Chip({
+  tone,
+  children,
+}: {
+  tone: "reviewed" | "changed" | "open";
+  children: ReactNode;
+}) {
+  return <span className={`review-chip ${TONE_CLASS[tone]}`}>{children}</span>;
+}
+```
+
+```css
+/*| id: design-review-state
+@layer components {
+  .review-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+
+  .review-bar__viewed {
+    color: var(--text-muted);
+  }
+
+  .review-bar__mark-seen,
+  .review-bar__comment {
+    font: inherit;
+  }
+}
+```
+
 ## Storage
 
 The review document lives on the server, in the
@@ -1709,8 +2006,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AsyncState } from "../model/asyncState";
 import {
   applyCommand,
+  type ComparisonReview,
   commentOn,
   EMPTY_REVIEW,
+  keepKey,
   markSeen,
   markViewed,
   type ReviewActions,
@@ -1816,10 +2115,15 @@ export function useReview(): ReviewHandle {
         },
       );
     };
+    const write = (row: ComparisonReview, command: ReviewCommand) => {
+      for (const kept of keepKey(row)) send(kept);
+      send(command);
+    };
     return {
-      markSeen: (row) => send(markSeen(row, now())),
+      markSeen: (row) => write(row, markSeen(row, now())),
       addComment: (row, anchor, body) =>
-        send(
+        write(
+          row,
           commentOn(row, {
             id: crypto.randomUUID(),
             ...anchor,
@@ -1831,7 +2135,7 @@ export function useReview(): ReviewHandle {
       resolveComment: (id, resolved) =>
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),
-      toggleViewed: (row, file) => send(markViewed(row, file, now())),
+      toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       markReviewed: (series, version) =>
         send({ kind: "mark-reviewed", series, version, at: now() }),
     };
@@ -2010,6 +2314,7 @@ export function clearLegacyReview(): void {
 //| id: frontend-persistence-legacy-review-test
 //| file: src/frontend/persistence/legacyReview.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
+import { EMPTY_REVIEW } from "../model/review";
 import { clearLegacyReview, legacyReview } from "./legacyReview";
 import { memoryStorage } from "./memoryStorage";
 
@@ -2049,9 +2354,8 @@ describe("legacyReview", () => {
 
     // assert
     expect(document).toEqual({
+      ...EMPTY_REVIEW,
       marks: [mark],
-      comments: [],
-      viewed: [],
       reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "now" }],
     });
   });

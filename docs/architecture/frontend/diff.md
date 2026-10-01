@@ -2860,22 +2860,18 @@ it a row is an unlabelled patch, and with two independent operation pickers on
 screen and several rows stacked up, there is no way to work back to what was
 compared.
 
-A third line adds review state to that same job: whether the row has been
-looked at, whether it moved since, and how many open comments sit on it. The
-`mark seen` / `mark unseen` button reads its own label off
-`row.review.state`, so the caller wires the click through without computing
-which action is current. Next to it, the row counts its files the reader has
-marked viewed, read off the same marks the files' checkboxes are, so the two
-never disagree.
+A third line adds review state to that same job, the
+[review bar](review.md#the-review-bar) every reviewed row on either screen
+carries: whether the row has been looked at, whether it moved since, and how
+many open comments sit on it.
 
 ```tsx
 //| id: frontend-view-comparison-header
 //| file: src/frontend/views/ComparisonHeader.tsx
-import type { ReactNode } from "react";
 import type { LogEntry } from "../api";
-import { isViewed, type ReviewedRow, type RowReview } from "../model/review";
+import type { ReviewedRow } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
-import { fileVersionOf } from "./changedFiles";
+import { ReviewBar } from "./ReviewBar";
 
 export function ComparisonHeader({
   row,
@@ -2887,44 +2883,17 @@ export function ComparisonHeader({
   onMarkSeen: (() => void) | null;
   onComment: (() => void) | null;
 }) {
-  const openComments = row.comments.filter(
-    (comment) => !comment.resolved,
-  ).length;
-  const viewed = row.files.filter((file) =>
-    isViewed(row.viewed, fileVersionOf(file)),
-  ).length;
-
   return (
     <header className="comparison-header">
       <Row caption="before" commit={row.from} />
       <Row caption="after" commit={row.to} />
-      <div className="comparison-header__actions">
-        <ReviewChip review={row.review} />
-        {openComments > 0 && <Chip tone="open">{openComments} open</Chip>}
-        {row.files.length > 0 && (
-          <span className="comparison-header__viewed">
-            {viewed} / {row.files.length} files viewed
-          </span>
-        )}
-        {onMarkSeen !== null && (
-          <button
-            type="button"
-            onClick={onMarkSeen}
-            className="comparison-header__mark-seen"
-          >
-            {row.review.state === "reviewed" ? "mark unseen" : "mark seen"}
-          </button>
-        )}
-        {onComment !== null && (
-          <button
-            type="button"
-            onClick={onComment}
-            className="comparison-header__comment"
-          >
-            comment on comparison
-          </button>
-        )}
-      </div>
+      <ReviewBar
+        review={row}
+        files={row.files}
+        commentLabel="comment on comparison"
+        onMarkSeen={onMarkSeen}
+        onComment={onComment}
+      />
     </header>
   );
 }
@@ -2946,31 +2915,6 @@ function Row({
       )}
     </div>
   );
-}
-
-function ReviewChip({ review }: { review: RowReview }) {
-  if (review.state === "unseen") return null;
-  return review.state === "reviewed" ? (
-    <Chip tone="reviewed">reviewed</Chip>
-  ) : (
-    <Chip tone="changed">changed since you looked</Chip>
-  );
-}
-
-const TONE_CLASS: Record<"reviewed" | "changed" | "open", string> = {
-  reviewed: "review-chip--resolved",
-  changed: "review-chip--stale",
-  open: "review-chip--open",
-};
-
-function Chip({
-  tone,
-  children,
-}: {
-  tone: "reviewed" | "changed" | "open";
-  children: ReactNode;
-}) {
-  return <span className={`review-chip ${TONE_CLASS[tone]}`}>{children}</span>;
 }
 ```
 
@@ -3003,22 +2947,6 @@ runs.
   .comparison-header__unavailable {
     font-style: italic;
     color: var(--text-ghost);
-  }
-
-  .comparison-header__actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-2);
-  }
-
-  .comparison-header__viewed {
-    color: var(--text-muted);
-  }
-
-  .comparison-header__mark-seen,
-  .comparison-header__comment {
-    font: inherit;
   }
 }
 ```
