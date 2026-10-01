@@ -40,6 +40,7 @@ export function DiffPane({
       {total >= 2 && <FileNavigator groups={groups} />}
       <InterdiffRows
         rows={rows}
+        plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
       />

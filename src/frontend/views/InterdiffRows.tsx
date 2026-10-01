@@ -8,10 +8,13 @@ import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 
 export function InterdiffRows({
   rows,
+  plain,
   sources,
   review,
 }: {
   rows: ReviewedRow[];
+  /** Whether these are commits' own diffs rather than an interdiff. */
+  plain: boolean;
   sources: SourceLookup;
   /** Null while there is no review document to change, which draws each
    *  row with nothing on it that would write one. */
@@ -34,6 +37,7 @@ export function InterdiffRows({
         <section key={rowKey(row)}>
           <ComparisonHeader
             row={row}
+            plain={plain}
             onMarkSeen={review && (() => review.markSeen(row))}
             onComment={review && (() => setComposing(rowKey(row)))}
           />
