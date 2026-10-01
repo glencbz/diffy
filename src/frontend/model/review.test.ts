@@ -9,6 +9,7 @@ import {
   type FileVersion,
   isViewed,
   keepKey,
+  keptPairing,
   markSeen,
   markViewed,
   pullRowKey,
@@ -957,6 +958,29 @@ describe("pullRowKey", () => {
     // assert
     expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
     expect(next.comments[0]?.stale).toBe(false);
+  });
+});
+describe("kept pairings", () => {
+  const heads = { series: "pull:o/r#7", before: "h1", after: "h2" };
+  const slots = [{ left: "a1", right: "a2" }];
+
+  test("keeps one pairing per pair of heads, and forgets it on null", () => {
+    // arrange
+    const set = (kept: typeof slots | null): ReviewCommand => ({
+      kind: "set-pairing",
+      ...heads,
+      slots: kept,
+    });
+
+    // act
+    const twice = applied(empty, set(slots), set([]), set(slots));
+    const reset = applied(twice, set(null));
+
+    // assert
+    expect(twice.pairings).toEqual([{ ...heads, slots }]);
+    expect(keptPairing(twice, heads)).toEqual(slots);
+    expect(keptPairing(twice, { ...heads, after: "h3" })).toBeNull();
+    expect(keptPairing(reset, heads)).toBeNull();
   });
 });
 // ~/~ end

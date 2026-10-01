@@ -135,6 +135,8 @@ export function useReview(): ReviewHandle {
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       markReviewed: (series, version) =>
         send({ kind: "mark-reviewed", series, version, at: now() }),
+      keepPairing: (series, before, after, slots) =>
+        send({ kind: "set-pairing", series, before, after, slots }),
     };
   }, [accept]);
 

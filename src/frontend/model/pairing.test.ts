@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SeriesCommit } from "../../backend/commit/series";
 import {
+  fits,
   heuristicSlots,
   legalTargets,
   moved,
@@ -198,6 +199,49 @@ describe("nudged", () => {
       .filter((id): id is string => id !== null);
     expect(leftOrder).toEqual(before.map((commit) => commit.commitId));
     expect(rightOrder).toEqual(after.map((commit) => commit.commitId));
+  });
+});
+describe("fits", () => {
+  const before = series("a b", "1");
+  const after = series("a b", "2");
+
+  test("accepts a pairing of exactly these series, however it pairs them", () => {
+    // arrange
+    const swapped: Slot[] = [
+      { left: "a1", right: null },
+      { left: "b1", right: "a2" },
+      { left: null, right: "b2" },
+    ];
+
+    // act
+    // assert
+    expect(fits(heuristicSlots(before, after), before, after)).toBe(true);
+    expect(fits(swapped, before, after)).toBe(true);
+  });
+
+  test("refuses a pairing that misses, repeats, or reorders a commit", () => {
+    // arrange
+    const pairings: Slot[][] = [
+      [{ left: "a1", right: "a2" }],
+      [
+        { left: "a1", right: "a2" },
+        { left: "b1", right: "a2" },
+      ],
+      [
+        { left: "b1", right: "a2" },
+        { left: "a1", right: "b2" },
+      ],
+      [
+        { left: "a1", right: "a2" },
+        { left: null, right: null },
+        { left: "b1", right: "b2" },
+      ],
+    ];
+
+    // act
+    // assert
+    for (const slots of pairings)
+      expect(fits(slots, before, after)).toBe(false);
   });
 });
 // ~/~ end

@@ -151,6 +151,11 @@ the write it serves, rather than a field on each writing command. One
 command then records one fact, and a key that lands while the write after it
 fails records nothing false.
 
+The document also keeps each pairing the reader corrected by hand, under the
+series and the two heads it pairs, as [pairing](pairing.md#keeping-a-correction)
+describes. `set-pairing` replaces the one kept for those heads, and a null
+pairing forgets it.
+
 All of this is the review [model](index.md#model): marks, comments, and
 viewed files, each with the Zod schema that reads it back from storage; how
 the stored document is read against the rows the interdiff returns; and the
@@ -247,12 +252,24 @@ export const KeptKey = z.object({
 });
 export type KeptKey = z.infer<typeof KeptKey>;
 
+/** A pairing the reader corrected by hand, for the two heads it pairs. */
+export const KeptPairing = z.object({
+  series: z.string(),
+  before: z.string(),
+  after: z.string(),
+  slots: z.array(
+    z.object({ left: z.string().nullable(), right: z.string().nullable() }),
+  ),
+});
+export type KeptPairing = z.infer<typeof KeptPairing>;
+
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
   keys: z.array(KeptKey).default([]),
+  pairings: z.array(KeptPairing).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -262,6 +279,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   viewed: [],
   reviewed: [],
   keys: [],
+  pairings: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -270,7 +288,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.comments.length === 0 &&
     document.viewed.length === 0 &&
     document.reviewed.length === 0 &&
-    document.keys.length === 0
+    document.keys.length === 0 &&
+    document.pairings.length === 0
   );
 }
 
@@ -512,6 +531,14 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     commitId: z.string(),
     reviewKey: z.string(),
   }),
+  z.object({
+    kind: z.literal("set-pairing"),
+    series: z.string(),
+    before: z.string(),
+    after: z.string(),
+    /** Null puts the heuristic back. */
+    slots: KeptPairing.shape.slots.nullable(),
+  }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -597,6 +624,19 @@ export function applyCommand(
           { commitId: command.commitId, reviewKey: command.reviewKey },
         ],
       };
+    case "set-pairing": {
+      const pairings = document.pairings.filter(
+        (kept) => !samePairing(kept, command),
+      );
+      const { series, before, after, slots } = command;
+      return {
+        ...document,
+        pairings:
+          slots === null
+            ? pairings
+            : [...pairings, { series, before, after, slots }],
+      };
+    }
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -620,8 +660,29 @@ export function applyCommand(
           command.document.keys,
           (a, b) => a.commitId === b.commitId,
         ),
+        pairings: added(
+          document.pairings,
+          command.document.pairings,
+          samePairing,
+        ),
       };
   }
+}
+
+type PairingHeads = Pick<KeptPairing, "series" | "before" | "after">;
+
+function samePairing(a: PairingHeads, b: PairingHeads): boolean {
+  return a.series === b.series && a.before === b.before && a.after === b.after;
+}
+
+/** The pairing the reader kept for two heads of a series, if they kept one. */
+export function keptPairing(
+  document: ReviewDocument,
+  heads: PairingHeads,
+): KeptPairing["slots"] | null {
+  return (
+    document.pairings.find((kept) => samePairing(kept, heads))?.slots ?? null
+  );
 }
 
 function sameReviewedVersion(a: ReviewedVersion, b: ReviewedVersion): boolean {
@@ -649,6 +710,12 @@ export interface ReviewActions {
   dropComment: (id: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   markReviewed: (series: string, version: string) => void;
+  keepPairing: (
+    series: string,
+    before: string,
+    after: string,
+    slots: KeptPairing["slots"] | null,
+  ) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */
@@ -732,6 +799,7 @@ import {
   type FileVersion,
   isViewed,
   keepKey,
+  keptPairing,
   markSeen,
   markViewed,
   pullRowKey,
@@ -1682,6 +1750,29 @@ describe("pullRowKey", () => {
     expect(next.comments[0]?.stale).toBe(false);
   });
 });
+describe("kept pairings", () => {
+  const heads = { series: "pull:o/r#7", before: "h1", after: "h2" };
+  const slots = [{ left: "a1", right: "a2" }];
+
+  test("keeps one pairing per pair of heads, and forgets it on null", () => {
+    // arrange
+    const set = (kept: typeof slots | null): ReviewCommand => ({
+      kind: "set-pairing",
+      ...heads,
+      slots: kept,
+    });
+
+    // act
+    const twice = applied(empty, set(slots), set([]), set(slots));
+    const reset = applied(twice, set(null));
+
+    // assert
+    expect(twice.pairings).toEqual([{ ...heads, slots }]);
+    expect(keptPairing(twice, heads)).toEqual(slots);
+    expect(keptPairing(twice, { ...heads, after: "h3" })).toBeNull();
+    expect(keptPairing(reset, heads)).toBeNull();
+  });
+});
 ```
 
 A comment or a comparison row is always in one of the same three states —
@@ -2138,6 +2229,8 @@ export function useReview(): ReviewHandle {
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       markReviewed: (series, version) =>
         send({ kind: "mark-reviewed", series, version, at: now() }),
+      keepPairing: (series, before, after, slots) =>
+        send({ kind: "set-pairing", series, before, after, slots }),
     };
   }, [accept]);
 
