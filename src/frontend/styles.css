@@ -249,6 +249,7 @@
 
     --pane-picker-width: 25%;
     --pane-picker-min: 240px;
+    --pane-log-width: 40%;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
     --pane-drawer-height: 30vh;
@@ -427,6 +428,11 @@
 
   .pane--picker {
     width: var(--pane-size, var(--pane-picker-width));
+    min-width: var(--pane-picker-min);
+  }
+
+  .pane--log {
+    width: var(--pane-size, var(--pane-log-width));
     min-width: var(--pane-picker-min);
   }
 
@@ -717,7 +723,8 @@
 @layer components-narrow {
   @media (max-width: 1000px) {
     .operation-picker__select,
-    .newer-operation {
+    .newer-operation,
+    .interdiff-toggle {
       height: 44px;
     }
   }
@@ -737,6 +744,27 @@
     background: transparent;
     border: 1px solid var(--accent);
     border-radius: var(--radius);
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-interdiff-toggle>>[init] */
+@layer components {
+  .interdiff-toggle {
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
+    font: inherit;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .interdiff-toggle:hover {
+    color: var(--text);
   }
 }
 /* ~/~ end */

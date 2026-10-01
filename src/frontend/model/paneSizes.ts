@@ -1,13 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/layout.md#frontend-model-pane-sizes>>[init]
 import * as z from "zod";
 
-export type PaneKey = "local-before" | "local-after" | "pull-commits";
+export type PaneKey =
+  | "local-before"
+  | "local-after"
+  | "local-log"
+  | "pull-commits";
 export type Axis = "x" | "y";
 
 /** One entry per resizable pane: which way it grows and how small it may get. */
 export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-before": { axis: "x", min: 160 },
   "local-after": { axis: "x", min: 160 },
+  "local-log": { axis: "x", min: 160 },
   "pull-commits": { axis: "y", min: 48 },
 };
 
@@ -17,6 +22,7 @@ export const REST = 200;
 export const PaneSizes = z.object({
   "local-before": z.number().optional(),
   "local-after": z.number().optional(),
+  "local-log": z.number().optional(),
   "pull-commits": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;

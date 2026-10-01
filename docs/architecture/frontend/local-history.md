@@ -226,9 +226,9 @@ latest. What value it is passed for `selected` is decided above it, by
 pick lands relative to the current head.
 
 The row also holds whatever controls the side needs beside the select,
-passed in as `children`, such as the [newer operation](#newer-operation)
-notice. They sit on the picker's row so the row is the only thing above the
-graph and never changes height. Anything
+passed in as `children`: the [newer operation](#newer-operation) notice, and
+the button that opens or closes an interdiff. They sit on the picker's row so
+the row is the only thing above the graph and never changes height. Anything
 that came and went between the picker and the graph would push one side's
 graph down and leave the two sides of an interdiff out of line.
 
@@ -337,7 +337,8 @@ same height whichever buttons it holds.
 @layer components-narrow {
   @media (max-width: 1000px) {
     .operation-picker__select,
-    .newer-operation {
+    .newer-operation,
+    .interdiff-toggle {
       height: 44px;
     }
   }
@@ -405,6 +406,65 @@ click rather than another label on the row.
     background: transparent;
     border: 1px solid var(--accent);
     border-radius: var(--radius);
+  }
+}
+```
+
+## Interdiff toggle
+
+The screen shows one graph until the reader asks to compare two operations.
+The button that asks sits at the end of the graph's picker row and reads
+`interdiff`. Once the before side is open, the same component sits on the
+before side's row and reads `close`, so the way out is beside the column it
+removes. Its accessible name says what it does in full, since `close` alone
+does not say what closes.
+
+```tsx
+//| id: frontend-view-interdiff-toggle
+//| file: src/frontend/views/InterdiffToggle.tsx
+export function InterdiffToggle({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="interdiff-toggle"
+      onClick={onToggle}
+      aria-label={
+        open ? "close the interdiff" : "interdiff against another operation"
+      }
+    >
+      {open ? "close" : "interdiff"}
+    </button>
+  );
+}
+```
+
+It is outlined in the quiet border colour, so the newer operation notice
+beside it is the louder of the two.
+
+```css
+/*| id: design-interdiff-toggle
+@layer components {
+  .interdiff-toggle {
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
+    font: inherit;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .interdiff-toggle:hover {
+    color: var(--text);
   }
 }
 ```

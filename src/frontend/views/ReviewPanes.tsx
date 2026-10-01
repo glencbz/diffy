@@ -5,16 +5,18 @@ import { paneSize, Splitter } from "./Splitter";
 
 export type Pane = "before" | "after" | "diff";
 
-const CAPTIONS: Record<Pane, string> = {
-  before: "before",
-  after: "after",
-  diff: "diff",
-};
+/** What each pane is called. Without an interdiff the after side is the
+ *  only graph, and "after" would name a comparison nobody asked for. */
+function caption(pane: Pane, interdiff: boolean): string {
+  if (pane === "after" && !interdiff) return "commits";
+  return pane;
+}
 
 export function ReviewPanes({
   before,
   after,
   diff,
+  interdiff,
   showing,
   onShow,
   selected,
@@ -24,33 +26,53 @@ export function ReviewPanes({
   before: ReactNode;
   after: ReactNode;
   diff: ReactNode;
+  /** Whether the before side is open beside the after side. */
+  interdiff: boolean;
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
   sizes: PaneSizes;
   onResize: (pane: PaneKey, size: number | null) => void;
 }) {
+  const panes: Pane[] = interdiff
+    ? ["before", "after", "diff"]
+    : ["after", "diff"];
+  const current = panes.includes(showing) ? showing : "after";
+  const afterKey: PaneKey = interdiff ? "local-after" : "local-log";
+
   return (
     <>
-      <PaneTabs showing={showing} onShow={onShow} selected={selected} />
+      <PaneTabs
+        panes={panes}
+        interdiff={interdiff}
+        showing={current}
+        onShow={onShow}
+        selected={selected}
+      />
       <div className="panes panes--review">
-        <PickerColumn
-          pane="before"
-          showing={showing}
-          size={sizes["local-before"] ?? null}
-          onResize={(size) => onResize("local-before", size)}
-        >
-          {before}
-        </PickerColumn>
+        {interdiff && (
+          <PickerColumn
+            pane="before"
+            caption={caption("before", interdiff)}
+            showing={current}
+            sizeKey="local-before"
+            size={sizes["local-before"] ?? null}
+            onResize={(size) => onResize("local-before", size)}
+          >
+            {before}
+          </PickerColumn>
+        )}
         <PickerColumn
           pane="after"
-          showing={showing}
-          size={sizes["local-after"] ?? null}
-          onResize={(size) => onResize("local-after", size)}
+          caption={caption("after", interdiff)}
+          showing={current}
+          sizeKey={afterKey}
+          size={sizes[afterKey] ?? null}
+          onResize={(size) => onResize(afterKey, size)}
         >
           {after}
         </PickerColumn>
-        <div className={paneClass("pane pane--diff", showing === "diff")}>
+        <div className={paneClass("pane pane--diff", current === "diff")}>
           {diff}
         </div>
       </div>
@@ -59,17 +81,21 @@ export function ReviewPanes({
 }
 
 function PaneTabs({
+  panes,
+  interdiff,
   showing,
   onShow,
   selected,
 }: {
+  panes: Pane[];
+  interdiff: boolean;
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
 }) {
   return (
     <nav className="pane-tabs">
-      {(Object.keys(CAPTIONS) as Pane[]).map((pane) => (
+      {panes.map((pane) => (
         <button
           type="button"
           key={pane}
@@ -79,7 +105,7 @@ function PaneTabs({
           }
           aria-current={pane === showing}
         >
-          <span className="pane-tab__caption">{CAPTIONS[pane]}</span>
+          <span className="pane-tab__caption">{caption(pane, interdiff)}</span>
           {pane !== "diff" && (
             <span className="pane-tab__picked">{picked(selected[pane])}</span>
           )}
@@ -96,33 +122,37 @@ function picked(commits: number): string {
 
 function PickerColumn({
   pane,
+  caption,
   showing,
+  sizeKey,
   size,
   onResize,
   children,
 }: {
   pane: "before" | "after";
+  caption: string;
   showing: Pane;
+  sizeKey: PaneKey;
   size: number | null;
   onResize: (size: number | null) => void;
   children: ReactNode;
 }) {
-  const sized =
-    size === null ? "pane pane--picker" : "pane pane--picker pane--sized";
+  const width = sizeKey === "local-log" ? "pane--log" : "pane--picker";
+  const sized = size === null ? `pane ${width}` : `pane ${width} pane--sized`;
   return (
     <>
       <div
         className={paneClass(sized, pane === showing)}
         style={paneSize(size)}
       >
-        <h2 className="pane__header">{CAPTIONS[pane]}</h2>
+        <h2 className="pane__header">{caption}</h2>
         <div className="pane__body">{children}</div>
       </div>
       <Splitter
-        pane={pane === "before" ? "local-before" : "local-after"}
+        pane={sizeKey}
         size={size}
         onResize={onResize}
-        label={`resize the ${CAPTIONS[pane]} column`}
+        label={`resize the ${caption} column`}
       />
     </>
   );

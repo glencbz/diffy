@@ -214,6 +214,7 @@ can move it from [Settings](settings.md#display).
 
     --pane-picker-width: 25%;
     --pane-picker-min: 240px;
+    --pane-log-width: 40%;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
     --pane-drawer-height: 30vh;
