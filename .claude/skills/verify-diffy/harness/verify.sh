@@ -65,7 +65,7 @@ cmd_start() {
   if running; then cat "$URL_FILE"; return 0; fi
   mkdir -p "$RUN_DIR"
   build_fixture
-  ( cd "$FIXTURE" && NODE_ENV=production exec "${RUNTIME[@]}" bun run "$REPO/.claude/skills/verify-diffy/harness/serve.ts" ) \
+  ( cd "$FIXTURE" && NODE_ENV=production exec "${RUNTIME[@]}" bun run "$REPO/.claude/skills/verify-diffy/harness/serve.ts" "$RUN_DIR/review.sqlite" ) \
     > "$LOG_FILE" 2>&1 &
   echo $! > "$PID_FILE"
 

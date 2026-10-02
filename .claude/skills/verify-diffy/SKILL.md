@@ -181,9 +181,13 @@ run does not strand a server.
 ## Helpers
 
 `harness/verify.sh` is the only entry point; `{start|doctor|stop|url}` is its
-full surface. It launches `harness/serve.ts`, which imports the real `routes`
-from `src/server.ts` and binds port 0, so the kernel picks a port no other
-session holds. It runs the server inside the pinned `nix#runtime` shell, the
+full surface. It launches `harness/serve.ts`, which wires the real `routes`,
+review socket and review store from `src/server.ts` the way `src/cli.ts` does,
+and binds port 0, so the kernel picks a port no other session holds. The review
+store is a SQLite file in the run directory rather than under
+`$XDG_DATA_HOME/diffy`, so each fixture starts with no review state and `stop`
+removes it. When `src/cli.ts` changes how it builds the server, mirror it in
+`serve.ts`; `start` fails with the server's own error when the two drift. It runs the server inside the pinned `nix#runtime` shell, the
 same one `just run` uses, because difftastic is only on the `PATH` there; a
 server without it disables every file's `structural` view. Running the
 `diffy` command, `src/cli.ts`, would bind every interface on a port found by
