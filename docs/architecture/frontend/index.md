@@ -198,6 +198,8 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-paired-graph>>
 
+<<design-commit-drawer-rows>>
+
 <<design-interdiff-rows>>
 
 <<design-file-tree>>
