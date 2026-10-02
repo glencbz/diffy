@@ -81,6 +81,12 @@ because a synchronous local store adds nothing to them. `reviewRows` runs
 below those early returns as a plain function call, since it derives from
 props already in hand rather than fetching.
 
+A comparison with nothing on the before side is a plain diff: every row is
+one commit's own change, and there was never a before side for a row to be
+missing from. `DiffPane` says so to the rows, which tell their headers. The
+answer cannot be read off a row on its own, since in an interdiff a row
+with no before commit is the news that the commit is new.
+
 Once there is more than one file across every row, `DiffPane` also renders
 a [`FileNavigator`](file-tree.md#stepping-through-files) above the rows,
 built from the same `changedFilesOf` a `DiffView` uses and scoped by the
@@ -114,7 +120,7 @@ export function DiffPane({
   );
 
   if (answer === null) {
-    return <Message>Select commits on either side to compare them.</Message>;
+    return <Message>Select commits to see their diff.</Message>;
   }
   if (answer.status === "loading") return <Message>Loading diff...</Message>;
   if (answer.status === "error") {
@@ -133,6 +139,7 @@ export function DiffPane({
       {total >= 2 && <FileNavigator groups={groups} />}
       <InterdiffRows
         rows={rows}
+        plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
       />
@@ -2724,10 +2731,13 @@ import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
 
 export function InterdiffRows({
   rows,
+  plain,
   sources,
   review,
 }: {
   rows: ReviewedRow[];
+  /** Whether these are commits' own diffs rather than an interdiff. */
+  plain: boolean;
   sources: SourceLookup;
   /** Null while there is no review document to change, which draws each
    *  row with nothing on it that would write one. */
@@ -2750,6 +2760,7 @@ export function InterdiffRows({
         <section key={rowKey(row)}>
           <ComparisonHeader
             row={row}
+            plain={plain}
             onMarkSeen={review && (() => review.markSeen(row))}
             onComment={review && (() => setComposing(rowKey(row)))}
           />
@@ -2860,7 +2871,12 @@ it a row is an unlabelled patch, and with two independent operation pickers on
 screen and several rows stacked up, there is no way to work back to what was
 compared.
 
-A third line adds review state to that same job, the
+A plain diff has no sides, so its header is one `commit` line naming the
+commit whose change follows. Captioning it `after` over a `before` that is
+"not in this series" would describe a comparison the reader never asked
+for.
+
+A last line adds review state to that same job, the
 [review bar](review.md#the-review-bar) every reviewed row on either screen
 carries: whether the row has been looked at, whether it moved since, and how
 many open comments sit on it.
@@ -2875,18 +2891,27 @@ import { ReviewBar } from "./ReviewBar";
 
 export function ComparisonHeader({
   row,
+  plain,
   onMarkSeen,
   onComment,
 }: {
   row: ReviewedRow;
+  /** A commit's own diff, which names the one commit and no sides. */
+  plain: boolean;
   /** Null when there is no review document to write to. */
   onMarkSeen: (() => void) | null;
   onComment: (() => void) | null;
 }) {
   return (
     <header className="comparison-header">
-      <Row caption="before" commit={row.from} />
-      <Row caption="after" commit={row.to} />
+      {plain ? (
+        <Row caption="commit" commit={row.to ?? row.from} />
+      ) : (
+        <>
+          <Row caption="before" commit={row.from} />
+          <Row caption="after" commit={row.to} />
+        </>
+      )}
       <ReviewBar
         review={row}
         files={row.files}

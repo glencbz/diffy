@@ -6,18 +6,27 @@ import { ReviewBar } from "./ReviewBar";
 
 export function ComparisonHeader({
   row,
+  plain,
   onMarkSeen,
   onComment,
 }: {
   row: ReviewedRow;
+  /** A commit's own diff, which names the one commit and no sides. */
+  plain: boolean;
   /** Null when there is no review document to write to. */
   onMarkSeen: (() => void) | null;
   onComment: (() => void) | null;
 }) {
   return (
     <header className="comparison-header">
-      <Row caption="before" commit={row.from} />
-      <Row caption="after" commit={row.to} />
+      {plain ? (
+        <Row caption="commit" commit={row.to ?? row.from} />
+      ) : (
+        <>
+          <Row caption="before" commit={row.from} />
+          <Row caption="after" commit={row.to} />
+        </>
+      )}
       <ReviewBar
         review={row}
         files={row.files}

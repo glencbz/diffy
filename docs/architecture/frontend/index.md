@@ -340,6 +340,8 @@ reference here, anywhere.
 
 <<design-newer-operation>>
 
+<<design-interdiff-toggle>>
+
 <<design-commit-label>>
 
 <<design-comparison-header>>

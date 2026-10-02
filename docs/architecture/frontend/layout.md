@@ -1,39 +1,53 @@
 # Layout
 
 Both screens pair a picker with a wide diff: the local history screen puts
-two narrow pickers beside it, and the pull request screen puts its commit
-list in a drawer over it. These are the two components that arrange them,
-and the rules for a window with no room for columns, where the review screen
-shows one pane at a time and the pull request screen stacks.
+one commit graph beside it, or two when the reader asks for an interdiff, and
+the pull request screen puts its commit list in a drawer over it. These are
+the two components that arrange them, and the rules for a window with no room
+for columns, where the review screen shows one pane at a time and the pull
+request screen stacks.
 
 ## Review panes
 
-Three columns: the two pickers, then the diff. The pickers are narrow, as
-wide as the reader has dragged them; the diff takes what is left, because it is the thing being read. Each
-picker column carries its own caption, since "before" and "after" are the only
-labels that say which direction the interdiff runs.
+Two columns by default: one commit graph, then the diff. Most of the time a
+reader wants a normal diff of the commits they tick, and a second graph at
+some other operation is a question they have not asked. The graph column is
+called `commits` and is wide enough to read a description in, and the diff
+takes the rest, because it is the thing being read.
+
+`interdiff` opens the before side as a third column to the left. The two
+pickers are then narrow, as wide as the reader has dragged them, and each
+carries its own caption, since "before" and "after" are the only labels that
+say which direction the interdiff runs. The one graph of the default and the
+after graph of an interdiff are the same side, so ticking commits and then
+opening an interdiff keeps what was ticked. Its width is not the same,
+though: the lone graph is kept under its own key, `local-log`, so dragging a
+narrow after column does not shrink the wide one, or the other way round.
 
 The panes fill whatever `App` gives them rather than claiming the viewport,
 because the mode switch sits above them and takes a strip of it.
 
-Three columns on a wide screen, one pane at a time on a narrow one. Stacked,
-the two pickers take sixty per cent of a phone before the diff starts, so a
-tab list chooses which single pane has the window instead. The two graphs
+Columns on a wide screen, one pane at a time on a narrow one. Stacked, the
+pickers take most of a phone before the diff starts, so a tab list chooses
+which single pane has the window instead. In an interdiff the two graphs
 then land in the identical rectangle, and moving from `before` to `after`
-shows what changed between them in place, which is the comparison this screen
-exists to make. That is why the tabs render above `.panes` and not inside a
-pane: anything drawn between them would move under the reader as they flip.
+shows what changed between them in place, which is the comparison an
+interdiff exists to make. That is why the tabs render above `.panes` and not
+inside a pane: anything drawn between them would move under the reader as
+they flip. A `showing` that names the before pane after the interdiff is
+closed falls back to the graph, so closing it never leaves a phone on a pane
+that is gone.
 
 Picking a commit does not move the tabs on. Jumping to the diff would take
 the reader out of the graph they are reading and cost them the flip the
 layout is for, so the tabs are the only way from one pane to another.
 
 `PaneTabs` is private to this file for the same reason `PickerColumn` is: one
-caller, and no meaning away from it. Both read `CAPTIONS`, so a pane's name
-in its tab and in its own header cannot drift apart. A tab carries what is
-picked on its side as well as its name, because a pane off screen is a pane
-whose state the reader has no other way to see, and a count answers the
-question a picker raises.
+caller, and no meaning away from it. Both take their words from `caption`,
+so a pane's name in its tab and in its own header cannot drift apart. A tab
+carries what is picked on its side as well as its name, because a pane off
+screen is a pane whose state the reader has no other way to see, and a count
+answers the question a picker raises.
 
 Each picker column is followed by a [splitter](#resizing-a-pane) that sets
 its width, and the sizes come in as props like everything else here, so the
@@ -54,16 +68,18 @@ import { paneSize, Splitter } from "./Splitter";
 
 export type Pane = "before" | "after" | "diff";
 
-const CAPTIONS: Record<Pane, string> = {
-  before: "before",
-  after: "after",
-  diff: "diff",
-};
+/** What each pane is called. Without an interdiff the after side is the
+ *  only graph, and "after" would name a comparison nobody asked for. */
+function caption(pane: Pane, interdiff: boolean): string {
+  if (pane === "after" && !interdiff) return "commits";
+  return pane;
+}
 
 export function ReviewPanes({
   before,
   after,
   diff,
+  interdiff,
   showing,
   onShow,
   selected,
@@ -73,33 +89,53 @@ export function ReviewPanes({
   before: ReactNode;
   after: ReactNode;
   diff: ReactNode;
+  /** Whether the before side is open beside the after side. */
+  interdiff: boolean;
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
   sizes: PaneSizes;
   onResize: (pane: PaneKey, size: number | null) => void;
 }) {
+  const panes: Pane[] = interdiff
+    ? ["before", "after", "diff"]
+    : ["after", "diff"];
+  const current = panes.includes(showing) ? showing : "after";
+  const afterKey: PaneKey = interdiff ? "local-after" : "local-log";
+
   return (
     <>
-      <PaneTabs showing={showing} onShow={onShow} selected={selected} />
+      <PaneTabs
+        panes={panes}
+        interdiff={interdiff}
+        showing={current}
+        onShow={onShow}
+        selected={selected}
+      />
       <div className="panes panes--review">
-        <PickerColumn
-          pane="before"
-          showing={showing}
-          size={sizes["local-before"] ?? null}
-          onResize={(size) => onResize("local-before", size)}
-        >
-          {before}
-        </PickerColumn>
+        {interdiff && (
+          <PickerColumn
+            pane="before"
+            caption={caption("before", interdiff)}
+            showing={current}
+            sizeKey="local-before"
+            size={sizes["local-before"] ?? null}
+            onResize={(size) => onResize("local-before", size)}
+          >
+            {before}
+          </PickerColumn>
+        )}
         <PickerColumn
           pane="after"
-          showing={showing}
-          size={sizes["local-after"] ?? null}
-          onResize={(size) => onResize("local-after", size)}
+          caption={caption("after", interdiff)}
+          showing={current}
+          sizeKey={afterKey}
+          size={sizes[afterKey] ?? null}
+          onResize={(size) => onResize(afterKey, size)}
         >
           {after}
         </PickerColumn>
-        <div className={paneClass("pane pane--diff", showing === "diff")}>
+        <div className={paneClass("pane pane--diff", current === "diff")}>
           {diff}
         </div>
       </div>
@@ -108,17 +144,21 @@ export function ReviewPanes({
 }
 
 function PaneTabs({
+  panes,
+  interdiff,
   showing,
   onShow,
   selected,
 }: {
+  panes: Pane[];
+  interdiff: boolean;
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
 }) {
   return (
     <nav className="pane-tabs">
-      {(Object.keys(CAPTIONS) as Pane[]).map((pane) => (
+      {panes.map((pane) => (
         <button
           type="button"
           key={pane}
@@ -128,7 +168,7 @@ function PaneTabs({
           }
           aria-current={pane === showing}
         >
-          <span className="pane-tab__caption">{CAPTIONS[pane]}</span>
+          <span className="pane-tab__caption">{caption(pane, interdiff)}</span>
           {pane !== "diff" && (
             <span className="pane-tab__picked">{picked(selected[pane])}</span>
           )}
@@ -145,33 +185,37 @@ function picked(commits: number): string {
 
 function PickerColumn({
   pane,
+  caption,
   showing,
+  sizeKey,
   size,
   onResize,
   children,
 }: {
   pane: "before" | "after";
+  caption: string;
   showing: Pane;
+  sizeKey: PaneKey;
   size: number | null;
   onResize: (size: number | null) => void;
   children: ReactNode;
 }) {
-  const sized =
-    size === null ? "pane pane--picker" : "pane pane--picker pane--sized";
+  const width = sizeKey === "local-log" ? "pane--log" : "pane--picker";
+  const sized = size === null ? `pane ${width}` : `pane ${width} pane--sized`;
   return (
     <>
       <div
         className={paneClass(sized, pane === showing)}
         style={paneSize(size)}
       >
-        <h2 className="pane__header">{CAPTIONS[pane]}</h2>
+        <h2 className="pane__header">{caption}</h2>
         <div className="pane__body">{children}</div>
       </div>
       <Splitter
-        pane={pane === "before" ? "local-before" : "local-after"}
+        pane={sizeKey}
         size={size}
         onResize={onResize}
-        label={`resize the ${CAPTIONS[pane]} column`}
+        label={`resize the ${caption} column`}
       />
     </>
   );
@@ -844,6 +888,11 @@ view that renders it; a size the reader dragged arrives as `--pane-size`.
     min-width: var(--pane-picker-min);
   }
 
+  .pane--log {
+    width: var(--pane-size, var(--pane-log-width));
+    min-width: var(--pane-picker-min);
+  }
+
   .pane--list {
     width: var(--pane-list-width);
     min-width: var(--pane-list-min);
@@ -975,13 +1024,18 @@ nobody has resized should go on following the default in
 //| file: src/frontend/model/paneSizes.ts
 import * as z from "zod";
 
-export type PaneKey = "local-before" | "local-after" | "pull-commits";
+export type PaneKey =
+  | "local-before"
+  | "local-after"
+  | "local-log"
+  | "pull-commits";
 export type Axis = "x" | "y";
 
 /** One entry per resizable pane: which way it grows and how small it may get. */
 export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-before": { axis: "x", min: 160 },
   "local-after": { axis: "x", min: 160 },
+  "local-log": { axis: "x", min: 160 },
   "pull-commits": { axis: "y", min: 48 },
 };
 
@@ -991,6 +1045,7 @@ export const REST = 200;
 export const PaneSizes = z.object({
   "local-before": z.number().optional(),
   "local-after": z.number().optional(),
+  "local-log": z.number().optional(),
   "pull-commits": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;

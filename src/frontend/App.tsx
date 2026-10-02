@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/shell.md#frontend-app>>[init]
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CommitLog } from "./controllers/CommitLog";
 import { DiffPane } from "./controllers/DiffPane";
 import { PullRequests } from "./controllers/PullRequests";
@@ -16,6 +16,7 @@ import {
   DiffModeDefault,
   WordMarkLimitSetting,
 } from "./views/DiffView";
+import { InterdiffToggle } from "./views/InterdiffToggle";
 import { Message } from "./views/Message";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
 import { NewerOperation } from "./views/NewerOperation";
@@ -26,7 +27,8 @@ import { SettingsScreen } from "./views/SettingsScreen";
 
 export function App() {
   const [place, go] = usePlace();
-  const [pane, setPane] = useState<Pane>("before");
+  const [pane, setPane] = useState<Pane>("after");
+  const [interdiff, setInterdiff] = useState(false);
   const [sizes, resize] = usePaneSizes();
   const { history, pickOperation, selectCommits } = useLocalHistory();
   const review = useReview();
@@ -68,6 +70,12 @@ export function App() {
                     side="before"
                     onPick={(operation) => pickOperation("before", operation)}
                     onSelect={(commits) => selectCommits("before", commits)}
+                    toggle={
+                      <InterdiffToggle
+                        open
+                        onToggle={() => setInterdiff(false)}
+                      />
+                    }
                   />
                 }
                 after={
@@ -76,17 +84,26 @@ export function App() {
                     side="after"
                     onPick={(operation) => pickOperation("after", operation)}
                     onSelect={(commits) => selectCommits("after", commits)}
+                    toggle={
+                      !interdiff && (
+                        <InterdiffToggle
+                          open={false}
+                          onToggle={() => setInterdiff(true)}
+                        />
+                      )
+                    }
                   />
                 }
                 diff={
                   <DiffPane
                     comparison={{
-                      from: before?.commits ?? [],
+                      from: interdiff ? (before?.commits ?? []) : [],
                       to: after?.commits ?? [],
                     }}
                     review={review}
                   />
                 }
+                interdiff={interdiff}
                 showing={pane}
                 onShow={setPane}
                 selected={{
@@ -125,18 +142,21 @@ function modePlace(mode: Mode): Place {
   return mode === "pulls" ? { tab: "pulls", pull: null } : { tab: mode };
 }
 
-/** One local history side: its operation picker, its commit log, and, for
+/** One local history side: its operation picker, its commit log, and, on
+ *  the picker's row, the button that opens or closes the interdiff and, for
  *  the after side, the alert that a newer operation has arrived. */
 function SidePicker({
   history,
   side,
   onPick,
   onSelect,
+  toggle,
 }: {
   history: LocalHistory;
   side: "before" | "after";
   onPick: (operationId: string | null) => void;
   onSelect: (commitIds: string[]) => void;
+  toggle: ReactNode;
 }) {
   if (history.status === "loading") {
     return <Message>Loading operations...</Message>;
@@ -156,10 +176,12 @@ function SidePicker({
         operations={history.operations}
         selected={pickerValue(local.pick, head)}
         onSelect={onPick}
-      />
-      {newer !== null && (
-        <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
-      )}
+      >
+        {newer !== null && (
+          <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
+        )}
+        {toggle}
+      </OperationPicker>
       <CommitLog
         source={{ kind: "jj", operation: local.pick.at }}
         selected={local.commits}

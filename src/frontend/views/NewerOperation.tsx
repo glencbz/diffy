@@ -9,19 +9,17 @@ export function NewerOperation({
   operation: OpLogEntry;
   onUpdate: () => void;
 }) {
+  const label = `Update to the newer operation ${optionLabel(operation)}`;
   return (
-    <div className="newer-operation">
-      <p className="newer-operation__note">
-        A newer operation is available: {optionLabel(operation)}
-      </p>
-      <button
-        type="button"
-        className="newer-operation__action"
-        onClick={onUpdate}
-      >
-        Update to latest
-      </button>
-    </div>
+    <button
+      type="button"
+      className="newer-operation"
+      onClick={onUpdate}
+      title={label}
+      aria-label={label}
+    >
+      newer: {operation.id.slice(0, 8)}
+    </button>
   );
 }
 // ~/~ end

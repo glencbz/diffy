@@ -249,6 +249,7 @@
 
     --pane-picker-width: 25%;
     --pane-picker-min: 240px;
+    --pane-log-width: 40%;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
     --pane-drawer-height: 30vh;
@@ -427,6 +428,11 @@
 
   .pane--picker {
     width: var(--pane-size, var(--pane-picker-width));
+    min-width: var(--pane-picker-min);
+  }
+
+  .pane--log {
+    width: var(--pane-size, var(--pane-log-width));
     min-width: var(--pane-picker-min);
   }
 
@@ -686,10 +692,19 @@
 @layer components {
   .operation-picker {
     display: flex;
+    flex: none;
     align-items: center;
     gap: var(--space-4);
     padding: var(--space-4);
     border-bottom: 1px solid var(--border);
+  }
+
+  .operation-picker__field {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-4);
+    min-width: 0;
   }
 
   .operation-picker__label {
@@ -699,7 +714,19 @@
   .operation-picker__select {
     flex: 1;
     min-width: 0;
+    height: 2em;
     font: inherit;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .operation-picker__select,
+    .newer-operation,
+    .interdiff-toggle {
+      height: 44px;
+    }
   }
 }
 /* ~/~ end */
@@ -707,29 +734,37 @@
 /* ~/~ begin <<docs/architecture/frontend/local-history.md#design-newer-operation>>[init] */
 @layer components {
   .newer-operation {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3) var(--space-5);
-    padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border);
-    color: var(--text-faint);
-  }
-
-  .newer-operation__note {
-    flex: 1 1 auto;
-    margin: 0;
-  }
-
-  .newer-operation__action {
-    min-height: 44px;
-    padding: var(--space-3) var(--space-5);
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
     font: inherit;
     color: var(--accent);
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/local-history.md#design-interdiff-toggle>>[init] */
+@layer components {
+  .interdiff-toggle {
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
+    font: inherit;
+    color: var(--text-muted);
+    white-space: nowrap;
     cursor: pointer;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+
+  .interdiff-toggle:hover {
+    color: var(--text);
   }
 }
 /* ~/~ end */

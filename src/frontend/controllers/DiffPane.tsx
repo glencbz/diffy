@@ -21,7 +21,7 @@ export function DiffPane({
   );
 
   if (answer === null) {
-    return <Message>Select commits on either side to compare them.</Message>;
+    return <Message>Select commits to see their diff.</Message>;
   }
   if (answer.status === "loading") return <Message>Loading diff...</Message>;
   if (answer.status === "error") {
@@ -40,6 +40,7 @@ export function DiffPane({
       {total >= 2 && <FileNavigator groups={groups} />}
       <InterdiffRows
         rows={rows}
+        plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
       />
