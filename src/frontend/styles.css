@@ -457,7 +457,8 @@
   }
 
   .pane--commits {
-    height: var(--pane-size, var(--pane-drawer-height));
+    height: var(--pane-size, auto);
+    max-height: var(--pane-size, var(--pane-drawer-height));
     overflow: auto;
     border-right: none;
   }
@@ -628,6 +629,16 @@
   .drawer-bar__fold {
     flex: none;
     color: var(--accent);
+  }
+
+  .pull-toolbar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border);
   }
 }
 /* ~/~ end */
@@ -1279,6 +1290,44 @@
 
     .paired-graph__rail {
       padding: 0 var(--space-2);
+    }
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer-rows>>[init] */
+/* After the graph's own rules in the stylesheet, so these win by order as
+   well as by specificity. */
+@layer components {
+  @media (min-width: 1001px) {
+    .pane--commits .commit-graph__row {
+      min-height: calc(28 / 12 * 1em);
+    }
+
+    .pane--commits .commit-label {
+      flex-direction: row;
+      align-items: baseline;
+      justify-content: flex-start;
+      gap: var(--space-3);
+      overflow: hidden;
+    }
+
+    /* Lets the meta line's parts and the subject be ordered as siblings,
+       each still inheriting the meta line's small muted text. */
+    .pane--commits .commit-label__meta {
+      display: contents;
+    }
+
+    .pane--commits .commit-label__summary {
+      flex: 0 1 auto;
+      order: 1;
+      min-width: 0;
+    }
+
+    .pane--commits .commit-label__author,
+    .pane--commits .commit-label__time,
+    .pane--commits .commit-ref {
+      order: 2;
     }
   }
 }
@@ -2332,8 +2381,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3) var(--space-5);
-    padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border);
+    min-width: 0;
   }
 
   .pull-compare__field {
@@ -2348,7 +2396,6 @@
   }
 
   .pull-compare__select {
-    min-height: 44px;
     min-width: 0;
     font: inherit;
   }
@@ -2360,7 +2407,6 @@
   }
 
   .pull-compare__caption {
-    flex: 1 0 100%;
     margin: 0;
     color: var(--text-faint);
   }
@@ -2372,6 +2418,14 @@
     font-size: var(--text-size-small);
   }
 }
+
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-compare__select {
+      min-height: 44px;
+    }
+  }
+}
 /* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-last-reviewed>>[init] */
@@ -2381,8 +2435,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3) var(--space-5);
-    padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border);
+    margin-left: auto;
   }
 
   .last-reviewed__note {
@@ -2391,8 +2444,7 @@
   }
 
   .last-reviewed__action {
-    min-height: 44px;
-    padding: var(--space-3) var(--space-5);
+    padding: var(--space-2) var(--space-4);
     font: inherit;
     color: var(--accent);
     cursor: pointer;
@@ -2404,6 +2456,15 @@
   .last-reviewed__action:disabled {
     color: var(--text-faint);
     cursor: default;
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .last-reviewed__action {
+      min-height: 44px;
+      padding: var(--space-3) var(--space-5);
+    }
   }
 }
 /* ~/~ end */

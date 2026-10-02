@@ -359,7 +359,7 @@ export function PullReviewPanes({
   return (
     <>
       {header}
-      {picker}
+      <div className="pull-toolbar">{picker}</div>
       <div className="panes panes--drawer">
         <DrawerBar
           position={position}
@@ -399,6 +399,14 @@ export function PullReviewPanes({
 The commits sit above the diff, full width, because the paired graph's two
 lanes of subjects would truncate to stubs in a column beside it. They trade
 height instead, set by the [splitter](#resizing-a-pane) under the drawer.
+
+Until the reader sets that height, the drawer is as tall as its rows, capped
+at `--pane-drawer-height`. A fixed share of the window would leave an empty
+band under the list on every short stack, which is most pull requests.
+
+The comparison picker and the review marks share one toolbar,
+`.pull-toolbar`, which wraps on a narrow window. As two bands they held a
+row of controls and a row of nearly nothing.
 
 The drawer folds to a bar that keeps where the reader is in the stack and a
 stepper to the previous or next row; the rest of the bar is one fold button,
@@ -555,6 +563,16 @@ function commitCount(count: number): string {
     flex: none;
     color: var(--accent);
   }
+
+  .pull-toolbar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
 }
 ```
 
@@ -569,6 +587,50 @@ function commitCount(count: number): string {
 
     .panes--drawer .splitter--y::before {
       inset: calc(-1 * var(--space-4)) 0;
+    }
+  }
+}
+```
+
+On a wide screen each drawer row is one line, the id, the subject, then who
+and when, since the drawer has the window's width and the subject is what a
+reader scans for. A phone keeps the two-line row, which wraps a long subject
+rather than cutting it off.
+
+```css
+/*| id: design-commit-drawer-rows
+/* After the graph's own rules in the stylesheet, so these win by order as
+   well as by specificity. */
+@layer components {
+  @media (min-width: 1001px) {
+    .pane--commits .commit-graph__row {
+      min-height: calc(28 / 12 * 1em);
+    }
+
+    .pane--commits .commit-label {
+      flex-direction: row;
+      align-items: baseline;
+      justify-content: flex-start;
+      gap: var(--space-3);
+      overflow: hidden;
+    }
+
+    /* Lets the meta line's parts and the subject be ordered as siblings,
+       each still inheriting the meta line's small muted text. */
+    .pane--commits .commit-label__meta {
+      display: contents;
+    }
+
+    .pane--commits .commit-label__summary {
+      flex: 0 1 auto;
+      order: 1;
+      min-width: 0;
+    }
+
+    .pane--commits .commit-label__author,
+    .pane--commits .commit-label__time,
+    .pane--commits .commit-ref {
+      order: 2;
     }
   }
 }
@@ -794,7 +856,8 @@ reader dragged arrives as `--pane-size`.
   }
 
   .pane--commits {
-    height: var(--pane-size, var(--pane-drawer-height));
+    height: var(--pane-size, auto);
+    max-height: var(--pane-size, var(--pane-drawer-height));
     overflow: auto;
     border-right: none;
   }

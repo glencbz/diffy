@@ -332,8 +332,7 @@ export function LastReviewed({
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3) var(--space-5);
-    padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border);
+    margin-left: auto;
   }
 
   .last-reviewed__note {
@@ -342,8 +341,7 @@ export function LastReviewed({
   }
 
   .last-reviewed__action {
-    min-height: 44px;
-    padding: var(--space-3) var(--space-5);
+    padding: var(--space-2) var(--space-4);
     font: inherit;
     color: var(--accent);
     cursor: pointer;
@@ -355,6 +353,15 @@ export function LastReviewed({
   .last-reviewed__action:disabled {
     color: var(--text-faint);
     cursor: default;
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .last-reviewed__action {
+      min-height: 44px;
+      padding: var(--space-3) var(--space-5);
+    }
   }
 }
 ```
@@ -1682,8 +1689,11 @@ function caption(
 }
 ```
 
-The selects wrap under each other on a phone and hold a 44px touch target.
-`min-width: 0` keeps a long option from widening the row.
+The selects wrap under each other on a phone and hold a 44px touch target
+there; on a wide screen it would only make the toolbar taller than its text.
+`min-width: 0` keeps a long option from widening the row. The caption naming
+the kind of comparison follows the size on the same line rather than taking
+a band of its own.
 
 ```css
 /*| id: design-pull-comparison-picker
@@ -1693,8 +1703,7 @@ The selects wrap under each other on a phone and hold a 44px touch target.
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3) var(--space-5);
-    padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border);
+    min-width: 0;
   }
 
   .pull-compare__field {
@@ -1709,7 +1718,6 @@ The selects wrap under each other on a phone and hold a 44px touch target.
   }
 
   .pull-compare__select {
-    min-height: 44px;
     min-width: 0;
     font: inherit;
   }
@@ -1721,7 +1729,6 @@ The selects wrap under each other on a phone and hold a 44px touch target.
   }
 
   .pull-compare__caption {
-    flex: 1 0 100%;
     margin: 0;
     color: var(--text-faint);
   }
@@ -1731,6 +1738,14 @@ The selects wrap under each other on a phone and hold a 44px touch target.
     margin: 0;
     color: var(--text-faint);
     font-size: var(--text-size-small);
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-compare__select {
+      min-height: 44px;
+    }
   }
 }
 ```
