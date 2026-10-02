@@ -34,7 +34,11 @@ export function InterdiffRows({
   return (
     <div>
       {rows.map((row) => (
-        <section key={rowKey(row)}>
+        <section
+          key={rowKey(row)}
+          id={rowAnchor(row)}
+          className="interdiff-row"
+        >
           <ComparisonHeader
             row={row}
             plain={plain}
@@ -102,5 +106,12 @@ export function InterdiffRows({
  *  its files under, so two rows never collide on the same file's id. */
 export function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
+}
+
+/** The id of a row's whole section, header and all, which the
+ *  [file navigator](file-tree.md#stepping-through-files) jumps to when a
+ *  reader picks a commit rather than a file. */
+export function rowAnchor(row: ReviewedRow): string {
+  return `row-${rowKey(row)}`;
 }
 // ~/~ end

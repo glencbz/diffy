@@ -41,6 +41,7 @@
     --amber-600: #bf8700;
     --amber-800: #8a5a00;
 
+    --purple-100: #f5f0ff;
     --purple-600: #8250df;
     --teal-600: #1b7c83;
   }
@@ -67,6 +68,7 @@
     --amber-900: #3a2d0a;
 
     --purple-400: #bc8cff;
+    --purple-900: #2a1d4a;
     --teal-400: #56d4dd;
   }
 }
@@ -127,6 +129,9 @@
     --state-open: var(--green-600);
     --state-merged: var(--purple-600);
     --state-closed: var(--red-600);
+
+    --commit-header-surface: var(--purple-100);
+    --commit-header-edge: var(--purple-600);
 
     --ref-bookmark: var(--purple-600);
     --ref-tag: var(--teal-600);
@@ -205,6 +210,9 @@
       --state-open: var(--green-300);
       --state-merged: var(--purple-400);
       --state-closed: var(--red-400);
+
+      --commit-header-surface: var(--purple-900);
+      --commit-header-edge: var(--purple-400);
 
       --ref-bookmark: var(--purple-400);
       --ref-tag: var(--teal-400);
@@ -905,7 +913,8 @@
 @layer components {
   .comparison-header {
     padding: var(--space-4) var(--space-5);
-    background: var(--surface-sunken);
+    background: var(--commit-header-surface);
+    border-top: var(--border-width-accent) solid var(--commit-header-edge);
     border-bottom: 1px solid var(--border);
   }
 
@@ -1268,6 +1277,10 @@
 
 /* ~/~ begin <<docs/architecture/frontend/diff.md#design-interdiff-rows>>[init] */
 @layer components {
+  .interdiff-row {
+    scroll-margin-top: var(--diff-sticky-top, 0px);
+  }
+
   .interdiff-empty {
     padding: var(--space-5);
     font-style: italic;
@@ -1558,10 +1571,36 @@
     padding: var(--space-2) 0 var(--space-4);
   }
 
+  .file-navigator__commit {
+    flex: none;
+    font-weight: bold;
+    color: var(--commit-header-edge);
+  }
+
   .file-navigator__group-label {
+    display: flex;
+    gap: var(--space-4);
+    width: 100%;
     padding: var(--space-3) var(--space-4) var(--space-2);
-    color: var(--text-faint);
+    font: inherit;
     font-size: var(--text-size-small);
+    color: var(--text-faint);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__group-label:hover {
+    color: var(--text);
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 /* ~/~ end */

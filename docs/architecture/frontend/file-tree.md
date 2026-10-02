@@ -781,6 +781,14 @@ file across every row put together: a step back, a step forward, and a
 middle button that opens the same kind of tree the summary draws, this time
 grouped by row.
 
+When the comparison has more than one row, the bar also names the commit
+the current file belongs to, by its short change id, between the count and
+the path. Rows run one after another in one scroll, and a path alone does
+not say which commit it came from. In the tree each group is headed by
+that id and the commit's subject. The heading is a button that jumps to
+the top of the row, its comparison header, so a reader can go to a commit
+as easily as to a file.
+
 A comparison's own files already have anchors, [scoped per row](#folding-a-diffs-files-into-a-tree)
 the same way `DiffView` scopes them, so the navigator is handed the same
 `ChangedFile[]` per row rather than the raw `FileDiff[]` it would otherwise
@@ -796,10 +804,19 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { type ChangedFile, fileTree } from "./changedFiles";
 import { FileTree } from "./FileTree";
 
-/** One row's files, headed by its own label once there is more than one
- *  row to tell apart. */
+/** What names a row's commit once there is more than one row to tell
+ *  apart. */
+export interface FileNavigatorHeading {
+  /** The commit's short change id. */
+  id: string;
+  subject: string;
+  /** The id of the row's whole section, for a jump to its top. */
+  anchor: string;
+}
+
+/** One row's files, under its heading. */
 export interface FileNavigatorGroup {
-  label: string | null;
+  heading: FileNavigatorHeading | null;
   files: ChangedFile[];
 }
 
@@ -814,6 +831,7 @@ function matches(file: ChangedFile, query: string): boolean {
 export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
   const root = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState<string | null>(null);
+  const [currentGroup, setCurrentGroup] = useState(0);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
 
@@ -823,12 +841,13 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
     files.findIndex((file) => file.anchor === current),
   );
   const currentFile = files[index] ?? null;
+  const heading = groups[currentGroup]?.heading ?? null;
 
-  useCurrentFile(root, files, setCurrent);
+  useCurrentFile(root, groups, setCurrent, setCurrentGroup);
   useCloseOnEscape(open, () => setOpen(false));
 
-  const jumpTo = (file: ChangedFile) => {
-    document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
+  const jumpTo = ({ anchor }: { anchor: string }) => {
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
     setOpen(false);
   };
   const step = (delta: number) => {
@@ -864,6 +883,9 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
           <span className="file-navigator__pos">
             {files.length === 0 ? "0 / 0" : `${index + 1} / ${files.length}`}
           </span>
+          {heading !== null && (
+            <span className="file-navigator__commit">{heading.id}</span>
+          )}
           <span className="file-navigator__path">
             {`\u200e${currentFile?.path ?? ""}`}
           </span>
@@ -903,11 +925,12 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
             </div>
             <div className="file-navigator__sheet-body">
               {visibleGroups.map((group, at) => (
-                <div key={group.label ?? at} className="file-navigator__group">
-                  {group.label !== null && (
-                    <div className="file-navigator__group-label">
-                      {group.label}
-                    </div>
+                <div
+                  key={group.heading?.anchor ?? at}
+                  className="file-navigator__group"
+                >
+                  {group.heading !== null && (
+                    <GroupHeading heading={group.heading} onPick={jumpTo} />
                   )}
                   <FileTree
                     nodes={fileTree(group.files)}
@@ -923,12 +946,35 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
     </div>
   );
 }
+
+function GroupHeading({
+  heading,
+  onPick,
+}: {
+  heading: FileNavigatorHeading;
+  onPick: (heading: FileNavigatorHeading) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="file-navigator__group-label"
+      onClick={() => onPick(heading)}
+    >
+      <span className="file-navigator__commit">{heading.id}</span>
+      <span className="file-navigator__subject">{heading.subject}</span>
+    </button>
+  );
+}
 ```
 
 The current file is the last one whose top has scrolled above a reading
 line near the top of the scroll container, and at the very bottom of the
 scroll the last file is current outright, since a short final file might
-never cross the line on its own. One scroll listener does this for the
+never cross the line on its own. A row's own section counts too: once its
+header crosses the line, that row is the current group and its first file
+the current file, even while the header still hides the file itself. A jump
+to the top of a commit would otherwise leave the bar naming the last file
+of the commit before it. One scroll listener does this for the
 whole bar: a `ref` on the bar's own wrapper finds `.pane--diff`, [the flex
 column `.pane--diff` already scrolls as](layout.md#the-pane-rules), by
 walking up from an element the effect actually has a handle on, rather than
@@ -945,8 +991,9 @@ const READING_LINE = 60;
 
 function useCurrentFile(
   root: RefObject<HTMLDivElement | null>,
-  files: ChangedFile[],
+  groups: FileNavigatorGroup[],
   setCurrent: (anchor: string | null) => void,
+  setCurrentGroup: (group: number) => void,
 ) {
   useEffect(() => {
     const container = root.current?.closest(".pane--diff");
@@ -955,28 +1002,38 @@ function useCurrentFile(
     let frame: number | null = null;
     const recompute = () => {
       frame = null;
-      const elements = files
-        .map((file) => document.getElementById(file.anchor))
-        .filter((element): element is HTMLElement => element !== null);
-      if (elements.length === 0) return;
-
       const containerTop = container.getBoundingClientRect().top;
-      let at = 0;
-      elements.forEach((element, position) => {
-        if (
-          element.getBoundingClientRect().top - containerTop <=
-          READING_LINE
-        ) {
-          at = position;
+      const crossed = (anchor: string): boolean => {
+        const element = document.getElementById(anchor);
+        return (
+          element !== null &&
+          element.getBoundingClientRect().top - containerTop <= READING_LINE
+        );
+      };
+
+      let group = 0;
+      let file: string | null = null;
+      groups.forEach((each, position) => {
+        if (each.heading !== null && crossed(each.heading.anchor)) {
+          group = position;
+          file = each.files[0]?.anchor ?? null;
+        }
+        for (const { anchor } of each.files) {
+          if (crossed(anchor)) {
+            group = position;
+            file = anchor;
+          }
         }
       });
       if (
         container.scrollTop + container.clientHeight >=
         container.scrollHeight - 2
       ) {
-        at = elements.length - 1;
+        group = groups.length - 1;
+        file = groups[group]?.files.at(-1)?.anchor ?? file;
       }
-      setCurrent(files[at]?.anchor ?? null);
+      setCurrentGroup(group);
+      setCurrent(file ?? groups[group]?.files[0]?.anchor ?? null);
     };
 
     const onScroll = () => {
@@ -990,7 +1047,7 @@ function useCurrentFile(
       document.removeEventListener("scroll", onScroll, true);
       if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, [root, files, setCurrent]);
+  }, [root, groups, setCurrent, setCurrentGroup]);
 }
 
 function useCloseOnEscape(open: boolean, onClose: () => void) {
@@ -1158,10 +1215,36 @@ bottom, so the offset is zero.
     padding: var(--space-2) 0 var(--space-4);
   }
 
+  .file-navigator__commit {
+    flex: none;
+    font-weight: bold;
+    color: var(--commit-header-edge);
+  }
+
   .file-navigator__group-label {
+    display: flex;
+    gap: var(--space-4);
+    width: 100%;
     padding: var(--space-3) var(--space-4) var(--space-2);
-    color: var(--text-faint);
+    font: inherit;
     font-size: var(--text-size-small);
+    color: var(--text-faint);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .file-navigator__group-label:hover {
+    color: var(--text);
+    background: var(--surface-sunken);
+  }
+
+  .file-navigator__subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 ```
