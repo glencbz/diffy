@@ -422,6 +422,7 @@ function name(states: PullVersion[], head: GitOid): string {
 //| file: src/frontend/screens/PullRequestsScreen.tsx
 import { PullRequests } from "../controllers/PullRequests";
 import { type Place, type PullPlace, tabPlace } from "../model/place";
+import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
 import { ModeTabs } from "../views/ModeTabs";
 import { ReviewStrip } from "../views/ReviewStrip";
@@ -431,7 +432,7 @@ export function PullRequestsScreen({
   onGo,
 }: {
   place: PullPlace | null;
-  onGo: (place: Place) => void;
+  onGo: (place: Place, visit?: Visit) => void;
 }) {
   const review = useReviewContext();
 
@@ -451,7 +452,7 @@ export function PullRequestsScreen({
       <PullRequests
         place={place}
         review={review}
-        onGo={(pull) => onGo({ tab: "pulls", pull })}
+        onGo={(pull, visit) => onGo({ tab: "pulls", pull }, visit)}
       />
     </div>
   );
@@ -474,6 +475,7 @@ its place; picking another opens it at base against latest, and
 import { useState } from "react";
 import { openPull, type PullPlace } from "../model/place";
 import type { PullSummary } from "../model/pull";
+import type { Visit } from "../state/place";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
@@ -488,7 +490,7 @@ export function PullRequests({
 }: {
   place: PullPlace | null;
   review: ReviewHandle;
-  onGo: (place: PullPlace | null) => void;
+  onGo: (place: PullPlace | null, visit?: Visit) => void;
 }) {
   const pulls = usePulls();
   const [sheetOver, setSheetOver] = useState<number | null>(null);
@@ -718,6 +720,12 @@ steps by calling `pick`, so a step is a pick in every respect. The place used
 is the one [`opening`](#the-head-last-reviewed) resolves, so picks in a
 since-review comparison keep its before end.
 
+Scrolling the stack to another row writes that commit back to the address,
+replacing the entry rather than pushing one, so back returns to the last
+pick rather than every commit scrolled past. It goes through the address
+rather than separate "row in view" state, because two answers to which
+commit is current would disagree between a pick and the scroll it causes.
+
 ```tsx
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
@@ -744,7 +752,7 @@ import {
 } from "../model/review";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
-import { useArrivals } from "../state/place";
+import { useArrivals, type Visit } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
@@ -896,7 +904,7 @@ export function PullReview({
   pull: PullSummary;
   place: PullPlace;
   review: ReviewHandle;
-  onGo: (place: PullPlace) => void;
+  onGo: (place: PullPlace, visit?: Visit) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
   const { display } = useSettingsContext().settings;
@@ -1121,6 +1129,18 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
+            onInView={(key) => {
+              const row = rows.find((candidate) => candidate.key === key);
+              if (row === undefined) return;
+              onGo(
+                {
+                  ...place,
+                  to,
+                  spot: { commit: row.commit.commitId, file: null },
+                },
+                "replace",
+              );
+            }}
             reveal={picks + arrivals}
             links={links}
             reviewOf={reviewOf}

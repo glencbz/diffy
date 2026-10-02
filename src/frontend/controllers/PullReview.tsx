@@ -22,7 +22,7 @@ import {
 } from "../model/review";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
-import { useArrivals } from "../state/place";
+import { useArrivals, type Visit } from "../state/place";
 import { usePullCommits } from "../state/pullCommits";
 import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
@@ -174,7 +174,7 @@ export function PullReview({
   pull: PullSummary;
   place: PullPlace;
   review: ReviewHandle;
-  onGo: (place: PullPlace) => void;
+  onGo: (place: PullPlace, visit?: Visit) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
   const { display } = useSettingsContext().settings;
@@ -399,6 +399,18 @@ export function PullReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
+            onInView={(key) => {
+              const row = rows.find((candidate) => candidate.key === key);
+              if (row === undefined) return;
+              onGo(
+                {
+                  ...place,
+                  to,
+                  spot: { commit: row.commit.commitId, file: null },
+                },
+                "replace",
+              );
+            }}
             reveal={picks + arrivals}
             links={links}
             reviewOf={reviewOf}
