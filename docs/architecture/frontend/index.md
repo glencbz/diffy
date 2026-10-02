@@ -212,7 +212,7 @@ rather than where they are in it.
 ### Keeping the boundary honest
 
 The one-way import rule is a convention, kept by whoever writes and reviews
-the import. Nothing stops a view from importing `fetchDiff` for "just one
+the import. Nothing stops a view from importing `fetchInterdiff` for "just one
 more field". The first time that happens, the split is gone and the view
 needs a running server to test again. An import that does not fit the list
 below is a sign the code is in the wrong layer, and the fix is to move the

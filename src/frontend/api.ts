@@ -131,12 +131,6 @@ export const FileDiff = z.discriminatedUnion("status", [
 ]);
 export type FileDiff = z.infer<typeof FileDiff>;
 
-const DiffResponse = z.object({
-  revision: z.string(),
-  files: z.array(FileDiff),
-});
-export type DiffResponse = z.infer<typeof DiffResponse>;
-
 export const InterdiffRow = z.object({
   from: LogEntry.nullable(),
   to: LogEntry.nullable(),
@@ -173,17 +167,6 @@ export async function fetchOperations(): Promise<OpLogEntry[]> {
 export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
   const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
   return LogResponse.parse(await getJson(`/api/log${query}`, "GET /api/log"));
-}
-
-export async function fetchDiff(
-  revision: string,
-  atOperation?: string,
-): Promise<DiffResponse> {
-  const params = new URLSearchParams({ rev: revision });
-  if (atOperation) params.set("op", atOperation);
-  return DiffResponse.parse(
-    await getJson(`/api/diff?${params}`, "GET /api/diff"),
-  );
 }
 
 export async function fetchInterdiff(
