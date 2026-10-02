@@ -10,7 +10,8 @@ export type Place =
 export interface PullPlace {
   number: number;
   from: PullBaseline;
-  /** `null` is whichever head is latest when the place is opened. */
+  /** `null` is whichever head is latest when the place is opened. Picking a
+   *  commit pins it, since a commit id only means something under its head. */
   to: GitOid | null;
   spot: CommitSpot | null;
 }
@@ -24,7 +25,8 @@ export interface CommitSpot {
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {
   path: string;
-  /** An after-side line number, the one the gutter shows. */
+  /** An after-side line number, the one the gutter shows. A removed line has
+   *  none, so it cannot be linked, as it cannot be commented on. */
   line: number | null;
 }
 

@@ -180,6 +180,8 @@ export async function jjCommits(
 ): Promise<Map<string, JjLogEntry>> {
   if (commitIds.length === 0) return new Map();
 
+  // Keyed, because jj answers a revset in topological order, not the order
+  // asked. An unknown id fails the whole call.
   const entries = await jjLog({ revset: commitIds.join("|") });
   return new Map(entries.map((entry) => [entry.commitId, entry]));
 }
@@ -375,7 +377,9 @@ function blobOf(id: string | undefined): string | null {
   return id === undefined || /^0+$/.test(id) ? null : id;
 }
 
-/** Exported for unit tests: turn one file's `git`-format patch into metadata. */
+/** Exported for unit tests: turn one file's `git`-format patch into metadata.
+ *  Paths come from `---`/`+++`, `rename`/`copy`, or `Binary files` lines; a
+ *  patch with no path is a parser bug and throws. */
 export function parseFileDiff(patch: string): JjPatchFile {
   const lines = patch.split("\n");
   const header = lines[0]?.match(DIFF_GIT_HEADER);

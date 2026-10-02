@@ -50,6 +50,8 @@ export function Splitter({
     return axis === "x" ? rect.width : rect.height;
   };
 
+  // No ref threaded from the screen: the pane is the previous sibling and the
+  // pane giving way is the row's last child.
   const measure = (handle: HTMLElement): Measure | null => {
     const target = handle.previousElementSibling;
     const giving = handle.parentElement?.lastElementChild;
@@ -71,6 +73,7 @@ export function Splitter({
     // biome-ignore lint/a11y/useSemanticElements: a focusable separator the reader drags is a widget, and `<hr>` is a thematic break
     <div
       role="separator"
+      // Names the line the handle draws, not the way it moves.
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
       aria-label={label}
       aria-valuenow={size ?? undefined}
@@ -92,6 +95,9 @@ export function Splitter({
           now.start + point(event) - now.origin,
           now.room,
         );
+        // Not through React: re-rendering a thousand-row diff per pointer
+        // move for one CSS length. onResize runs once, on release.
+        // pane--sized lifts the stylesheet's minimum during the drag too.
         now.last = next;
         now.pane.classList.add("pane--sized");
         now.pane.style.setProperty("--pane-size", `${next}px`);

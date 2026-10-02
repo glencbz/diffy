@@ -1,36 +1,13 @@
 # Local git object store
 
-Commit content comes from the local git object store, asked through the `git`
-CLI. The [GitHub backend](github.md) knows which commits a pull request has
-had; this module is the other half, and knows what they say.
+Commit content comes from the local git object store via the `git` CLI. The
+[GitHub backend](github.md) knows which commits a pull request has had; this
+module knows what they say. It takes object ids and nothing here knows about
+GitHub: API metadata can go stale, an object in the store cannot.
 
-Everything it takes is an object id and everything it answers is what the
-store holds, so nothing here knows about GitHub, pull requests or force
-pushes. Metadata that arrives over an API is a claim about a remote at one
-moment. The object store either has an object or does not, and a reader can
-check. Only one of the two can go stale.
-
-## Functionality
-
-### Naming a commit
-
-A `GitOid` is a full 40-character object id, and abbreviations are refused at
-the type boundary rather than resolved, because fetching a single object by id
-needs the whole id. The remote is being asked for a name it cannot look up in
-a ref, so there is nothing to disambiguate a prefix against. A short id would
-work for a local lookup and fail for a fetch.
-
-`LocalOid` goes one step further. It is a `GitOid` carrying a witness that the
-object store has the commit, and `gitMaterialize` is the only function that
-mints one. A function that reads objects, `gitLog` today, takes `LocalOid` and
-therefore cannot be reached without someone having established presence first.
-The alternative, a plain `GitOid` everywhere and a runtime check inside every
-reader, puts the same check in every new reader and forgets it in one of them.
-
-`GitError` covers both ways a `git` call can let us down: a non-zero exit, and
-a fetch that reports success without leaving the objects behind. A remote is
-free to refuse an unreachable object, and older
-`git` versions say so only in the exit status of the ref update.
+`LocalOid` is a `GitOid` witnessed present, minted only by `gitMaterialize`,
+so readers such as `gitLog` cannot be reached without the presence check. A
+runtime check in every reader would be forgotten in one of them.
 
 ```ts
 //| id: git-module
@@ -94,20 +71,12 @@ export interface GitCommit {
 
 ### Asking whether a commit is here
 
-`git cat-file -e <oid>^{commit}` is the presence check. The `^{commit}` suffix
-peels the id and insists the result is a commit, so a tree or blob id that is
-perfectly present answers no, which is the answer a commit reader wants. The
-command is local and makes no network call.
-
-Absence is an ordinary answer rather than a failure, so this returns `false`
-instead of throwing. Every caller is about to decide whether to fetch, and
-"not here yet" is the common case.
-
 ```ts
 //| id: git-module
 
 /** Whether the object store already holds `oid` as a commit. Never hits the network. */
 export async function gitHasCommit(oid: GitOid): Promise<boolean> {
+  // ^{commit} makes a present tree or blob id answer no.
   const spec = `${oid}^{commit}`;
   const result = await $`git cat-file -e ${spec}`.quiet().nothrow();
   return result.exitCode === 0;
@@ -116,64 +85,15 @@ export async function gitHasCommit(oid: GitOid): Promise<boolean> {
 
 ### Fetching a commit nothing points at
 
-A force-pushed commit is unreachable from every branch on the remote, so no
-ordinary fetch brings it down. Naming the object id in the refspec does:
-`git fetch --no-tags origin <oid>:<ref>` hands over that commit and its whole
-ancestry, which is what makes the history of a rewritten pull request readable
-at all.
-
-The destination ref is the load-bearing half of that command. A fetched object
-that nothing points at is unreachable locally too, and the next `git gc
---prune` deletes it, taking the review's "before" side with it. The ref keeps
-the object alive, so it has to say who is keeping it alive. Every pin therefore
-arrives as a `GitPin`, an oid together with the path that will hold it, and
-this module invents neither. Callers name their own pins, so nothing here knows
-what a pull request is; `gitForget` takes a path prefix and drops everything
-beneath it.
-
-The naming that matters is the one the GitHub side chooses,
-`pull/<number>/v<n>`, mirroring the `refs/pull/<number>/` layout GitHub
-publishes. GitHub's own refs do not answer. `refs/pull/<number>/head` tracks
-only the current head, so every state a force push replaced, which is the
-entire reason this module exists, is advertised by no ref on the remote at
-all. Those commits are still fetchable by
-oid, which is what makes any of this work, but nothing names them.
-
-Grouping under the pull request is what makes the pins collectable. A flat
-namespace records that something wanted an object once and never when that
-stops being true, so refs accumulate with no rule for clearing them. Grouped
-under the pull request that pulled them in, the rule is ordinary: finish with a
-pull request and the whole subtree can go.
-
-That `v<n>` is diffy's own count of the force-push chain, not an identifier
-GitHub issues, so it moves if GitHub collects the commits behind an old event
-and that event drops out of the chain. The refs are a cache, not a record, so a
-moved number re-points a ref and at worst orphans an object the next view
-fetches again. What it buys is a namespace a person can read, which matters for
-refs meant to be inspected and pruned by hand.
-
-The refs sit under a namespace of our own, so they never appear as branches or
-tags and jj never imports them as bookmarks.
-
-A pin is written only for an object that had to be fetched. A commit already
-reachable from a branch needs nothing holding it down, which is why viewing a
-pull request whose base is an ordinary ancestor of `main` leaves no `base` ref
-behind. If such an object later becomes unreachable and is collected, the next
-view fetches and pins it like any other.
-
-One fetch carries every missing oid, because a fetch is a round trip and a pull
-request with six force pushes would otherwise pay for six. Oids already in the
-store are filtered out first, so the all-present case, which is every repeat
-view of the same pull request, costs a few `cat-file` calls and no network at
-all.
-
-`git fetch` can exit zero having declined an individual refspec, so the only
-trustworthy report that the objects arrived is the object store itself, which
-is what the presence re-check afterwards reads. Anything still missing is a
-`GitError` naming it, and the error carries whatever the remote said.
-
-The returned witnesses follow the order asked, duplicates included, so a caller
-can destructure the result positionally against the list it passed.
+A force-pushed commit is unreachable from every remote branch, and GitHub's
+`refs/pull/<n>/head` names only the current head, but the commit is still
+fetchable by oid: `git fetch --no-tags origin <oid>:<ref>`. The destination
+ref keeps the fetched object from the next `git gc --prune`, so every pin is a
+`GitPin`, an oid plus the path holding it. Callers choose the path; the GitHub
+side uses `pull/<number>/v<n>` so a finished pull request's pins go together
+under one `gitForget`. Refs live under `refs/diffy/`, so jj never imports them
+as bookmarks. They are a cache: an object already reachable from a branch
+gets no pin, and a lost one is fetched again on the next view.
 
 ```ts
 //| id: git-module
@@ -193,6 +113,7 @@ export async function gitMaterialize(
   pins: GitPin[],
   remote = "origin",
 ): Promise<LocalOid[]> {
+  // One fetch for every missing oid; a repeat view fetches nothing.
   const missing = await absentPins(pins);
 
   if (missing.length > 0) {
@@ -201,6 +122,8 @@ export async function gitMaterialize(
       .quiet()
       .nothrow();
 
+    // git fetch can exit zero having declined a refspec, so the store
+    // itself is the only trustworthy report.
     const stillMissing = await absentPins(missing);
     if (stillMissing.length > 0) {
       const said = fetch.stderr.toString().trim();
@@ -249,36 +172,14 @@ export async function gitForget(prefix: RefPath): Promise<number> {
 
 ### Reading commits out of the store
 
-`git log` has no `json(self)` the way [jj](jj.md) does, so the output format is
-ours to choose and the choice is the parse contract. Commit messages contain
-newlines, author names contain almost anything, and a format that separates
-fields with a character a field can hold is a format that eventually
-mis-parses.
+`git log` has no `json(self)` the way [jj](jj.md) does, so the format is
+`%H%x1f%P%x1f%an%x1f%aI%x1f%B` with `-z`: NUL ends a record and cannot occur
+in a field, `\x1f` separates fields, and the message comes last so a stray
+`\x1f` in it cannot shift the others.
 
-The format is `%H%x1f%P%x1f%an%x1f%aI%x1f%B` with `-z`. Records are terminated
-by NUL, which cannot occur in any git field, and fields are separated by
-`\x1f`, the ASCII unit separator, which no sane commit message contains. The
-message body is the last field, so even if it did contain a `\x1f` the fields
-before it are already parsed. Nothing is escaped and nothing needs to be.
-
-A record that does not split into exactly five fields means the format string
-and the parser disagree, which is a bug here and not a bad request, so it
-throws a plain `Error` and becomes a 500. `parseLogRecord` is exported for
-that reason, mirroring [`parseFileDiff`](jj.md#reading-a-commits-diff): the
-interesting failure modes are fixtures, not repos.
-
-Ordering matches `jj log`, newest first, because both feed the same list in the
-UI. `from` is an exclusive lower bound, so the range is `git log <from>..<to>`,
-the commits `to` has and `from` does not, which is exactly the contents of a
-pull request measured against its base.
-
-Git keeps no durable identity for a commit, unlike jj's change id, so
-`changeId` has to be derived rather than read off the object. The subject
-line is what survives an amend, and lining up a pull request's old head
-against its new one after an amend is the case this comparison exists to
-show. A reword breaks the pairing instead, but that is the lesser failure.
-A wrong pairing the reader can see and correct costs little, while a wrong
-pairing that looks right and is not costs far more.
+Git has no change id, so `changeId` is the subject line, which survives an
+amend, the case a pull request comparison exists to show. A reword breaks the
+pairing, visibly, and the reader can correct it.
 
 ```ts
 //| id: git-module
@@ -348,22 +249,9 @@ export function parseLogRecord(record: string): GitCommit {
 
 #### Test
 
-`git` is local, free and deterministic, so the tests drive the real CLI rather
-than a mock, the same call the [jj tests](jj.md#test) make. What they assert on
-is structural: this repo always has a `HEAD` with an ancestor, and 40 `f`s are
-never an object.
-
-A range needs more care than an ancestor does. `HEAD~1` is the tip's *first*
-parent, so when the tip is a merge the range up to it is the whole branch that
-was merged rather than one commit. A case that counts commits therefore passes
-on a branch, whose tip is an ordinary commit, and fails on `main`, whose tip is
-a merge. `soloCommit` names a commit that has exactly one parent, and that
-parent, which is one commit apart whatever shape the history around it has.
-
-The `gitMaterialize` case is about idempotence. Running it twice over an oid
-that is already present must succeed both times and must not reach the network,
-which is what makes repeat views of a pull request cheap. A fetch test would
-need a remote and would prove less.
+The tests drive the real CLI against this repository. `soloCommit` names a
+commit with exactly one parent, since `HEAD~1..HEAD` spans a whole merged
+branch when the tip is a merge.
 
 ```ts
 //| id: git-module-test
@@ -519,10 +407,6 @@ describe("gitLog", () => {
 });
 ```
 
-`parseLogRecord` carries the delimiter contract, so its cases are the shapes
-that break a naive line-oriented parser: a body with blank lines and its own
-newlines, a merge with two parents, and the root commit with none.
-
 ```ts
 //| id: git-module-test
 
@@ -647,22 +531,9 @@ describe("subjectIdentity", () => {
 
 ### Where a branch and its base diverged
 
-`git merge-base <a> <b>` names the newest commit both histories hold, which is
-where a branch left the base it was cut from. That commit, not the base branch
-tip, is what "the work this branch introduces" is measured from. The tip has
-moved on since the branch was cut, and a diff against it reports the base
-branch's own later commits as the branch's work, reversed. On pull request #21
-of this repository, a diff from today's `main` to the head reports fifty-one
-files and a diff from the merge base reports none, which is the truth for a
-pull request whose content is already in `main`.
-
-Both ends are a `LocalOid` and so is the answer. A commit that two present
-histories share is present itself, so the witness survives the call, and a
-caller has to bring both ends down before it can ask where they meet.
-
-Two commits can share no ancestor at all, which git reports as exit 1 with
-nothing on either stream. That gets its own message, since a `GitError`
-carrying git's silence tells the reader only that something went wrong.
+A pull request's work is measured from the merge base, not the base branch's
+tip: the tip has moved on, and a diff against it reports the base's own later
+commits as the branch's work, reversed.
 
 ```ts
 //| id: git-module
@@ -675,6 +546,7 @@ export async function gitMergeBase(
   const result = await $`git merge-base ${a} ${b}`.quiet().nothrow();
   const shared = result.text().trim();
 
+  // No common ancestor is exit 1 with nothing on either stream.
   if (result.exitCode !== 0 || shared === "") {
     const said = result.stderr.toString().trim();
     throw new GitError(
@@ -689,12 +561,8 @@ export async function gitMergeBase(
 
 #### Test
 
-The pair worth pinning is one whose merge base is neither end. Two commits
-taken along one line of history have the older one as their merge base, so
-they pass just as well against an implementation that answers `a` and never
-asks git. A merge is where this repository keeps a diverged pair, so
-`divergedPair` reads the parents of one, skipping the merges whose parents are
-already in each other's history.
+`divergedPair` reads a merge's parents, since a pair along one line of history
+would pass an implementation that just answered `a`.
 
 ```ts
 //| id: git-module-test
@@ -752,18 +620,10 @@ describe("gitMergeBase", () => {
 
 ### Reading a file's contents
 
-A diff shows a file only in the hunks that changed, and some of what a reader
-wants needs the rest of it: syntax colours for a line depend on what came
-before it, and context around a hunk is lines the patch left out. The `index`
-line of every [`git`-format patch](jj.md#reading-a-commits-diff) names the
-blob each side is stored under, and in a colocated repo those blobs are in
-git's object store, whether jj wrote them or a
-[pull request fetch](#fetching-a-commit-nothing-points-at) brought them.
-
-`BlobId` takes an id as short as git itself will resolve, because the `index`
-line abbreviates. An id that names nothing, or names more than one object, is
-an ordinary answer for a reader holding an id out of someone else's patch, so
-`gitBlob` answers null rather than throwing.
+Highlighting and expanded context need whole files. The `index` line of every
+[`git`-format patch](jj.md#reading-a-commits-diff) names each side's blob, and
+in a colocated repo the blob is in git's store. `BlobId` accepts the
+abbreviated ids that line prints; an unknown or ambiguous id answers null.
 
 ```ts
 //| id: git-module

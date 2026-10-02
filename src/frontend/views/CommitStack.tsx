@@ -177,6 +177,9 @@ function StackSection({
 }) {
   const section = useRef<HTMLElement>(null);
   const [composing, setComposing] = useState(false);
+  // Picking a commit in the graph scrolls its row to the top; picking it
+  // again scrolls back, which is why this keys on `reveal`, a count of
+  // requests. A linked file or line scrolls itself, so the row stays put.
   const diffScrolls = links.selected !== null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
@@ -185,6 +188,8 @@ function StackSection({
     }
   }, [reveal]);
 
+  // File headers stick below the sticky spine, whose height wraps and
+  // follows the text size, so it is measured rather than written down.
   useEffect(() => {
     const row = section.current;
     const spine = row?.querySelector(".commit-stack__spine");

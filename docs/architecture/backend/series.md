@@ -1,46 +1,17 @@
 # Lining up two commit series
 
-Comparing one commit against another answers "how did this change change?".
-Comparing a whole branch against its earlier self is the question people
-actually have, and it needs an extra step first: deciding which commit on the
-before side belongs opposite which commit on the after side.
+Comparing a branch against its earlier self first needs to decide which
+before commit sits opposite which after commit. Positional pairing breaks on
+the first insert or drop: every row below it compares two unrelated changes.
+A jj change id survives amend, reword, and rebase, so `alignSeries` pairs on
+it. A row with both sides is an interdiff; one side only is an add or a drop.
 
-Positional pairing, first against first, is wrong the moment a commit is
-inserted or dropped. Everything after the gap shifts by one and every row
-below it becomes a comparison between two unrelated changes, which is worse
-than showing nothing.
-
-A change id rules that out. It survives an amend, a reword, and a rebase, so
-the same id on both sides names the same logical commit at two points in its
-life. `alignSeries` walks both series oldest first and pairs on it. Its three
-outcomes:
-
-* both sides present: the commit exists in both series, so the row is an
-  interdiff.
-* after side only: the commit was added to the series.
-* before side only: the commit was dropped from it.
-
-jj supplies a change id. Git does not, so `changeId` is nullable and a git
-commit sends `null` rather than borrowing its oid. An oid names one revision
-and is replaced on every rewrite, the opposite of what the field promises.
-Two nulls do not match either, or every unidentified commit would look like
-the same change as every other.
-
-That leaves position as the only pairing a git series gets, oldest against
-oldest. It holds while both versions agree on their oldest commit, which
-covers commits pushed onto the newest end. It breaks as soon as they disagree
-there. A rebase onto a new base shifts every pair by one and reinstates the
-failure above. `series.test.ts` pins that wrong output under a name saying so,
-so giving git an identity of its own, a `Change-Id` trailer or a patch id,
-fails that test first. Which one is the GitHub backend's call, not this
-module's.
-
-Ordering is the caller's convention, kept intact: both arguments arrive in
-`jj log` order, newest first, and the rows come back in that order too, so
-the panel reads top to bottom alongside the graphs that fed it.
-
-The function is generic over the commit type and asks only for `commitId` and
-`changeId`. It is the one piece of this feature with no jj in it.
+Git has no change id, so a git commit sends `changeId: null` rather than its
+oid, which changes on every rewrite. Two nulls never match. A git series
+therefore pairs by position, oldest against oldest, which breaks on a rebase
+onto a new base; `series.test.ts` pins that wrong output under a name saying
+so, so whoever gives git an identity (a `Change-Id` trailer, a patch id) sees
+it fail first.
 
 ```ts
 //| id: series-module
@@ -134,13 +105,6 @@ function indexOfChange(
 ```
 
 ## Test
-
-`alignSeries` is a pure function over two lists, so the tests are fixtures.
-Each commit is written as a change id and a commit id, which is all the
-function reads. The cases are the ones that made positional pairing
-untenable: a commit dropped from the middle, one inserted, and the two sides
-reordered. The last two run a series with no change ids at all, including the
-mis-pairing that has no fix at this layer.
 
 ```ts
 //| id: series-module-test

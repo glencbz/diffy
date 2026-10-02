@@ -86,6 +86,7 @@ export async function handleInterdiff(req: Request): Promise<Response> {
     );
   }
 
+  // Rows run concurrently, one jj process each.
   return jjJson(async () => {
     const commits = await jjCommits([...from, ...to]);
     const series = (ids: string[]): JjLogEntry[] =>
@@ -219,6 +220,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
     const state = pullStateAt(history, head);
 
     const [base, tip] = await gitMaterialize(pullPins(history, state));
+    // One witness per oid asked; noUncheckedIndexedAccess cannot know.
     if (base === undefined || tip === undefined) {
       throw new Error("gitMaterialize returned fewer oids than asked");
     }

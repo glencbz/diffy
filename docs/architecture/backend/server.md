@@ -12,23 +12,11 @@ A just rule runs the backend:
 
 ```
 
-This file is the web server. Route handlers and the route table are exported
-so tests can call them directly. Nothing here binds a port; the [command
-line](cli.md) does, and it is the only place that does. Every workspace
-serves the repo it sits in, so several of them run side by side during
-review, each on a port of its own.
-
-`just run` leaves `NODE_ENV` alone, so Bun serves in dev mode with hot reload,
-which is what a frontend change wants locally. Dev mode also checks the `Host`
-header against the address it is listening on, so it cannot be read through a
-proxy; serving a workspace for review therefore sets `NODE_ENV=production`. Both
-modes are worth having, so the choice sits with whoever starts the server rather
-than being fixed here. See [serving](../../devtools/serving.md).
-
-`jjJson` runs a handler body and turns a rejected revset or operation id
-(`JjError`) into a 400 carrying jj's own message; anything else is a genuine
-fault and propagates as a 500. Every jj-backed route goes through it, so that
-mapping exists in one place instead of being repeated per handler.
+Handlers and the route table are exported so tests call them without a
+port; only [the command line](cli.md) binds one. `just run` keeps dev mode
+and hot reload; a server shared through the proxy needs production mode (see
+[serving](../../devtools/serving.md)). `jjJson` turns a `JjError` into a 400
+for every jj-backed route.
 
 ```ts
 //| id: backend-server
@@ -107,24 +95,11 @@ export function handleDiff(req: Request): Promise<Response> {
 }
 ```
 
-`/api/interdiff` takes any number of `from` and `to` commit ids, each side in
-`jj log` order, and answers with one row per lined-up pair. Commit ids rather
-than change ids or revsets, because the two sides are routinely picked out of
-different operations and only a commit id means the same thing in both.
-
-The two sides need not be the same length, and neither has to be a single
-commit. [`alignSeries`](series.md) decides which commit faces which; this
-handler only turns each of its rows into a diff. A row with both sides is an
-interdiff. A row with one side is a commit that was added to or dropped from
-the series, and its own diff is the only honest thing to show for it. That
-last rule is also what makes `from` empty, `to` a single commit reduce to
-"pick a commit, read its diff", the v0 behaviour, with no separate endpoint.
-
-Rows are built concurrently. Each one is a separate `jj` process, and jj
-serialises nothing that matters for a read, so a ten-commit series costs about
-what one commit costs.
-
-Asking for no commits at all is the one case with no answer, and it is a 400.
+`/api/interdiff` takes `from` and `to` commit ids, each in `jj log` order,
+and answers one row per pair [`alignSeries`](series.md) lines up. Commit ids,
+because the two sides usually come from different operations. A lone side is
+an add or a drop and shows its own diff, which also makes "one `to`, no `from`"
+plain single-commit viewing with no separate endpoint.
 
 ```ts
 //| id: backend-server
@@ -141,6 +116,7 @@ export async function handleInterdiff(req: Request): Promise<Response> {
     );
   }
 
+  // Rows run concurrently, one jj process each.
   return jjJson(async () => {
     const commits = await jjCommits([...from, ...to]);
     const series = (ids: string[]): JjLogEntry[] =>
@@ -176,16 +152,10 @@ function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
 ### Reading a file's source
 
 `/api/source` answers one side of one file, whole and
-[highlighted](syntax.md), for the diff view to lay over the hunks it already
-has. It takes the blob id off the patch's `index` line rather than a commit
-and a path, because an interdiff's before side is a tree jj builds for the
-comparison, which no commit id names, and the blob is the one name every kind
-of diff hands out. The path only chooses the language.
-
-The blob is read out of git's object store, so this route reads the same for
-a local commit and a pull request's, and never touches jj. An id that names
-nothing is a 404, which a reader holding an id from a diff it was just handed
-should only see for a blob jj computed for an interdiff and never wrote down.
+[highlighted](syntax.md). It takes the blob id off the patch's `index` line,
+because an interdiff's before side has no commit id, and reads it from git's
+store, so it works the same for local and pull request diffs. The path only
+picks the language.
 
 ```ts
 //| id: backend-server
@@ -216,16 +186,10 @@ export async function handleSource(req: Request): Promise<Response> {
 
 ### Reading a pull request from GitHub
 
-The [GitHub backend](github.md) fails in more ways than jj does, and not all of
-them are the caller's fault, so `githubJson` sorts them rather than flattening
-everything into a 400 the way `jjJson` can. A `GitHubError` of kind `not-found`
-is a 404, because the repository or the pull request the URL names does not
-exist. Kind `upstream` is a 502, meaning GitHub was asked and did not answer. A
-`GitError` is the least obvious 502: GitHub named a commit, we asked the remote
-for it and the remote would not hand it over, so the request was well-formed
-and the upstream is inconsistent. A `ZodError` is the only 400 left, and it
-carries `z.prettifyError`'s rendering, which names the offending field instead
-of making the caller guess.
+A GitHub failure is not always the caller's fault, so `githubJson` sorts
+them: `not-found` is a 404; `upstream`, or a `GitError` from a remote that
+would not hand over a commit GitHub named, is a 502; a `ZodError` is a 400
+naming the bad field.
 
 ```ts
 //| id: backend-server
@@ -252,11 +216,8 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
 }
 ```
 
-`/api/github/repo` names the repository the server was started in, as the
-[GitHub backend](github.md) reads it off `origin`. The frontend asks for it
-rather than knowing it, so the same build serves any checkout. The other
-routes still take the repository as a parameter; this one only says which to
-pass.
+`/api/github/repo` says which repository to pass, so one build serves any
+checkout.
 
 ```ts
 //| id: backend-server
@@ -268,10 +229,6 @@ export function handleGithubRepo(): Promise<Response> {
   });
 }
 ```
-
-`/api/github/pulls` is the picker's list and `/api/github/pull/history` is one
-pull request's chain of heads. Both are thin: every parameter is parsed at the
-top of the handler, so a bad one costs a 400 and no API call.
 
 ```ts
 //| id: backend-server
@@ -306,25 +263,10 @@ export function handleGithubPullHistory(req: Request): Promise<Response> {
 }
 ```
 
-`/api/github/pull/commits` is where the two backends meet: GitHub says which
-heads the pull request has had, and the local object store says what the
-commits under a given head are. The order of the four steps is the whole
-design.
-
-The ordering is a security property. [`pullStateAt`](github.md) resolves the
-head against the pull request's own chain **before** anything is fetched. Why
-that matters, and why a state is named by its head rather than by its version,
-are written down with the lookup.
-
-The base is the pull request's base branch tip now, not what it was then, which
-is all GitHub keeps. `git log <base>..<head>` is therefore "the commits this
-head has that the base does not", which is the right answer for a pull request
-that has been rebased and the only available answer for one that has not.
-
-`gitMaterialize` returns one witness per oid asked, so the destructuring is
-exhaustive by construction; the undefined check is there because
-`noUncheckedIndexedAccess` cannot know that, and a mismatch would be our bug
-and a 500.
+`/api/github/pull/commits` is where the backends meet. The order is a
+security property: [`pullStateAt`](github.md#naming-one-state-of-a-pull-request)
+resolves the head against the pull request's own chain before anything is
+fetched.
 
 ```ts
 //| id: backend-server
@@ -341,6 +283,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
     const state = pullStateAt(history, head);
 
     const [base, tip] = await gitMaterialize(pullPins(history, state));
+    // One witness per oid asked; noUncheckedIndexedAccess cannot know.
     if (base === undefined || tip === undefined) {
       throw new Error("gitMaterialize returned fewer oids than asked");
     }
@@ -355,71 +298,22 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
 }
 ```
 
-`/api/github/pull/diff` is the review itself. `to` names a head of the pull
-request. `from` names what that head is measured against, either another head
-or the word `base`, and the two ends are parsed apart at the top of the
-handler so a value that is neither costs a 400 and no API call. A head is
-named by its oid rather than by its version number, for the reason
-[`pullStateAt`](github.md) gives. That also makes "version 7 of a pull request
-that now has three versions" a request nobody can write, rather than one more
-thing to reject.
+`/api/github/pull/diff` diffs head `to` against `from`, another head or
+`base`. Two heads go through [`jjInterdiff`](jj.md#comparing-two-commits),
+since the later head is usually the earlier one rebased: on #9, first head
+against last, that is three files rather than forty-seven. A head against
+`base` is the three-dot diff, [`gitMergeBase`](git.md) then `jjDiffBetween`,
+never a diff from `baseRefOid`, which would carry every later base commit in
+reverse.
 
-Only the before end can be the base, which is why `from` is a `PullBaseline`
-and `to` stays a `GitOid`. The base as the after end is the pull request read
-backwards, and nobody reads it that way. The commit list above the diff
-takes the same `to`, and a base branch tip has no list of commits to show for
-a pull request.
+`base` is a tagged parameter rather than an oid the server recognises by
+equality with `baseRefOid`. A commit landing on the base between fetching the
+history and the diff would break that equality into a 404, and a branch
+force-pushed to exactly the base tip would make it switch comparisons under a
+reader who picked a version.
 
-Two heads of the same pull request are compared with [`jjInterdiff`](jj.md).
-The later head is usually the earlier one rebased, and interdiff drops what
-the rebase carried along; for pull request #9 of this repository, first head
-against last, that is the difference between three files and forty-seven. A
-tree diff between two heads reports the rebase itself as a change, which is
-the comparison GitHub shows on the pull request page and not the one a
-reviewer of a re-push is asking for.
-
-A head against the base is the other comparison, and it is the three-dot diff,
-[`gitMergeBase`](git.md) and then [`jjDiffBetween`](jj.md). It is not a diff
-from `baseRefOid`. That oid is the base branch's tip now, so a diff from it
-carries every commit the base branch has gained since the branch was cut, in
-reverse, on top of the pull request's own work. On pull request #21 of this
-repository, merged, today's `main` against the final head names fifty-one
-files and the merge base against it names none, which is the truth about a
-pull request whose work is already in `main`.
-
-A second comparison was refused here for as long as it would have gone
-unlabelled, since a reader would then be working out which of two answers is
-in front of them. The comparison picker's caption names which one is on
-screen, so that reader does not exist. Each comparison is worth naming once.
-The interdiff says how the change itself evolved. The base comparison says
-what the pull request introduces. The picker now offers the base as the
-before end, so this is the whole of what the route needs to serve.
-
-The two comparisons use `gitMaterialize` differently, and `pullDiffFiles`
-holds that along with the choice. Comparing two heads needs only that the call
-returned, because jj takes a plain commit id and `gitMaterialize` throws
-unless every object landed. Comparing against the base reads the witnesses it
-hands back, because `gitMergeBase` takes a `LocalOid` on each side.
-[`pullPins`](github.md) already pins the base alongside the head, so that path
-fetches nothing the interdiff path would not have fetched.
-
-The baseline is tagged rather than left as a bare oid the server recognises
-by comparing it against `history.baseRefOid`. That comparison answers the
-wrong thing. The oid is read when the history is fetched and sent back when
-the diff is fetched, so a commit landing on the base branch in between makes
-the equality fail and answers a reviewer who picked the base with a 404. A
-branch force-pushed to exactly the base tip puts that same oid legitimately in
-the chain of heads, where the equality would quietly switch comparisons under
-a reviewer who picked a version. Asking for the base and asking for a version
-are different operations over different commits, and a union is what says so.
-
-The body is exported separately from the handler so the tests can hand it a
-GitHub transport. Its three siblings are pass-throughs, and everything they do
-past parsing is already covered against a stubbed transport in the [GitHub
-backend](github.md)'s own tests. This one chooses a diff and chooses what to
-fetch, which is behaviour worth pinning at the route. The seam sits beside the
-handler rather than in its signature, because `Bun.serve` calls a route handler
-with a second argument of its own.
+`pullDiffResponse` takes the transport as an argument for the tests; a route
+handler cannot, since `Bun.serve` passes a second argument of its own.
 
 ```ts
 //| id: backend-server
@@ -534,15 +428,9 @@ async function pullDiffFiles(
 
 ### Reading and writing the review document
 
-`/api/review` is the [review store](review-store.md) over HTTP. A `GET`
-answers with the document and its revision. A `POST` carries one
-[command](../frontend/review.md#review-state), and answers with the document
-and revision the command left. A body that is not a command is a 400 naming
-what is wrong with it, so a writer that is not the browser, such as an
-agent, learns what it sent wrong.
-
-The handler takes the store as an argument rather than opening it, so the
-route tests hand it one on a file of their own and never touch the reader's.
+`/api/review` is the [review store](review-store.md) over HTTP: `GET` reads
+the document, `POST` applies one [command](../frontend/review.md#review-state).
+A bad body is a 400 naming what is wrong, for writers other than the browser.
 
 ```ts
 //| id: backend-server
@@ -566,12 +454,9 @@ export function reviewRoute(store: ReviewStore) {
 }
 ```
 
-`/api/review/changes` upgrades to a WebSocket over which the server sends
-`{ "revision": n }` each time the [review store](review-store.md#telling-screens-about-changes)
-reaches a new revision. Every socket subscribes to one topic, so one publish
-reaches every open screen. The socket carries nothing from the screen: a
-change still goes through a `POST`, which answers with its result, and a
-socket that only announces keeps one way to write.
+`/api/review/changes` is a WebSocket on which every open screen hears
+`{ "revision": n }` when the [store](review-store.md#telling-screens-about-changes)
+moves. Writes still go through `POST`, so there is one way to write.
 
 ```ts
 //| id: backend-server
@@ -594,11 +479,8 @@ export const reviewSocket: Bun.WebSocketHandler<undefined> = {
 };
 ```
 
-The route table is the list of handlers the server exposes, given the review
-store [the command line](cli.md) opened at startup. Every path that is not an
-API route is the page, since the frontend keeps the reader's place in
-[the path](../frontend/address.md). An API path with no handler is a 404
-rather than the page, so a mistyped request fails as one.
+Every non-API path serves the page, since the frontend keeps the reader's
+place in [the path](../frontend/address.md). An unknown API path is a 404.
 
 ```ts
 //| id: backend-server
@@ -624,9 +506,6 @@ export function routes(store: ReviewStore) {
 ```
 
 ### Route tests
-
-Each handler is a plain `Request` → `Response` function, so the tests call it
-without binding a port.
 
 ```ts
 //| id: backend-server-test
@@ -900,10 +779,8 @@ describe("handleInterdiff", () => {
 ```
 
 
-The GitHub routes are only tested for what they refuse. Every other case talks
-to GitHub, and a test suite that needs a token and a network fails for reasons
-unrelated to the code. What these pin is that a malformed parameter is a 400
-and costs no API call, which is the same as saying the parse happens first.
+The GitHub routes are tested only for what they refuse, which pins that
+parsing happens before any API call.
 
 ```ts
 //| id: backend-server-test
@@ -950,9 +827,6 @@ describe("the GitHub routes", () => {
   });
 });
 ```
-
-The review route is tested against a store on a file of the test's own, for
-what it answers and for what it refuses.
 
 ```ts
 //| id: backend-server-test
@@ -1101,30 +975,13 @@ ESLint + Prettier. We used the default `bunx biome init`.
   bunx biome format --write .
 ```
 
-The diff route is the one GitHub route tested for more than what it refuses,
-and it gets there without a token or a network. Its transport is a stub
-returning a pull request whose base and heads are three commits from the root
-of this repository's own history. Those commits are already in the object
-store, so `gitMaterialize` finds them and fetches nothing. What is left under
-test is the route's own decisions, and each answer is checked against the jj
-call it should have made rather than against a file count, because a file count
-would still pass if the two diffs were swapped.
-
-`divergedPull` is what separates the merge base from the base branch tip.
-Every other case has a base that is already an ancestor of the head, where the
-diff from the base and the diff from the merge base are the same diff and an
-implementation handing `baseRefOid` straight to `jjDiffBetween` passes. The
-parents of a merge are where this repository keeps a base and a head that have
-genuinely diverged, and the base side also has to carry something the merge
-base does not, which is what makes the two diffs differ at all. That case
-asserts both halves, that the answer is the diff from the commit the two
-share, and that it is not the diff from the base.
-
-`divergedPull` searches only the merges on trunk, which every clone has, and
-asks a revset whether the base side holds a non-empty commit the merge base
-lacks. Diffing the two instead runs difftastic over every file they touch, and
-the local merges a review chain adds span enough files to run past the test
-timeout.
+The diff route runs against a stubbed pull request built from commits already
+in this repository, so nothing is fetched. Each answer is checked against the
+jj call it should have made, since a file count would pass with the two
+diffs swapped. `divergedPull` finds a trunk merge whose base side holds a
+commit the merge base lacks, the only shape where diffing from the merge base
+and from the base tip differ. It asks a revset rather than diffing, since
+diffing the review chain's merges runs past the test timeout.
 
 ```ts
 //| id: backend-server-test

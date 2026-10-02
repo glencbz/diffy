@@ -283,6 +283,7 @@
 @layer metrics-narrow {
   @media (max-width: 480px) {
     :root {
+      /* Still holds a file's line numbers and gives the rest to the code. */
       --gutter-width: 28px;
     }
   }
@@ -310,10 +311,14 @@
 
 /* ~/~ begin <<docs/architecture/frontend/shell.md#design-app>>[init] */
 @layer components {
+  /* An 8px margin makes a full-height app scroll. */
   body {
     margin: 0;
   }
 
+  /* dvh: on a phone 100vh includes the browser chrome over the page. Every
+     flex ancestor of a scrolling pane also needs min-height: 0, since the
+     default auto refuses to shrink below content. */
   .app {
     display: flex;
     flex-direction: column;
@@ -396,6 +401,7 @@
 }
 
 @layer components-narrow {
+  /* Keeps every tab on a 390px screen; narrower scrolls the strip. */
   @media (max-width: 480px) {
     .tab {
       padding-inline: var(--space-4);
@@ -729,6 +735,7 @@
 /* ~/~ end */
 /* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[1] */
 @layer components-narrow {
+  /* The app's 44px touch target, on every control so the row stays even. */
   @media (max-width: 1000px) {
     .operation-picker__select,
     .newer-operation,
@@ -1049,6 +1056,8 @@
     cursor: pointer;
   }
 
+  /* An <svg> with no height claims 150px; contain: size lets the label alone
+     set the row's height. */
   .commit-graph__gutter {
     flex: none;
     align-self: stretch;
@@ -1437,7 +1446,7 @@
 @layer components-narrow {
   @media (max-width: 1000px) {
     .file-tree__row {
-      min-height: 40px;
+      min-height: 40px; /* a thumb-sized target */
     }
   }
 }
@@ -1517,6 +1526,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* Truncate from the left so the file name survives; a leading LRM in the
+       text keeps the path reading forwards. */
     direction: rtl;
     font-weight: bold;
   }
@@ -1731,6 +1742,9 @@
     background: var(--surface-raised);
   }
 
+  /* Wraps anywhere, but keeps 20ch: narrower, the header controls wrap to
+     their own row instead of stacking the path a syllable a line. Asking for
+     20ch rather than the whole path keeps desktop headers on one row. */
   .diff-file__path {
     flex: 1 1 20ch;
     min-width: min(20ch, 100%);
@@ -1990,6 +2004,8 @@
 /* ~/~ begin <<docs/architecture/frontend/diff.md#design-diff-view>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
+    /* As wide as the text or the pane, whichever is more, so a selected
+       line's background reaches the edge and the patch scrolls sideways. */
     .diff-line {
       width: max-content;
       min-width: 100%;
@@ -2347,6 +2363,10 @@
       border-top: 1px solid var(--border);
       border-bottom: none;
       border-radius: var(--radius-large) var(--radius-large) 0 0;
+      /* Slides rather than display: none, so there is something to animate.
+         visibility leaves the tab order and holds the sheet visible until
+         the slide out ends. 85dvh leaves a strip of the review showing, which
+         says the list is over it, not instead of it. */
       visibility: hidden;
       transform: translateY(100%);
       transition:

@@ -7,20 +7,15 @@ changes what the app shows, and difftastic's JSON output is explicitly
 unstable, so the versions are pinned by a Nix flake rather than left to
 whatever the machine has installed.
 
-The flake splits the tools in two. The runtime set is what the server needs
-on `PATH` to run from source. The development set is what working on diffy
-takes on top of that: `just` to run the recipes, and `uv` for Entangled and
-the docs site. Each set is offered both as a shell and as a package. A machine
-that only uses diffy installs neither; it installs [the `diffy`
+The runtime set is what the server needs to run from source; the development
+set adds `just` and `uv`. Users install neither, only [the `diffy`
 command](#installing-diffy).
 
-The flake lives in `nix/`, not at the root. A flake at the root of a git
-repository is read from git, and a jj workspace under `.claude/worktrees/` has
-no `.git` of its own, so Nix walks up to the main checkout and reads that
-instead. Naming the flake by path avoids git altogether, and a path flake
-copies its whole directory into the store on every evaluation. At the root
-that directory would include `node_modules` and `.venv`, hundreds of
-megabytes. In `nix/` it is just the flake and its lock.
+The flake lives in `nix/`, not at the root. A root flake is read from git,
+and a jj workspace under `.claude/worktrees/` has no `.git`, so Nix would read
+the main checkout instead. A `path:` flake avoids git but copies its whole
+directory into the store on every evaluation, which at the root means
+`node_modules` and `.venv`.
 
 ```nix
 #| id: nix-flake
@@ -86,11 +81,8 @@ To work on diffy, enter the development shell:
 nix --extra-experimental-features 'nix-command flakes' develop path:nix
 ```
 
-The recipes that run diffy's own code, the server and the tests, enter the
-runtime shell themselves. That way a server started by `just serve` finds
-difftastic whether or not the shell that started it is a Nix one. The
-experimental features are named on the command line because they are off by
-default and enabling them is a change to the machine, not to this repository.
+The server and test recipes enter the runtime shell themselves, so a server
+started from a non-Nix shell still finds difftastic.
 
 ```just
 #| id: just-nix
@@ -112,30 +104,14 @@ nix --extra-experimental-features 'nix-command flakes' \
 or straight from GitHub, with `github:glencbz/diffy?dir=nix` in place of the
 `git+file` URL.
 
-This is the one place the flake reads the rest of the repository, and it is
-why the URL goes through git rather than `path:nix`. A `path:nix` flake is
-only the `nix/` directory, so the source it would build is out of reach. A git
-URL with `?dir=nix` copies the whole tracked tree, which leaves out
-`node_modules` and `.venv` because git never tracked them. The shells stay on
-`path:nix`; evaluating them never touches the package, so they still work from
-a jj workspace.
+The package needs the whole source tree, which `path:nix` cannot see, so it
+installs through git; `?dir=nix` copies only tracked files. The shells stay on
+`path:nix` so they work from a jj workspace.
 
-The command is `src/cli.ts` compiled by `bun build --compile` into one
-executable. The frontend is bundled into it at build time, so starting diffy
-does no bundling and the installed closure holds no Bun and no
-`node_modules`. Running the source through a wrapped `bun run` would avoid
-compiling, but every launch would bundle the frontend again and the closure
-would carry Bun and every dependency's sources. The wrapper around the
-executable sets `NODE_ENV=production` and puts the pinned tools first on
-`PATH`.
-
-Nix builds without network access, so the dependencies are installed by a
-fixed-output derivation, the one kind allowed to fetch because its result is
-checked against a hash. The hash covers `node_modules` as `bun install`
-lays it out from `bun.lock`. Any change to `bun.lock` changes it: the build
-then fails and prints the hash it got, which goes into `outputHash`. Only the
-runtime dependencies are installed; the development ones are type
-definitions and tools the compiled executable never loads.
+The command is `src/cli.ts` compiled by `bun build --compile` with the
+frontend bundled in. A wrapped `bun run` would skip compiling, but would
+re-bundle the frontend on every launch and carry Bun and every dependency's
+sources in the closure.
 
 ```nix
 #| id: nix-diffy-package
@@ -167,6 +143,8 @@ diffy =
       dontFixup = true;
       outputHashMode = "recursive";
       outputHashAlgo = "sha256";
+      # Fixed-output, so it may fetch. A bun.lock change fails the build with
+      # the new hash, which goes here.
       outputHash = "sha256-DhZ6xo336k5VWKj4IUf/hDi5TsfAntVISnK+UDZG6kM=";
     };
   in

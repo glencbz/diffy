@@ -1,21 +1,9 @@
 # jj commit backend
 
-We'll use jj as our primary commit backend. This shells out to the
-[`jj`](https://jj-vcs.dev/) CLI rather than linking to the library. Per the
-[tech plan](../../tech-plan.md) that's the more stable surface.
-
-## Functionality
-
-### Running the CLI
-
-Every jj invocation goes through one helper, so the shell call and its error
-contract live in a single place. Bun's `$` throws a `ShellError` when the
-process exits non-zero. The only external input we ever hand jj is a revset,
-so a non-zero exit almost always means the caller passed a bad one, and we
-surface that as a typed `JjError` carrying jj's own stderr message (minus the
-"Done importing changes" progress line jj also writes to stderr). Anything
-that is not a `ShellError`, such as jj missing from `PATH`, is a genuine fault
-and propagates untouched for the caller to turn into a 500.
+Shells out to the [`jj`](https://jj-vcs.dev/) CLI. The only input diffy hands
+jj is a revset, so a non-zero exit becomes a `JjError` carrying jj's message,
+which routes answer as a 400; anything else, such as jj missing from `PATH`,
+propagates as a 500.
 
 ```ts
 //| id: jj-module
@@ -59,51 +47,20 @@ async function runJj(args: string[]): Promise<string> {
 
 ### Reading commit history
 
-`jj log` supports a `-T`/`--template` expression language. The builtin
-`json(self)` function serializes a commit to JSON (stable field names:
-`commit_id`, `change_id`, `description`, `parents`, `author`, `committer`),
-so instead of hand-building a delimited/escaped template we emit one JSON
-object per line (JSONL) and let `JSON.parse` do the work. We keep
-`parents` (the list of parent commit IDs) so the frontend can draw the
-commit graph and mark merges.
-
-A commit carries more than `json(self)` reaches. The names pointing at a
-commit and the standings jj reports about it are keywords of the template
-language rather than fields of the commit, so the template wraps `json(self)`
-in an object of its own and adds one `json(...)` per keyword. jj still does
-every serialization, so no string is escaped by hand.
+`jj log -T` with `json(self)` gives one JSON object per line, so nothing is
+escaped by hand. Refs and markers are template keywords rather than commit
+fields, so the template wraps `json(self)` and adds a `json(...)` per keyword:
 
 ```sh
 jj log --no-graph -T '"{\"commit\":" ++ json(self) ++ ",\"bookmarks\":" ++ json(bookmarks) ++ "}\n"'
 ```
 
-`bookmarks` and `tags` are the keywords `jj log`'s own default template reads,
-so a tracked remote ref appears only where it has drifted from its local one
-and the log names a commit the way a terminal would. A remote ref serializes
-with a `remote` field alongside its `name`, and `name@remote` is how jj writes
-that pair. `working_copies` serializes a whole commit per workspace, which is
-the commit the row already is, so the template maps it down to the workspace
-name before jj gets to it.
-
-`--no-graph` drops the ASCII-art graph column so each line of stdout is
-exactly one commit's output.
-
-`atOperation` maps to `jj log --at-operation <id>`, which rebuilds the repo
-view as it stood just after that operation. It is how the UI shows a
-historical version of the log (see [reading past operations](#reading-past-operations)).
-
-A marker is a boolean keyword. `COMMIT_MARKERS` is the ordered list of them
-and `MARKER_KEYWORDS` says which keyword each one reads, so the template's
-field set, the wire schema's field set and the entry's type all come from the
-same pair and a sixth marker is two lines rather than another branch in the
-parser and another optional field on the entry.
-
-`current_working_copy` is a marker here though `jj log` spends its glyph
-column on it. It is a standing a commit either has or does not, which is what
-the other four are, and the alternative is one boolean threaded to one render
-site for the sake of the placement. `working_copies` is a different question
-and stays a list of names: it answers which workspaces sit here, and jj leaves
-it empty until a repository has more than one.
+`bookmarks` and `tags` are the keywords `jj log`'s default template reads, so
+a tracked remote ref shows only where it has drifted from its local one. Adding
+a marker means adding it to `COMMIT_MARKERS` and `MARKER_KEYWORDS`; the
+template, schema, and type follow. `current_working_copy` is a marker like the
+others rather than a separate boolean, while `working_copies` stays a list of
+workspace names.
 
 ```ts
 //| id: jj-module
@@ -246,13 +203,6 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 
 ### Looking commits up by id
 
-Picking a commit out of the graph gives us its commit id; captioning it later
-needs the rest of its metadata back. `jjCommits` resolves a batch of ids in
-one `jj log` call by joining them into a `|` revset. It keys the result by
-commit id rather than returning a list, because jj answers a revset in
-topological order, not in the order it was asked. An id jj can't resolve
-fails the whole call, which is the right answer for a caller that made one up.
-
 ```ts
 //| id: jj-module
 
@@ -262,6 +212,8 @@ export async function jjCommits(
 ): Promise<Map<string, JjLogEntry>> {
   if (commitIds.length === 0) return new Map();
 
+  // Keyed, because jj answers a revset in topological order, not the order
+  // asked. An unknown id fails the whole call.
   const entries = await jjLog({ revset: commitIds.join("|") });
   return new Map(entries.map((entry) => [entry.commitId, entry]));
 }
@@ -269,14 +221,9 @@ export async function jjCommits(
 
 ### Reading past operations
 
-jj records every repo mutation as an *operation*. `jj op log` lists them,
-newest first, and any operation's id can be fed back to `--at-operation` to
-view the repo as it was right after that step. `jjOpLog` is the picker's data
-source: the same `json(self)` JSONL trick as `jjLog`, reading an `Operation`
-rather than a `Commit`, so the keywords differ (`id`, `time`, `description`,
-and `attributes.args`, the command line that caused it). The one operation
-without a command line is the repo's first, `initialize repo`, so `args` is
-optional and reported as `""` there.
+`jjOpLog` feeds the operation picker; any operation id can go back to
+`--at-operation` to view the repo just after it. The repo's first operation
+has no command line, so `args` is `""` there.
 
 ```sh
 jj op log --no-graph -T 'json(self) ++ "\n"'
@@ -333,13 +280,10 @@ export async function jjOpLog(
 
 ### Finding the repository
 
-A workspace is a working copy with a `.jj/` of its own, and every workspace
-of one repository shares that repository's store. `jj workspace root` names
-the workspace the server was started in. Its `.jj/repo` is the store itself in
-the workspace that made the repository, and in any other workspace a file
-holding the path to that store, relative to the `.jj/` it sits in.
-`jjRepoDir` follows the file when there is one and resolves the result to a
-real path, so every workspace of one repository names the same directory.
+Every workspace of a repository shares one store. In the workspace that made
+the repository `.jj/repo` is the store; in any other it is a file holding a
+relative path to it. `jjRepoDir` follows that and resolves a real path, so
+every workspace names the same directory.
 
 ```ts
 //| id: jj-module
@@ -359,21 +303,9 @@ export async function jjRepoDir(): Promise<string> {
 
 ### Reading a commit's diff
 
-`jj diff --git -r <revision>` prints a standard `git`-format unified diff of a
-revision against its parent. That is the "show a commit's diff" operation the
-[tech plan](../../tech-plan.md) calls for, and `--color=never` keeps the output
-free of ANSI escapes.
-
-We don't parse hunks: the raw `--git` patch is the payload a review UI renders.
-We only split the combined output into one entry per file and read the
-metadata the UI needs off each file's header, namely the change kind and the
-affected path(s). Every jj command that prints a `git`-format diff gets the
-same treatment, so the run-and-parse step is `diffFiles`, taking the argument
-list that decides which diff we are looking at.
-
-`atOperation` carries through to `--at-operation` here too, so a diff opened
-from a historical log resolves its revision in that same past view rather
-than failing when the change no longer exists.
+`jj diff --git` is the payload the UI renders. Hunks are not parsed here; the
+output is split per file and each header gives the change kind, paths, and
+blob ids. `diffFiles` does this for every jj command that prints a diff.
 
 ```ts
 //| id: jj-module
@@ -440,21 +372,12 @@ async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
 }
 ```
 
-The structural half is the same jj command run a second time with
-[difftastic](difft.md) as its diff tool. jj writes both sides of every
-changed file into two directories and runs [`diffy
-difft`](cli.md#difftastic-as-jjs-diff-tool) on them, which is the
-only way to diff an interdiff's before side, a tree no id names once jj has
-exited. The tool is configured on the command line rather than in the
-user's jj config, so what diffy shows never depends on how the reader set up
-their own `jj diff`.
-
-A structural diff is something the reader may be shown, never something the
-patch waits on. If the tool's answer cannot be read, every file says why and
-keeps its patch. A file the tool has nothing for says why as well. That is a
-binary, a file on only one side, a rename, whose two halves sit under
-different paths, and the `JJ-COMMIT-DESCRIPTION` an interdiff adds, which jj
-does not hand to external tools.
+The structural half reruns the same jj command with [`diffy
+difft`](cli.md#difftastic-as-jjs-diff-tool) as its diff tool, the only way to
+read an interdiff's before side, a tree no id names once jj exits. The tool is
+configured on the command line so the reader's own jj config cannot change
+what diffy shows. A structural diff never holds back the patch: a file without
+one says why and keeps its patch.
 
 ```ts
 //| id: jj-module
@@ -506,20 +429,6 @@ function structuralFor(
 }
 ```
 
-`jj --git` names each side's path on its own line: `--- a/PATH` / `+++ b/PATH`
-for text edits, `rename from` / `rename to` (or `copy ...`) for moves, and
-`Binary files ... differ` for binaries. We read whichever of those is present
-and only fall back to the `diff --git a/PATH b/PATH` header for the one case
-that has none, a mode-only change. `/dev/null` on a side means that side
-doesn't exist. A patch we can't pull a path from is a parser bug, not a jj
-failure, so it throws a plain `Error` (a 500) rather than guessing.
-
-The `index <old>..<new>` line names the blob each side's contents are stored
-under, which is all a reader needs to fetch the [whole file](git.md#reading-a-files-contents)
-a hunk was cut from. An id of all zeros stands for the side that does not
-exist. A pure rename or a mode change has no `index` line and no contents
-worth fetching, so both blobs stay null.
-
 ```ts
 //| id: jj-module
 
@@ -540,7 +449,9 @@ function blobOf(id: string | undefined): string | null {
   return id === undefined || /^0+$/.test(id) ? null : id;
 }
 
-/** Exported for unit tests: turn one file's `git`-format patch into metadata. */
+/** Exported for unit tests: turn one file's `git`-format patch into metadata.
+ *  Paths come from `---`/`+++`, `rename`/`copy`, or `Binary files` lines; a
+ *  patch with no path is a parser bug and throws. */
 export function parseFileDiff(patch: string): JjPatchFile {
   const lines = patch.split("\n");
   const header = lines[0]?.match(DIFF_GIT_HEADER);
@@ -604,13 +515,9 @@ export function parseFileDiff(patch: string): JjPatchFile {
 
 #### Test
 
-`jjLog` and `jjOpLog` have a hard dependency on `jj`, so the tests exercise the
-real CLI rather than mocking it. What matters is that the invocation is
-right.
-
-It asserts on structural invariants that hold regardless of this repo's
-specific commit history: the root commit always exists, always sorts last in
-`all()`, and always has the well-known all-zero commit ID / all-`z` change ID.
+The tests run the real CLI and assert on what holds in any history: the root
+commit exists, sorts last in `all()`, and has the all-zero commit id and
+all-`z` change id.
 
 ```ts
 //| id: jj-module-test
@@ -751,10 +658,7 @@ describe("jjRepoDir", () => {
 });
 ```
 
-The `jjDiff` parser is a pure function, so most of its cases are covered
-without touching a repo, using the trimmed real `jj diff --git` output in the
-fixtures below. Only the integration-level behaviour (reading a real commit,
-error wrapping) drives the real CLI.
+`parseFileDiff` runs on trimmed real `jj diff --git` output.
 
 ```ts
 //| id: jj-module-test
@@ -940,25 +844,13 @@ describe("jjDiff", () => {
 
 ### Comparing two commits
 
-The [tech plan](../../tech-plan.md)'s v1 feature is the interdiff: not what a
-commit changes, but how one commit's change differs from another's.
-`jj interdiff --from A --to B` answers that directly. It rebases A onto B's
-parents before comparing, so a change that was only rebased reads as no
-difference at all. That is the point of using it over `jj diff --from A --to B`,
-which would also report everything that moved underneath the two commits.
-
-The two sides need not be visible in the same view of the repo. A commit that
-has since been amended away still sits in the store, and jj resolves it from a
-full commit id even though no current view lists it. So the two ends of a
-comparison can be picked out of two different operations and still meet in a
-single `jj interdiff` call, with no `--at-operation` involved. Commit ids are
-what buy that. A change id names whichever version of a commit the current view
-holds, which is exactly what a before-and-after comparison must not do.
-
-`jj interdiff` also emits a synthetic `JJ-COMMIT-DESCRIPTION` file whenever the
-two descriptions differ. It reaches the UI as an ordinary file diff, which is
-where we want it. How a commit message was reworded is part of how the change
-evolved, and it is the first thing a reviewer of a re-pushed branch looks for.
+`jj interdiff --from A --to B` rebases A onto B's parents before comparing,
+so a commit that was only rebased reads as no change, unlike `jj diff --from
+--to`. The two ends are full commit ids, which jj resolves even when no current
+view lists them, so they can come from two different operations with no
+`--at-operation`. A change id would name whichever version the current view
+holds. The synthetic `JJ-COMMIT-DESCRIPTION` file it emits for a reworded
+message is passed through as an ordinary file.
 
 ```ts
 //| id: jj-module
@@ -977,19 +869,10 @@ export function jjInterdiff(
 }
 ```
 
-`jjDiffBetween` is the other comparison, and the two are easy to mix up because
-they take the same pair of revisions. This one compares trees. It answers
-everything that differs between the two revisions, every commit that landed
-between them included. `jjInterdiff` compares changes. It answers what the
-second commit does that the first does not, with whatever both of them sit on
-top of subtracted away.
-
-Which one a caller wants follows from what the two revisions are to each other.
-Two versions of one branch call for the interdiff, because the later version is
-usually the earlier one rebased and the tree diff between them is mostly that
-rebase. A branch against the commit it was cut from calls for the tree diff,
-because there the tree difference is the work the branch adds and there is no
-earlier version of it to subtract.
+`jjDiffBetween` compares trees: everything between the two revisions,
+including commits that landed in between. Two versions of one branch want the
+interdiff, since the tree diff is mostly the rebase; a branch against the
+commit it was cut from wants the tree diff.
 
 ```ts
 //| id: jj-module
@@ -1011,18 +894,8 @@ export function jjDiffBetween(
 
 #### Test
 
-An interdiff needs two real commits, so these drive the CLI. The pair in the
-first test is `root()+` and its child: two adjacent commits that every clone of
-this repo has, and whose changes have nothing in common, so the interdiff
-between them is never empty.
-
-The cross-operation test is the one that matters. It takes a commit id out of
-the repo's oldest operation and compares it against a commit in the current
-view, passing no operation to `jjInterdiff` at all. In a repo whose history has
-been rewritten, that old id names a commit no current view lists, which is
-exactly the case the feature exists for. It passes either way, because
-resolving a commit by full id does not depend on the commit still being
-visible.
+The cross-operation test compares a commit id from the repo's oldest
+operation against the current view, passing no operation.
 
 ```ts
 //| id: jj-module-test
@@ -1104,11 +977,8 @@ describe("jjInterdiff", () => {
 });
 ```
 
-A tree diff from a commit to its child is that child's own diff, which is what
-the first case below asserts, and it is the cheapest way to say what "tree
-diff" means without a fixture. The second case runs both comparisons over the
-same pair, because the whole risk with these two functions is a caller reaching
-for the wrong one and getting a plausible answer.
+The second case runs both comparisons over one pair, since the risk is a
+caller reaching for the wrong one and getting a plausible answer.
 
 ```ts
 //| id: jj-module-test

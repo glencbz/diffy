@@ -1,9 +1,7 @@
 # Direction
 
-Where diffy is going after the review features in the
-[tech plan](tech-plan.md), and why. The first two stages are designed below.
-The third is still a sketch, and gets a design of its own before any code
-is written for it.
+Where diffy is going after the [tech plan](tech-plan.md), and why. The
+agent loop at the end is still a sketch.
 
 The end state is a review loop between a person and a coding agent. The agent
 presents its work to the reader as a series of jj changes, the reader reviews
@@ -44,12 +42,6 @@ to act, which answers "what is waiting on me" per person instead of per
 change. Reviewable lets each comment say whether it blocks, is being
 discussed, or is only for information, which turns "is this resolved" into
 "was my concern addressed".
-
-diffy today serves the returning reviewer and the self-reviewer, but each
-screen holds half of the loop. The local history screen keeps comments,
-marks, and viewed files, and has no memory of where the reader last stopped.
-The pull request screen opens on what changed since the head last reviewed,
-and keeps no comments or marks. Nothing a reader writes leaves the browser.
 
 ## Local review does what pull request review does
 
@@ -145,135 +137,11 @@ A local review has an address shaped like a pull request's, the review's
 name where the number is, with the same `from`, `to`, commit, file, and line
 after it.
 
-### A row's identity follows the pairing
+## The review document is on the server
 
-Marks, comments, and viewed files are filed under a row's review key, and the
-key has to survive a rewrite for any of them to carry over. A local commit
-has a jj change id and keeps using `change:<id>`. A pull request commit has
-only the subject-line guess the pairing starts from, and a key built from
-that guess would disagree with the pairing as soon as the reader corrected
-it.
-
-So on the pull request screen a row takes the key of the commit its pairing
-puts on the before side, and a row with nothing before it, or a before
-commit that was never reviewed, takes `rev:<commit id>` of its after side.
-The review document records which key each reviewed commit was given, so
-the next version can inherit it. A reader who pairs a commit by hand moves
-its marks and comments with it.
-
-### The pairing is kept
-
-A correction to the pairing is kept under the series and the two heads it
-pairs, and read back when the reader opens the same two heads again. A
-correction made against other heads describes commits that are not on
-screen, so it is not applied anywhere else.
-
-## The review document moves to the server
-
-Comments, marks, and viewed files live in the browser's `localStorage`, which
-[review](architecture/frontend/review.md#storage) chose because a
-synchronous read needs no loading state and a synchronous write needs no
-optimistic update. An agent cannot read a browser's storage, and neither can
-a second browser, so the review document moves to the server, and the loading
-and failure states that choice avoided come back.
-
-### A SQLite file per repository, outside it
-
-The review document is a SQLite file in diffy's data directory,
-`$XDG_DATA_HOME/diffy/`, one per repository, read and written by the server
-with `bun:sqlite`.
-
-It stays out of the repository's own directories for the reason it left
-`.jj/`: those directories belong to jj and git. A file in the working copy
-would be snapshotted into whatever change is checked out. The repository's
-history, under a ref of diffy's own the way git-notes works, would let
-review travel with the code, and it loses for now on two counts. jj cannot
-see refs outside the ones it manages, and concurrent writers to a ref need a
-merge of their own. Sharing review between people is what
-[publishing to GitHub](tech-plan.md#publishing-to-github) is for.
-
-A repository is named by the real path of its `.jj/repo` directory, which
-every workspace of one repository points at. Review state is then shared by
-all of a repository's workspaces, and one review screen per workspace reads
-the same marks.
-
-Pull request review lives in the same file as the local repository's,
-since the pull request screen reads the GitHub repository the local one
-pushes to.
-
-Settings stay in the browser. Text size and diff layout belong to a screen,
-and a phone and a desktop reading the same repository want different ones.
-
-### Commands, not documents
-
-The browser does not send the document back. It sends one command per
-change a reader makes, and the server applies it. Two writers, a browser and
-an agent or two tabs, then cannot overwrite each other the way two copies of
-a whole document would.
-
-Each command says what the state should become rather than which way to
-flip it: mark this comparison seen or unseen, mark this file viewed or not,
-add this comment under an id the caller chose, resolve it, delete it. A
-command sent twice leaves the same state as a command sent once, so a
-client can retry after a failure without asking whether the first attempt
-landed. The model's `flipSeen` and `flipViewed` become setters for the same
-reason.
-
-The model stays one set of pure functions the server and the browser both
-import. The server applies a command with them and stores the result. The
-browser applies the same command to what it holds so the screen changes at
-once, and replaces it with the server's answer when that arrives, or puts
-the old state back and says so when the write fails.
-
-### Loading and failure
-
-The review document loads once per screen, beside the comparison. Until it
-arrives the diff draws without review state, since the diff is what the
-reader came for and is usable without it. When the review document cannot
-be read, the diff draws the same way under a strip saying review state is
-unavailable, with nothing on the screen offering to write it.
-
-### Other writers
-
-The server tells every open screen when the review document changes, over a
-WebSocket, which `Bun.serve` supports without a dependency, and each screen
-reads the document again. A comment an agent writes reaches the reader's
-open screen without a reload.
-
-### Authorship
-
-Every comment records who wrote it from the start. Once anything other than
-the browser can write, a comment without an author cannot be told apart, and
-adding the field to a table later would leave every earlier comment
-unattributed. A comment written in the browser is the reader's. Replies and
-dispositions wait for the agent loop, which is the first thing that needs
-them.
-
-### Moving what the browser holds
-
-Whenever a screen finds the browser's `diffy.session.v1` and
-`diffy.last-reviewed.v1:` keys holding anything, it sends them to the server
-as one import, which adds what the server lacks and keeps what it has, and
-clears them once the server has them. Nobody loses the review state already
-written, including a second browser's.
-
-## Order of work
-
-Stage one adds state that has to be kept: registered local reviews and the
-versions marked reviewed on them, marks and comments on pull request rows,
-and pairing corrections.
-Writing each of those to `localStorage` and then moving it would build every
-one of them twice, so the store moves first.
-
-1. The review document on the server, the command API, the import, and
-   `useReview` reading through it.
-2. Change notifications over the WebSocket.
-3. Marks, comments, and viewed files on the pull request stack, with review
-   keys that follow the pairing.
-4. Pairing corrections kept.
-5. Registering a local review, the list of registered reviews, and the
-   series review generalised over a source, with versions marked reviewed
-   and a local review's address.
+An agent cannot read a browser's storage, so review state lives in the
+[review store](architecture/backend/review-store.md). Settings stay in the
+browser, since a phone and a desktop want different ones.
 
 ## Reviewing with an agent
 
@@ -310,3 +178,6 @@ reader run several agents at once and see which of them needs them.
   series landed.
 - How comments written in diffy reach a GitHub pull request, and whether the
   two kinds of comment are one kind.
+- Whether review should travel with the code under a ref of diffy's own, the
+  way git-notes does. jj cannot see such refs today, and concurrent writers to
+  a ref need a merge of their own.

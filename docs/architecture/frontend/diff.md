@@ -1,24 +1,15 @@
 # Diff
 
-What the panel shows once both sides have a selection, whether that is one
-commit's diff or a whole series lined up as an interdiff.
+What the panel shows: one commit's diff, or a whole series lined up as an
+interdiff.
 
 ## Choosing what to compare
 
-`useComparison` owns the diff panel's contents. A `Comparison` is the question,
-a pair of commit selections out of the local repo. A pull request is read
-commit by commit on [its own screen](pull-requests.md#row-comparisons), which
-asks the backend one row at a time and never comes through here.
-
-An empty `from` array is the "nothing picked yet" state, which the backend
-already answers by showing the after side's own diff. The hook reloads
-whenever the question changes and drops a response that lands after it has
-changed again. While a new question loads, a diff already on screen stays
-there until the answer replaces it, so adding a commit to a side never blanks
-the panel; "loading" only shows when there is no diff yet. Both selections empty is the one question with no answer, so
-the hook reports `null` without a request. A comparison is a fresh object
-every render, so the effect depends on its JSON the same way `useCommits`
-depends on a source's.
+`useComparison` asks for local comparisons only; a pull request asks row by
+row on [its own screen](pull-requests.md#row-comparisons). Both sides empty
+answers `null` with no request. While a new question loads, the diff already
+on screen stays, so adding a commit never blanks the panel. Like
+`useCommits`, the effect depends on the question's JSON.
 
 ```tsx
 //| id: frontend-state-comparison
@@ -69,35 +60,14 @@ export function useComparison(
 ```
 ## Diff pane controller
 
-A comparison of local commits comes back as one row per lined-up pair, and
-each row carries its own header saying which commit faced which.
-
-It also loads [both sides of every file](syntax.md#loading-each-side) in the
-comparison once it lands, for the diff to colour. That hook sits above the
-early returns with an empty list to begin with, because hooks run on every
-render or on none.
-
-Takes a `review` prop rather than reading the review context itself, since
-the [screen](local-history.md#the-screen) that mounts it already holds the
-handle for its review strip. The
-existing null/loading/error branches on the comparison fetch are untouched,
-because a synchronous local store adds nothing to them. `reviewRows` runs
-below those early returns as a plain function call, since it derives from
-props already in hand rather than fetching.
-
-A comparison with nothing on the before side is a plain diff: every row is
-one commit's own change, and there was never a before side for a row to be
-missing from. `DiffPane` says so to the rows, which tell their headers. The
-answer cannot be read off a row on its own, since in an interdiff a row
-with no before commit is the news that the commit is new.
-
-Once there is more than one file across every row, `DiffPane` also renders
-a [`FileNavigator`](file-tree.md#stepping-through-files) above the rows,
-built from the same `changedFilesOf` a `DiffView` uses and scoped by the
-same `rowKey`, so the file the navigator names is always the file its
-click lands on. Once there is more than one row to tell apart, each group
-also gets a heading: the commit's short change id, its subject line, and
-the anchor of the row's own section. With one row, nothing needs naming.
+`DiffPane` loads [both sides of every file](syntax.md#loading-each-side)
+(above its early returns, since hooks run on every render) and takes `review`
+as a prop, since its [screen](local-history.md#the-screen) already holds it.
+An empty before side means a plain diff, which `DiffPane` tells the rows:
+a single row with no before commit cannot tell "plain diff" from "new in
+this series". With more than one file it renders a
+[`FileNavigator`](file-tree.md#stepping-through-files), scoped by the same
+`rowKey` as the rows' anchors, with a heading per row once there are several.
 
 ```tsx
 //| id: frontend-controller-diff-pane
@@ -172,136 +142,52 @@ function rowHeading(row: ReviewedRow): FileNavigatorHeading {
 
 ## Diff view
 
-Renders each file's `git`-format patch, in colour. `+` lines sit on green and
-`-` lines on red, `@@` hunk headers are blue, and notes grey. The code
-on each line is coloured by its language, taken from whichever side of the
-file the line belongs to through the `sources` lookup a
-[controller loads](syntax.md#loading-each-side). A binary file gets a
-placeholder in place of a patch body. The caller always
-hands it a real `files` array. The controller deals with anything that is not
-a rendered diff.
+`DiffView` draws each file from hunks, never raw patch text:
+[`readPatch`](#reading-a-patch) gives every line its kind and numbers, and the
+`diff --git`/`index`/`---`/`+++` lines are not drawn, since the file header
+already names the path. Each line's syntax colours come from its side's
+`sources` entry (a removed line by its old number, others by the new), and
+only when that line reads the same as the patch's; otherwise it is one plain
+token. A patch is always right about its own text.
 
-The patch is not drawn as text. [`readPatch`](#reading-a-patch) reads it into
-a header and hunks first, and every drawn line comes from a hunk line that
-already knows its kind and its line numbers. The header's `diff --git`,
-`index`, `---`, and `+++` lines name the path the file's own header already
-shows, so they are not drawn, and a file starts at its first hunk in both
-views. A removed line is looked up on the
-before side by its old number, and every other line on the after side by its
-new one. The lookup is checked against the patch: when the highlighted line
-does not read the same as the patch's, or its side has not loaded, the line is
-drawn as one plain token. A patch is always right about its own text, so a
-side that disagrees with it loses its colours rather than changing what the
-reader sees. `sources` is optional for the same reason, and a diff without it
-reads exactly as it would have with every side still loading.
+Around each hunk a row stands for the [hidden lines](#hidden-lines) once the
+after side's length is known; clicking draws them as numbered, commentable
+context, and a hunk header with no jump left goes away. The gutter shows
+after-side numbers, blank for a removed line, a hunk header, or git's
+no-newline note.
 
-Around each hunk, a row stands in for the unchanged lines the patch
-[left out](#hidden-lines), once the after side has loaded and says how long
-the file is. Clicking it draws those lines from the after side as context,
-numbered and commentable like any other. A hunk header only says where the
-next hunk jumps to, so once the lines above it are drawn there is no jump and
-the header goes. Which gaps are shown is `useState` in the file's own row,
-since nothing outside that file cares.
+Every line is commentable, pinned to a `LineAnchor`: a removed line by its
+before-side number, every other by its after-side one. Threads render under
+the file's `<pre>` rather than in the gutter, which would reflow on every
+keystroke. A file comment draws under the header, and a thread on a commit
+neither side now holds says it is stale.
 
-A left gutter adds the after-side line number to each context and added line,
-the line as it reads in the version being approved, not an offset into the
-raw patch text. A `-` line has no after-side line, so its gutter is blank.
-Hunk headers and git's `\ No newline at end of file` note are
-not lines of the file on either side, so they show a blank gutter and are not
-clickable.
+A file is drawn structurally ([difftastic](../backend/difft.md)) or as the
+`git` patch, both delivered with every file, with a per-file switch whose
+starting value is the [Settings default](settings.md#display). Both views
+are the same drawing over different hunks with the same numbering, so a
+comment names the same line in either; only where changed ranges come from
+differs. A file difftastic has nothing for draws its patch, and the switch
+says why. Gaps opened in one view are kept apart from the other's.
 
-Every line of the file is commentable. A comment is pinned to a `LineAnchor`,
-a side and a line number on it: a removed line to its number on the before
-side, every other line to its number on the after side. Clicking a line opens
-a composer for it, a plain `<form>` with one `useState<Anchor | null>` for
-which [anchor](review.md#review-state)'s composer is open, closed again on
-submit or cancel. The same state holds the composer the `comment` button in an
-open file's header opens, and a comment on the whole file is drawn under that
-header rather than under the patch, since it is about everything below it
-rather than about the last line. The composer and the thread both name a
-before-side line as `12, before`, so it is not read as line 12 of the after
-side. Comment threads render under the file's `<pre>` rather
-than in the gutter. A gutter-anchored thread would have to reflow around
-variable-height content on every keystroke, and the patch is already read top
-to bottom, so a comment reads as the next thing under the line it is about. A
-thread whose `commitId` matches neither side of the row says it is stale in
-place, because the line number next to it may no longer be the line the
-comment was written about.
+The path in a header folds the file; where it is a link, the chevron and
+status are the fold button. A [noisy file](#collapsed-files) or one already
+marked `Viewed` starts folded, except that a comment (for noise) or the
+address (for either) opens it. All review behaviour hangs off one optional
+`DiffReview`, so a read-only diff offers no comment or `Viewed` control that
+would record nothing.
 
-A file is drawn one of two ways. The structural view draws the hunks
-[difftastic](../backend/difft.md) read out of the change, which ignore a
-reformat and mark the tokens that changed rather than the words. The line
-view draws the `git` patch. Both arrive with every file, so switching costs
-no request. Each file has its own switch in its header. Until the reader
-uses it, a file starts in the [default from Settings](settings.md#display),
-which the diff's controller reads from
-[`SettingsContext`](settings.md#sharing-the-settings) and passes down. The
-switch is `useState` in the file's row, like its
-hidden lines, so it lasts as long as the file is on screen.
+With more than one file, a [summary tree](file-tree.md) sits above the
+files, and each `<section>` carries an id scoped by row, so a path appearing
+in two rows gets two anchors.
 
-The two views are the same drawing over different hunks. Difftastic's hunks
-come in the shape a patch reads into, numbered the same way, so the gutter,
-the composer, and hidden lines treat them exactly as they treat a patch's.
-The only difference is where the changed ranges come from: difftastic names
-them, and a patch's are [worked out here](#changed-words). A file difftastic
-has nothing for, such as an added file or one too large to parse, is drawn
-from its patch, and its switch says why the structural view is off.
-
-Comments do not depend on the view. A comment is pinned to a line of one
-side, and both views number each side's lines the same way, so a
-comment left in one view names the same line in the other, and its thread
-sits under the file in both. A line difftastic calls unchanged, such as one
-a reformat moved, is context in the structural view, still numbered and
-still commentable. Which lines are shown differs between the two views,
-so gaps opened in one view are kept apart from gaps opened in the other.
-
-The path in a file's header is a button that folds the file down to that
-header, and opens it again. In a diff that links its files the path is a
-link instead, and a link cannot sit inside a button, so the chevron and the
-status in front of it are the button. A file that is mostly noise to a
-reviewer [starts folded](#collapsed-files), with the reason next to its path,
-unless a comment is already on it or the address names it, because a folded
-file would hide the thread or the line a link was sent for.
-Whether a file is open is `useState` in its row, like its view.
-
-A diff with review memory ends each file's header with a `Viewed` checkbox.
-Ticking it records a [viewed mark](review.md#review-state) and folds
-the file, and unticking it opens the file again. A file already viewed when
-the diff draws starts folded, comments or not, because the reader has said
-they are done with it. Only the address still opens it, since a link names a
-file to be read.
-
-All of that hangs off one optional `DiffReview` rather than separate optional
-props, which could not be supplied half-filled. A diff either carries review
-memory or it does not, and a diff without it offers no commentable line and no
-`Viewed` checkbox, so a read-only diff cannot advertise an affordance that
-records nothing.
-
-A diff of more than one file gets a [summary](file-tree.md) above its files:
-a folded tree standing in for the files themselves, so a reader can see the
-shape of the change before reading any of it. Every file's `<section>` also
-carries an id, so the summary, and later a [navigator](file-tree.md) beside
-it, can jump straight to a file rather than only describing where it is.
-The id is scoped by the caller, one comparison row's key or one pull
-request stack row's commit id, because the same path can appear once per
-row and each occurrence needs a section of its own to jump to.
-
-A diff whose place is kept in [the address](address.md) is handed
-`DiffLinks`. A file's path in its header, and the gutter number of each of its
-after-side lines, become links to that file and that line, and the file or
-line the address names is marked with a bar down its left edge. A file is
-named by its path in the version being read, the new one for a rename, since
-that is the file a reader opening the link will find. The links are real
-`<a href>`s, so one can be copied, or opened in a new tab, like any other, and
-only a plain click is followed in place. Only the gutter is a link, not the
-whole line, so selecting the text of a line still selects text. A line that
-opens a composer when clicked is already a `<button>`, and a link cannot sit
-inside one, so a diff with review memory draws no line links. No screen hands
-a diff both today.
-
-The marked file or line is scrolled to the middle of the pane when the diff
-mounts and whenever `reveal` changes. It is not scrolled to when a click marks
-it, since the reader is looking at what they clicked.
+`DiffLinks` turn the header path and after-side gutter numbers into real
+`<a href>`s to [the address](address.md), naming a renamed file by its new
+path, and mark the addressed file or line with a bar. Only the gutter links,
+so selecting a line's text still works. A commentable line is a `<button>`
+and cannot contain a link, so a diff with review memory draws no line links;
+no screen needs both. The marked target scrolls to the middle on mount and on
+`reveal`, not when a click marked it.
 
 ```tsx
 //| id: frontend-view-diff
@@ -1206,57 +1092,20 @@ function tokensAt(
 }
 ```
 
-A patch line's kind is one of the fixed set a unified diff always has, so
-each drawn line carries it as a modifier class instead of a lookup table of
-colours. Hunk headers and notes are coloured text. An added or removed
-line is tinted behind its text and only its sign takes the line's colour,
-because the text is [coloured by its syntax](syntax.md#colours) and green or
-red text would drown that out. [Changed words](#changed-words) take a stronger
-tint of the same colour.
+Added and removed lines are tinted behind the text and only the sign takes
+the colour, since the text carries [syntax colours](syntax.md#colours);
+[changed words](#changed-words) take a stronger tint.
 
-Either view can be laid out [side by side](#side-by-side), once the
-reader [picks it](settings.md#display). Each column
-has its own gutter, numbered by its own side. A line opens the composer only
-in the column of the side its comment is anchored to: a removed line in the
-before column, every other line in the after column. A context line is drawn
-in both columns, and commenting from either would pin the comment to the
-same after-side line, so only one of the two is a button. Links go to
-after-side lines, so only the after column carries them.
+In the [side-by-side](#side-by-side) layout each column has its own gutter.
+Only the column of the side a comment would be anchored to opens the
+composer, so a context line has one button, not two, and only the after
+column carries links. A structural context line with no before side sits in
+the after column beside an empty cell. The layout is obeyed at every width,
+and columns wrap rather than scroll so both sides of an edit stay level.
 
-The structural view is laid out the same way. Difftastic's hunks read as
-the after side with removed lines let in, so they split like a patch does.
-A line it calls unchanged but that has no before-side line, such as one a
-reformat moved, is drawn in the after column only, beside an empty cell,
-rather than as if it were on both sides.
-
-The layout holds at every width. A reader who picks two columns on a phone
-gets two narrow columns that wrap, not a quiet fallback to one that looks
-as if the setting did nothing.
-
-Each column wraps its long lines rather than scrolling sideways, as the one
-column does. A row is as tall as the taller of its two lines, so both sides
-of an edit stay level, which two columns scrolling on their own could not
-promise.
-
-A file's header sticks to the top of the scrolling pane while its file is
-on screen, and the next file's header pushes it off. A long file otherwise
-scrolls away the only place that says which file it is and the switch
-between structural and line diffs, and on a phone a file runs for
-screens. It sticks at `--diff-sticky-top`, the offset a jump to a file
-already stops at: zero, unless
-[the file navigator](file-tree.md#stepping-through-files) holds the top of
-the pane.
-
-The path takes whatever width the header's controls leave and wraps
-anywhere, because a path is one long word to a line breaker, and a word that
-cannot shrink pushes the controls past the header's edge on a phone. It keeps
-at least 20 characters, though. The switch, the `comment` button and the
-`Viewed` box leave a phone-width path a few letters, which stacks it one
-syllable to a line, so once the path would go narrower than that the controls
-wrap onto a row of their own under it. The path asks for those 20 characters
-rather than its whole length, since a flex row wraps on what its items ask
-for, and a long path asking for all of its width would push the controls down
-on a desktop too.
+File headers stick at `--diff-sticky-top` (zero unless
+[the file navigator](file-tree.md#stepping-through-files) holds the top), so
+a long file keeps its name and view switch on screen.
 
 ```css
 /*| id: design-diff-view
@@ -1340,6 +1189,9 @@ on a desktop too.
     background: var(--surface-raised);
   }
 
+  /* Wraps anywhere, but keeps 20ch: narrower, the header controls wrap to
+     their own row instead of stacking the path a syllable a line. Asking for
+     20ch rather than the whole path keeps desktop headers on one row. */
   .diff-file__path {
     flex: 1 1 20ch;
     min-width: min(20ch, 100%);
@@ -1597,19 +1449,12 @@ on a desktop too.
 }
 ```
 
-A patch line spans the pane even when its text ends early, so a selected line
-carries its background all the way to the right edge. `width: 100%` says that
-while the pane is the wider of the two, and truncates the line to the pane as
-soon as it is not, which on a phone is most lines. `max-content` with a `100%`
-floor says the same thing at both sizes: as wide as the text, or as wide as
-the pane, whichever is more. The sideways scroll `.diff-file__patch` already
-has then reaches the rest. The two columns of a side-by-side diff wrap
-instead, so their cells go back to the width of their column.
-
 ```css
 /*| id: design-diff-view
 @layer components-narrow {
   @media (max-width: 1000px) {
+    /* As wide as the text or the pane, whichever is more, so a selected
+       line's background reaches the edge and the patch scrolls sideways. */
     .diff-line {
       width: max-content;
       min-width: 100%;
@@ -1626,30 +1471,13 @@ instead, so their cells go back to the width of their column.
 
 ## Collapsed files
 
-`collapseReason` says why a file should start folded, as the words its
-header shows, or `null` for a file that starts open. It looks at the file's
-path and its patch, which are all the frontend has before anything else
-loads, so the answer is ready on the first render and a file never folds
-itself shut under the reader once a side arrives.
-
-A lock file is known by its name. Its diff is a package manager's output,
-and a reviewer checks the manifest change that caused it rather than the
-resolved graph. A name ending in `.lock` counts too, which is the
-convention most tools that are not in the list follow.
-
-A generated file is known either by a path that only build tools write, or
-by the marker a generator leaves at its top: `@generated`, or Go's
-`Code generated ... DO NOT EDIT.`. The marker is only looked for on the
-first few lines of the after side, and only where the patch shows them,
-because a file that merely mentions the marker further down, like this
-module, is not generated. An added file's patch is the whole file, so a
-new generated file is always caught. A modified one is caught only when
-its change is close enough to the top for the patch's context to carry
-the marker.
-
-A large diff is one whose patch adds and removes more lines than a reader
-takes in at once. The limit counts changed lines in the `git` patch, not
-the file's length, since a long file with a one-line change reads quickly.
+`collapseReason` reads only the path and patch, so it answers on the first
+render and a file never folds under the reader later. Lock files go by name
+(including any `.lock`), since a reviewer checks the manifest instead.
+Generated files go by path or by a generator's marker in the first lines of
+the after side the patch shows, so a new generated file is always caught and
+a file merely mentioning the marker, like this one, is not. `LARGE_DIFF`
+counts changed lines, not the file's length.
 
 ```ts
 //| id: frontend-model-collapse
@@ -1826,23 +1654,12 @@ describe("collapseReason", () => {
 
 ## Reading a patch
 
-`readPatch` turns one file's patch into the lines above its first hunk and
-the hunks themselves. Each hunk line carries the line number it has on each
-side it is on, counted from its `@@ -a,b +c,d @@` header. A removed line
-carries its before-side number and an added line its after-side one. The
-union says so, which leaves no line whose missing number a reader has to
-guess the meaning of. A context line is on both sides of a patch and
-carries both numbers, which the [side-by-side layout](#side-by-side) draws
-one to a column. Its before-side number is optional in the type only
-because a [structural diff](../backend/difft.md#from-chunks-to-hunks) has
-context lines that have no before side at all. A hunk keeps where it starts
-on each side for the same reason, since the lines [hidden](#hidden-lines)
-above it are numbered from there.
-
-git's `\ No newline at end of file` is a note about the line above it rather
-than a line of the file, so it is a kind of its own, with no numbers and no
-prefix to strip. The patch's trailing newline would otherwise read as one more
-empty line at the bottom of the last hunk, so it is dropped before reading.
+`readPatch` splits a file's patch into header lines and hunks, numbering
+each line from its `@@` header. The line union says which numbers a kind
+has. A context line's `beforeLine` is optional only for
+[structural](../backend/difft.md#from-chunks-to-hunks) context with no before
+side. git's no-newline note is a kind of its own, and the patch's trailing
+newline is dropped so it does not read as an empty last line.
 
 ```ts
 //| id: frontend-model-patch
@@ -2034,22 +1851,11 @@ describe("readPatch", () => {
 
 ### Hidden lines
 
-A patch keeps three lines of context around each change and leaves the rest
-of the file out. `gapsOf` names what it left out, on the after side: the
-lines before each hunk that the hunk above it did not show, and the lines
-after the last hunk, down to the end of the file. The after side is enough
-because a hidden line is unchanged, so it reads the same on both sides, and
-the after side is the one a comment is anchored to.
-
-A gap also says where it starts on the before side, which is where the
-hunk below it starts less the gap's length, or where the hunk above it
-ended. It is only known where the hunks say where they start there, which
-a structural hunk does not.
-
-A gap is only known once the length of the after side is, which is when its
-source has loaded. A side whose length falls short of what the hunks
-already show says nothing true about what lies between them, so a gap is
-never negative, only empty.
+`gapsOf` names what the patch left out, on the after side (hidden lines are
+unchanged, and comments anchor there), once the after side's length is known.
+A gap's before-side start is known only when the hunks give one, which
+structural hunks do not. A side too short for the hunks gives empty gaps,
+never negative ones.
 
 ```ts
 //| id: frontend-model-patch
@@ -2149,46 +1955,21 @@ describe("gapsOf", () => {
 
 ## Changed words
 
-A line that was edited rather than replaced comes back as a removed line and
-an added line that are mostly the same. Reading which few characters differ
-between the two is the reader's job unless something marks them, so the
-words that changed are drawn on a stronger tint than the rest of their line.
+An edited line arrives as a removed and an added line that are mostly the
+same, so the words that changed get a stronger tint. `changedLines` pairs a
+run of removed lines with the run of added lines after it, first with first.
+`changedWords` compares a pair word by word (a word is a run of letters and
+digits, a run of whitespace, or one other character), so `oldPath` against
+`newPath` is one change, not scattered letters. A pair sharing less than
+`MIN_SHARED` was rewritten and gets no marks, as does one past `MAX_CELLS`.
 
-`changedLines` pairs lines up the way a patch lays an edit out: a run of
-removed lines followed straight away by a run of added ones is an edit of
-those lines, and the first removed line is paired with the first added line,
-the second with the second, and so on. Lines left over on either side were
-purely removed or added and have nothing to be compared against.
-
-`changedWords` compares one pair a word at a time, where a word is a run of
-letters and digits, a run of whitespace, or a single other character, and
-answers the character ranges on each side that are not in their longest
-common subsequence. Comparing whole words keeps `oldPath` against `newPath`
-one change rather than a scatter of changed letters. Two lines that share less
-than `MIN_SHARED` of their text were rewritten rather than edited, and marking
-nearly everything in both says less than marking nothing, so such a pair gets
-no ranges. A pair too long to compare in reasonable time, past `MAX_CELLS`
-cells of the comparison table, gets none either.
-
-Difftastic names a structural line's changed tokens itself, and it names
-them on a line it rewrote as readily as on one it edited. `markable` holds
-those ranges to the same rule as a pair's: when they touch the reader's
-[word mark limit](settings.md#display) or more of the line's words, not
-counting whitespace, the line gets no ranges and its tint alone says it
-changed.
-
-Difftastic only names tokens in a file it parsed. A file in a language it
-has no parser for, such as Markdown, or one past its size limits, it
-compares as text, reports as a language whose name starts with `Text`, and
-marks every changed line whole. No limit lets those ranges through, so in
-this repository, where most of a change is prose in `docs/`, the structural
-view would mark no words at all. Those files take their words from
-`changedLines` instead, the pairing the line view uses. Keying on the name
-rather than on whole-line ranges keeps a parsed line difftastic really did
-rewrite from being re-paired into marks it chose not to give.
-
-`paintWords` cuts a line's syntax tokens at those ranges so the marks and the
-colours can be drawn together, each piece keeping its token's kind.
+Difftastic names a structural line's changed tokens itself; `markable` drops
+them once they cover the reader's [word mark limit](settings.md#display) of
+the line's words. For a file difftastic compared as text (its language name
+starts with `Text`, such as Markdown), it marks whole lines, so those files
+take their words from `changedLines` instead. Keying on the language rather
+than on whole-line ranges keeps a parsed line difftastic really rewrote from
+being re-paired. `paintWords` cuts syntax tokens at the ranges.
 
 ```ts
 //| id: frontend-model-words
@@ -2499,26 +2280,13 @@ describe("markable", () => {
 
 ## Side by side
 
-A diff is laid out in one column or, once the reader
-[picks it](settings.md#display), in two: the before side on the left, the
-after side on the right, each numbered by its own side. The two columns are
-the same lines as the one column, rearranged, so `splitRows` works on lines
-already drawn, and the colours, changed words, and hidden lines come across
-unchanged.
-
-A context line is on both sides, so it fills a row, once in each column,
-unless its `beforeLine` is `null`: a structural context line with no
-before-side partner fills only the after column. A
-run of removed lines followed straight away by a run of added ones is laid
-out the way [changed words](#changed-words) pair it: the first removed line
-beside the first added one, and so on, with whatever is left over beside an
-empty cell. The two words marked on a line are then the words that differ
-from the line beside it. Anything that is not a line of the file, such as a
-hunk header, a note, or a gap, spans both columns.
-
-`splitRows` takes any line with a `kind`, and a `beforeLine` where it has
-one, rather than the view's own type, so
-it can be tested with plain objects.
+`splitRows` rearranges lines already drawn into two columns, so colours,
+changed words, and hidden lines carry over. Context fills both columns
+unless it has no `beforeLine`. Removed and added runs pair as
+[changed words](#changed-words) pairs them, leftovers beside an empty cell,
+so the marked words are the ones that differ from the line beside them.
+Hunk headers, notes, and gaps span both columns. It takes any line with a
+`kind` so tests use plain objects.
 
 ```ts
 //| id: frontend-model-split
@@ -2673,36 +2441,13 @@ describe("splitRows", () => {
 
 ## Interdiff rows
 
-One section per lined-up pair, in the order the backend sent them, which is the
-order of the graphs that fed it. Each section is its own header and its own
-patch, so a reader scrolls the comparison the way they scroll a branch.
-
-A row with no files still renders, and says which kind of nothing it is. Two
-commits that make the same change is the answer someone checking a rebase
-wants; an empty commit on its own says something else. That branch lives here
-rather than in the controller, because it is per row and the controller sees
-the list.
-
-Rows take `ReviewedRow` now, not the bare wire `InterdiffRow`, and thread the
-review callbacks down to `ComparisonHeader` and `DiffView`. A comment on
-the whole comparison belongs to the row rather than to any file in it, so its
-composer, opened from the header, and its threads sit here, between the header
-and the files. A row with no files takes one too, which is the one comment an
-empty commit can be given. `rowKey`
-stays keyed on commit ids as before. [A reordered series can put the same
-change id on two rows](review.md#review-state), so the change id is
-not a unique React key even though it now sits on the row.
-
-Under the header each row shows its commit's message as a
-[`CommitMessage`](commit-message.md), the same opening and "read the rest"
-the pull request screen's commit stack gives. The header's commit labels
-show only subjects, and a reader deciding whether a row is worth reading
-wants the body that says why the commit exists. It is the after commit's
-message, or the before commit's when there is no after. A message that
-changed between the two already shows up as its own file in the row, the
-`JJ-COMMIT-DESCRIPTION` diff `jj interdiff` reports, so drawing the old
-message in full as well would only say it twice. Which rows are expanded
-lives here rather than in the screen, because nothing outside the diff reads it.
+`InterdiffRows` draws one section per pair, in graph order. A row with no
+files says which nothing it is: two commits making the same change is what
+someone checking a rebase wants to know, and an empty commit is something
+else. A comment on the whole comparison sits between the header and the
+files. Under the header is the after (else before) commit's
+[`CommitMessage`](commit-message.md); a changed message already shows as the
+`JJ-COMMIT-DESCRIPTION` file.
 
 ```tsx
 //| id: frontend-view-interdiff-rows
@@ -2814,7 +2559,8 @@ export function InterdiffRows({
   );
 }
 
-/** Also the scope [`DiffView` anchors](file-tree.md#folding-a-diffs-files-into-a-tree)
+/** Keyed on commit ids: a reorder can put one change id on two rows.
+ *  Also the scope [`DiffView` anchors](file-tree.md#folding-a-diffs-files-into-a-tree)
  *  its files under, so two rows never collide on the same file's id. */
 export function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
@@ -2827,11 +2573,6 @@ export function rowAnchor(row: ReviewedRow): string {
   return `row-${rowKey(row)}`;
 }
 ```
-
-A comparison with no files still renders, and the placeholder saying so
-gets the same muted italic treatment every empty state in the app uses. A
-jump to a row's section stops under the navigator bar, the same offset a
-jump to a file takes.
 
 ```css
 /*| id: design-interdiff-rows
@@ -2854,10 +2595,7 @@ jump to a file takes.
 ```
 
 The message is held to 72 columns, the width commit bodies are wrapped to,
-so a reflowed paragraph reads at the measure its author wrote it at. Below
-[the thousand-pixel line](layout.md) the pane is narrower than that anyway,
-and the cap comes off rather than add a second limit to the one the pane
-already sets.
+until the pane is narrower anyway.
 
 ```css
 /*| id: design-interdiff-rows
@@ -2871,21 +2609,10 @@ already sets.
 ```
 ## Comparison header
 
-Every row says what it is showing before it shows it: which commit is the
-before side, which is the after side, and when one of them is missing. Without
-it a row is an unlabelled patch, and with two independent operation pickers on
-screen and several rows stacked up, there is no way to work back to what was
-compared.
-
-A plain diff has no sides, so its header is one `commit` line naming the
-commit whose change follows. Captioning it `after` over a `before` that is
-"not in this series" would describe a comparison the reader never asked
-for.
-
-A last line adds review state to that same job, the
-[review bar](review.md#the-review-bar) every reviewed row on either screen
-carries: whether the row has been looked at, whether it moved since, and how
-many open comments sit on it.
+Each row's header names its before and after commits, or says one is
+missing, since with independent pickers and several stacked rows nothing
+else says what was compared. A plain diff's header is a single `commit` line.
+Below sits the [review bar](review.md#the-review-bar).
 
 ```tsx
 //| id: frontend-view-comparison-header
@@ -2949,16 +2676,9 @@ function Row({
 }
 ```
 
-ComparisonHeader stacks the before and after rows over a strip of review
-actions, and the caption column is a fixed width so "before" and "after"
-line up with each other no matter how long the commit summary next to them
-runs.
-
-Several rows stack into one long scroll, and each file inside a row has a
-grey header of its own, so a comparison header in the same grey is easy to
-scroll past without noticing that a new commit began. It takes a tint of
-its own and a thick rule along its top edge in the matching colour, which
-is also the colour the navigator gives a commit's id.
+The caption column is fixed-width so `before` and `after` line up. A tint
+and a thick top rule set the header apart from the grey file headers, so a
+new commit is not scrolled past unnoticed.
 
 ```css
 /*| id: design-comparison-header

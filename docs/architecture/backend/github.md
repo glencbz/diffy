@@ -1,39 +1,16 @@
 # GitHub commit backend
 
-A pull request is a branch that gets rewritten. Every force push replaces its
-head with a new commit, and the version a reviewer read yesterday is no longer
-reachable from anything. GitHub remembers the sequence anyway, and that
-sequence is the review axis we want: the same "before and after" the
-[jj backend](jj.md) gets from the operation log, for a repository nobody has
-locally.
+A pull request's force pushes are its review axis, the "before and after" the
+[jj backend](jj.md) gets from the operation log. This module fetches that
+sequence and nothing else: **no type it exports carries a commit message, an
+author or a patch.** GitHub says which heads a pull request has had; the
+[local git object store](git.md) says what they contain. The rate-limited,
+stale-prone source shrinks to a list of object ids.
 
-This module fetches that sequence and nothing else. **No type it exports
-carries a commit message, an author or a patch.** GitHub is a metadata oracle
-here, authoritative for which pull requests exist and which object ids their
-heads have been, and the [local git object store](git.md) is authoritative for
-what any of those commits actually contain. Splitting it that way keeps the
-expensive, rate-limited, eventually-stale source down to a list of 40-character
-strings, and lets the free, exact, local one answer every question about
-content. It also means the API never has to be asked twice for the same commit.
-
-There is no shared `CommitBackend` interface. Two implementations is not enough
-to find the abstraction, and one guessed now would only shape this backend to
-fit jj.
-
-## Functionality
-
-### Talking to GitHub
-
-GraphQL is the only endpoint that answers the question. REST's timeline reports
-a force push with a single `commit_id`, the commit that became the head, and
-the commit that stopped being the head is not in the payload, so the head the
-pull request was opened with cannot be recovered from REST at all. GraphQL's
-`HeadRefForcePushedEvent` carries both `beforeCommit` and `afterCommit`.
-
-The entire transport is one function type. Everything else in this module is a
-query string, a Zod schema and pure list handling, so injecting a stub at this
-seam makes the rest of the module testable without a network, a token or a
-fixture server.
+GraphQL is the only API that can answer: REST's timeline reports a force push
+with only the new head, so the head a pull request was opened with is lost.
+`HeadRefForcePushedEvent` carries both `beforeCommit` and `afterCommit`. The
+whole transport is one function type, so tests stub it with no network.
 
 ```ts
 //| id: github-module
@@ -60,21 +37,9 @@ export class GitHubError extends Error {
 }
 ```
 
-The transport we have today is the `gh` CLI, which already holds the token and
-already knows which host to talk to. `GH_HOST` is read from the environment by
-`gh` itself, so it is never named here: the same code runs against
-github.com and against a proxied host, and choosing between them is the
-operator's job, not the module's.
-
-`gh api graphql` has one habit worth knowing. A GraphQL error is an HTTP 200
-with an `errors` array in the body, but `gh` exits 1 for it, and it writes the
-full JSON body, `errors` and all, to **stdout**. Bun's `$` throws for the
-non-zero exit, so the useful diagnosis is sitting in `error.stdout` while
-`error.stderr` holds only a one-line summary. A `NOT_FOUND` error, which is
-what a mistyped repository or a pull request number that was never used looks
-like, is a 404 to our caller; everything else is an upstream fault and a 502.
-Output that will not parse as JSON means `gh` failed before it got an answer,
-which is also upstream.
+The transport is `gh api graphql`, which holds the token and reads `GH_HOST`
+itself, so the same code runs against github.com and a proxied host.
+`NOT_FOUND` is a 404 to the caller; every other failure is a 502.
 
 ```ts
 //| id: github-module
@@ -93,7 +58,8 @@ function parseJson(raw: string): unknown {
   }
 }
 
-/** `gh` writes GraphQL errors to stdout and still exits non-zero. */
+/** `gh` writes GraphQL errors to stdout (the JSON body, `errors` and all) and
+ *  exits non-zero; stderr holds only a one-line summary. */
 function ghFailure(error: InstanceType<typeof $.ShellError>): GitHubError {
   const body = GraphQLErrors.safeParse(parseJson(error.stdout.toString()));
   const [first] = body.success ? body.data.errors : [];
@@ -129,12 +95,8 @@ export const ghCliGraphQL: GitHubGraphQL = async (query, variables) => {
 
 ### Naming a pull request
 
-A repository is an owner and a name, a pull request is a positive integer, and
-both arrive as URL query parameters written by somebody else. They are branded
-and parsed at the boundary, so a junk parameter fails as a `ZodError` the
-[server](server.md) turns into a 400, which is the caller's fault, rather than
-as a GraphQL error it would have to turn into a 502, which is not. The rest of
-the module handles values that have already been checked.
+Repository and pull request number arrive as query parameters and are parsed
+at the boundary, so a junk one is a 400 rather than a GraphQL 502.
 
 ```ts
 //| id: github-module
@@ -188,20 +150,10 @@ export function pullPins(
 
 ### Which repository
 
-The repository is the one the server was started in, named by its `origin`
-remote. That is not a preference: [git](git.md) fetches every pull request's
-commits from `origin`, so a pull request listed from any other repository
-would have heads nobody can fetch. Reading the remote rather than building a
-name in keeps a checkout of a fork, or a clone through the exe.dev proxy,
-listing its own pull requests.
-
-A remote URL names the repository in its last two path segments, whichever
-of the forms git accepts it is written in, `https://host/owner/name.git`,
-`ssh://git@host/owner/name` or scp-like `git@host:owner/name`. The host is
-ignored, which is what lets an origin cloned through the proxy name the same
-`owner/name` a github.com clone does; which host `gh` asks is still
-`GH_HOST`'s to say. A remote that does not end in two
-segments is not a repository this module can ask about, and is a 404.
+The repository is whatever `origin` names, because [git](git.md) fetches
+every pull request's commits from `origin`. The URL's host is ignored, so a
+clone through the exe.dev proxy names the same `owner/name` a github.com clone
+does; `GH_HOST` decides which host `gh` asks.
 
 ```ts
 //| id: github-module
@@ -237,22 +189,6 @@ export async function originRepo(): Promise<RepoRef> {
 ```
 
 ### Listing pull requests
-
-The list is a picker's data source, so it is ordered the way a picker wants it,
-most recently updated first, and capped. Fifty is the default and a hundred is
-the ceiling, which is also the largest page GraphQL will return in one request;
-asking for more would mean pagination, and a review tool that needs the
-hundred-and-first least recently touched pull request can ask for it by number.
-
-The state filter is spliced into the query document rather than passed as a
-variable. `states` is a `[PullRequestState!]`, a list of enums, and the
-transport seam deliberately carries only strings and numbers so that a stub can
-implement it in one line. The spliced values come from a closed map keyed by a
-closed union, so no caller text reaches the document.
-
-`author` is nullable: a login that has been deleted leaves the pull request
-behind with no author at all. That becomes `""` rather than `null`, so every
-consumer gets a string.
 
 ```ts
 //| id: github-module
@@ -304,6 +240,9 @@ const PullRequestsWire = z.object({
   }),
 });
 
+// `states` is a list of enums, spliced in rather than passed as a variable
+// so the transport seam carries only strings and numbers. Values come from
+// the closed PULL_STATES map, so no caller text reaches the document.
 function pullRequestsQuery(states: string): string {
   return `query($owner:String!, $name:String!, $limit:Int!) {
   repository(owner:$owner, name:$name) {
@@ -321,6 +260,7 @@ export async function githubPullRequests(
   gh: GitHubGraphQL = ghCliGraphQL,
 ): Promise<PullRequestSummary[]> {
   const query = pullRequestsQuery(PULL_STATES[options.state ?? "open"]);
+  // 100 is the largest page GraphQL returns; past it, ask by number.
   const limit = Math.min(options.limit ?? 50, 100);
   const wire = PullRequestsWire.parse(
     await gh(query, { owner: repo.owner, name: repo.name, limit }),
@@ -349,40 +289,12 @@ export async function githubPullRequests(
 
 ### A pull request's history
 
-Every force push is one step in the pull request's life, and the timeline
-records both ends of it. The events come back oldest first, and each event's
-`beforeCommit` is the previous event's `afterCommit`, so the events form a
-chain rather than a set: the heads the branch has had, in order.
-
-The chain is one longer than the list of events. `events[0].beforeCommit` is
-the head the pull request was **opened** with, which is the state no force push
-produced and the one REST cannot report. Every subsequent head is the `after`
-side of the push that created it.
-
-A fast-forward push emits no event at all. It adds commits without rewriting
-any, so GitHub has nothing to record, but the head still moved. That shows up
-as a chain whose last entry disagrees with `headRefOid`, and appending
-`headRefOid` fixes it. The appended state gets its own origin, `current`,
-rather than a force push's timestamp it does not have. A three-way tagged union
-says exactly that: "the pull request opened here", "a force push at 14:02 put
-it here", and "this is the tip and no event named it" are three different
-facts, and only two of them have a time. A nullable timestamp would have
-flattened the first and third into the same thing.
-
-`truncated` says the middle of the chain is missing, and there are two ways for
-that to happen: more than a hundred force pushes, reported by
-`pageInfo.hasNextPage`, or an event whose commits GitHub has since garbage
-collected, which comes back with a null `beforeCommit` or `afterCommit`. Either
-way the states either side of the hole are no longer adjacent, so the flag
-travels with the data instead of the hole passing for a complete history.
-
-`timelineItems.totalCount` counts every kind of timeline item, comments and
-labels included, not the ones the `itemTypes` filter selected, so it is neither
-the number of force pushes nor a truncation signal. Nothing here reads it.
-
-`baseRefOid` is the base branch's tip **now**. GitHub does not record what the
-base was at any earlier moment, so an old head against today's base is the
-closest thing to a historical range the API supports.
+Force-push events come back oldest first, each `beforeCommit` the previous
+`afterCommit`, so they form a chain of heads. The chain is one longer than the
+events: `events[0].beforeCommit` is the head the pull request was opened with.
+A fast-forward push records no event, so `headRefOid` is appended when the
+chain's end disagrees with it. `truncated` marks a hole in the middle: more
+than a hundred force pushes, or an event whose commits GitHub has collected.
 
 ```ts
 //| id: github-module
@@ -424,11 +336,6 @@ export interface ForcePushEvent {
 }
 ```
 
-`headChain` is pure and total, and it holds the whole rule about what a pull
-request's history is, so it can be tested against events written by hand rather
-than only against whatever the API returned. An empty chain is a pull request
-that was opened and left alone, which is most of them.
-
 ```ts
 //| id: github-module
 
@@ -465,28 +372,6 @@ export function headChain(
     .map((state, index) => ({ version: index + 1, ...state }));
 }
 ```
-
-The query asks for the force pushes and for the three fields that place them:
-the current head, the base branch and its tip.
-
-```graphql
-query($owner:String!, $name:String!, $number:Int!) {
-  repository(owner:$owner, name:$name) {
-    pullRequest(number:$number) {
-      number headRefOid baseRefName baseRefOid
-      timelineItems(first:100, itemTypes:[HEAD_REF_FORCE_PUSHED_EVENT]) {
-        pageInfo { hasNextPage }
-        nodes { ... on HeadRefForcePushedEvent { createdAt beforeCommit { oid } afterCommit { oid } } }
-      }
-    }
-  }
-}
-```
-
-A null `repository` or `pullRequest` is a 200 with a hole in it, which is how
-GraphQL reports "no such thing" when the token can see the repository but the
-number is unused. It means the same as a `NOT_FOUND` error and is reported the
-same way.
 
 ```ts
 //| id: github-module
@@ -544,6 +429,7 @@ export async function githubPullRequestHistory(
     }),
   );
 
+  // GraphQL's other "no such thing": a 200 with a null in it.
   const pull = wire.data.repository?.pullRequest ?? null;
   if (pull === null) {
     throw new GitHubError(
@@ -578,26 +464,14 @@ export async function githubPullRequestHistory(
 
 ### Naming one state of a pull request
 
-A state is named by its head, never by its version, because a version number
-can come to mean a different commit. `version` is a position in the chain,
-assigned after collapsing and counted from one, so any state that leaves the
-chain renumbers every state after it: a head GitHub has garbage collected, a
-duplicate push that the collapse removes, or a hundred-and-first force push
-that pages the early ones out. A reader who bookmarked "v7" comes back to
-another commit, and nothing anywhere says so. A head is a commit id, and a
-commit id is the same commit forever.
+A state is named by its head, never its version: `version` is a position
+counted after collapsing, so any state leaving the chain (collected, paged
+out) renumbers the rest, and a bookmarked "v7" would silently become another
+commit. Versions are display labels only.
 
-A head is therefore what every parameter naming a state takes, and
-`pullStateAt` is the lookup from head back to the state that carries it.
-Version numbers survive as display labels only. A chip reading `v7` is legible
-where forty hex characters are not.
-
-The lookup doubles as the check. `gitMaterialize` asks a remote for an object
-id by name, so an oid that reaches it unvalidated lets any URL make the server
-fetch any object out of `origin`, including one belonging to a branch the
-reader was never shown. Resolving the head against the pull request's own chain
-first means the only ids ever fetched are ids GitHub has already published as
-heads of the pull request being read.
+`pullStateAt` is also the security check. `gitMaterialize` fetches any object
+id it is given from `origin`, so resolving a head against the pull request's
+own chain first means only ids GitHub published as its heads are ever fetched.
 
 ```ts
 //| id: github-module
@@ -621,14 +495,8 @@ export function pullStateAt(
 
 #### Test
 
-These tests make no network call. The transport is a parameter, so every case
-injects a stub that returns a captured envelope, and the assertions are about
-our handling of it. The payloads are the real shapes: the chain below is pull
-request #9 of this repository, six force pushes deep.
-
-`headChain` gets the exhaustive treatment because it is where the rule lives,
-including the two cases no live query would reliably produce on demand, a tip
-that no event names and a push that changed nothing.
+Every case stubs the transport with a captured envelope. The chain below is
+pull request #9 of this repository, six force pushes deep.
 
 ```ts
 //| id: github-module-test
@@ -762,10 +630,6 @@ describe("headChain", () => {
   });
 });
 ```
-
-The stubbed-transport tests check the two things a stub can check: that a real
-envelope becomes the right values, and that the shapes GitHub uses for "not
-here" all arrive as a `GitHubError` the server can turn into a 404.
 
 ```ts
 //| id: github-module-test
@@ -1009,15 +873,9 @@ describe("parsePullNumber", () => {
 });
 ```
 
-`pullStateAt` is pure and its input is a plain object, so its tests build a
-history by hand rather than going through a stubbed envelope. The case that
-earns its place is the last one. A 40-character hex string that is a real
-object id but not one of this pull request's heads has to be refused, because
-that is the shape a caller reaching for somebody else's commit arrives in.
-
-The base branch tip arrives in that shape as well, and refusing it is why a
-diff against the base is asked for by name rather than by oid. The base never
-comes through this lookup. [The diff route](server.md) tags the two apart.
+The last case refuses a real object id that is not one of this pull
+request's heads. The base tip arrives in that shape too, which is why
+[the diff route](server.md) asks for the base by name rather than by oid.
 
 ```ts
 //| id: github-module-test

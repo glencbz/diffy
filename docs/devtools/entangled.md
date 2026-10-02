@@ -40,24 +40,14 @@ direction most of the time.
 
 ## Docs site
 
-Since the whole project is literate, `docs/` doubles as a website. We render it
-with MkDocs (Entangled's own recommended setup) plus the Material theme. The
-config lives in `mkdocs.yml` at the repo root, kept out of the docs for the
-same reason `entangled.toml` is. MkDocs binds to loopback by default, which the
-exe.dev proxy cannot reach, and takes the port as an argument so two workspaces
-can render their own copy of the docs at once. See [serving](serving.md).
-
-The `mkdocs-entangled-plugin` is what makes rendered code blocks readable: it
-turns the `#| id:` / `#| file:` attribute lines into block titles instead of
-leaving them in the listing. Its latest release predates the `entangled-cli`
-2.4.2 config-reading change and no newer one exists, so a patched copy is
-vendored under `vendor/mkdocs-entangled-plugin/` and pulled in as an editable
-path dependency. See that directory's `README.md` for the one-line diff and
-the drop-the-vendor conditions.
+`docs/` doubles as a website, rendered with MkDocs and the Material theme
+(`mkdocs.yml`). `vendor/mkdocs-entangled-plugin/` turns the attribute lines into
+block titles; its `README.md` says why it is vendored.
 
 ```just
 #| id: just-docs
-# Serve the docs site with live reload
+# Serve the docs site with live reload. Binds all interfaces so the exe.dev
+# proxy can reach it; the port lets two workspaces serve at once.
 @docs port="8000":
   uv run mkdocs serve --dev-addr 0.0.0.0:{{port}}
 

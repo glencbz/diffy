@@ -1,25 +1,16 @@
 # Serving a workspace
 
-Review happens in the browser, against a running copy: the app to click through
-the change, and the docs site because the docs *are* the source. Work happens in
-jj workspaces, several of them at once, so "a running copy" has to mean one per
-workspace rather than one per machine. That rules out fixed ports. `just run`
-and `just docs` take the port as an argument, and `just serve` hands each
-workspace a pair of free ones, remembers them, and keeps both servers alive
-under them.
+Several jj workspaces run at once, and each serves its own app and docs, so
+ports are not fixed. `just run` and `just docs` take the port as an argument,
+and `just serve` picks a free pair per workspace, remembers it, and keeps both
+servers alive on it.
 
 ## Starting and refreshing
 
-`just serve` starts the app and the docs site detached, so they outlive the
-shell that launched them, and prints where they landed. Run it again to refresh:
-it stops what it started before and relaunches against the code that is in the
-workspace now. The ports survive the refresh, so a URL already handed to a
-reviewer keeps pointing at the same workspace for the life of the review.
-
-Ports are picked once, on the first `just serve` in a workspace, by walking up
-from 3000 for the app and 8000 for the docs until a port nobody is listening on
-turns up. They live in `/tmp/diffy-serve/<workspace>/ports` alongside the logs
-and pidfiles for the two processes.
+`just serve` starts both detached and prints their URLs. Re-running it
+restarts them on the same ports, so a URL handed to a reviewer stays valid for
+the life of the review. Ports, logs and pidfiles live in
+`/tmp/diffy-serve/<workspace>/`.
 
 ```just
 #| id: just-serve
@@ -37,6 +28,8 @@ serve:
   fi
   source "{{serve_state}}/ports"
   just serve-stop
+  # Something this workspace did not start would otherwise answer the
+  # readiness check below and pass for ours.
   for name in app docs; do
     if (exec 3<>/dev/tcp/127.0.0.1/"${!name}") 2>/dev/null; then
       echo "port ${!name} is held by something this workspace did not start" >&2
@@ -45,6 +38,7 @@ serve:
   done
   just _spawn "{{serve_state}}/app" env NODE_ENV=production just run "$app"
   just _spawn "{{serve_state}}/docs" just docs "$docs"
+  # Print the URLs only once both ports answer.
   for name in app docs; do
     for _ in $(seq 100); do
       if (exec 3<>/dev/tcp/127.0.0.1/"${!name}") 2>/dev/null; then continue 2; fi
@@ -69,45 +63,23 @@ serve-stop:
   done
 ```
 
-Stopping waits for each process to actually go away before `serve` binds the
-port again, and skips pidfiles that are not there, so `just serve` behaves the
-same whether or not anything was running. Starting waits too: `serve` prints the
-URLs only once both ports answer, and otherwise fails pointing at the log, so a
-green run means the servers are really up rather than merely spawned.
-
-A port this workspace was given can still be taken by something it did not
-start, a server left behind by an older way of doing this or another tool
-entirely, and then waiting for an answer would find that stranger's server and
-call it ours. So `serve` refuses to start on a port that is still answering
-after its own processes are gone.
-
 ## Reaching them from outside
 
-The VM's ports are reachable through the exe.dev HTTPS proxy, which forwards
-every port from 3000 to 9999 at `https://<vm>.exe.xyz:<port>/` to anyone with
-access to the VM, so `just serve` prints those URLs and nothing needs sharing
-first. `ssh exe.dev share port` only chooses the one port the bare
-`https://<vm>.exe.xyz/` serves, which a preview never relies on.
+The exe.dev proxy forwards ports 3000-9999 at `https://<vm>.exe.xyz:<port>/`,
+so nothing needs sharing first. It also rewrites the `Host` header, which Bun's
+dev server rejects (`Blocked: Host header does not match the dev server`), so
+`serve` runs the app with `NODE_ENV=production`. A plain `just run` keeps dev
+mode and hot reload, and is for local use only.
 
-The proxy rewrites the `Host` header on the way through, which Bun's dev server
-reads as an attack: it answers `Blocked: Host header does not match the dev
-server` and nothing else. So `serve` starts the app with `NODE_ENV=production`,
-which drops that check along with hot reload. A plain `just run` keeps dev mode
-and its reload, which is the right trade locally and the wrong one for anything
-a reviewer opens, so a server to be shared is started by `just serve` and not by
-hand.
-
-## Detaching and port picking
-
-A served process runs in a session of its own via `setsid`, writes its own pid
-where `serve-stop` can find it, and sends everything to a log next to the
-pidfile. Because it leads its own process group, stopping it takes the group
-down with it, including whatever `just` and `bun` spawned underneath.
+## Helpers
 
 ```just
 #| id: just-serve-helpers
 
-# Run a command detached, logging to <prefix>.log, recording <prefix>.pid
+# Run a command detached, logging to <prefix>.log, recording <prefix>.pid.
+# setsid makes it a process-group leader, so serve-stop's group kill takes
+# down whatever just and bun spawned under it. Returns only once the pidfile
+# exists, so serve never leaves a process it cannot stop.
 _spawn prefix +command:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -128,6 +100,3 @@ _free-port start:
   done
   echo "$port"
 ```
-
-`_spawn` clears the old pidfile and returns only once the new one is written,
-so `serve` cannot race ahead and leave a process it has no way to stop later.

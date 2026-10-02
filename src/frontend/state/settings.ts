@@ -23,6 +23,8 @@ export interface SettingsHandle {
 export function useSettings(): SettingsHandle {
   const [settings, update] = useStored(settingsRepository);
 
+  // A plain effect runs after paint, so every load would flash at the
+  // standard size first.
   useLayoutEffect(() => {
     document.documentElement.dataset.textSize = settings.display.textSize;
   }, [settings.display.textSize]);

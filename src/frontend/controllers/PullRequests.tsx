@@ -71,6 +71,8 @@ function chosen(
 ): PullChoice {
   if (place === null) return { phase: "browsing" };
   const pull = pulls.find((candidate) => candidate.number === place.number);
+  // A typed or outdated number falls back to browsing, the one screen a
+  // reader can act on.
   if (pull === undefined) return { phase: "browsing" };
   return { phase: sheetOver === pull.number ? "picking" : "reviewing", pull };
 }

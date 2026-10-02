@@ -1,65 +1,21 @@
 # Settings
 
-How the app looks to the reader using it. Review state records what a
-reader has looked at. Settings record how they want to look at it, and they
-belong to the device rather than to any repository. Display is the only
-section so far.
+Settings record how a reader wants to look at a diff. They belong to the
+device, not to any repository, so they stay in the browser's `localStorage`:
+a phone and a laptop keep their own.
 
 ## Display
 
-The text everywhere in the app comes from two tokens, `--text-size` and
-`--text-size-small`, set in [Design tokens](tokens.md#metrics). The sizes are
-anchored on GitHub.com, the other place a reader reads these diffs. GitHub
-draws diff code at 12 pixels, so Standard is 12. Large is 14, GitHub's body
-text and the next size up that it uses. Small and Larger continue the steps
-on either side.
+Text sizes are anchored on GitHub, the other place these diffs get read:
+Standard is its 12px diff code, Large its 14px body text. GitHub keeps one
+size on a phone, so Standard is the default everywhere.
 
-GitHub keeps the same sizes on a phone and grows only its headings, so
-Standard is the default on every screen. A reader who wants more on a phone
-picks Large there, and the laptop keeps its own choice.
-
-`Settings` is stored the way the [review document](review.md#storage) is,
-through a [repository](index.md#local-storage) of its own. A Zod schema
-parses whatever `localStorage` holds. Anything that fails to parse falls back
-to the defaults, whether it is an older shape, a hand-edited
-blob, or nothing at all. `localStorage` is per browser, so a phone keeps its
-own size and a laptop keeps the default, which is the split the setting
-exists for.
-
-A diff is drawn [structurally or line by line](diff.md#diff-view), and the
-reader picks which one files start in. Structural is the default because it
-is the one that hides layout noise. The choice is only a starting point,
-since each file has its own switch.
-
-The reader also picks whether a diff is laid out in one column or
-[side by side](diff.md#side-by-side). Unlike the view, the layout is not a
-starting point with a switch on every file, since a reader who wants two
-columns wants them for every file at once. It is a setting of the device
-for the same reason the text size is: a laptop has room for two columns and
-a phone has less, so a reader may want them on one and not the other. The
-setting is obeyed at every width and in both views.
-
-A structural line marks the words difftastic says changed, until so much of
-it changed that the marks cover nearly everything and say less than the
-line's own tint. Where that point sits is a matter of taste, so the reader
-picks it: the share of a line's words that can change before
-[its marks go](diff.md#changed-words). The choices are a few fixed steps,
-because a reader can tell 50% from 90% on screen but not 70% from 75%.
-
-`diffMode`, `diffLayout`, and `wordMarkLimit` each parse with a default of
-their own. Settings saved before a choice existed do not have it, and without the
-default they would fail to parse and reset the reader's text size along
-with it.
-
-What a setting can be and what it starts as are the settings'
-[model](index.md#model), apart from the state that holds them and the
-repository that stores them. The diff view needs the vocabulary and the
-default, and neither needs storage or React. With both in `state/`, a view
-could not name a diff mode without reaching into the layer that owns the
-settings hook. Each default is written
-once, in `DEFAULT_SETTINGS`, and the schema, the fallback, and the context
-all read it from there. The display is a schema of its own, so the diff
-view can take the display as one prop without the settings around it.
+The diff view setting is only where each file starts, since every file has
+its own switch. Layout (one column or [side by side](diff.md#side-by-side))
+applies to every file at once and is per device, since a phone has less room.
+The word mark limit is the share of a line's words that can change before
+[its marks go](diff.md#changed-words), offered in steps a reader can tell
+apart.
 
 ```ts
 //| id: frontend-model-settings
@@ -89,6 +45,8 @@ const DEFAULT_DISPLAY = {
   wordMarkLimit: 0.7,
 } as const;
 
+// Every field added after the first needs a default, or older saved
+// settings fail to parse and reset the reader's text size with them.
 export const Display = z.object({
   textSize: TextSize,
   diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
@@ -103,9 +61,6 @@ export type Settings = z.infer<typeof Settings>;
 export const DEFAULT_SETTINGS: Settings = { display: DEFAULT_DISPLAY };
 ```
 
-`settingsRepository` names the key the settings are kept under, the schema
-that reads them, and the defaults to fall back to.
-
 ```ts
 //| id: frontend-persistence-settings
 //| file: src/frontend/persistence/settings.ts
@@ -118,9 +73,6 @@ export const settingsRepository = localRepository<Settings>(
   DEFAULT_SETTINGS,
 );
 ```
-
-The repository's tests cover what the settings schema adds to
-[`localRepository`](index.md#local-storage)'s.
 
 ```ts
 //| id: frontend-persistence-settings-test
@@ -207,10 +159,6 @@ describe("settingsRepository", () => {
 });
 ```
 
-The size is written to the page in a layout effect, not a plain effect. A
-plain effect runs after the browser paints, so a reader who chose a larger
-size would see every load flash at the standard size first.
-
 ```ts
 //| id: frontend-state-settings
 //| file: src/frontend/state/settings.ts
@@ -238,6 +186,8 @@ export interface SettingsHandle {
 export function useSettings(): SettingsHandle {
   const [settings, update] = useStored(settingsRepository);
 
+  // A plain effect runs after paint, so every load would flash at the
+  // standard size first.
   useLayoutEffect(() => {
     document.documentElement.dataset.textSize = settings.display.textSize;
   }, [settings.display.textSize]);
@@ -278,11 +228,8 @@ export function useSettings(): SettingsHandle {
 }
 ```
 
-The pixel values stay in the stylesheet with every other length. Each size
-is one rule that rebinds the two tokens, keyed off the data attribute
-`useSettings` writes. `"standard"` has no rule, because it is what the tokens
-already say. The rules sit in a `settings` layer above `metrics-narrow`, so a
-size the reader picked beats any default a breakpoint sets.
+Each size rebinds the two text tokens off the attribute `useSettings` writes;
+`standard` needs no rule.
 
 ```css
 /*| id: design-text-size
@@ -306,21 +253,10 @@ size the reader picked beats any default a breakpoint sets.
 
 ## Sharing the settings
 
-The settings reach every screen through one context, `SettingsContext`,
-which `App` fills with the handle `useSettings` returns. A diff sits several
-screens and controllers below `App`, and none of the layers above its
-controller has any use for the default view, the layout, or the word mark
-limit, so threading them down as props would make every one of them carry
-the settings. The settings screen reads the same context, so a choice there
-reaches every diff at once.
-
-The context holds the whole handle rather than one value per setting, so a
-new setting reaches every reader without a provider of its own in `App`. It
-is state like any other, so it sits beside `useSettings`, and like any other
-state a controller reads it and hands a view what the view draws. A diff's
-controller passes the display on, and the diff view takes it as a prop. The
-context has no default, since a screen drawn outside `App` has no settings
-to draw, and reading it there throws rather than quietly falling back.
+`App` fills `SettingsContext` with the `useSettings` handle, so a diff
+several layers down reads it without every layer above passing it on. It
+holds the whole handle, so a new setting needs no new provider, and it has
+no default: reading it outside `App` throws.
 
 ```ts
 //| id: frontend-state-settings
@@ -337,16 +273,8 @@ export function useSettingsContext(): SettingsHandle {
 
 ## Settings screen
 
-One `<fieldset>` per choice. A radio group is the right control for a
-size, a diff view, a layout, and a word mark limit alike: the choices are mutually exclusive, there are few
-enough to show all at once, and a native `<input type="radio">` gets
-keyboard and screen reader behaviour for free that a row of buttons would
-have to reimplement.
-
-The captions are drawn at the current size, not each at the size it names.
-The whole page resizes the moment a radio is picked, which is a better
-preview than four captions. Drawing each caption at its own size would also
-repeat every pixel value in a second set of rules.
+One radio `<fieldset>` per choice. Captions draw at the current size; the
+page resizing as soon as a radio is picked is the preview.
 
 ```tsx
 //| id: frontend-view-settings-form
@@ -462,9 +390,6 @@ export function SettingsForm({
 }
 ```
 
-Tap targets get the whole label rather than the small circle a radio button
-draws on its own, which is what makes each one comfortable to hit on a phone.
-
 ```css
 /*| id: design-settings
 @layer components {
@@ -501,10 +426,6 @@ draws on its own, which is what makes each one comfortable to hit on a phone.
   }
 }
 ```
-
-The screen around the form is the [mode tabs](shell.md#mode-tabs) and the
-form, filled from [`SettingsContext`](#sharing-the-settings). It draws no
-review strip, since nothing on it is reviewed.
 
 ```tsx
 //| id: frontend-screen-settings

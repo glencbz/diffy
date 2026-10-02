@@ -40,6 +40,7 @@ export function withOperations(
       after: { pick: { kind: "latest", at: head.id }, commits: [] },
     };
   }
+  // An idle poll returns the same object and re-renders nothing.
   if (history.operations[0]?.id === head.id) return history;
   return { ...history, operations };
 }
@@ -55,7 +56,9 @@ export function pick(head: string, operationId: string | null): OperationPick {
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-model-local-history>>[2]
 
 /** The newest operation a "latest" side has not moved to yet, or `null` when
- *  the side is pinned or already at the newest. */
+ *  the side is pinned or already at the newest. Only the after side shows it:
+ *  the before side is the baseline, and offering to move it invites losing
+ *  track of what is compared. */
 export function newerOperation(
   side: LocalSide,
   operations: OpLogEntry[],

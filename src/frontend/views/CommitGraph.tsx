@@ -2,6 +2,8 @@
 import type { LogEntry } from "../model/history";
 import { CommitLabel } from "./CommitLabel";
 
+// A node and a half. One node per row, so a lane only separates parallel
+// edges, and gutter width comes out of the label's.
 const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 

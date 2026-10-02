@@ -1,19 +1,11 @@
 # Commit message
 
-`CommitMessage` draws a commit's body under a subject something else has
-already shown, cut down to its opening until the reader asks for the rest.
-The [commit stack](commit-stack.md) on the pull request screen and each row
-of [the local history diff](diff.md#interdiff-rows) show one.
+`CommitMessage` draws a commit's body under a subject something else already
+shows, cut to its `opening` until the reader expands it, so a stack of
+commits stays scrollable but still says why each exists. Used by the
+[commit stack](commit-stack.md) and [local history rows](diff.md#interdiff-rows).
 
 ## Reading a message
-
-A commit body can run to any length, an explanation of what changed and why,
-sometimes a bulleted inventory, sometimes a pasted command's output. Showing
-all of it for every commit on screen would make a stack of them as long as
-the sum of every commit's rationale, which defeats scrolling it as one stack
-in the first place. Showing none of it hides the one thing that tells a
-reader whether a commit is worth opening at all. `opening` is the middle
-ground, a short prefix that carries the "why" without carrying the rest.
 
 ```ts
 //| id: frontend-view-commit-message
@@ -35,11 +27,8 @@ export function opening(body: string): { text: string; rest: number } {
 }
 ```
 
-A body's paragraphs and its bulleted inventory are two different shapes and
-read differently once the window narrows. `messageBlocks` keeps that shape
-as data instead of flattening it to one string, so the view can reflow a
-paragraph while leaving a bullet list's items and an indented block's lines
-alone.
+`messageBlocks` keeps paragraphs, bullet lists, and indented blocks apart so
+the view reflows only paragraphs.
 
 ```ts
 //| id: frontend-view-commit-message
@@ -109,10 +98,6 @@ function bulletItems(lines: string[]): string[] {
 }
 ```
 
-A commit's subject, its body, and its trailers are shown in three different
-places, weight, prose, and a muted footer, so the view needs them apart
-rather than as one string to re-split on every render.
-
 ```ts
 //| id: frontend-view-commit-message
 
@@ -160,13 +145,8 @@ export function splitMessage(description: string): {
 
 ## The view
 
-The subject is not drawn here. Whatever holds the message already shows it,
-in a stack row's spine or a comparison header's commit label, and a second
-copy right under it would only push the body down. Trailers wait until the
-message is expanded: they say who else wrote the commit, not what it does.
-
-Whether a message is expanded belongs to the caller, since only the caller
-knows what a message is a message of and how long that choice should last.
+Trailers show only when expanded: they say who else wrote the commit, not
+what it does. The caller owns whether a message is expanded.
 
 ```tsx
 //| id: frontend-view-commit-message
@@ -231,10 +211,8 @@ function MessageBlockView({ block }: { block: MessageBlock }) {
 
 ## Styling
 
-The message styles what is inside it and leaves its box, the padding and
-the measure around it, to the caller through `className`. A commit stack
-row and a local diff row each pad their contents their own way, and the
-message has to line up with the rest of its row.
+The caller pads the message's box through `className`, to line it up with
+its row.
 
 ```css
 /*| id: design-commit-message

@@ -38,6 +38,8 @@ export function useCommits(source: Source): AsyncState<LogEntry[]> {
   const [state, setState] = useState<AsyncState<LogEntry[]>>({
     status: "loading",
   });
+  // A source is a fresh object every render; depend on its JSON and read the
+  // source back out of it, so the dependency list cannot drift from the body.
   const key = JSON.stringify(source);
 
   useEffect(() => {

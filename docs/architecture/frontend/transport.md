@@ -1,50 +1,15 @@
 # Transport
 
-`api.ts` is the only module that talks to the backend, and the only one that
-knows a server exists.
+`api.ts` is the only module that knows a server exists. Its Zod schemas are
+private; what they parse into is a plain type in `model/`, and each wrapper
+declares that type as its return, so the compiler checks the schema against
+the model. `z.infer` would instead make every parser change a silent change
+to the app's model.
 
-`api.ts` has one Zod schema and one `fetch` wrapper per endpoint. The shapes
-those schemas parse into are not the schemas' to declare. Each one is a plain
-TypeScript type in `model/`, written out the way a reader wants to read it,
-and the schemas stay private to `api.ts`. Every wrapper declares the model type
-it returns, so the compiler checks what the schema parses against what the app
-expects at the one place they meet. A field the schema drops or a value it
-admits that the type does not is a type error in the wrapper.
-
-The check runs one way. A schema stricter than its type, such as one that
-accepts two of the three pull request states, still compiles, because what it
-parses is still a valid value of the type. Asking for `z.infer` instead would
-make the schema the source of truth, so every view would read a type nobody
-wrote down and a change to a parser would quietly become a change to the
-app's model.
-
-`FileDiff` is a discriminated union on `status`. `added`, `deleted`, and `modified` carry
-a single `path`. `renamed` and `copied` carry `oldPath` and `newPath`.
-
-`LogEntry.changeId` is nullable because a GitHub pull request's commits are
-plain git commits, and a git commit has no change id. The field stays
-required, so a backend without one has to say `changeId: null`. Defaulting a
-missing key to null reads as more forgiving and costs more than it gives. A
-jj backend that stopped emitting `change_id` through a bug of its own would
-parse cleanly, and every row would quietly lose its rewrite-stable identity
-with nothing raised to say why. A missing field is a backend nobody taught
-about this one, and it should fail at the boundary.
-[`alignSeries`](../backend/series.md) has what pairing does without an id.
-
-`LogEntry` carries the rest of what a log row shows: who wrote the commit,
-when, the names pointing at it and the standings a backend reports about it.
-`author` and `timestamp` are display strings whose precision is the backend's
-to choose, because the two backends disagree on which one a reader wants. jj
-prints an author's email and a committer's timestamp, and matching `jj log`
-is the point; a GitHub pull request is read through git, which knows an
-author's name and the date they wrote. `refs` and `markers` are empty for a
-git commit, which has neither in this app.
-
-`GitOid` is branded, so the only way to hold one is to have parsed it, out of a
-backend response, the address, or what the browser stored. A head oid cannot be typed into the app
-by hand, which is what makes the guarantee in the next section hold at compile
-time. Its schema is the one that lives in `model/` beside its type, because the
-schema is the only thing that mints one and `model/` parses oids of its own.
+`LogEntry.changeId` is required but nullable: a git commit says `null`, and a
+jj backend that stopped emitting `change_id` fails at the boundary rather than
+quietly losing every row's identity. `author` and `timestamp` are display
+strings each backend picks to match its own tool.
 
 ```ts
 //| id: frontend-model-history
@@ -319,18 +284,9 @@ export async function fetchInterdiff(
 
 ## Where a side's commits come from
 
-A side of the comparison is a list of commits, and there is more than one place
-those commits can come from. A jj operation gives the local repo as it stood
-after that step. A head of a pull request gives a branch on GitHub as it stood
-before somebody force-pushed over it. `Source` is that choice, a tagged union
-rather than an operation with a pull request hanging off it, so a side is
-always exactly one of the two and no view has to ask which.
-
-A pull request head is named by its object id and never by the version number
-the picker shows. A version is a position in a chain that shifts, so `v7` can
-come to mean a different commit while the page is open; the backend's
-`pullStateAt` has the full account. Holding the oid makes "show me version 7 of
-a pull request that now has three versions" a request nobody can express.
+`Source` is where a side's commits come from: a jj operation, or one head of
+a pull request, named by oid because versions shift (see
+[`pullStateAt`](../backend/github.md#naming-one-state-of-a-pull-request)).
 
 ```ts
 //| id: frontend-model-history
@@ -412,19 +368,10 @@ export async function fetchPullCommits(
 
 ## Reading a pull request
 
-The pull request screen calls its endpoints in the order the reader moves
-through them: the repository's pull requests, then one pull request's chain of
-heads, then the diff at or between those heads.
-
-`fetchPullDiff` needs both ends, and the two ends are not the same kind of
-thing. `to` is always a head. `from` is a `PullBaseline`, either another head
-of the pull request or the branch it targets, and which one it is decides the
-comparison the route runs. The [route's own doc](../backend/server.md) has
-both comparisons and why each end takes what it takes.
-
-A baseline travels as one parameter, the literal `base` or a 40-hex oid.
-Nothing that is 40 hex characters reads as `base`, so the two cannot collide
-and the route parses the choice out of the value itself.
+`fetchPullDiff` takes a head `to` and a `PullBaseline` `from`, another head or
+`base`; [the route](../backend/server.md) explains the two comparisons. The
+baseline travels as one parameter, which cannot collide since no oid reads
+as `base`.
 
 ```ts
 //| id: frontend-model-pull
@@ -585,11 +532,6 @@ export async function fetchPullDiff(
 ```
 
 ## Reading a file's source
-
-A file diff names the blob behind each side, and `/api/source` answers one of
-them whole, [a line at a time and highlighted](../backend/syntax.md). The
-path goes with the blob because the path is what says which language to
-highlight it as.
 
 ```ts
 //| id: frontend-api

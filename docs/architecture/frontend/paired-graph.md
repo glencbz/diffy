@@ -1,58 +1,23 @@
 # Paired graph
 
-A pairing is easy to draw as one list: one row per slot, the two ids set
-side by side in it. What that throws away is which version a blank belongs
-to. A slot with `left: null` needs the reader to see there was nothing on
-the old side to face this commit, not read a caption saying so. Two lanes
-with the blank drawn as a gap says that in the shape of the page. An empty
-column between two full ones reads as missing before the reader has parsed
-a single word of it, the way an empty parking space reads as missing a car.
-
-`PairedGraph` draws `usePairing`'s `Slot[]` as that pair of lanes, a narrow
-rail between them, and the controls that let the reader correct a slot the
-heuristic guessed wrong.
+`PairedGraph` draws `usePairing`'s `Slot[]` as two lanes with a rail between
+them, and the controls to correct a slot the heuristic guessed wrong. A slot
+missing one side is drawn as a gap in that lane, so the absence reads from
+the shape of the page rather than a caption.
 
 ## Row shape
 
-A slot names three shapes: a commit that showed up only in the new series,
-one that only showed up in the old one, and one lined up on both sides.
-`rowKind` reads that off a `Slot` directly, and nothing else, because
-nothing else is in a `Slot` to read.
-
-The rail beside each row marks that same shape and nothing more: `+` for
-added, `−` for dropped, `~` for paired. It cannot say whether a paired
-commit changed, because that answer lives in a diff and this pane holds
-only a `Slot[]`, two ids or their absence. The pane a reader opens by
-clicking a row is the one place that has fetched anything to compare, and
-[it already says](diff.md#interdiff-rows) when a paired commit turned out
-to make the same change. A second, cheaper-looking answer here would
-disagree with that one exactly when a reader had not requested it yet,
-which is worse than the rail saying less.
+The rail marks only a row's shape: `+` added, `−` dropped, `~` paired. Whether
+a paired commit changed lives in its diff, and
+[the diff row says so](diff.md#interdiff-rows) once it is fetched; a cheaper
+guess here would disagree with it.
 
 ## Moving a card
 
-Cards drag from one blank to another on their own side. `PairedGraph` keeps
-one thing in component state while a drag is in flight: which side and
-index it started from. A blank highlights only when `pairing.legalTargets`
-names it for that dragged card, which keeps the highlight in step with the
-same rule `nudge` and `move` already enforce; a second copy of "how far can
-this card travel" here would drift from theirs the first time either
-changed.
-
-The `↑` and `↓` buttons move the same card the same one row `nudge`
-already knows how to move, and they exist because a drag is not a control
-every reader can reach. There is no keyboard path onto a native HTML5 drag,
-and a touch drag on a tall pane fights the page's own scroll before it
-manages to move anything. [The pull request picker gave up a shift-click for
-the same reason](pull-requests.md#pull-comparison-picker): a control that
-only half its audience can operate is not the control to ship alone beside
-one that works for everyone.
-
-An arrow that loses focus after one press is not a keyboard path either. A
-nudge changes the slots it touches, and a row is keyed by its slot, so the
-card that moved remounts and focus falls back to the page. `refocus` names
-the card and the direction just pressed, and the matching arrow takes focus
-back as it mounts, so holding a key walks a card as far as it can go.
+Cards drag between blanks on their own side, and a blank highlights only when
+`pairing.legalTargets` allows it, the same rule `nudge` and `move` enforce.
+The `↑`/`↓` buttons do the same move for keyboards and touch screens, where a
+native drag is unreachable or fights the scroll.
 
 ```tsx
 //| id: frontend-view-paired-graph
@@ -120,6 +85,8 @@ export function PairedGraph({
   const [drag, setDrag] = useState<Drag | null>(null);
   const refocus = useRef<string | null>(null);
 
+  // A nudge remounts the card it moved and drops focus; the arrow that was
+  // pressed takes it back as it mounts, so holding a key keeps walking.
   function handleNudge(side: Side, index: number, step: -1 | 1) {
     const id = pairing.slots[index]?.[side] ?? null;
     refocus.current = id === null ? null : `${id}${step}`;
@@ -331,35 +298,12 @@ function Card({
 }
 ```
 
-`pairing.slots`'s index is the row's key as well as its identity. A blank
-row carries nothing else stable to key it by, and the index is exactly what
-`onSelect`, `nudge`, and `move` already address a row by, so a second key
-scheme here would only be one more thing to keep lined up with the one
-`usePairing` already uses.
-
 ## Styling
 
-The two lanes and the rail are one CSS grid, `1fr auto 1fr`, with the
-header labels, every row's three cells, and the footer all flowing into it
-in document order. The rail column is sized to its own content rather than
-a fixed length, because the mark inside it is one character and a length
-declared for that would be a number standing in for "as wide as a
-character," which `auto` already says without a name to look up.
-
-A blank is drawn as a gap the way the prose above argues it has to be: a
-dashed border and a hatch built from `--border-subtle` against nothing say
-"there is space here and nothing in it" without a caption doing the same
-job in words. Dragging a card turns that same gap into a target the moment
-it is a legal one, with a solid accent border and the same selected surface
-a chosen row uses elsewhere in the app, so a reader mid-drag sees exactly
-which blanks will take the card without reading `legalTargets` themselves.
-
-Below [the thousand-pixel line every narrow rule in this app shares](layout.md),
-the two lanes stay side by side rather than stacking, because stacking would
-put a card and its counterpart out of each other's sight, which is the one
-thing this pane exists to keep in view. What gives up room instead is the
-padding, the short commit id, which a reader can still open the card to
-read, and the rail's own width.
+A blank is a dashed, hatched gap; during a drag a legal one gets a solid
+accent border. Below [1000px](layout.md) the lanes stay side by side, since
+stacking would hide a card from its counterpart, and the padding and short
+id give up room instead.
 
 ```css
 /*| id: design-paired-graph

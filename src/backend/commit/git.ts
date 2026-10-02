@@ -59,6 +59,7 @@ export interface GitCommit {
 
 /** Whether the object store already holds `oid` as a commit. Never hits the network. */
 export async function gitHasCommit(oid: GitOid): Promise<boolean> {
+  // ^{commit} makes a present tree or blob id answer no.
   const spec = `${oid}^{commit}`;
   const result = await $`git cat-file -e ${spec}`.quiet().nothrow();
   return result.exitCode === 0;
@@ -81,6 +82,7 @@ export async function gitMaterialize(
   pins: GitPin[],
   remote = "origin",
 ): Promise<LocalOid[]> {
+  // One fetch for every missing oid; a repeat view fetches nothing.
   const missing = await absentPins(pins);
 
   if (missing.length > 0) {
@@ -89,6 +91,8 @@ export async function gitMaterialize(
       .quiet()
       .nothrow();
 
+    // git fetch can exit zero having declined a refspec, so the store
+    // itself is the only trustworthy report.
     const stillMissing = await absentPins(missing);
     if (stillMissing.length > 0) {
       const said = fetch.stderr.toString().trim();
@@ -208,6 +212,7 @@ export async function gitMergeBase(
   const result = await $`git merge-base ${a} ${b}`.quiet().nothrow();
   const shared = result.text().trim();
 
+  // No common ancestor is exit 1 with nothing on either stream.
   if (result.exitCode !== 0 || shared === "") {
     const said = result.stderr.toString().trim();
     throw new GitError(
