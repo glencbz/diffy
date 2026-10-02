@@ -2515,10 +2515,6 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .commit-stack__row--current {
-    background: var(--surface-selected);
-  }
-
   .commit-stack__spine {
     position: sticky;
     top: 0;
