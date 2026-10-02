@@ -29,10 +29,7 @@ exists for.
 A diff is drawn [structurally or line by line](diff.md#diff-view), and the
 reader picks which one files start in. Structural is the default because it
 is the one that hides layout noise. The choice is only a starting point,
-since each file has its own switch. The reader's choice reaches the diff view
-through [`DiffModeDefault`](diff.md#diff-view), a context, since the diffs sit
-several screens and controllers below `App` and none of those layers has any
-use for it.
+since each file has its own switch.
 
 The reader also picks whether a diff is laid out in one column or
 [side by side](diff.md#side-by-side). Unlike the view, the layout is not a
@@ -40,17 +37,14 @@ starting point with a switch on every file, since a reader who wants two
 columns wants them for every file at once. It is a setting of the device
 for the same reason the text size is: a laptop has room for two columns and
 a phone has less, so a reader may want them on one and not the other. The
-setting is obeyed at every width and in both views. It reaches the diff
-view through [`DiffLayoutSetting`](diff.md#side-by-side), beside `DiffModeDefault`.
+setting is obeyed at every width and in both views.
 
 A structural line marks the words difftastic says changed, until so much of
 it changed that the marks cover nearly everything and say less than the
 line's own tint. Where that point sits is a matter of taste, so the reader
 picks it: the share of a line's words that can change before
 [its marks go](diff.md#changed-words). The choices are a few fixed steps,
-because a reader can tell 50% from 90% on screen but not 70% from 75%. It
-reaches the diff view through `WordMarkLimitSetting`, beside
-`DiffModeDefault`.
+because a reader can tell 50% from 90% on screen but not 70% from 75%.
 
 `diffMode`, `diffLayout`, and `wordMarkLimit` each parse with a default of
 their own. Settings saved before a choice existed do not have it, and without the
@@ -64,7 +58,8 @@ default, and neither needs storage or React. With both in `state/`, a view
 could not name a diff mode without reaching into the layer that owns the
 settings hook. Each default is written
 once, in `DEFAULT_SETTINGS`, and the schema, the fallback, and the context
-all read it from there.
+all read it from there. The display is a schema of its own, so the diff
+view can take the display as one prop without the settings around it.
 
 ```ts
 //| id: frontend-model-settings
@@ -94,14 +89,15 @@ const DEFAULT_DISPLAY = {
   wordMarkLimit: 0.7,
 } as const;
 
-export const Settings = z.object({
-  display: z.object({
-    textSize: TextSize,
-    diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
-    diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
-    wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
-  }),
+export const Display = z.object({
+  textSize: TextSize,
+  diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
+  diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
+  wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
 });
+export type Display = z.infer<typeof Display>;
+
+export const Settings = z.object({ display: Display });
 export type Settings = z.infer<typeof Settings>;
 
 export const DEFAULT_SETTINGS: Settings = { display: DEFAULT_DISPLAY };
@@ -218,10 +214,11 @@ size would see every load flash at the standard size first.
 ```ts
 //| id: frontend-state-settings
 //| file: src/frontend/state/settings.ts
-import { useCallback, useLayoutEffect } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect } from "react";
 import type {
   DiffLayout,
   DiffMode,
+  Display,
   Settings,
   TextSize,
   WordMarkLimit,
@@ -229,6 +226,7 @@ import type {
 import { settingsRepository } from "../persistence/settings";
 import { useStored } from "./stored";
 
+/** The reader's settings and one setter for each choice in them. */
 export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
@@ -245,7 +243,7 @@ export function useSettings(): SettingsHandle {
   }, [settings.display.textSize]);
 
   const setDisplay = useCallback(
-    (change: Partial<Settings["display"]>) => {
+    (change: Partial<Display>) => {
       update((current) => ({
         ...current,
         display: { ...current.display, ...change },
@@ -265,7 +263,6 @@ export function useSettings(): SettingsHandle {
     (diffLayout: DiffLayout) => setDisplay({ diffLayout }),
     [setDisplay],
   );
-
   const setWordMarkLimit = useCallback(
     (wordMarkLimit: WordMarkLimit) => setDisplay({ wordMarkLimit }),
     [setDisplay],
@@ -307,6 +304,37 @@ size the reader picked beats any default a breakpoint sets.
 }
 ```
 
+## Sharing the settings
+
+The settings reach every screen through one context, `SettingsContext`,
+which `App` fills with the handle `useSettings` returns. A diff sits several
+screens and controllers below `App`, and none of the layers above its
+controller has any use for the default view, the layout, or the word mark
+limit, so threading them down as props would make every one of them carry
+the settings. The settings screen reads the same context, so a choice there
+reaches every diff at once.
+
+The context holds the whole handle rather than one value per setting, so a
+new setting reaches every reader without a provider of its own in `App`. It
+is state like any other, so it sits beside `useSettings`, and like any other
+state a controller reads it and hands a view what the view draws. A diff's
+controller passes the display on, and the diff view takes it as a prop. The
+context has no default, since a screen drawn outside `App` has no settings
+to draw, and reading it there throws rather than quietly falling back.
+
+```ts
+//| id: frontend-state-settings
+
+export const SettingsContext = createContext<SettingsHandle | null>(null);
+
+export function useSettingsContext(): SettingsHandle {
+  const settings = useContext(SettingsContext);
+  if (settings === null)
+    throw new Error("no SettingsContext above this screen");
+  return settings;
+}
+```
+
 ## Settings screen
 
 One `<fieldset>` per choice. A radio group is the right control for a
@@ -321,8 +349,8 @@ preview than four captions. Drawing each caption at its own size would also
 repeat every pixel value in a second set of rules.
 
 ```tsx
-//| id: frontend-view-settings-screen
-//| file: src/frontend/views/SettingsScreen.tsx
+//| id: frontend-view-settings-form
+//| file: src/frontend/views/SettingsForm.tsx
 import type {
   DiffLayout,
   DiffMode,
@@ -354,7 +382,7 @@ const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [
   { value: 0.9, caption: "Until 90% of a line changed" },
 ];
 
-export function SettingsScreen({
+export function SettingsForm({
   settings,
   onSetTextSize,
   onSetDiffMode,
@@ -471,5 +499,40 @@ draws on its own, which is what makes each one comfortable to hit on a phone.
   .settings__option + .settings__option {
     border-top: 1px solid var(--border-subtle);
   }
+}
+```
+
+The screen around the form is the [mode tabs](shell.md#mode-tabs) and the
+form, filled from [`SettingsContext`](#sharing-the-settings). It draws no
+review strip, since nothing on it is reviewed.
+
+```tsx
+//| id: frontend-screen-settings
+//| file: src/frontend/screens/SettingsScreen.tsx
+import { type Place, tabPlace } from "../model/place";
+import { useSettingsContext } from "../state/settings";
+import { ModeTabs } from "../views/ModeTabs";
+import { SettingsForm } from "../views/SettingsForm";
+
+export function SettingsScreen({ onGo }: { onGo: (place: Place) => void }) {
+  const settings = useSettingsContext();
+
+  return (
+    <div className="app">
+      <ModeTabs
+        mode="settings"
+        onSelect={(mode) => {
+          if (mode !== "settings") onGo(tabPlace(mode));
+        }}
+      />
+      <SettingsForm
+        settings={settings.settings}
+        onSetTextSize={settings.setTextSize}
+        onSetDiffMode={settings.setDiffMode}
+        onSetDiffLayout={settings.setDiffLayout}
+        onSetWordMarkLimit={settings.setWordMarkLimit}
+      />
+    </div>
+  );
 }
 ```

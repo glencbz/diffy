@@ -86,6 +86,11 @@ export interface FileSpot {
 export function openPull(number: number): PullPlace {
   return { number, from: { kind: "base" }, to: null, spot: null };
 }
+
+/** A screen as it opens from its tab, with nothing picked on it yet. */
+export function tabPlace(tab: Place["tab"]): Place {
+  return tab === "pulls" ? { tab: "pulls", pull: null } : { tab };
+}
 ```
 
 Reading and writing are each other's inverse on every place the type can

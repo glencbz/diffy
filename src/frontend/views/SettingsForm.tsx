@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/settings.md#frontend-view-settings-screen>>[init]
+// ~/~ begin <<docs/architecture/frontend/settings.md#frontend-view-settings-form>>[init]
 import type {
   DiffLayout,
   DiffMode,
@@ -30,7 +30,7 @@ const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [
   { value: 0.9, caption: "Until 90% of a line changed" },
 ];
 
-export function SettingsScreen({
+export function SettingsForm({
   settings,
   onSetTextSize,
   onSetDiffMode,

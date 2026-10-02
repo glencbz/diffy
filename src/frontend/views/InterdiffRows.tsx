@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import { useState } from "react";
 import type { ReviewActions, ReviewedRow } from "../model/review";
+import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommitMessage } from "./CommitMessage";
 import { ComparisonHeader } from "./ComparisonHeader";
@@ -11,6 +12,7 @@ export function InterdiffRows({
   plain,
   sources,
   review,
+  display,
 }: {
   rows: ReviewedRow[];
   /** Whether these are commits' own diffs rather than an interdiff. */
@@ -19,6 +21,7 @@ export function InterdiffRows({
   /** Null while there is no review document to change, which draws each
    *  row with nothing on it that would write one. */
   review: ReviewActions | null;
+  display: Display;
 }) {
   const [composing, setComposing] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -81,6 +84,7 @@ export function InterdiffRows({
               files={row.files}
               sources={sources}
               scope={rowKey(row)}
+              display={display}
               review={
                 review === null
                   ? undefined

@@ -24,14 +24,15 @@ const DEFAULT_DISPLAY = {
   wordMarkLimit: 0.7,
 } as const;
 
-export const Settings = z.object({
-  display: z.object({
-    textSize: TextSize,
-    diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
-    diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
-    wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
-  }),
+export const Display = z.object({
+  textSize: TextSize,
+  diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
+  diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
+  wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
 });
+export type Display = z.infer<typeof Display>;
+
+export const Settings = z.object({ display: Display });
 export type Settings = z.infer<typeof Settings>;
 
 export const DEFAULT_SETTINGS: Settings = { display: DEFAULT_DISPLAY };

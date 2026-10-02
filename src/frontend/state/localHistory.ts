@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-state-local-history>>[init]
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchOperations } from "../api";
 import { type LocalHistory, pick, withOperations } from "../model/localHistory";
 
@@ -7,7 +7,13 @@ const POLL_INTERVAL_MS = 2000;
 
 type LocalSideName = "before" | "after";
 
-export function useLocalHistory() {
+export interface LocalHistoryHandle {
+  history: LocalHistory;
+  pickOperation: (side: LocalSideName, operationId: string | null) => void;
+  selectCommits: (side: LocalSideName, commitIds: string[]) => void;
+}
+
+export function useLocalHistory(): LocalHistoryHandle {
   const [history, setHistory] = useState<LocalHistory>({ status: "loading" });
   const polling = useRef(false);
 
@@ -73,5 +79,19 @@ export function useLocalHistory() {
   }
 
   return { history, pickOperation, selectCommits };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-state-local-history>>[1]
+
+export const LocalHistoryContext = createContext<LocalHistoryHandle | null>(
+  null,
+);
+
+export function useLocalHistoryContext(): LocalHistoryHandle {
+  const local = useContext(LocalHistoryContext);
+  if (local === null) {
+    throw new Error("no LocalHistoryContext above this screen");
+  }
+  return local;
 }
 // ~/~ end

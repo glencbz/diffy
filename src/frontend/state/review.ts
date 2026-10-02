@@ -1,5 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-state-review>>[init]
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { AsyncState } from "../model/asyncState";
 import {
   applyCommand,
@@ -163,5 +171,15 @@ export function useReview(): ReviewHandle {
     ),
     ...shared,
   };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/review.md#frontend-state-review>>[1]
+
+export const ReviewContext = createContext<ReviewHandle | null>(null);
+
+export function useReviewContext(): ReviewHandle {
+  const review = useContext(ReviewContext);
+  if (review === null) throw new Error("no ReviewContext above this screen");
+  return review;
 }
 // ~/~ end

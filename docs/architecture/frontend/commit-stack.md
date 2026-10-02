@@ -16,6 +16,7 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { ComparisonReview, ReviewActions } from "../model/review";
+import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommitMessage } from "./CommitMessage";
 import {
@@ -136,6 +137,8 @@ export interface CommitStackProps {
   reviewOf: (row: StackRow) => ComparisonReview;
   /** Null while there is no review document to write to. */
   actions: ReviewActions | null;
+  /** How the reader asked for diffs to be drawn. */
+  display: Display;
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
@@ -181,6 +184,7 @@ export function CommitStack({
   since,
   reviewOf,
   actions,
+  display,
 }: CommitStackProps): ReactElement {
   return (
     <div className="commit-stack">
@@ -199,6 +203,7 @@ export function CommitStack({
           since={since}
           review={reviewOf(row)}
           actions={actions}
+          display={display}
         />
       ))}
     </div>
@@ -218,6 +223,7 @@ function StackSection({
   since,
   review,
   actions,
+  display,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -231,6 +237,7 @@ function StackSection({
   since: string;
   review: ComparisonReview;
   actions: ReviewActions | null;
+  display: Display;
 }) {
   const section = useRef<HTMLElement>(null);
   const [composing, setComposing] = useState(false);
@@ -307,6 +314,7 @@ function StackSection({
             onToggle={onToggle}
             links={links}
             reveal={reveal}
+            display={display}
             review={
               actions === null
                 ? undefined
@@ -438,6 +446,7 @@ function StackContents({
   links,
   reveal,
   review,
+  display,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -446,6 +455,7 @@ function StackContents({
   links: DiffLinks;
   reveal: number;
   review: DiffReview | undefined;
+  display: Display;
 }) {
   if (row.files.status === "loading") {
     return (
@@ -477,6 +487,7 @@ function StackContents({
           links={links}
           reveal={reveal}
           review={review}
+          display={display}
         />
       )}
     </div>

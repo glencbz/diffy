@@ -24,7 +24,7 @@ opening an interdiff keeps what was ticked. Its width is not the same,
 though: the lone graph is kept under its own key, `local-log`, so dragging a
 narrow after column does not shrink the wide one, or the other way round.
 
-The panes fill whatever `App` gives them rather than claiming the viewport,
+The panes fill whatever the screen gives them rather than claiming the viewport,
 because the mode switch sits above them and takes a strip of it.
 
 Columns on a wide screen, one pane at a time on a narrow one. Stacked, the
@@ -51,7 +51,7 @@ answers the question a picker raises.
 
 Each picker column is followed by a [splitter](#resizing-a-pane) that sets
 its width, and the sizes come in as props like everything else here, so the
-view stays a function of what it is handed and `App` owns the document they
+view stays a function of what it is handed and the screen owns the document they
 are kept in.
 
 `pane--showing` is computed in React rather than left for CSS to work out
