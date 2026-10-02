@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-collapse>>[init]
-import type { FileDiff } from "../api";
+import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
 
 /** Files a package manager writes and resolves on the author's behalf. */

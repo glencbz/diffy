@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-list>>[init]
-import type { PullSummary } from "../api";
+import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 
 export function PullList({

@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-requests>>[init]
 import { useState } from "react";
-import type { PullSummary } from "../api";
 import { openPull, type PullPlace } from "../model/place";
+import type { PullSummary } from "../model/pull";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";

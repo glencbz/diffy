@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-pulls>>[init]
 import { useEffect, useState } from "react";
-import { fetchPulls, fetchRepo, type PullSummary } from "../api";
+import { fetchPulls, fetchRepo } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { PullSummary } from "../model/pull";
 
 export interface RepoPulls {
   /** `owner/name`, as the server read it off `origin`. */

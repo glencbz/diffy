@@ -167,7 +167,7 @@ holds the document.
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
 import * as z from "zod";
-import type { InterdiffRow } from "../api";
+import type { InterdiffRow } from "./diff";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -791,7 +791,8 @@ wrong assumption the code is being tested against.
 //| file: src/frontend/model/review.test.ts
 import { describe, expect, test } from "bun:test";
 import { alignSeries } from "../../backend/commit/series";
-import type { InterdiffRow, LogEntry } from "../api";
+import type { InterdiffRow } from "./diff";
+import type { LogEntry } from "./history";
 import {
   applyCommand,
   commentOn,
@@ -1848,8 +1849,8 @@ behind it keeps the chips and drops the two buttons.
 //| id: frontend-view-review-bar
 //| file: src/frontend/views/ReviewBar.tsx
 import type { ReactNode } from "react";
-import type { FileDiff } from "../api";
 import { fileVersionOf } from "../model/changedFiles";
+import type { FileDiff } from "../model/diff";
 import {
   type ComparisonReview,
   isViewed,

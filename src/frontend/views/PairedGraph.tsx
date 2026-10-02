@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/paired-graph.md#frontend-view-paired-graph>>[init]
 import { Fragment, type RefObject, useRef, useState } from "react";
-import type { GitCommit } from "../api";
+import type { GitCommit } from "../model/history";
 import type { Pairing, Side, Slot } from "../model/pairing";
 
 export type RowKind = "added" | "dropped" | "paired";

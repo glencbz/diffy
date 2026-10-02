@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place>>[init]
-import { GitOid, type PullBaseline } from "../api";
+import { GitOid } from "./history";
+import type { PullBaseline } from "./pull";
 
 export type Place =
   | { tab: "local" }

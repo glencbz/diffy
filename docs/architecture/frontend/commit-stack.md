@@ -13,8 +13,9 @@ sees what every commit is and opens only the ones that matter to them.
 //| id: frontend-view-commit-stack
 //| file: src/frontend/views/CommitStack.tsx
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitCommit } from "../model/history";
 import type { ComparisonReview, ReviewActions } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
@@ -673,7 +674,7 @@ sets for this app.
 //| id: frontend-view-commit-stack-test
 //| file: src/frontend/views/CommitStack.test.ts
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "../api";
+import type { FileDiff } from "../model/diff";
 import { countLines } from "./CommitStack";
 
 describe("countLines", () => {

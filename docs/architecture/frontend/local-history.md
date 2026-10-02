@@ -16,7 +16,7 @@ newest, so the screen knows to offer the new one.
 ```ts
 //| id: frontend-model-local-history
 //| file: src/frontend/model/localHistory.ts
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "./history";
 
 /**
  * Which operation a local side reads the repo at. A `latest` side asked for
@@ -442,7 +442,7 @@ graph down and leave the two sides of an interdiff out of line.
 //| id: frontend-view-operation-picker
 //| file: src/frontend/views/OperationPicker.tsx
 import type { ReactNode } from "react";
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "../model/history";
 
 export function OperationPicker({
   operations,
@@ -570,7 +570,7 @@ beside it.
 ```tsx
 //| id: frontend-view-newer-operation
 //| file: src/frontend/views/NewerOperation.tsx
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "../model/history";
 import { optionLabel } from "./OperationPicker";
 
 export function NewerOperation({
@@ -681,7 +681,7 @@ beside it is the louder of the two.
 //| id: frontend-model-local-history-test
 //| file: src/frontend/model/localHistory.test.ts
 import { describe, expect, test } from "bun:test";
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "./history";
 import {
   newerOperation,
   pick,

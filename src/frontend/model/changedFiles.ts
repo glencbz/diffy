@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-model-changed-files>>[init]
-import type { FileDiff } from "../api";
+import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
 import type { FileVersion, RowComment } from "./review";
 

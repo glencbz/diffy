@@ -24,7 +24,7 @@ in two different rows still gets two different ids.
 ```ts
 //| id: frontend-model-changed-files
 //| file: src/frontend/model/changedFiles.ts
-import type { FileDiff } from "../api";
+import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
 import type { FileVersion, RowComment } from "./review";
 
@@ -215,7 +215,6 @@ function fold(node: MutableNode): TreeNode {
 //| id: frontend-model-changed-files-test
 //| file: src/frontend/model/changedFiles.test.ts
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "../api";
 import {
   type ChangedFile,
   changedFile,
@@ -224,6 +223,7 @@ import {
   fileTree,
   shownPathOf,
 } from "./changedFiles";
+import type { FileDiff } from "./diff";
 import type { RowComment } from "./review";
 
 const PATCH = ["@@ -1,2 +1,3 @@", " keep", "-old", "+new", "+another"].join(
@@ -450,8 +450,8 @@ nothing outside one row's own disclosure cares whether it is open.
 //| id: frontend-view-file-tree
 //| file: src/frontend/views/FileTree.tsx
 import { type CSSProperties, useState } from "react";
-import type { FileDiff } from "../api";
 import type { ChangedFile, TreeNode } from "../model/changedFiles";
+import type { FileDiff } from "../model/diff";
 
 const STATUS_LETTER: Record<FileDiff["status"], string> = {
   added: "A",

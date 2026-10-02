@@ -27,7 +27,20 @@ because the list of files is a fresh array whenever its screen renders.
 ```ts
 //| id: frontend-model-source
 //| file: src/frontend/model/source.ts
-import type { SourceFile } from "../api";
+export type SyntaxKind =
+  | "keyword"
+  | "string"
+  | "string-expression"
+  | "comment"
+  | "constant"
+  | "function"
+  | "parameter"
+  | "punctuation"
+  | "link";
+
+export type SyntaxToken = { text: string; kind: SyntaxKind | null };
+
+export type SourceFile = { language: string | null; lines: SyntaxToken[][] };
 
 /** One side of a file, whole and highlighted, or null while there is none. */
 export type SourceLookup = (blob: string, path: string) => SourceFile | null;
@@ -37,8 +50,9 @@ export type SourceLookup = (blob: string, path: string) => SourceFile | null;
 //| id: frontend-state-source
 //| file: src/frontend/state/source.ts
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type FileDiff, fetchSource, type SourceFile } from "../api";
-import type { SourceLookup } from "../model/source";
+import { fetchSource } from "../api";
+import type { FileDiff } from "../model/diff";
+import type { SourceFile, SourceLookup } from "../model/source";
 
 interface Side {
   blob: string;

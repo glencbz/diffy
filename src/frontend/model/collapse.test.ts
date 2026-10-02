@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-collapse-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "../api";
 import { collapseReason, LARGE_DIFF } from "./collapse";
+import type { FileDiff } from "./diff";
 
 function modified(path: string, patch: string): FileDiff {
   return {

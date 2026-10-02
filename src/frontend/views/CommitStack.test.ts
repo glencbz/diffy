@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/commit-stack.md#frontend-view-commit-stack-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "../api";
+import type { FileDiff } from "../model/diff";
 import { countLines } from "./CommitStack";
 
 describe("countLines", () => {

@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-model-last-reviewed>>[init]
 import * as z from "zod";
-import { GitOid, type PullVersion } from "../api";
+import { GitOid } from "./history";
 import type { PullPlace } from "./place";
+import type { PullVersion } from "./pull";
 import type { ReviewedVersion } from "./review";
 
 /** What the browser kept per pull request before the server kept review

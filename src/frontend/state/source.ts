@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/syntax.md#frontend-state-source>>[init]
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type FileDiff, fetchSource, type SourceFile } from "../api";
-import type { SourceLookup } from "../model/source";
+import { fetchSource } from "../api";
+import type { FileDiff } from "../model/diff";
+import type { SourceFile, SourceLookup } from "../model/source";
 
 interface Side {
   blob: string;

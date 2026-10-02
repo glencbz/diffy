@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-view-newer-operation>>[init]
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "../model/history";
 import { optionLabel } from "./OperationPicker";
 
 export function NewerOperation({

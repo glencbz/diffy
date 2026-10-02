@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-last-reviewed>>[init]
-import type { GitOid, PullBaseline, PullVersion } from "../api";
+import type { GitOid } from "../model/history";
+import type { PullBaseline, PullVersion } from "../model/pull";
 
 export function LastReviewed({
   states,

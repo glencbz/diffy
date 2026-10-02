@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-controller-commit-log>>[init]
-import type { Source } from "../api";
+import type { Source } from "../model/history";
 import { useCommits } from "../state/commits";
 import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";

@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-pull-history>>[init]
 import { useEffect, useState } from "react";
-import { fetchPullHistory, type PullHistory } from "../api";
+import { fetchPullHistory } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { PullHistory } from "../model/pull";
 
 export function usePullHistory(
   repo: string,

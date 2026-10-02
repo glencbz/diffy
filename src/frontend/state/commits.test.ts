@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-state-commits-test>>[init]
 import { afterEach, describe, expect, test } from "bun:test";
-import { GitOid } from "../api";
+import { GitOid } from "../model/history";
 import { commitsFrom } from "./commits";
 
 const liveFetch = globalThis.fetch;

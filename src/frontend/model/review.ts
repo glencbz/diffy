@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-model-review>>[init]
 import * as z from "zod";
-import type { InterdiffRow } from "../api";
+import type { InterdiffRow } from "./diff";
 
 const Comparison = z.object({
   reviewKey: z.string(),

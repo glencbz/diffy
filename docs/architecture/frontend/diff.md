@@ -22,8 +22,9 @@ depends on a source's.
 //| id: frontend-state-comparison
 //| file: src/frontend/state/comparison.ts
 import { useEffect, useState } from "react";
-import { fetchInterdiff, type InterdiffRow } from "../api";
+import { fetchInterdiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { InterdiffRow } from "../model/diff";
 
 /** What the diff panel is being asked for. */
 export interface Comparison {
@@ -304,7 +305,6 @@ it, since the reader is looking at what they clicked.
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import {
   afterPathOf,
   type ChangedFile,
@@ -315,6 +315,7 @@ import {
   shownPathOf,
 } from "../model/changedFiles";
 import { collapseReason } from "../model/collapse";
+import type { FileDiff, StructuralDiff } from "../model/diff";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "../model/patch";
 import type { FileSpot } from "../model/place";
 import {
@@ -326,7 +327,7 @@ import {
   type ViewedFile,
 } from "../model/review";
 import type { DiffMode, Display } from "../model/settings";
-import type { SourceLookup } from "../model/source";
+import type { SourceFile, SourceLookup, SyntaxToken } from "../model/source";
 import { splitRows } from "../model/split";
 import {
   changedLines,
@@ -1651,7 +1652,7 @@ the file's length, since a long file with a one-line change reads quickly.
 ```ts
 //| id: frontend-model-collapse
 //| file: src/frontend/model/collapse.ts
-import type { FileDiff } from "../api";
+import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
 
 /** Files a package manager writes and resolves on the author's behalf. */
@@ -1727,8 +1728,8 @@ export function collapseReason(file: FileDiff): string | null {
 //| id: frontend-model-collapse-test
 //| file: src/frontend/model/collapse.test.ts
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "../api";
 import { collapseReason, LARGE_DIFF } from "./collapse";
+import type { FileDiff } from "./diff";
 
 function modified(path: string, patch: string): FileDiff {
   return {
@@ -2190,8 +2191,9 @@ colours can be drawn together, each piece keeping its token's kind.
 ```ts
 //| id: frontend-model-words
 //| file: src/frontend/model/words.ts
-import type { SyntaxKind, SyntaxToken } from "../api";
+
 import type { HunkLine } from "./patch";
+import type { SyntaxKind, SyntaxToken } from "./source";
 
 /** Characters `start` up to, not including, `end` of a line. */
 export interface Range {
@@ -2886,7 +2888,7 @@ many open comments sit on it.
 ```tsx
 //| id: frontend-view-comparison-header
 //| file: src/frontend/views/ComparisonHeader.tsx
-import type { LogEntry } from "../api";
+import type { LogEntry } from "../model/history";
 import type { ReviewedRow } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { ReviewBar } from "./ReviewBar";

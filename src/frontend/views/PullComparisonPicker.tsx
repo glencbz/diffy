@@ -1,13 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-comparison-picker>>[init]
+
+import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitOid } from "../model/history";
 import type {
-  FileDiff,
-  GitOid,
   PullBaseline,
   PullHeadOrigin,
   PullHistory,
   PullVersion,
-} from "../api";
-import type { AsyncState } from "../model/asyncState";
+} from "../model/pull";
 import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({

@@ -1,13 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-review>>[init]
 import { useEffect, useState } from "react";
-import type {
-  FileDiff,
-  GitCommit,
-  GitOid,
-  PullSummary,
-  PullVersion,
-} from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitCommit, GitOid } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
 import {
@@ -16,6 +11,7 @@ import {
   type PullPlace,
   pullHref,
 } from "../model/place";
+import type { PullSummary, PullVersion } from "../model/pull";
 import {
   type ComparisonReview,
   keptPairing,

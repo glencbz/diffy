@@ -3,8 +3,22 @@
 `api.ts` is the only module that talks to the backend, and the only one that
 knows a server exists.
 
-`api.ts` has one Zod schema and one `fetch` wrapper per endpoint. `JjFileDiff`
-is a discriminated union on `status`. `added`, `deleted`, and `modified` carry
+`api.ts` has one Zod schema and one `fetch` wrapper per endpoint. The shapes
+those schemas parse into are not the schemas' to declare. Each one is a plain
+TypeScript type in `model/`, written out the way a reader wants to read it,
+and the schemas stay private to `api.ts`. Every wrapper declares the model type
+it returns, so the compiler checks what the schema parses against what the app
+expects at the one place they meet. A field the schema drops or a value it
+admits that the type does not is a type error in the wrapper.
+
+The check runs one way. A schema stricter than its type, such as one that
+accepts two of the three pull request states, still compiles, because what it
+parses is still a valid value of the type. Asking for `z.infer` instead would
+make the schema the source of truth, so every view would read a type nobody
+wrote down and a change to a parser would quietly become a change to the
+app's model.
+
+`FileDiff` is a discriminated union on `status`. `added`, `deleted`, and `modified` carry
 a single `path`. `renamed` and `copied` carry `oldPath` and `newPath`.
 
 `LogEntry.changeId` is nullable because a GitHub pull request's commits are
@@ -26,71 +40,160 @@ is the point; a GitHub pull request is read through git, which knows an
 author's name and the date they wrote. `refs` and `markers` are empty for a
 git commit, which has neither in this app.
 
-`GitOid` is branded, so the only way to hold one is to have parsed it out of a
-backend response. A head oid cannot be typed into the app by hand, which is
-what makes the guarantee in the next section hold at compile time.
+`GitOid` is branded, so the only way to hold one is to have parsed it, out of a
+backend response, the address, or what the browser stored. A head oid cannot be typed into the app
+by hand, which is what makes the guarantee in the next section hold at compile
+time. Its schema is the one that lives in `model/` beside its type, because the
+schema is the only thing that mints one and `model/` parses oids of its own.
+
+```ts
+//| id: frontend-model-history
+//| file: src/frontend/model/history.ts
+import * as z from "zod";
+
+/** A full 40-hex git object id. Branded: only a parse mints one. */
+export type GitOid = string & z.$brand<"GitOid">;
+export const GitOid = z
+  .string()
+  .regex(/^[0-9a-f]{40}$/, "expected a full 40-character git object id")
+  .brand("GitOid");
+
+/** A name a backend prints beside a commit: see `CommitRef` in the jj module. */
+export type CommitRef = {
+  kind: "bookmark" | "tag" | "working-copy";
+  name: string;
+};
+
+export type CommitMarker =
+  | "working-copy"
+  | "empty"
+  | "conflict"
+  | "divergent"
+  | "hidden";
+
+export type LogEntry = {
+  commitId: string;
+  changeId: string | null;
+  description: string;
+  parents: string[];
+  /** Whoever the backend names as the author, as it names them. */
+  author: string;
+  /** ISO 8601. The instant the backend dates this commit by. */
+  timestamp: string;
+  refs: CommitRef[];
+  markers: CommitMarker[];
+};
+
+export type OpLogEntry = {
+  id: string;
+  description: string;
+  time: string;
+  args: string;
+};
+```
+
+```ts
+//| id: frontend-model-diff
+//| file: src/frontend/model/diff.ts
+import type { LogEntry } from "./history";
+
+/** A token difftastic says changed, in UTF-16 code units of its line. */
+export type ChangedRange = { start: number; end: number };
+
+export type StructuralLine =
+  | { kind: "context"; code: string; newLine: number; oldLine?: number }
+  | { kind: "removed"; code: string; oldLine: number; changes: ChangedRange[] }
+  | { kind: "added"; code: string; newLine: number; changes: ChangedRange[] };
+
+export type StructuralHunk = {
+  header: string;
+  newStart: number;
+  oldStart: number;
+  lines: StructuralLine[];
+};
+
+/** A file as [difftastic](../backend/difft.md) reads it: hunks in the same
+ *  shape a patch reads into, with each changed line's ranges, or why the
+ *  file has none. */
+export type StructuralDiff =
+  | { kind: "structural"; language: string; hunks: StructuralHunk[] }
+  | { kind: "unavailable"; reason: string };
+
+type FileDiffFields = {
+  binary: boolean;
+  /** The blob each side is stored under, for `fetchSource`. Null for a side
+   *  that does not exist. */
+  oldBlob: string | null;
+  newBlob: string | null;
+  patch: string;
+  structural: StructuralDiff;
+};
+
+export type FileDiff = FileDiffFields &
+  (
+    | { status: "added" | "deleted" | "modified"; path: string }
+    | { status: "renamed" | "copied"; oldPath: string; newPath: string }
+  );
+
+export type InterdiffRow = {
+  from: LogEntry | null;
+  to: LogEntry | null;
+  files: FileDiff[];
+};
+
+export type InterdiffResponse = { rows: InterdiffRow[] };
+```
 
 ```ts
 //| id: frontend-api
 //| file: src/frontend/api.ts
 import * as z from "zod";
+import type { InterdiffResponse } from "./model/diff";
+import { GitOid, type LogEntry, type OpLogEntry } from "./model/history";
+import type {
+  PullBaseline,
+  PullCommitsResponse,
+  PullDiffResponse,
+  PullDiffScope,
+  PullHistory,
+  PullSummary,
+} from "./model/pull";
+import type { SourceFile } from "./model/source";
 
-/** A full 40-hex git object id. Branded: only a parsed response mints one. */
-export const GitOid = z
-  .string()
-  .regex(/^[0-9a-f]{40}$/, "expected a full 40-character git object id")
-  .brand("GitOid");
-export type GitOid = z.infer<typeof GitOid>;
-
-/** A name a backend prints beside a commit: see `CommitRef` in the jj module. */
-export const CommitRef = z.object({
+const commitRef = z.object({
   kind: z.enum(["bookmark", "tag", "working-copy"]),
   name: z.string(),
 });
-export type CommitRef = z.infer<typeof CommitRef>;
 
-export const CommitMarker = z.enum([
+const commitMarker = z.enum([
   "working-copy",
   "empty",
   "conflict",
   "divergent",
   "hidden",
 ]);
-export type CommitMarker = z.infer<typeof CommitMarker>;
 
-export const LogEntry = z.object({
+const logEntry = z.object({
   commitId: z.string(),
   changeId: z.string().nullable(),
   description: z.string(),
   parents: z.array(z.string()),
-  /** Whoever the backend names as the author, as it names them. */
   author: z.string(),
-  /** ISO 8601. The instant the backend dates this commit by. */
   timestamp: z.string(),
-  refs: z.array(CommitRef),
-  markers: z.array(CommitMarker),
+  refs: z.array(commitRef),
+  markers: z.array(commitMarker),
 });
-export type LogEntry = z.infer<typeof LogEntry>;
 
-const LogResponse = z.array(LogEntry);
-
-export const OpLogEntry = z.object({
+const opLogEntry = z.object({
   id: z.string(),
   description: z.string(),
   time: z.string(),
   args: z.string(),
 });
-export type OpLogEntry = z.infer<typeof OpLogEntry>;
 
-const OpLogResponse = z.array(OpLogEntry);
+const changedRange = z.object({ start: z.number(), end: z.number() });
 
-/** A token difftastic says changed, in UTF-16 code units of its line. */
-const ChangedRange = z.object({ start: z.number(), end: z.number() });
-
-/** A file as [difftastic](../backend/difft.md) reads it: hunks in the same
- *  shape a patch reads into, with each changed line's ranges, or why the
- *  file has none. */
-export const StructuralDiff = z.discriminatedUnion("kind", [
+const structuralDiff = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("structural"),
     language: z.string(),
@@ -111,13 +214,13 @@ export const StructuralDiff = z.discriminatedUnion("kind", [
               kind: z.literal("removed"),
               code: z.string(),
               oldLine: z.number(),
-              changes: z.array(ChangedRange),
+              changes: z.array(changedRange),
             }),
             z.object({
               kind: z.literal("added"),
               code: z.string(),
               newLine: z.number(),
-              changes: z.array(ChangedRange),
+              changes: z.array(changedRange),
             }),
           ]),
         ),
@@ -126,19 +229,16 @@ export const StructuralDiff = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("unavailable"), reason: z.string() }),
 ]);
-export type StructuralDiff = z.infer<typeof StructuralDiff>;
 
 const fileDiffFields = {
   binary: z.boolean(),
-  /** The blob each side is stored under, for `fetchSource`. Null for a side
-   *  that does not exist. */
   oldBlob: z.string().nullable(),
   newBlob: z.string().nullable(),
   patch: z.string(),
-  structural: StructuralDiff,
+  structural: structuralDiff,
 };
 
-export const FileDiff = z.discriminatedUnion("status", [
+const fileDiff = z.discriminatedUnion("status", [
   z.object({ status: z.literal("added"), path: z.string(), ...fileDiffFields }),
   z.object({
     status: z.literal("deleted"),
@@ -163,19 +263,18 @@ export const FileDiff = z.discriminatedUnion("status", [
     ...fileDiffFields,
   }),
 ]);
-export type FileDiff = z.infer<typeof FileDiff>;
 
-export const InterdiffRow = z.object({
-  from: LogEntry.nullable(),
-  to: LogEntry.nullable(),
-  files: z.array(FileDiff),
+const interdiffResponse = z.object({
+  rows: z.array(
+    z.object({
+      from: logEntry.nullable(),
+      to: logEntry.nullable(),
+      files: z.array(fileDiff),
+    }),
+  ),
 });
-export type InterdiffRow = z.infer<typeof InterdiffRow>;
 
-const InterdiffResponse = z.object({ rows: z.array(InterdiffRow) });
-export type InterdiffResponse = z.infer<typeof InterdiffResponse>;
-
-const ErrorResponse = z.object({ error: z.string() });
+const errorResponse = z.object({ error: z.string() });
 
 /** GET a jj-backed endpoint, turning a 400 into its `error` message. */
 async function getJson(url: string, label: string): Promise<unknown> {
@@ -183,7 +282,7 @@ async function getJson(url: string, label: string): Promise<unknown> {
   const body: unknown = await res.json();
 
   if (!res.ok) {
-    const parsed = ErrorResponse.safeParse(body);
+    const parsed = errorResponse.safeParse(body);
     throw new Error(
       parsed.success ? parsed.data.error : `${label} failed (${res.status})`,
     );
@@ -193,14 +292,16 @@ async function getJson(url: string, label: string): Promise<unknown> {
 }
 
 export async function fetchOperations(): Promise<OpLogEntry[]> {
-  return OpLogResponse.parse(
-    await getJson("/api/operations", "GET /api/operations"),
-  );
+  return z
+    .array(opLogEntry)
+    .parse(await getJson("/api/operations", "GET /api/operations"));
 }
 
 export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
   const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
-  return LogResponse.parse(await getJson(`/api/log${query}`, "GET /api/log"));
+  return z
+    .array(logEntry)
+    .parse(await getJson(`/api/log${query}`, "GET /api/log"));
 }
 
 export async function fetchInterdiff(
@@ -210,7 +311,7 @@ export async function fetchInterdiff(
   const params = new URLSearchParams();
   for (const commitId of from) params.append("from", commitId);
   for (const commitId of to) params.append("to", commitId);
-  return InterdiffResponse.parse(
+  return interdiffResponse.parse(
     await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
   );
 }
@@ -232,7 +333,7 @@ come to mean a different commit while the page is open; the backend's
 a pull request that now has three versions" a request nobody can express.
 
 ```ts
-//| id: frontend-api
+//| id: frontend-model-history
 
 /** A view of the local repo: the jj operation to read its log at. */
 export type JjSource = { kind: "jj"; operation: string | null };
@@ -248,26 +349,51 @@ export type PullSource = {
 /** Where one side's commits come from. */
 export type Source = JjSource | PullSource;
 
-export const GitCommit = z.object({
+export type GitCommit = {
+  commitId: GitOid;
+  parents: GitOid[];
+  description: string;
+  author: string;
+  authoredAt: string;
+  /** What lines this commit up against another across a force push. The
+   *  backend derives it from the subject line, since git records nothing
+   *  durable of its own. */
+  changeId: string | null;
+};
+```
+
+```ts
+//| id: frontend-model-pull
+//| file: src/frontend/model/pull.ts
+import type { FileDiff } from "./diff";
+import type { GitCommit, GitOid } from "./history";
+
+export type PullCommitsResponse = {
+  head: GitOid;
+  version: number;
+  base: GitOid;
+  commits: GitCommit[];
+};
+```
+
+```ts
+//| id: frontend-api
+
+const gitCommit = z.object({
   commitId: GitOid,
   parents: z.array(GitOid),
   description: z.string(),
   author: z.string(),
   authoredAt: z.string(),
-  /** What lines this commit up against another across a force push. The
-   *  backend derives it from the subject line, since git records nothing
-   *  durable of its own. */
   changeId: z.string().nullable(),
 });
-export type GitCommit = z.infer<typeof GitCommit>;
 
-const PullCommitsResponse = z.object({
+const pullCommitsResponse = z.object({
   head: GitOid,
   version: z.number(),
   base: GitOid,
-  commits: z.array(GitCommit),
+  commits: z.array(gitCommit),
 });
-export type PullCommitsResponse = z.infer<typeof PullCommitsResponse>;
 
 export async function fetchPullCommits(
   repo: string,
@@ -275,7 +401,7 @@ export async function fetchPullCommits(
   head: GitOid,
 ): Promise<PullCommitsResponse> {
   const params = new URLSearchParams({ repo, number: String(number), head });
-  return PullCommitsResponse.parse(
+  return pullCommitsResponse.parse(
     await getJson(
       `/api/github/pull/commits?${params}`,
       "GET /api/github/pull/commits",
@@ -301,64 +427,102 @@ Nothing that is 40 hex characters reads as `base`, so the two cannot collide
 and the route parses the choice out of the value itself.
 
 ```ts
+//| id: frontend-model-pull
+
+export type PullState = "OPEN" | "CLOSED" | "MERGED";
+
+export type PullSummary = {
+  number: number;
+  title: string;
+  state: PullState;
+  author: string;
+  updatedAt: string;
+  headRefOid: GitOid;
+  baseRefName: string;
+  url: string;
+};
+
+/** How a head became the head. Only a force push has a time to show. */
+export type PullHeadOrigin =
+  | { kind: "opened" }
+  | { kind: "force-pushed"; at: string }
+  | { kind: "current" };
+
+export type PullVersion = {
+  /** Position in the chain. A label to show, never a way to ask for a state. */
+  version: number;
+  head: GitOid;
+  origin: PullHeadOrigin;
+};
+
+export type PullHistory = {
+  number: number;
+  baseRefName: string;
+  baseRefOid: GitOid;
+  /** Oldest first. The last one is the head the branch has now. */
+  states: PullVersion[];
+  truncated: boolean;
+};
+
+/** What the after side is measured against. */
+export type PullBaseline = { kind: "base" } | { kind: "version"; head: GitOid };
+
+/** What to diff inside the heads `from`/`to` resolve: both whole heads, one
+ *  commit, or the pair across two versions. */
+export type PullDiffScope =
+  | { kind: "heads" }
+  | { kind: "commit"; commit: GitOid }
+  | { kind: "pair"; from: GitOid; to: GitOid };
+
+export type PullDiffResponse = {
+  from: PullBaseline;
+  to: GitOid;
+  files: FileDiff[];
+};
+```
+
+```ts
 //| id: frontend-api
 
-export const PullState = z.enum(["OPEN", "CLOSED", "MERGED"]);
-export type PullState = z.infer<typeof PullState>;
-
-export const PullSummary = z.object({
+const pullSummary = z.object({
   number: z.number(),
   title: z.string(),
-  state: PullState,
+  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   author: z.string(),
   updatedAt: z.string(),
   headRefOid: GitOid,
   baseRefName: z.string(),
   url: z.string(),
 });
-export type PullSummary = z.infer<typeof PullSummary>;
 
-const PullsResponse = z.array(PullSummary);
-
-/** How a head became the head. Only a force push has a time to show. */
-export const PullHeadOrigin = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("opened") }),
-  z.object({ kind: z.literal("force-pushed"), at: z.string() }),
-  z.object({ kind: z.literal("current") }),
-]);
-export type PullHeadOrigin = z.infer<typeof PullHeadOrigin>;
-
-export const PullVersion = z.object({
-  /** Position in the chain. A label to show, never a way to ask for a state. */
+const pullVersion = z.object({
   version: z.number(),
   head: GitOid,
-  origin: PullHeadOrigin,
+  origin: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("opened") }),
+    z.object({ kind: z.literal("force-pushed"), at: z.string() }),
+    z.object({ kind: z.literal("current") }),
+  ]),
 });
-export type PullVersion = z.infer<typeof PullVersion>;
 
-export const PullHistory = z.object({
+const pullHistory = z.object({
   number: z.number(),
   baseRefName: z.string(),
   baseRefOid: GitOid,
-  /** Oldest first. The last one is the head the branch has now. */
-  states: z.array(PullVersion),
+  states: z.array(pullVersion),
   truncated: z.boolean(),
 });
-export type PullHistory = z.infer<typeof PullHistory>;
 
-/** What the after side is measured against. */
-export const PullBaseline = z.discriminatedUnion("kind", [
+const pullBaseline = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("base") }),
   z.object({ kind: z.literal("version"), head: GitOid }),
 ]);
-export type PullBaseline = z.infer<typeof PullBaseline>;
 
-const PullDiffResponse = z.object({
-  from: PullBaseline,
+const pullDiffResponse = z.object({
+  from: pullBaseline,
   to: GitOid,
-  files: z.array(FileDiff),
+  files: z.array(fileDiff),
 });
-export type PullDiffResponse = z.infer<typeof PullDiffResponse>;
 
 /** The repository the server was started in, as `owner/name`. */
 export async function fetchRepo(): Promise<string> {
@@ -373,9 +537,11 @@ export async function fetchPulls(
   state: "open" | "closed" | "merged" | "all",
 ): Promise<PullSummary[]> {
   const params = new URLSearchParams({ repo, state });
-  return PullsResponse.parse(
-    await getJson(`/api/github/pulls?${params}`, "GET /api/github/pulls"),
-  );
+  return z
+    .array(pullSummary)
+    .parse(
+      await getJson(`/api/github/pulls?${params}`, "GET /api/github/pulls"),
+    );
 }
 
 export async function fetchPullHistory(
@@ -383,21 +549,13 @@ export async function fetchPullHistory(
   number: number,
 ): Promise<PullHistory> {
   const params = new URLSearchParams({ repo, number: String(number) });
-  return PullHistory.parse(
+  return pullHistory.parse(
     await getJson(
       `/api/github/pull/history?${params}`,
       "GET /api/github/pull/history",
     ),
   );
 }
-
-/** What to diff inside the heads `from`/`to` resolve: both whole heads, one
- *  commit, or the pair across two versions. */
-export type PullDiffScope =
-  | { kind: "heads" }
-  | { kind: "commit"; commit: GitOid }
-  | { kind: "pair"; from: GitOid; to: GitOid };
-
 export async function fetchPullDiff(
   repo: string,
   number: number,
@@ -417,7 +575,7 @@ export async function fetchPullDiff(
   } else if (scope.kind === "commit") {
     params.set("toCommit", scope.commit);
   }
-  return PullDiffResponse.parse(
+  return pullDiffResponse.parse(
     await getJson(
       `/api/github/pull/diff?${params}`,
       "GET /api/github/pull/diff",
@@ -436,37 +594,34 @@ highlight it as.
 ```ts
 //| id: frontend-api
 
-export const SyntaxKind = z.enum([
-  "keyword",
-  "string",
-  "string-expression",
-  "comment",
-  "constant",
-  "function",
-  "parameter",
-  "punctuation",
-  "link",
-]);
-export type SyntaxKind = z.infer<typeof SyntaxKind>;
-
-export const SyntaxToken = z.object({
+const syntaxToken = z.object({
   text: z.string(),
-  kind: SyntaxKind.nullable(),
+  kind: z
+    .enum([
+      "keyword",
+      "string",
+      "string-expression",
+      "comment",
+      "constant",
+      "function",
+      "parameter",
+      "punctuation",
+      "link",
+    ])
+    .nullable(),
 });
-export type SyntaxToken = z.infer<typeof SyntaxToken>;
 
-export const SourceFile = z.object({
+const sourceFile = z.object({
   language: z.string().nullable(),
-  lines: z.array(z.array(SyntaxToken)),
+  lines: z.array(z.array(syntaxToken)),
 });
-export type SourceFile = z.infer<typeof SourceFile>;
 
 export async function fetchSource(
   blob: string,
   path: string,
 ): Promise<SourceFile> {
   const params = new URLSearchParams({ blob, path });
-  return SourceFile.parse(
+  return sourceFile.parse(
     await getJson(`/api/source?${params}`, "GET /api/source"),
   );
 }

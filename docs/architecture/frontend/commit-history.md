@@ -29,14 +29,9 @@ body by hand.
 //| id: frontend-state-commits
 //| file: src/frontend/state/commits.ts
 import { useEffect, useState } from "react";
-import {
-  fetchLog,
-  fetchPullCommits,
-  type GitCommit,
-  type LogEntry,
-  type Source,
-} from "../api";
+import { fetchLog, fetchPullCommits } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { GitCommit, LogEntry, Source } from "../model/history";
 
 function asLogEntry(commit: GitCommit): LogEntry {
   return {
@@ -102,7 +97,7 @@ would not catch a source reaching the wrong endpoint and being parsed anyway.
 //| id: frontend-state-commits-test
 //| file: src/frontend/state/commits.test.ts
 import { afterEach, describe, expect, test } from "bun:test";
-import { GitOid } from "../api";
+import { GitOid } from "../model/history";
 import { commitsFrom } from "./commits";
 
 const liveFetch = globalThis.fetch;
@@ -210,7 +205,7 @@ describe("commitsFrom", () => {
 ```tsx
 //| id: frontend-controller-commit-log
 //| file: src/frontend/controllers/CommitLog.tsx
-import type { Source } from "../api";
+import type { Source } from "../model/history";
 import { useCommits } from "../state/commits";
 import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";
@@ -295,7 +290,7 @@ algorithm to keep agreeing with the first.
 ```tsx
 //| id: frontend-view-commit-graph
 //| file: src/frontend/views/CommitGraph.tsx
-import type { LogEntry } from "../api";
+import type { LogEntry } from "../model/history";
 import { CommitLabel } from "./CommitLabel";
 
 const LANE_WIDTH = 12;
@@ -612,7 +607,7 @@ branch back to lane zero.
 //| id: frontend-view-commit-graph-test
 //| file: src/frontend/views/CommitGraph.test.ts
 import { describe, expect, test } from "bun:test";
-import type { LogEntry } from "../api";
+import type { LogEntry } from "../model/history";
 import { layoutGraph } from "./CommitGraph";
 
 function commit(id: string, parents: string[]): LogEntry {
@@ -693,7 +688,7 @@ a type error until it has one.
 ```tsx
 //| id: frontend-view-commit-label
 //| file: src/frontend/views/CommitLabel.tsx
-import type { CommitMarker, CommitRef, LogEntry } from "../api";
+import type { CommitMarker, CommitRef, LogEntry } from "../model/history";
 
 const REFS: Record<CommitRef["kind"], string> = {
   bookmark: "commit-ref--bookmark",
