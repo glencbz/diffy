@@ -13,7 +13,9 @@ asks the backend one row at a time and never comes through here.
 An empty `from` array is the "nothing picked yet" state, which the backend
 already answers by showing the after side's own diff. The hook reloads
 whenever the question changes and drops a response that lands after it has
-changed again. Both selections empty is the one question with no answer, so
+changed again. While a new question loads, a diff already on screen stays
+there until the answer replaces it, so adding a commit to a side never blanks
+the panel; "loading" only shows when there is no diff yet. Both selections empty is the one question with no answer, so
 the hook reports `null` without a request. A comparison is a fresh object
 every render, so the effect depends on its JSON the same way `useCommits`
 depends on a source's.
@@ -48,7 +50,7 @@ export function useComparison(
     }
 
     let live = true;
-    setState({ status: "loading" });
+    setState((now) => (now?.status === "ready" ? now : { status: "loading" }));
     const { from, to } = JSON.parse(key) as Comparison;
     fetchInterdiff(from, to)
       .then(({ rows }) => {
