@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-split>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-split>>[init]
 /** One row of a side-by-side diff: a line of the file in either column or
  *  both, or something else across the two. */
 export type SplitRow<L> =

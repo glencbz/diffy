@@ -9,6 +9,17 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import {
+  afterPathOf,
+  type ChangedFile,
+  changedFile,
+  fileAnchor,
+  fileTree,
+  fileVersionOf,
+  shownPathOf,
+} from "../model/changedFiles";
+import { collapseReason } from "../model/collapse";
+import { gapsOf, type HunkLine, type Patch, readPatch } from "../model/patch";
 import type { FileSpot } from "../model/place";
 import {
   type Anchor,
@@ -25,26 +36,15 @@ import {
   type WordMarkLimit,
 } from "../model/settings";
 import type { SourceLookup } from "../model/source";
-import {
-  afterPathOf,
-  type ChangedFile,
-  changedFile,
-  fileAnchor,
-  fileTree,
-  fileVersionOf,
-  shownPathOf,
-} from "./changedFiles";
-import { collapseReason } from "./collapse";
-import { FileTree } from "./FileTree";
-import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
-import { splitRows } from "./split";
+import { splitRows } from "../model/split";
 import {
   changedLines,
   markable,
   type PaintedToken,
   paintWords,
   type Range,
-} from "./words";
+} from "../model/words";
+import { FileTree } from "./FileTree";
 
 /** The view a file's diff starts in until the reader switches that file. */
 export const DiffModeDefault = createContext<DiffMode>(

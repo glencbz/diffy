@@ -98,11 +98,12 @@ the anchor of the row's own section. With one row, nothing needs naming.
 ```tsx
 //| id: frontend-controller-diff-pane
 //| file: src/frontend/controllers/DiffPane.tsx
+
+import { changedFilesOf } from "../model/changedFiles";
 import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
 import { useSources } from "../state/source";
-import { changedFilesOf } from "../views/changedFiles";
 import {
   FileNavigator,
   type FileNavigatorGroup,
@@ -307,6 +308,17 @@ import {
   useState,
 } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
+import {
+  afterPathOf,
+  type ChangedFile,
+  changedFile,
+  fileAnchor,
+  fileTree,
+  fileVersionOf,
+  shownPathOf,
+} from "../model/changedFiles";
+import { collapseReason } from "../model/collapse";
+import { gapsOf, type HunkLine, type Patch, readPatch } from "../model/patch";
 import type { FileSpot } from "../model/place";
 import {
   type Anchor,
@@ -323,26 +335,15 @@ import {
   type WordMarkLimit,
 } from "../model/settings";
 import type { SourceLookup } from "../model/source";
-import {
-  afterPathOf,
-  type ChangedFile,
-  changedFile,
-  fileAnchor,
-  fileTree,
-  fileVersionOf,
-  shownPathOf,
-} from "./changedFiles";
-import { collapseReason } from "./collapse";
-import { FileTree } from "./FileTree";
-import { gapsOf, type HunkLine, type Patch, readPatch } from "./patch";
-import { splitRows } from "./split";
+import { splitRows } from "../model/split";
 import {
   changedLines,
   markable,
   type PaintedToken,
   paintWords,
   type Range,
-} from "./words";
+} from "../model/words";
+import { FileTree } from "./FileTree";
 
 /** The view a file's diff starts in until the reader switches that file. */
 export const DiffModeDefault = createContext<DiffMode>(
@@ -1672,8 +1673,8 @@ takes in at once. The limit counts changed lines in the `git` patch, not
 the file's length, since a long file with a one-line change reads quickly.
 
 ```ts
-//| id: frontend-view-collapse
-//| file: src/frontend/views/collapse.ts
+//| id: frontend-model-collapse
+//| file: src/frontend/model/collapse.ts
 import type { FileDiff } from "../api";
 import { readPatch } from "./patch";
 
@@ -1747,8 +1748,8 @@ export function collapseReason(file: FileDiff): string | null {
 ### Test
 
 ```ts
-//| id: frontend-view-collapse-test
-//| file: src/frontend/views/collapse.test.ts
+//| id: frontend-model-collapse-test
+//| file: src/frontend/model/collapse.test.ts
 import { describe, expect, test } from "bun:test";
 import type { FileDiff } from "../api";
 import { collapseReason, LARGE_DIFF } from "./collapse";
@@ -1865,8 +1866,8 @@ prefix to strip. The patch's trailing newline would otherwise read as one more
 empty line at the bottom of the last hunk, so it is dropped before reading.
 
 ```ts
-//| id: frontend-view-patch
-//| file: src/frontend/views/patch.ts
+//| id: frontend-model-patch
+//| file: src/frontend/model/patch.ts
 /** A file's patch read into the hunks it is made of. */
 export interface Patch {
   /** Everything above the first hunk: `diff --git`, `index`, `---`, `+++`,
@@ -1957,8 +1958,8 @@ export function readPatch(patch: string): Patch {
 ### Test
 
 ```ts
-//| id: frontend-view-patch-test
-//| file: src/frontend/views/patch.test.ts
+//| id: frontend-model-patch-test
+//| file: src/frontend/model/patch.test.ts
 import { describe, expect, test } from "bun:test";
 import { gapsOf, readPatch } from "./patch";
 
@@ -2072,7 +2073,7 @@ already show says nothing true about what lies between them, so a gap is
 never negative, only empty.
 
 ```ts
-//| id: frontend-view-patch
+//| id: frontend-model-patch
 
 /** Unchanged after-side lines the patch left out, `count` of them from line
  *  `start` on, which is line `oldStart` on the before side. */
@@ -2114,7 +2115,7 @@ export function gapsOf(patch: Patch, length: number): Gap[] {
 ```
 
 ```ts
-//| id: frontend-view-patch-test
+//| id: frontend-model-patch-test
 
 describe("gapsOf", () => {
   test("names the lines before, between, and after the hunks", () => {
@@ -2212,8 +2213,8 @@ rewrite from being re-paired into marks it chose not to give.
 colours can be drawn together, each piece keeping its token's kind.
 
 ```ts
-//| id: frontend-view-words
-//| file: src/frontend/views/words.ts
+//| id: frontend-model-words
+//| file: src/frontend/model/words.ts
 import type { SyntaxKind, SyntaxToken } from "../api";
 import type { HunkLine } from "./patch";
 
@@ -2391,8 +2392,8 @@ export function markable(
 ### Test
 
 ```ts
-//| id: frontend-view-words-test
-//| file: src/frontend/views/words.test.ts
+//| id: frontend-model-words-test
+//| file: src/frontend/model/words.test.ts
 import { describe, expect, test } from "bun:test";
 import type { HunkLine } from "./patch";
 import { changedLines, changedWords, markable, paintWords } from "./words";
@@ -2541,8 +2542,8 @@ one, rather than the view's own type, so
 it can be tested with plain objects.
 
 ```ts
-//| id: frontend-view-split
-//| file: src/frontend/views/split.ts
+//| id: frontend-model-split
+//| file: src/frontend/model/split.ts
 /** One row of a side-by-side diff: a line of the file in either column or
  *  both, or something else across the two. */
 export type SplitRow<L> =
@@ -2594,8 +2595,8 @@ export function splitRows<
 ### Test
 
 ```ts
-//| id: frontend-view-split-test
-//| file: src/frontend/views/split.test.ts
+//| id: frontend-model-split-test
+//| file: src/frontend/model/split.test.ts
 import { describe, expect, test } from "bun:test";
 import { splitRows } from "./split";
 

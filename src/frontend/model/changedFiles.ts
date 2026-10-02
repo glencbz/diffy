@@ -1,7 +1,7 @@
-// ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-changed-files>>[init]
+// ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-model-changed-files>>[init]
 import type { FileDiff } from "../api";
-import type { FileVersion, RowComment } from "../model/review";
 import { readPatch } from "./patch";
+import type { FileVersion, RowComment } from "./review";
 
 /** One changed file, read once from whichever `FileDiff` shape it came
  *  from, for every reader that only wants to know what changed. */
@@ -104,7 +104,7 @@ export function changedFilesOf(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-changed-files>>[1]
+// ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-model-changed-files>>[1]
 
 interface MutableFolder {
   kind: "folder";

@@ -1,12 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-view-review-bar>>[init]
 import type { ReactNode } from "react";
 import type { FileDiff } from "../api";
+import { fileVersionOf } from "../model/changedFiles";
 import {
   type ComparisonReview,
   isViewed,
   type RowReview,
 } from "../model/review";
-import { fileVersionOf } from "./changedFiles";
 
 /** Where the reader stands on one comparison, and the two things they can do
  *  about the whole of it. */

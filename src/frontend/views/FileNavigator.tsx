@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-file-navigator>>[init]
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { type ChangedFile, fileTree } from "./changedFiles";
+import { type ChangedFile, fileTree } from "../model/changedFiles";
 import { FileTree } from "./FileTree";
 
 /** What names a row's commit once there is more than one row to tell

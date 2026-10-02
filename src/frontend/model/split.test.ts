@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-split-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-split-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { splitRows } from "./split";
 

@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-words-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-words-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { HunkLine } from "./patch";
 import { changedLines, changedWords, markable, paintWords } from "./words";
