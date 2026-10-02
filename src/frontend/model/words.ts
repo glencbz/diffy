@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-words>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-words>>[init]
 import type { SyntaxKind, SyntaxToken } from "../api";
 import type { HunkLine } from "./patch";
 

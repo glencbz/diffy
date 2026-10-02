@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-collapse-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-collapse-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { FileDiff } from "../api";
 import { collapseReason, LARGE_DIFF } from "./collapse";

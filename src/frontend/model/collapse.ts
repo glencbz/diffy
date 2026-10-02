@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-collapse>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-collapse>>[init]
 import type { FileDiff } from "../api";
 import { readPatch } from "./patch";
 

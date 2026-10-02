@@ -1,9 +1,10 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-controller-diff-pane>>[init]
+
+import { changedFilesOf } from "../model/changedFiles";
 import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
 import { useSources } from "../state/source";
-import { changedFilesOf } from "../views/changedFiles";
 import {
   FileNavigator,
   type FileNavigatorGroup,

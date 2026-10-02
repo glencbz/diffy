@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-file-tree>>[init]
 import { type CSSProperties, useState } from "react";
 import type { FileDiff } from "../api";
-import type { ChangedFile, TreeNode } from "./changedFiles";
+import type { ChangedFile, TreeNode } from "../model/changedFiles";
 
 const STATUS_LETTER: Record<FileDiff["status"], string> = {
   added: "A",

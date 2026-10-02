@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-patch>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-patch>>[init]
 /** A file's patch read into the hunks it is made of. */
 export interface Patch {
   /** Everything above the first hunk: `diff --git`, `index`, `---`, `+++`,
@@ -85,7 +85,7 @@ export function readPatch(patch: string): Patch {
   return { header, hunks };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-patch>>[1]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-patch>>[1]
 
 /** Unchanged after-side lines the patch left out, `count` of them from line
  *  `start` on, which is line `oldStart` on the before side. */

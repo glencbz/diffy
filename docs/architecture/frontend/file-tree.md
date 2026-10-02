@@ -22,11 +22,11 @@ commit a stack row is) and the file's own after-side path, so the same file
 in two different rows still gets two different ids.
 
 ```ts
-//| id: frontend-view-changed-files
-//| file: src/frontend/views/changedFiles.ts
+//| id: frontend-model-changed-files
+//| file: src/frontend/model/changedFiles.ts
 import type { FileDiff } from "../api";
-import type { FileVersion, RowComment } from "../model/review";
 import { readPatch } from "./patch";
+import type { FileVersion, RowComment } from "./review";
 
 /** One changed file, read once from whichever `FileDiff` shape it came
  *  from, for every reader that only wants to know what changed. */
@@ -144,7 +144,7 @@ collapses; a folder whose only child is a file is not, because a file is
 never folded into anything.
 
 ```ts
-//| id: frontend-view-changed-files
+//| id: frontend-model-changed-files
 
 interface MutableFolder {
   kind: "folder";
@@ -212,11 +212,10 @@ function fold(node: MutableNode): TreeNode {
 ### Test
 
 ```ts
-//| id: frontend-view-changed-files-test
-//| file: src/frontend/views/changedFiles.test.ts
+//| id: frontend-model-changed-files-test
+//| file: src/frontend/model/changedFiles.test.ts
 import { describe, expect, test } from "bun:test";
 import type { FileDiff } from "../api";
-import type { RowComment } from "../model/review";
 import {
   type ChangedFile,
   changedFile,
@@ -225,6 +224,7 @@ import {
   fileTree,
   shownPathOf,
 } from "./changedFiles";
+import type { RowComment } from "./review";
 
 const PATCH = ["@@ -1,2 +1,3 @@", " keep", "-old", "+new", "+another"].join(
   "\n",
@@ -451,7 +451,7 @@ nothing outside one row's own disclosure cares whether it is open.
 //| file: src/frontend/views/FileTree.tsx
 import { type CSSProperties, useState } from "react";
 import type { FileDiff } from "../api";
-import type { ChangedFile, TreeNode } from "./changedFiles";
+import type { ChangedFile, TreeNode } from "../model/changedFiles";
 
 const STATUS_LETTER: Record<FileDiff["status"], string> = {
   added: "A",
@@ -801,7 +801,7 @@ same section.
 //| id: frontend-view-file-navigator
 //| file: src/frontend/views/FileNavigator.tsx
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { type ChangedFile, fileTree } from "./changedFiles";
+import { type ChangedFile, fileTree } from "../model/changedFiles";
 import { FileTree } from "./FileTree";
 
 /** What names a row's commit once there is more than one row to tell

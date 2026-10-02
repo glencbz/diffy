@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-patch-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-patch-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { gapsOf, readPatch } from "./patch";
 
@@ -91,7 +91,7 @@ describe("readPatch", () => {
   });
 });
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-patch-test>>[1]
+// ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-patch-test>>[1]
 
 describe("gapsOf", () => {
   test("names the lines before, between, and after the hunks", () => {
