@@ -10,12 +10,7 @@ import { useLocalHistory } from "./state/localHistory";
 import { usePaneSizes } from "./state/paneSizes";
 import { usePlace } from "./state/place";
 import { useReview } from "./state/review";
-import { useSettings } from "./state/settings";
-import {
-  DiffLayoutSetting,
-  DiffModeDefault,
-  WordMarkLimitSetting,
-} from "./views/DiffView";
+import { SettingsContext, useSettings } from "./state/settings";
 import { InterdiffToggle } from "./views/InterdiffToggle";
 import { Message } from "./views/Message";
 import { type Mode, ModeTabs } from "./views/ModeTabs";
@@ -32,108 +27,95 @@ export function App() {
   const [sizes, resize] = usePaneSizes();
   const { history, pickOperation, selectCommits } = useLocalHistory();
   const review = useReview();
-  const {
-    settings,
-    setTextSize,
-    setDiffMode,
-    setDiffLayout,
-    setWordMarkLimit,
-  } = useSettings();
+  const settings = useSettings();
   const before = history.status === "ready" ? history.before : null;
   const after = history.status === "ready" ? history.after : null;
 
   return (
-    <DiffModeDefault value={settings.display.diffMode}>
-      <DiffLayoutSetting value={settings.display.diffLayout}>
-        <WordMarkLimitSetting value={settings.display.wordMarkLimit}>
-          <div className="app">
-            <ModeTabs
-              mode={place.tab}
-              onSelect={(mode) => {
-                if (mode !== place.tab) go(modePlace(mode));
-              }}
-            />
-            {place.tab !== "settings" && (
-              <ReviewStrip
-                unavailable={
-                  review.status === "unavailable" ? review.message : null
+    <SettingsContext value={settings}>
+      <div className="app">
+        <ModeTabs
+          mode={place.tab}
+          onSelect={(mode) => {
+            if (mode !== place.tab) go(modePlace(mode));
+          }}
+        />
+        {place.tab !== "settings" && (
+          <ReviewStrip
+            unavailable={
+              review.status === "unavailable" ? review.message : null
+            }
+            failure={review.failure}
+            onDismiss={review.dismissFailure}
+          />
+        )}
+        {place.tab === "local" && (
+          <ReviewPanes
+            before={
+              <SidePicker
+                history={history}
+                side="before"
+                onPick={(operation) => pickOperation("before", operation)}
+                onSelect={(commits) => selectCommits("before", commits)}
+                toggle={
+                  <InterdiffToggle open onToggle={() => setInterdiff(false)} />
                 }
-                failure={review.failure}
-                onDismiss={review.dismissFailure}
               />
-            )}
-            {place.tab === "local" && (
-              <ReviewPanes
-                before={
-                  <SidePicker
-                    history={history}
-                    side="before"
-                    onPick={(operation) => pickOperation("before", operation)}
-                    onSelect={(commits) => selectCommits("before", commits)}
-                    toggle={
-                      <InterdiffToggle
-                        open
-                        onToggle={() => setInterdiff(false)}
-                      />
-                    }
-                  />
+            }
+            after={
+              <SidePicker
+                history={history}
+                side="after"
+                onPick={(operation) => pickOperation("after", operation)}
+                onSelect={(commits) => selectCommits("after", commits)}
+                toggle={
+                  !interdiff && (
+                    <InterdiffToggle
+                      open={false}
+                      onToggle={() => setInterdiff(true)}
+                    />
+                  )
                 }
-                after={
-                  <SidePicker
-                    history={history}
-                    side="after"
-                    onPick={(operation) => pickOperation("after", operation)}
-                    onSelect={(commits) => selectCommits("after", commits)}
-                    toggle={
-                      !interdiff && (
-                        <InterdiffToggle
-                          open={false}
-                          onToggle={() => setInterdiff(true)}
-                        />
-                      )
-                    }
-                  />
-                }
-                diff={
-                  <DiffPane
-                    comparison={{
-                      from: interdiff ? (before?.commits ?? []) : [],
-                      to: after?.commits ?? [],
-                    }}
-                    review={review}
-                  />
-                }
-                interdiff={interdiff}
-                showing={pane}
-                onShow={setPane}
-                selected={{
-                  before: before?.commits.length ?? 0,
-                  after: after?.commits.length ?? 0,
+              />
+            }
+            diff={
+              <DiffPane
+                comparison={{
+                  from: interdiff ? (before?.commits ?? []) : [],
+                  to: after?.commits ?? [],
                 }}
-                sizes={sizes}
-                onResize={resize}
-              />
-            )}
-            {place.tab === "pulls" && (
-              <PullRequests
-                place={place.pull}
                 review={review}
-                onGo={(pull) => go({ tab: "pulls", pull })}
               />
-            )}
-            {place.tab === "settings" && (
-              <SettingsScreen
-                settings={settings}
-                onSetTextSize={setTextSize}
-                onSetDiffMode={setDiffMode}
-                onSetDiffLayout={setDiffLayout}
-                onSetWordMarkLimit={setWordMarkLimit}
-              />
-            )}
-          </div>
-        </WordMarkLimitSetting>
-      </DiffLayoutSetting>
-    </DiffModeDefault>
+            }
+            interdiff={interdiff}
+            showing={pane}
+            onShow={setPane}
+            selected={{
+              before: before?.commits.length ?? 0,
+              after: after?.commits.length ?? 0,
+            }}
+            sizes={sizes}
+            onResize={resize}
+          />
+        )}
+        {place.tab === "pulls" && (
+          <PullRequests
+            place={place.pull}
+            review={review}
+            onGo={(pull) => go({ tab: "pulls", pull })}
+          />
+        )}
+        {place.tab === "settings" && (
+          <SettingsScreen
+            settings={settings.settings}
+            onSetTextSize={settings.setTextSize}
+            onSetDiffMode={settings.setDiffMode}
+            onSetDiffLayout={settings.setDiffLayout}
+            onSetWordMarkLimit={settings.setWordMarkLimit}
+          />
+        )}
+      </div>
+    </SettingsContext>
   );
 }
 

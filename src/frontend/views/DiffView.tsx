@@ -1,13 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
-import {
-  createContext,
-  type MouseEvent,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import {
   afterPathOf,
@@ -29,12 +21,7 @@ import {
   type RowComment,
   type ViewedFile,
 } from "../model/review";
-import {
-  DEFAULT_SETTINGS,
-  type DiffLayout,
-  type DiffMode,
-  type WordMarkLimit,
-} from "../model/settings";
+import type { DiffMode, Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { splitRows } from "../model/split";
 import {
@@ -45,22 +32,6 @@ import {
   type Range,
 } from "../model/words";
 import { FileTree } from "./FileTree";
-
-/** The view a file's diff starts in until the reader switches that file. */
-export const DiffModeDefault = createContext<DiffMode>(
-  DEFAULT_SETTINGS.display.diffMode,
-);
-
-/** Whether a line diff is drawn in one column or two, where there is room. */
-export const DiffLayoutSetting = createContext<DiffLayout>(
-  DEFAULT_SETTINGS.display.diffLayout,
-);
-
-/** The share of a structural line's words that can change before the line
- *  loses its word marks. */
-export const WordMarkLimitSetting = createContext<WordMarkLimit>(
-  DEFAULT_SETTINGS.display.wordMarkLimit,
-);
 
 /** Review memory for the files on screen. A diff that has one lets every
  * file, and every line of it on either side, be commented on; a diff that
@@ -90,6 +61,7 @@ export function DiffView({
   scope,
   links,
   reveal,
+  display,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
@@ -101,9 +73,10 @@ export function DiffView({
   /** Changes each time the selected file or line should be brought into
    *  view. Mounting brings it into view too. */
   reveal?: number;
+  /** How the reader asked for diffs to be drawn. */
+  display: Display;
 }) {
   const [composer, setComposer] = useState<Anchor | null>(null);
-  const layout = useContext(DiffLayoutSetting);
 
   const changedFiles = useMemo(
     () =>
@@ -129,7 +102,7 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
-            split={layout === "split"}
+            display={display}
             links={links === undefined ? undefined : fileLinks(links, file)}
             reveal={reveal}
             review={
@@ -289,7 +262,7 @@ function FileRow({
   file,
   anchor,
   sides,
-  split,
+  display,
   review,
   links,
   reveal,
@@ -297,8 +270,7 @@ function FileRow({
   file: FileDiff;
   anchor: string;
   sides: FileSides;
-  /** Whether the reader asked for two columns. */
-  split: boolean;
+  display: Display;
   review?: FileReview;
   links?: FileLinks;
   reveal?: number;
@@ -312,8 +284,8 @@ function FileRow({
       ?.querySelector(".diff-file__header--selected, .diff-line--selected")
       ?.scrollIntoView({ block: "center" });
   }, [reveal]);
-  const defaultMode = useContext(DiffModeDefault);
-  const wordMarkLimit = useContext(WordMarkLimitSetting);
+  const { diffMode: defaultMode, wordMarkLimit } = display;
+  const split = display.diffLayout === "split";
   const [chosen, setChosen] = useState<DiffMode | null>(null);
   const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
     { structural: new Set(), line: new Set() },

@@ -861,6 +861,7 @@ import { usePullFiles } from "../state/pullFiles";
 import { usePullHistory } from "../state/pullHistory";
 import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
+import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
   CommitStack,
@@ -1009,6 +1010,7 @@ export function PullReview({
   onGo: (place: PullPlace) => void;
 }) {
   const history = usePullHistory(repo, pull.number);
+  const { display } = useSettingsContext().settings;
   const series = pullSeries(repo, pull.number);
   const marked = reviewedIn(review.document, series);
   const reviewed = lastReviewed(
@@ -1234,6 +1236,7 @@ export function PullReview({
             links={links}
             reviewOf={reviewOf}
             actions={review.status === "ready" ? review.actions : null}
+            display={display}
             since={
               from.kind === "version"
                 ? versionName(history.data.states, from.head)

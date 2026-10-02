@@ -103,6 +103,7 @@ import { changedFilesOf } from "../model/changedFiles";
 import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
+import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
   FileNavigator,
@@ -120,6 +121,7 @@ export function DiffPane({
   review: ReviewHandle;
 }) {
   const answer = useComparison(comparison);
+  const { display } = useSettingsContext().settings;
   const sources = useSources(
     answer?.status === "ready" ? answer.data.flatMap((row) => row.files) : [],
   );
@@ -147,6 +149,7 @@ export function DiffPane({
         plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
+        display={display}
       />
     </>
   );
@@ -227,8 +230,9 @@ reformat and mark the tokens that changed rather than the words. The line
 view draws the `git` patch. Both arrive with every file, so switching costs
 no request. Each file has its own switch in its header. Until the reader
 uses it, a file starts in the [default from Settings](settings.md#display),
-read from `DiffModeDefault`. The context lives here, beside the one component
-that reads it, and `App` provides the reader's choice through it. The switch is `useState` in the file's row, like its
+which the diff's controller reads from
+[`SettingsContext`](settings.md#sharing-the-settings) and passes down. The
+switch is `useState` in the file's row, like its
 hidden lines, so it lasts as long as the file is on screen.
 
 The two views are the same drawing over different hunks. Difftastic's hunks
@@ -298,15 +302,7 @@ it, since the reader is looking at what they clicked.
 ```tsx
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView.tsx
-import {
-  createContext,
-  type MouseEvent,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import {
   afterPathOf,
@@ -328,12 +324,7 @@ import {
   type RowComment,
   type ViewedFile,
 } from "../model/review";
-import {
-  DEFAULT_SETTINGS,
-  type DiffLayout,
-  type DiffMode,
-  type WordMarkLimit,
-} from "../model/settings";
+import type { DiffMode, Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { splitRows } from "../model/split";
 import {
@@ -344,22 +335,6 @@ import {
   type Range,
 } from "../model/words";
 import { FileTree } from "./FileTree";
-
-/** The view a file's diff starts in until the reader switches that file. */
-export const DiffModeDefault = createContext<DiffMode>(
-  DEFAULT_SETTINGS.display.diffMode,
-);
-
-/** Whether a line diff is drawn in one column or two, where there is room. */
-export const DiffLayoutSetting = createContext<DiffLayout>(
-  DEFAULT_SETTINGS.display.diffLayout,
-);
-
-/** The share of a structural line's words that can change before the line
- *  loses its word marks. */
-export const WordMarkLimitSetting = createContext<WordMarkLimit>(
-  DEFAULT_SETTINGS.display.wordMarkLimit,
-);
 
 /** Review memory for the files on screen. A diff that has one lets every
  * file, and every line of it on either side, be commented on; a diff that
@@ -389,6 +364,7 @@ export function DiffView({
   scope,
   links,
   reveal,
+  display,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
@@ -400,9 +376,10 @@ export function DiffView({
   /** Changes each time the selected file or line should be brought into
    *  view. Mounting brings it into view too. */
   reveal?: number;
+  /** How the reader asked for diffs to be drawn. */
+  display: Display;
 }) {
   const [composer, setComposer] = useState<Anchor | null>(null);
-  const layout = useContext(DiffLayoutSetting);
 
   const changedFiles = useMemo(
     () =>
@@ -428,7 +405,7 @@ export function DiffView({
             anchor={anchor}
             file={file}
             sides={sidesOf(file, sources)}
-            split={layout === "split"}
+            display={display}
             links={links === undefined ? undefined : fileLinks(links, file)}
             reveal={reveal}
             review={
@@ -588,7 +565,7 @@ function FileRow({
   file,
   anchor,
   sides,
-  split,
+  display,
   review,
   links,
   reveal,
@@ -596,8 +573,7 @@ function FileRow({
   file: FileDiff;
   anchor: string;
   sides: FileSides;
-  /** Whether the reader asked for two columns. */
-  split: boolean;
+  display: Display;
   review?: FileReview;
   links?: FileLinks;
   reveal?: number;
@@ -611,8 +587,8 @@ function FileRow({
       ?.querySelector(".diff-file__header--selected, .diff-line--selected")
       ?.scrollIntoView({ block: "center" });
   }, [reveal]);
-  const defaultMode = useContext(DiffModeDefault);
-  const wordMarkLimit = useContext(WordMarkLimitSetting);
+  const { diffMode: defaultMode, wordMarkLimit } = display;
+  const split = display.diffLayout === "split";
   const [chosen, setChosen] = useState<DiffMode | null>(null);
   const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
     { structural: new Set(), line: new Set() },
@@ -1235,8 +1211,7 @@ red text would drown that out. [Changed words](#changed-words) take a stronger
 tint of the same colour.
 
 Either view can be laid out [side by side](#side-by-side), once the
-reader [picks it](settings.md#display). The choice reaches the view through
-`DiffLayoutSetting`, a context declared beside `DiffModeDefault`. Each column
+reader [picks it](settings.md#display). Each column
 has its own gutter, numbered by its own side. A line opens the composer only
 in the column of the side its comment is anchored to: a removed line in the
 before column, every other line in the after column. A context line is drawn
@@ -2196,8 +2171,7 @@ them on a line it rewrote as readily as on one it edited. `markable` holds
 those ranges to the same rule as a pair's: when they touch the reader's
 [word mark limit](settings.md#display) or more of the line's words, not
 counting whitespace, the line gets no ranges and its tint alone says it
-changed. The limit reaches the diff view through `WordMarkLimitSetting`,
-beside `DiffModeDefault`.
+changed.
 
 Difftastic only names tokens in a file it parsed. A file in a language it
 has no parser for, such as Markdown, or one past its size limits, it
@@ -2730,6 +2704,7 @@ lives here rather than in `App`, because nothing outside the diff reads it.
 //| file: src/frontend/views/InterdiffRows.tsx
 import { useState } from "react";
 import type { ReviewActions, ReviewedRow } from "../model/review";
+import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommitMessage } from "./CommitMessage";
 import { ComparisonHeader } from "./ComparisonHeader";
@@ -2740,6 +2715,7 @@ export function InterdiffRows({
   plain,
   sources,
   review,
+  display,
 }: {
   rows: ReviewedRow[];
   /** Whether these are commits' own diffs rather than an interdiff. */
@@ -2748,6 +2724,7 @@ export function InterdiffRows({
   /** Null while there is no review document to change, which draws each
    *  row with nothing on it that would write one. */
   review: ReviewActions | null;
+  display: Display;
 }) {
   const [composing, setComposing] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -2810,6 +2787,7 @@ export function InterdiffRows({
               files={row.files}
               sources={sources}
               scope={rowKey(row)}
+              display={display}
               review={
                 review === null
                   ? undefined

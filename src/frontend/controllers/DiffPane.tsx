@@ -4,6 +4,7 @@ import { changedFilesOf } from "../model/changedFiles";
 import { type ReviewedRow, reviewRows } from "../model/review";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
+import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
   FileNavigator,
@@ -21,6 +22,7 @@ export function DiffPane({
   review: ReviewHandle;
 }) {
   const answer = useComparison(comparison);
+  const { display } = useSettingsContext().settings;
   const sources = useSources(
     answer?.status === "ready" ? answer.data.flatMap((row) => row.files) : [],
   );
@@ -48,6 +50,7 @@ export function DiffPane({
         plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
+        display={display}
       />
     </>
   );

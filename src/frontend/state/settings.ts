@@ -1,8 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-state-settings>>[init]
-import { useCallback, useLayoutEffect } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect } from "react";
 import type {
   DiffLayout,
   DiffMode,
+  Display,
   Settings,
   TextSize,
   WordMarkLimit,
@@ -10,6 +11,7 @@ import type {
 import { settingsRepository } from "../persistence/settings";
 import { useStored } from "./stored";
 
+/** The reader's settings and one setter for each choice in them. */
 export interface SettingsHandle {
   settings: Settings;
   setTextSize: (textSize: TextSize) => void;
@@ -26,7 +28,7 @@ export function useSettings(): SettingsHandle {
   }, [settings.display.textSize]);
 
   const setDisplay = useCallback(
-    (change: Partial<Settings["display"]>) => {
+    (change: Partial<Display>) => {
       update((current) => ({
         ...current,
         display: { ...current.display, ...change },
@@ -46,7 +48,6 @@ export function useSettings(): SettingsHandle {
     (diffLayout: DiffLayout) => setDisplay({ diffLayout }),
     [setDisplay],
   );
-
   const setWordMarkLimit = useCallback(
     (wordMarkLimit: WordMarkLimit) => setDisplay({ wordMarkLimit }),
     [setDisplay],
@@ -59,5 +60,16 @@ export function useSettings(): SettingsHandle {
     setDiffLayout,
     setWordMarkLimit,
   };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/settings.md#frontend-state-settings>>[1]
+
+export const SettingsContext = createContext<SettingsHandle | null>(null);
+
+export function useSettingsContext(): SettingsHandle {
+  const settings = useContext(SettingsContext);
+  if (settings === null)
+    throw new Error("no SettingsContext above this screen");
+  return settings;
 }
 // ~/~ end
