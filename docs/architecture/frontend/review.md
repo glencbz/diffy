@@ -2093,7 +2093,15 @@ revision is higher than the one held.
 ```tsx
 //| id: frontend-state-review
 //| file: src/frontend/state/review.ts
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { AsyncState } from "../model/asyncState";
 import {
   applyCommand,
@@ -2257,6 +2265,26 @@ export function useReview(): ReviewHandle {
     ),
     ...shared,
   };
+}
+```
+
+`App` calls `useReview` once and puts the handle in `ReviewContext`, and each
+screen that draws a diff or the review strip reads it from there. A second
+`useReview` per screen would load the document again on every switch of
+tab, open a second socket, and lose the commands in flight on the screen
+left behind. The context has no default, because no review document is one
+a screen could safely draw from, and reading it outside `App` throws
+rather than drawing an empty review as if it were the reader's.
+
+```tsx
+//| id: frontend-state-review
+
+export const ReviewContext = createContext<ReviewHandle | null>(null);
+
+export function useReviewContext(): ReviewHandle {
+  const review = useContext(ReviewContext);
+  if (review === null) throw new Error("no ReviewContext above this screen");
+  return review;
 }
 ```
 

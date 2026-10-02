@@ -74,8 +74,9 @@ comparison once it lands, for the diff to colour. That hook sits above the
 early returns with an empty list to begin with, because hooks run on every
 render or on none.
 
-Takes a `review` prop rather than calling `useReview` itself, since `App`
-owns the one review document for the whole page and other readers will want it. The
+Takes a `review` prop rather than reading the review context itself, since
+the [screen](local-history.md#the-screen) that mounts it already holds the
+handle for its review strip. The
 existing null/loading/error branches on the comparison fetch are untouched,
 because a synchronous local store adds nothing to them. `reviewRows` runs
 below those early returns as a plain function call, since it derives from
@@ -2697,7 +2698,7 @@ message, or the before commit's when there is no after. A message that
 changed between the two already shows up as its own file in the row, the
 `JJ-COMMIT-DESCRIPTION` diff `jj interdiff` reports, so drawing the old
 message in full as well would only say it twice. Which rows are expanded
-lives here rather than in `App`, because nothing outside the diff reads it.
+lives here rather than in the screen, because nothing outside the diff reads it.
 
 ```tsx
 //| id: frontend-view-interdiff-rows

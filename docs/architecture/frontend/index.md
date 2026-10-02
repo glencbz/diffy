@@ -43,12 +43,14 @@ would need a stack of out-of-band swaps.
 
 ## Architecture
 
-The app has six layers plus a root. Imports point one way down this list:
+The app has seven layers plus a root. Imports point one way down this list:
 
 ```
 index.html + main.tsx   mount point
         |
-      App.tsx            root, owns the shared selections
+      App.tsx            root, provides the shared state and routes
+        |
+    screens/             lay out one tab's screen
         |
    controllers/          wire a state hook to a view
       /       \
@@ -172,26 +174,33 @@ branching sits in one file. `CommitLog` drives `CommitGraph`. `DiffPane` drives
 `PullReview` bends the one-hook-one-view rule and is the only thing that does.
 It mounts the commit list and the diff panel itself, because neither can be
 asked for until the pull request's history has come back and said which head is
-the latest. Hoisting the head into `App` would mean `App` holding a value it
-cannot compute, and an effect to fill it in later.
+the latest. Hoisting the head into the screen would mean the screen holding a
+value it cannot compute, and an effect to fill it in later.
+
+### screens
+
+A screen in `screens/` is everything one tab draws: its window, the tab
+strip, and whatever sits under it. It is where the props are gathered. It
+reads the contexts `App` provides, calls the state hooks only it needs, holds
+the state that says how the reader has arranged it, and hands each
+controller and view what that one needs.
+
+Each screen stands alone. Two screens both draw the tab strip and the
+[review strip](review.md), and neither borrows them from a frame the other
+uses, so a screen can be read top to bottom without a second file, and
+changing one screen's layout cannot move another's.
 
 ### root
 
-Local history's two sides, which jj operation each reads at and which of its
-commits are selected, live in [`useLocalHistory`](local-history.md), called
-once by `App` and read by more than one controller below it. It sits in
-`state/`, not `App.tsx`, because it polls the operation log itself, and a
-slice that touches the network belongs there. Picking a different operation
-clears that side's selected commits, since a commit listed at one operation
-need not appear at another.
-
-`App.tsx` holds the mode switch, which pane a narrow window is showing,
-and the repository the pull request screen reads directly, since none of
-those comes from the server or needs polling. The repository is one named
-constant and is the next thing here worth making configurable; a view never
-sees it except as a prop. `ReviewPanes` handles the layout: the two pickers as
-narrow columns, the diff taking the rest, and one of the three at a time when
-the window is too narrow for all of them.
+`App.tsx` provides the state that outlives a screen and picks which screen to
+draw. It holds three documents, each in a context: the
+[settings](settings.md#sharing-the-settings), the
+[review document](review.md#holding-it-while-it-changes), and the
+[local history](local-history.md#polling-the-operation-log). A screen
+unmounts when another tab opens, so anything that should still be there when
+the reader comes back lives here. Picking a different operation clears that
+side's selected commits, since a commit listed at one operation need not
+appear at another.
 
 Which screen is open, and on the pull request screen which pull request,
 heads, commit, file, and line, is not React state at all but the
@@ -234,10 +243,10 @@ Allowed import edges:
   `api.ts`. A view never imports `state/`; a shape it names lives in
   `model/`.
 - `controllers/` import `state/`, `views/`, `model/`, and `api.ts` *types*.
-- `App.tsx` imports `controllers/`, `views/`, `model/`, `api.ts` *types*,
-  and the `state/` hooks for what it holds above the screens: the address,
-  the review document, the settings, and the local history screen's column
-  widths.
+- `screens/` import `controllers/`, `state/`, `views/`, `model/`, and
+  `api.ts` *types*.
+- `App.tsx` imports `screens/`, `model/`, and the `state/` hooks and
+  contexts for what it holds above the screens.
 
 ## Styling
 

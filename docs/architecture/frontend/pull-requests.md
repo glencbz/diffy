@@ -458,10 +458,59 @@ pixel touch target as the picker's selects.
 }
 ```
 
+## The screen
+
+The screen is the [mode tabs](shell.md#mode-tabs), the
+[review strip](review.md), and the pull requests controller under them. `App`
+hands it the pull request part of the [address](address.md) and a way to go
+somewhere else; the review document it reads from the context `App`
+provides.
+
+```tsx
+//| id: frontend-screen-pull-requests
+//| file: src/frontend/screens/PullRequestsScreen.tsx
+import { PullRequests } from "../controllers/PullRequests";
+import { type Place, type PullPlace, tabPlace } from "../model/place";
+import { useReviewContext } from "../state/review";
+import { ModeTabs } from "../views/ModeTabs";
+import { ReviewStrip } from "../views/ReviewStrip";
+
+export function PullRequestsScreen({
+  place,
+  onGo,
+}: {
+  place: PullPlace | null;
+  onGo: (place: Place) => void;
+}) {
+  const review = useReviewContext();
+
+  return (
+    <div className="app">
+      <ModeTabs
+        mode="pulls"
+        onSelect={(mode) => {
+          if (mode !== "pulls") onGo(tabPlace(mode));
+        }}
+      />
+      <ReviewStrip
+        unavailable={review.status === "unavailable" ? review.message : null}
+        failure={review.failure}
+        onDismiss={review.dismissFailure}
+      />
+      <PullRequests
+        place={place}
+        review={review}
+        onGo={(pull) => onGo({ tab: "pulls", pull })}
+      />
+    </div>
+  );
+}
+```
+
 ## Pull requests controller
 
 The list, and whichever pull request is picked out of it. Which one is picked
-is part of the [address](address.md), so it arrives from `App` as a
+is part of the [address](address.md), so it arrives from the screen as a
 `PullPlace` and a pick goes back up through `onGo`. Everything below the pull
 request number, the heads, the commit, and the line, is handed straight on to
 `PullReview`, which is the only thing that reads it.

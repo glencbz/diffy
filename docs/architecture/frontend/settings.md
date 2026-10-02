@@ -311,8 +311,8 @@ which `App` fills with the handle `useSettings` returns. A diff sits several
 screens and controllers below `App`, and none of the layers above its
 controller has any use for the default view, the layout, or the word mark
 limit, so threading them down as props would make every one of them carry
-the settings. `App` hands the settings screen the same handle, so a choice
-there reaches every diff at once.
+the settings. The settings screen reads the same context, so a choice there
+reaches every diff at once.
 
 The context holds the whole handle rather than one value per setting, so a
 new setting reaches every reader without a provider of its own in `App`. It
@@ -349,8 +349,8 @@ preview than four captions. Drawing each caption at its own size would also
 repeat every pixel value in a second set of rules.
 
 ```tsx
-//| id: frontend-view-settings-screen
-//| file: src/frontend/views/SettingsScreen.tsx
+//| id: frontend-view-settings-form
+//| file: src/frontend/views/SettingsForm.tsx
 import type {
   DiffLayout,
   DiffMode,
@@ -382,7 +382,7 @@ const WORD_MARK_LIMITS: { value: WordMarkLimit; caption: string }[] = [
   { value: 0.9, caption: "Until 90% of a line changed" },
 ];
 
-export function SettingsScreen({
+export function SettingsForm({
   settings,
   onSetTextSize,
   onSetDiffMode,
@@ -499,5 +499,40 @@ draws on its own, which is what makes each one comfortable to hit on a phone.
   .settings__option + .settings__option {
     border-top: 1px solid var(--border-subtle);
   }
+}
+```
+
+The screen around the form is the [mode tabs](shell.md#mode-tabs) and the
+form, filled from [`SettingsContext`](#sharing-the-settings). It draws no
+review strip, since nothing on it is reviewed.
+
+```tsx
+//| id: frontend-screen-settings
+//| file: src/frontend/screens/SettingsScreen.tsx
+import { type Place, tabPlace } from "../model/place";
+import { useSettingsContext } from "../state/settings";
+import { ModeTabs } from "../views/ModeTabs";
+import { SettingsForm } from "../views/SettingsForm";
+
+export function SettingsScreen({ onGo }: { onGo: (place: Place) => void }) {
+  const settings = useSettingsContext();
+
+  return (
+    <div className="app">
+      <ModeTabs
+        mode="settings"
+        onSelect={(mode) => {
+          if (mode !== "settings") onGo(tabPlace(mode));
+        }}
+      />
+      <SettingsForm
+        settings={settings.settings}
+        onSetTextSize={settings.setTextSize}
+        onSetDiffMode={settings.setDiffMode}
+        onSetDiffLayout={settings.setDiffLayout}
+        onSetWordMarkLimit={settings.setWordMarkLimit}
+      />
+    </div>
+  );
 }
 ```

@@ -138,7 +138,7 @@ command snapshotted it.
 ```tsx
 //| id: frontend-state-local-history
 //| file: src/frontend/state/localHistory.ts
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchOperations } from "../api";
 import { type LocalHistory, pick, withOperations } from "../model/localHistory";
 
@@ -146,7 +146,13 @@ const POLL_INTERVAL_MS = 2000;
 
 type LocalSideName = "before" | "after";
 
-export function useLocalHistory() {
+export interface LocalHistoryHandle {
+  history: LocalHistory;
+  pickOperation: (side: LocalSideName, operationId: string | null) => void;
+  selectCommits: (side: LocalSideName, commitIds: string[]) => void;
+}
+
+export function useLocalHistory(): LocalHistoryHandle {
   const [history, setHistory] = useState<LocalHistory>({ status: "loading" });
   const polling = useRef(false);
 
@@ -212,6 +218,206 @@ export function useLocalHistory() {
   }
 
   return { history, pickOperation, selectCommits };
+}
+```
+
+`App` calls `useLocalHistory` and hands the handle to the local history
+screen through `LocalHistoryContext`, rather than the screen calling it. The
+screen unmounts whenever another tab opens, and the operations each side
+reads at and the commits ticked on it are a review in progress that should
+still be there when the reader comes back from the settings or a pull
+request. Like the [review context](review.md#holding-it-while-it-changes)
+it has no default, since an empty history would be a lie about the
+repository.
+
+```tsx
+//| id: frontend-state-local-history
+
+export const LocalHistoryContext = createContext<LocalHistoryHandle | null>(
+  null,
+);
+
+export function useLocalHistoryContext(): LocalHistoryHandle {
+  const local = useContext(LocalHistoryContext);
+  if (local === null) {
+    throw new Error("no LocalHistoryContext above this screen");
+  }
+  return local;
+}
+```
+
+## The screen
+
+The screen is the [mode tabs](shell.md#mode-tabs), the
+[review strip](review.md), and the [panes](layout.md): the after graph, the
+before graph when an interdiff is open, and the diff of what is ticked. It
+takes the history and the review document from the contexts `App` provides
+and its column widths from [`usePaneSizes`](layout.md#resizing-a-pane), and
+from the address it needs only a way to leave.
+
+Whether the before side is open is held here. The screen opens on one graph
+and a normal diff of what is ticked in it, and the before graph only appears
+when the reader asks for an interdiff. Closed, the before side's ticks are
+not sent to the diff, but they are kept in the history, so closing and
+reopening the interdiff does not lose them. It is not part of the address,
+for the same reason the ticked commits are not: neither is.
+
+Which pane a narrow window is showing lives here too: it is one choice about
+the whole screen, made in a strip above the panes it governs, and
+[`ReviewPanes`](layout.md) is a view and holds no state. On a wide screen the
+value is carried and never read. It stays out of the address because it says
+how big the window is, not where the reader is, and a link opened on a wide
+screen would carry it for nothing.
+
+Both are how the reader has arranged this screen, so like the open rows of
+the pull request screen they start over when the screen opens again. The
+history they arrange is held above the screen and does not.
+
+The review document is handed to the local history's `DiffPane` and to
+nothing else here. Wiring it into the commit pickers would mean threading it
+through `CommitLog` and `CommitGraph` too, for a graph that shows nothing
+about review state and has no requested feature that would use it.
+
+```tsx
+//| id: frontend-screen-local-history
+//| file: src/frontend/screens/LocalHistoryScreen.tsx
+import { type ReactNode, useState } from "react";
+import { CommitLog } from "../controllers/CommitLog";
+import { DiffPane } from "../controllers/DiffPane";
+import type { LocalHistory } from "../model/localHistory";
+import { newerOperation, pickerValue } from "../model/localHistory";
+import { type Place, tabPlace } from "../model/place";
+import { useLocalHistoryContext } from "../state/localHistory";
+import { usePaneSizes } from "../state/paneSizes";
+import { useReviewContext } from "../state/review";
+import { InterdiffToggle } from "../views/InterdiffToggle";
+import { Message } from "../views/Message";
+import { ModeTabs } from "../views/ModeTabs";
+import { NewerOperation } from "../views/NewerOperation";
+import { OperationPicker } from "../views/OperationPicker";
+import { type Pane, ReviewPanes } from "../views/ReviewPanes";
+import { ReviewStrip } from "../views/ReviewStrip";
+
+export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
+  const [pane, setPane] = useState<Pane>("after");
+  const [interdiff, setInterdiff] = useState(false);
+  const [sizes, resize] = usePaneSizes();
+  const { history, pickOperation, selectCommits } = useLocalHistoryContext();
+  const review = useReviewContext();
+  const before = history.status === "ready" ? history.before : null;
+  const after = history.status === "ready" ? history.after : null;
+
+  return (
+    <div className="app">
+      <ModeTabs
+        mode="local"
+        onSelect={(mode) => {
+          if (mode !== "local") onGo(tabPlace(mode));
+        }}
+      />
+      <ReviewStrip
+        unavailable={review.status === "unavailable" ? review.message : null}
+        failure={review.failure}
+        onDismiss={review.dismissFailure}
+      />
+      <ReviewPanes
+        before={
+          <SidePicker
+            history={history}
+            side="before"
+            onPick={(operation) => pickOperation("before", operation)}
+            onSelect={(commits) => selectCommits("before", commits)}
+            toggle={
+              <InterdiffToggle open onToggle={() => setInterdiff(false)} />
+            }
+          />
+        }
+        after={
+          <SidePicker
+            history={history}
+            side="after"
+            onPick={(operation) => pickOperation("after", operation)}
+            onSelect={(commits) => selectCommits("after", commits)}
+            toggle={
+              !interdiff && (
+                <InterdiffToggle
+                  open={false}
+                  onToggle={() => setInterdiff(true)}
+                />
+              )
+            }
+          />
+        }
+        diff={
+          <DiffPane
+            comparison={{
+              from: interdiff ? (before?.commits ?? []) : [],
+              to: after?.commits ?? [],
+            }}
+            review={review}
+          />
+        }
+        interdiff={interdiff}
+        showing={pane}
+        onShow={setPane}
+        selected={{
+          before: before?.commits.length ?? 0,
+          after: after?.commits.length ?? 0,
+        }}
+        sizes={sizes}
+        onResize={resize}
+      />
+    </div>
+  );
+}
+
+/** One local history side: its operation picker, its commit log, and, on
+ *  the picker's row, the button that opens or closes the interdiff and, for
+ *  the after side, the alert that a newer operation has arrived. */
+function SidePicker({
+  history,
+  side,
+  onPick,
+  onSelect,
+  toggle,
+}: {
+  history: LocalHistory;
+  side: "before" | "after";
+  onPick: (operationId: string | null) => void;
+  onSelect: (commitIds: string[]) => void;
+  toggle: ReactNode;
+}) {
+  if (history.status === "loading") {
+    return <Message>Loading operations...</Message>;
+  }
+  if (history.status === "error") {
+    return <Message tone="error">{history.message}</Message>;
+  }
+
+  const local = history[side];
+  const head = history.operations[0]?.id ?? local.pick.at;
+  const newer =
+    side === "after" ? newerOperation(local, history.operations) : null;
+
+  return (
+    <>
+      <OperationPicker
+        operations={history.operations}
+        selected={pickerValue(local.pick, head)}
+        onSelect={onPick}
+      >
+        {newer !== null && (
+          <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
+        )}
+        {toggle}
+      </OperationPicker>
+      <CommitLog
+        source={{ kind: "jj", operation: local.pick.at }}
+        selected={local.commits}
+        onSelect={onSelect}
+      />
+    </>
+  );
 }
 ```
 

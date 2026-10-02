@@ -56,226 +56,76 @@ createRoot(container).render(<App />);
 
 ## App
 
+`App` provides what outlives a screen and picks the screen to draw. It knows
+no screen's layout and no screen's props beyond the place it routes on.
+
 Which screen is open is part of the [address](address.md), so `App` reads it
-from `usePlace` rather than holding it in `useState`, and hands the pull
-request screen its part of the same place. Pressing the tab of the screen
-already open does nothing. Going to that screen's bare place instead would
-throw away the pull request and the line a reader is on, for a click that
-asked for nothing new.
+from `usePlace` rather than holding it in `useState`, hands each screen its
+part of the place, and hands every screen `go` to leave it by. The `switch`
+over `place.tab` is the routing table, and the type checker holds it to one
+screen per tab.
 
-Whether the before side is open is held here as well. The screen opens on
-one graph and a normal diff of what is ticked in it, and the before graph
-only appears when the reader asks for an interdiff. Closed, the before
-side's ticks are not sent to the diff, but they are kept, so closing and
-reopening the interdiff does not lose them. It is not part of the address,
-for the same reason the ticked commits are not: neither is.
+Everything else `App` holds, it holds in a context, because it belongs to
+more than one screen or has to survive the one that shows it unmounting:
 
-Which pane a narrow window is showing lives here too: it is one choice about
-the whole window, made in a strip above the screen it governs, and
-[`ReviewPanes`](layout.md) is a view and holds no state. On a wide screen the
-value is carried and never read. It stays out of the address because it says
-how big the window is, not where the reader is, and a link opened on a wide
-screen would carry it for nothing.
+- [`useSettings`](settings.md#sharing-the-settings), because a text size
+  governs the whole window and the diff settings govern every diff on every
+  screen. Calling it inside the settings screen would apply the reader's
+  size only while that screen is open.
+- [`useReview`](review.md#holding-it-while-it-changes), because one review
+  document serves both screens that draw diffs, and loading it per screen
+  would reload it on every switch of tab.
+- [`useLocalHistory`](local-history.md#polling-the-operation-log), because
+  the picks and ticks of a local review should still be there after a look
+  at the settings.
 
-The widths a reader has dragged the pickers to are held here for the same
-reason and kept in the browser, through
-[`usePaneSizes`](layout.md#resizing-a-pane), since unlike the pane showing
-they are a preference about this window that should outlast the visit.
-
-`App` calls `useReview()` once, alongside the [`useLocalHistory()`](local-history.md)
-call it already owns, and passes it down to the local history's `DiffPane`.
-The pull request screen reads commit by commit and keeps no marks yet, so it
-is not handed a review document it would not read. Wiring review state into
-the commit pickers would mean threading it through `CommitLog` and
-`CommitGraph` too, for a graph that shows nothing about review state and has
-no requested feature that would use it.
-
-`App` also calls [`useSettings`](settings.md#display), because a text size
-governs the whole window. Calling it inside `SettingsScreen` would apply the
-reader's size only while that screen is open. The diff settings govern
-every diff on every screen for the same reason, so `App` provides them to
-everything below through [one context](settings.md#sharing-the-settings).
+What a screen holds only for itself, such as whether the interdiff is open or
+which pane a narrow window shows, stays in that screen, in
+[`screens/`](index.md#screens).
 
 ```tsx
 //| id: frontend-app
 //| file: src/frontend/App.tsx
-import { type ReactNode, useState } from "react";
-import { CommitLog } from "./controllers/CommitLog";
-import { DiffPane } from "./controllers/DiffPane";
-import { PullRequests } from "./controllers/PullRequests";
-import type { LocalHistory } from "./model/localHistory";
-import { newerOperation, pickerValue } from "./model/localHistory";
 import type { Place } from "./model/place";
-import { useLocalHistory } from "./state/localHistory";
-import { usePaneSizes } from "./state/paneSizes";
+import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
+import { PullRequestsScreen } from "./screens/PullRequestsScreen";
+import { SettingsScreen } from "./screens/SettingsScreen";
+import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
 import { usePlace } from "./state/place";
-import { useReview } from "./state/review";
+import { ReviewContext, useReview } from "./state/review";
 import { SettingsContext, useSettings } from "./state/settings";
-import { InterdiffToggle } from "./views/InterdiffToggle";
-import { Message } from "./views/Message";
-import { type Mode, ModeTabs } from "./views/ModeTabs";
-import { NewerOperation } from "./views/NewerOperation";
-import { OperationPicker } from "./views/OperationPicker";
-import { type Pane, ReviewPanes } from "./views/ReviewPanes";
-import { ReviewStrip } from "./views/ReviewStrip";
-import { SettingsScreen } from "./views/SettingsScreen";
 
 export function App() {
   const [place, go] = usePlace();
-  const [pane, setPane] = useState<Pane>("after");
-  const [interdiff, setInterdiff] = useState(false);
-  const [sizes, resize] = usePaneSizes();
-  const { history, pickOperation, selectCommits } = useLocalHistory();
-  const review = useReview();
   const settings = useSettings();
-  const before = history.status === "ready" ? history.before : null;
-  const after = history.status === "ready" ? history.after : null;
+  const review = useReview();
+  const localHistory = useLocalHistory();
 
   return (
     <SettingsContext value={settings}>
-      <div className="app">
-        <ModeTabs
-          mode={place.tab}
-          onSelect={(mode) => {
-            if (mode !== place.tab) go(modePlace(mode));
-          }}
-        />
-        {place.tab !== "settings" && (
-          <ReviewStrip
-            unavailable={
-              review.status === "unavailable" ? review.message : null
-            }
-            failure={review.failure}
-            onDismiss={review.dismissFailure}
-          />
-        )}
-        {place.tab === "local" && (
-          <ReviewPanes
-            before={
-              <SidePicker
-                history={history}
-                side="before"
-                onPick={(operation) => pickOperation("before", operation)}
-                onSelect={(commits) => selectCommits("before", commits)}
-                toggle={
-                  <InterdiffToggle open onToggle={() => setInterdiff(false)} />
-                }
-              />
-            }
-            after={
-              <SidePicker
-                history={history}
-                side="after"
-                onPick={(operation) => pickOperation("after", operation)}
-                onSelect={(commits) => selectCommits("after", commits)}
-                toggle={
-                  !interdiff && (
-                    <InterdiffToggle
-                      open={false}
-                      onToggle={() => setInterdiff(true)}
-                    />
-                  )
-                }
-              />
-            }
-            diff={
-              <DiffPane
-                comparison={{
-                  from: interdiff ? (before?.commits ?? []) : [],
-                  to: after?.commits ?? [],
-                }}
-                review={review}
-              />
-            }
-            interdiff={interdiff}
-            showing={pane}
-            onShow={setPane}
-            selected={{
-              before: before?.commits.length ?? 0,
-              after: after?.commits.length ?? 0,
-            }}
-            sizes={sizes}
-            onResize={resize}
-          />
-        )}
-        {place.tab === "pulls" && (
-          <PullRequests
-            place={place.pull}
-            review={review}
-            onGo={(pull) => go({ tab: "pulls", pull })}
-          />
-        )}
-        {place.tab === "settings" && (
-          <SettingsScreen
-            settings={settings.settings}
-            onSetTextSize={settings.setTextSize}
-            onSetDiffMode={settings.setDiffMode}
-            onSetDiffLayout={settings.setDiffLayout}
-            onSetWordMarkLimit={settings.setWordMarkLimit}
-          />
-        )}
-      </div>
+      <ReviewContext value={review}>
+        <LocalHistoryContext value={localHistory}>
+          {screenAt(place, go)}
+        </LocalHistoryContext>
+      </ReviewContext>
     </SettingsContext>
   );
 }
 
-/** A screen as it opens from its tab, with nothing picked on it yet. */
-function modePlace(mode: Mode): Place {
-  return mode === "pulls" ? { tab: "pulls", pull: null } : { tab: mode };
-}
-
-/** One local history side: its operation picker, its commit log, and, on
- *  the picker's row, the button that opens or closes the interdiff and, for
- *  the after side, the alert that a newer operation has arrived. */
-function SidePicker({
-  history,
-  side,
-  onPick,
-  onSelect,
-  toggle,
-}: {
-  history: LocalHistory;
-  side: "before" | "after";
-  onPick: (operationId: string | null) => void;
-  onSelect: (commitIds: string[]) => void;
-  toggle: ReactNode;
-}) {
-  if (history.status === "loading") {
-    return <Message>Loading operations...</Message>;
+function screenAt(place: Place, go: (place: Place) => void) {
+  switch (place.tab) {
+    case "local":
+      return <LocalHistoryScreen onGo={go} />;
+    case "pulls":
+      return <PullRequestsScreen place={place.pull} onGo={go} />;
+    case "settings":
+      return <SettingsScreen onGo={go} />;
   }
-  if (history.status === "error") {
-    return <Message tone="error">{history.message}</Message>;
-  }
-
-  const local = history[side];
-  const head = history.operations[0]?.id ?? local.pick.at;
-  const newer =
-    side === "after" ? newerOperation(local, history.operations) : null;
-
-  return (
-    <>
-      <OperationPicker
-        operations={history.operations}
-        selected={pickerValue(local.pick, head)}
-        onSelect={onPick}
-      >
-        {newer !== null && (
-          <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
-        )}
-        {toggle}
-      </OperationPicker>
-      <CommitLog
-        source={{ kind: "jj", operation: local.pick.at }}
-        selected={local.commits}
-        onSelect={onSelect}
-      />
-    </>
-  );
 }
 ```
 
-The window is a column: a tab strip that does not scroll, and under it
-whichever screen is chosen. The body's default margin goes, because a
+Every screen draws its window as a column: a tab strip that does not
+scroll, and under it the screen's own content. The body's default margin goes, because a
 full-height app measured against the viewport inside an eight-pixel margin is
 sixteen pixels taller than the window and scrolls when it should not.
 
@@ -313,6 +163,12 @@ than a decision.
 
 Two screens, one strip. The tabs sit above everything, because the choice they
 make is which history is being read, and that governs the whole window.
+
+Each screen draws the strip itself and goes to the place a tab opens on,
+[`tabPlace`](address.md#the-place). Pressing the tab of the screen already
+open does nothing. Going to that screen's bare place instead would throw
+away the pull request and the line a reader is on, for a click that asked
+for nothing new.
 
 ```tsx
 //| id: frontend-view-mode-tabs
