@@ -46,6 +46,7 @@ had, collected so that two uses of the same grey are visibly the same grey.
     --amber-600: #bf8700;
     --amber-800: #8a5a00;
 
+    --purple-100: #f5f0ff;
     --purple-600: #8250df;
     --teal-600: #1b7c83;
   }
@@ -78,6 +79,7 @@ them, and those are shades of the same ramps rather than a second palette.
     --amber-900: #3a2d0a;
 
     --purple-400: #bc8cff;
+    --purple-900: #2a1d4a;
     --teal-400: #56d4dd;
   }
 }
@@ -156,6 +158,9 @@ colours and a green keyword would say nothing about either.
     --state-open: var(--green-600);
     --state-merged: var(--purple-600);
     --state-closed: var(--red-600);
+
+    --commit-header-surface: var(--purple-100);
+    --commit-header-edge: var(--purple-600);
 
     --ref-bookmark: var(--purple-600);
     --ref-tag: var(--teal-600);
@@ -332,6 +337,9 @@ lightness that survives a dark surface.
       --state-open: var(--green-300);
       --state-merged: var(--purple-400);
       --state-closed: var(--red-400);
+
+      --commit-header-surface: var(--purple-900);
+      --commit-header-edge: var(--purple-400);
 
       --ref-bookmark: var(--purple-400);
       --ref-tag: var(--teal-400);

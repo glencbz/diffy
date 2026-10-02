@@ -3,10 +3,19 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { type ChangedFile, fileTree } from "./changedFiles";
 import { FileTree } from "./FileTree";
 
-/** One row's files, headed by its own label once there is more than one
- *  row to tell apart. */
+/** What names a row's commit once there is more than one row to tell
+ *  apart. */
+export interface FileNavigatorHeading {
+  /** The commit's short change id. */
+  id: string;
+  subject: string;
+  /** The id of the row's whole section, for a jump to its top. */
+  anchor: string;
+}
+
+/** One row's files, under its heading. */
 export interface FileNavigatorGroup {
-  label: string | null;
+  heading: FileNavigatorHeading | null;
   files: ChangedFile[];
 }
 
@@ -21,6 +30,7 @@ function matches(file: ChangedFile, query: string): boolean {
 export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
   const root = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState<string | null>(null);
+  const [currentGroup, setCurrentGroup] = useState(0);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
 
@@ -30,12 +40,13 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
     files.findIndex((file) => file.anchor === current),
   );
   const currentFile = files[index] ?? null;
+  const heading = groups[currentGroup]?.heading ?? null;
 
-  useCurrentFile(root, files, setCurrent);
+  useCurrentFile(root, groups, setCurrent, setCurrentGroup);
   useCloseOnEscape(open, () => setOpen(false));
 
-  const jumpTo = (file: ChangedFile) => {
-    document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
+  const jumpTo = ({ anchor }: { anchor: string }) => {
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
     setOpen(false);
   };
   const step = (delta: number) => {
@@ -71,6 +82,9 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
           <span className="file-navigator__pos">
             {files.length === 0 ? "0 / 0" : `${index + 1} / ${files.length}`}
           </span>
+          {heading !== null && (
+            <span className="file-navigator__commit">{heading.id}</span>
+          )}
           <span className="file-navigator__path">
             {`\u200e${currentFile?.path ?? ""}`}
           </span>
@@ -110,11 +124,12 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
             </div>
             <div className="file-navigator__sheet-body">
               {visibleGroups.map((group, at) => (
-                <div key={group.label ?? at} className="file-navigator__group">
-                  {group.label !== null && (
-                    <div className="file-navigator__group-label">
-                      {group.label}
-                    </div>
+                <div
+                  key={group.heading?.anchor ?? at}
+                  className="file-navigator__group"
+                >
+                  {group.heading !== null && (
+                    <GroupHeading heading={group.heading} onPick={jumpTo} />
                   )}
                   <FileTree
                     nodes={fileTree(group.files)}
@@ -130,6 +145,25 @@ export function FileNavigator({ groups }: { groups: FileNavigatorGroup[] }) {
     </div>
   );
 }
+
+function GroupHeading({
+  heading,
+  onPick,
+}: {
+  heading: FileNavigatorHeading;
+  onPick: (heading: FileNavigatorHeading) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="file-navigator__group-label"
+      onClick={() => onPick(heading)}
+    >
+      <span className="file-navigator__commit">{heading.id}</span>
+      <span className="file-navigator__subject">{heading.subject}</span>
+    </button>
+  );
+}
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-file-navigator>>[1]
 
@@ -137,8 +171,9 @@ const READING_LINE = 60;
 
 function useCurrentFile(
   root: RefObject<HTMLDivElement | null>,
-  files: ChangedFile[],
+  groups: FileNavigatorGroup[],
   setCurrent: (anchor: string | null) => void,
+  setCurrentGroup: (group: number) => void,
 ) {
   useEffect(() => {
     const container = root.current?.closest(".pane--diff");
@@ -147,28 +182,38 @@ function useCurrentFile(
     let frame: number | null = null;
     const recompute = () => {
       frame = null;
-      const elements = files
-        .map((file) => document.getElementById(file.anchor))
-        .filter((element): element is HTMLElement => element !== null);
-      if (elements.length === 0) return;
-
       const containerTop = container.getBoundingClientRect().top;
-      let at = 0;
-      elements.forEach((element, position) => {
-        if (
-          element.getBoundingClientRect().top - containerTop <=
-          READING_LINE
-        ) {
-          at = position;
+      const crossed = (anchor: string): boolean => {
+        const element = document.getElementById(anchor);
+        return (
+          element !== null &&
+          element.getBoundingClientRect().top - containerTop <= READING_LINE
+        );
+      };
+
+      let group = 0;
+      let file: string | null = null;
+      groups.forEach((each, position) => {
+        if (each.heading !== null && crossed(each.heading.anchor)) {
+          group = position;
+          file = each.files[0]?.anchor ?? null;
+        }
+        for (const { anchor } of each.files) {
+          if (crossed(anchor)) {
+            group = position;
+            file = anchor;
+          }
         }
       });
       if (
         container.scrollTop + container.clientHeight >=
         container.scrollHeight - 2
       ) {
-        at = elements.length - 1;
+        group = groups.length - 1;
+        file = groups[group]?.files.at(-1)?.anchor ?? file;
       }
-      setCurrent(files[at]?.anchor ?? null);
+      setCurrentGroup(group);
+      setCurrent(file ?? groups[group]?.files[0]?.anchor ?? null);
     };
 
     const onScroll = () => {
@@ -182,7 +227,7 @@ function useCurrentFile(
       document.removeEventListener("scroll", onScroll, true);
       if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, [root, files, setCurrent]);
+  }, [root, groups, setCurrent, setCurrentGroup]);
 }
 
 function useCloseOnEscape(open: boolean, onClose: () => void) {

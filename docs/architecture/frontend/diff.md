@@ -91,9 +91,9 @@ Once there is more than one file across every row, `DiffPane` also renders
 a [`FileNavigator`](file-tree.md#stepping-through-files) above the rows,
 built from the same `changedFilesOf` a `DiffView` uses and scoped by the
 same `rowKey`, so the file the navigator names is always the file its
-click lands on. A row's label is its commit's own subject line, read once
-there is more than one row to tell apart; with one row, nothing needs
-naming.
+click lands on. Once there is more than one row to tell apart, each group
+also gets a heading: the commit's short change id, its subject line, and
+the anchor of the row's own section. With one row, nothing needs naming.
 
 ```tsx
 //| id: frontend-controller-diff-pane
@@ -103,8 +103,12 @@ import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
 import { useSources } from "../state/source";
 import { changedFilesOf } from "../views/changedFiles";
-import { FileNavigator, type FileNavigatorGroup } from "../views/FileNavigator";
-import { InterdiffRows, rowKey } from "../views/InterdiffRows";
+import {
+  FileNavigator,
+  type FileNavigatorGroup,
+  type FileNavigatorHeading,
+} from "../views/FileNavigator";
+import { InterdiffRows, rowAnchor, rowKey } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
 export function DiffPane({
@@ -129,7 +133,7 @@ export function DiffPane({
 
   const rows = reviewRows(answer.data, review.document);
   const groups: FileNavigatorGroup[] = rows.map((row) => ({
-    label: rows.length > 1 ? rowLabel(row) : null,
+    heading: rows.length > 1 ? rowHeading(row) : null,
     files: changedFilesOf(row.files, rowKey(row), row.comments),
   }));
   const total = groups.reduce((sum, group) => sum + group.files.length, 0);
@@ -147,13 +151,14 @@ export function DiffPane({
   );
 }
 
-function rowLabel(row: ReviewedRow): string {
+function rowHeading(row: ReviewedRow): FileNavigatorHeading {
   const commit = row.to ?? row.from;
-  if (commit === null) return "";
-  const subject = commit.description.split("\n")[0];
-  return subject !== undefined && subject !== ""
-    ? subject
-    : commit.commitId.slice(0, 8);
+  const subject = commit?.description.split("\n")[0] ?? "";
+  return {
+    id: (commit?.changeId ?? commit?.commitId ?? "").slice(0, 8),
+    subject: subject === "" ? "(no description)" : subject,
+    anchor: rowAnchor(row),
+  };
 }
 ```
 
@@ -2757,7 +2762,11 @@ export function InterdiffRows({
   return (
     <div>
       {rows.map((row) => (
-        <section key={rowKey(row)}>
+        <section
+          key={rowKey(row)}
+          id={rowAnchor(row)}
+          className="interdiff-row"
+        >
           <ComparisonHeader
             row={row}
             plain={plain}
@@ -2826,14 +2835,27 @@ export function InterdiffRows({
 export function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;
 }
+
+/** The id of a row's whole section, header and all, which the
+ *  [file navigator](file-tree.md#stepping-through-files) jumps to when a
+ *  reader picks a commit rather than a file. */
+export function rowAnchor(row: ReviewedRow): string {
+  return `row-${rowKey(row)}`;
+}
 ```
 
 A comparison with no files still renders, and the placeholder saying so
-gets the same muted italic treatment every empty state in the app uses.
+gets the same muted italic treatment every empty state in the app uses. A
+jump to a row's section stops under the navigator bar, the same offset a
+jump to a file takes.
 
 ```css
 /*| id: design-interdiff-rows
 @layer components {
+  .interdiff-row {
+    scroll-margin-top: var(--diff-sticky-top, 0px);
+  }
+
   .interdiff-empty {
     padding: var(--space-5);
     font-style: italic;
@@ -2948,12 +2970,19 @@ actions, and the caption column is a fixed width so "before" and "after"
 line up with each other no matter how long the commit summary next to them
 runs.
 
+Several rows stack into one long scroll, and each file inside a row has a
+grey header of its own, so a comparison header in the same grey is easy to
+scroll past without noticing that a new commit began. It takes a tint of
+its own and a thick rule along its top edge in the matching colour, which
+is also the colour the navigator gives a commit's id.
+
 ```css
 /*| id: design-comparison-header
 @layer components {
   .comparison-header {
     padding: var(--space-4) var(--space-5);
-    background: var(--surface-sunken);
+    background: var(--commit-header-surface);
+    border-top: var(--border-width-accent) solid var(--commit-header-edge);
     border-bottom: 1px solid var(--border);
   }
 

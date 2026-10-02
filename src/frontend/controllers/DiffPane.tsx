@@ -4,8 +4,12 @@ import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
 import { useSources } from "../state/source";
 import { changedFilesOf } from "../views/changedFiles";
-import { FileNavigator, type FileNavigatorGroup } from "../views/FileNavigator";
-import { InterdiffRows, rowKey } from "../views/InterdiffRows";
+import {
+  FileNavigator,
+  type FileNavigatorGroup,
+  type FileNavigatorHeading,
+} from "../views/FileNavigator";
+import { InterdiffRows, rowAnchor, rowKey } from "../views/InterdiffRows";
 import { Message } from "../views/Message";
 
 export function DiffPane({
@@ -30,7 +34,7 @@ export function DiffPane({
 
   const rows = reviewRows(answer.data, review.document);
   const groups: FileNavigatorGroup[] = rows.map((row) => ({
-    label: rows.length > 1 ? rowLabel(row) : null,
+    heading: rows.length > 1 ? rowHeading(row) : null,
     files: changedFilesOf(row.files, rowKey(row), row.comments),
   }));
   const total = groups.reduce((sum, group) => sum + group.files.length, 0);
@@ -48,12 +52,13 @@ export function DiffPane({
   );
 }
 
-function rowLabel(row: ReviewedRow): string {
+function rowHeading(row: ReviewedRow): FileNavigatorHeading {
   const commit = row.to ?? row.from;
-  if (commit === null) return "";
-  const subject = commit.description.split("\n")[0];
-  return subject !== undefined && subject !== ""
-    ? subject
-    : commit.commitId.slice(0, 8);
+  const subject = commit?.description.split("\n")[0] ?? "";
+  return {
+    id: (commit?.changeId ?? commit?.commitId ?? "").slice(0, 8),
+    subject: subject === "" ? "(no description)" : subject,
+    anchor: rowAnchor(row),
+  };
 }
 // ~/~ end
