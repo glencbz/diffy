@@ -55,7 +55,8 @@ has it, so picking one pins the head it was picked under.
 ```ts
 //| id: frontend-model-place
 //| file: src/frontend/model/place.ts
-import { GitOid, type PullBaseline } from "../api";
+import { GitOid } from "./history";
+import type { PullBaseline } from "./pull";
 
 export type Place =
   | { tab: "local" }
@@ -269,7 +270,7 @@ export function useArrivals(): number {
 //| id: frontend-model-place-test
 //| file: src/frontend/model/place.test.ts
 import { describe, expect, test } from "bun:test";
-import { GitOid } from "../api";
+import { GitOid } from "./history";
 import { type Place, readPlace, writePlace } from "./place";
 
 function oid(ch: string): GitOid {

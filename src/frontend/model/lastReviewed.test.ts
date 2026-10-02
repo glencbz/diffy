@@ -1,8 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-model-last-reviewed-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { GitOid, type PullVersion } from "../api";
+import { GitOid } from "./history";
 import { lastReviewed, opening } from "./lastReviewed";
 import { openPull, type PullPlace } from "./place";
+import type { PullVersion } from "./pull";
 import type { ReviewedVersion } from "./review";
 
 function oid(ch: string): GitOid {

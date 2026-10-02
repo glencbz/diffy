@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/layout.md#frontend-view-pull-panes>>[init]
 import { type ReactNode, useState } from "react";
-import type { PullSummary } from "../api";
+import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 import { paneSize, Splitter } from "./Splitter";
 

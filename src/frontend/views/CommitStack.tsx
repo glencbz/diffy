@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/commit-stack.md#frontend-view-commit-stack>>[init]
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import type { FileDiff, GitCommit } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitCommit } from "../model/history";
 import type { ComparisonReview, ReviewActions } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";

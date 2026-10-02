@@ -296,7 +296,7 @@ choice between the list and the review.
 //| id: frontend-view-pull-panes
 //| file: src/frontend/views/PullPanes.tsx
 import { type ReactNode, useState } from "react";
-import type { PullSummary } from "../api";
+import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 import { paneSize, Splitter } from "./Splitter";
 

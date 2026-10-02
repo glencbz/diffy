@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-words>>[init]
-import type { SyntaxKind, SyntaxToken } from "../api";
+
 import type { HunkLine } from "./patch";
+import type { SyntaxKind, SyntaxToken } from "./source";
 
 /** Characters `start` up to, not including, `end` of a line. */
 export interface Range {

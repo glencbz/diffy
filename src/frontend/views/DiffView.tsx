@@ -1,6 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { FileDiff, SourceFile, StructuralDiff, SyntaxToken } from "../api";
 import {
   afterPathOf,
   type ChangedFile,
@@ -11,6 +10,7 @@ import {
   shownPathOf,
 } from "../model/changedFiles";
 import { collapseReason } from "../model/collapse";
+import type { FileDiff, StructuralDiff } from "../model/diff";
 import { gapsOf, type HunkLine, type Patch, readPatch } from "../model/patch";
 import type { FileSpot } from "../model/place";
 import {
@@ -22,7 +22,7 @@ import {
   type ViewedFile,
 } from "../model/review";
 import type { DiffMode, Display } from "../model/settings";
-import type { SourceLookup } from "../model/source";
+import type { SourceFile, SourceLookup, SyntaxToken } from "../model/source";
 import { splitRows } from "../model/split";
 import {
   changedLines,

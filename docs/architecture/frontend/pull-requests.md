@@ -15,8 +15,9 @@ not tied to the checkout it was built from.
 //| id: frontend-state-pulls
 //| file: src/frontend/state/pulls.ts
 import { useEffect, useState } from "react";
-import { fetchPulls, fetchRepo, type PullSummary } from "../api";
+import { fetchPulls, fetchRepo } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { PullSummary } from "../model/pull";
 
 export interface RepoPulls {
   /** `owner/name`, as the server read it off `origin`. */
@@ -56,8 +57,9 @@ latest, so it loads first and on its own.
 //| id: frontend-state-pull-history
 //| file: src/frontend/state/pullHistory.ts
 import { useEffect, useState } from "react";
-import { fetchPullHistory, type PullHistory } from "../api";
+import { fetchPullHistory } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { PullHistory } from "../model/pull";
 
 export function usePullHistory(
   repo: string,
@@ -105,8 +107,9 @@ and the commit stack cannot disagree about which end is up.
 //| id: frontend-state-pull-commits
 //| file: src/frontend/state/pullCommits.ts
 import { useEffect, useState } from "react";
-import { fetchPullCommits, type GitCommit, type GitOid } from "../api";
+import { fetchPullCommits } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { GitCommit, GitOid } from "../model/history";
 
 /** One version's commits, oldest first, as the pull request's own, so the
  *  pairing can read the identity the graph deliberately drops. */
@@ -178,8 +181,9 @@ kept review state, stays in the model for the
 //| id: frontend-model-last-reviewed
 //| file: src/frontend/model/lastReviewed.ts
 import * as z from "zod";
-import { GitOid, type PullVersion } from "../api";
+import { GitOid } from "./history";
 import type { PullPlace } from "./place";
+import type { PullVersion } from "./pull";
 import type { ReviewedVersion } from "./review";
 
 /** What the browser kept per pull request before the server kept review
@@ -248,9 +252,10 @@ export function opening(
 //| id: frontend-model-last-reviewed-test
 //| file: src/frontend/model/lastReviewed.test.ts
 import { describe, expect, test } from "bun:test";
-import { GitOid, type PullVersion } from "../api";
+import { GitOid } from "./history";
 import { lastReviewed, opening } from "./lastReviewed";
 import { openPull, type PullPlace } from "./place";
+import type { PullVersion } from "./pull";
 import type { ReviewedVersion } from "./review";
 
 function oid(ch: string): GitOid {
@@ -346,7 +351,8 @@ switch the screen they are reading to the whole pull request.
 ```tsx
 //| id: frontend-view-last-reviewed
 //| file: src/frontend/views/LastReviewed.tsx
-import type { GitOid, PullBaseline, PullVersion } from "../api";
+import type { GitOid } from "../model/history";
+import type { PullBaseline, PullVersion } from "../model/pull";
 
 export function LastReviewed({
   states,
@@ -543,8 +549,8 @@ messages are expanded, starts again with it.
 //| id: frontend-controller-pull-requests
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
-import type { PullSummary } from "../api";
 import { openPull, type PullPlace } from "../model/place";
+import type { PullSummary } from "../model/pull";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
@@ -646,15 +652,12 @@ on screen, which `asked` records alongside the keys it has sent.
 //| id: frontend-state-row-diffs
 //| file: src/frontend/state/rowDiffs.ts
 import { useEffect, useRef, useState } from "react";
-import {
-  type FileDiff,
-  fetchPullDiff,
-  GitOid,
-  type PullBaseline,
-  type PullDiffScope,
-} from "../api";
+import { fetchPullDiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import { GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
+import type { PullBaseline, PullDiffScope } from "../model/pull";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything
@@ -751,8 +754,10 @@ asked about.
 //| id: frontend-state-pull-files
 //| file: src/frontend/state/pullFiles.ts
 import { useEffect, useState } from "react";
-import { type FileDiff, fetchPullDiff, type GitOid } from "../api";
+import { fetchPullDiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitOid } from "../model/history";
 
 /** Every file one version changes against its base, as the pull request
  *  would land it. */
@@ -878,14 +883,9 @@ comparison keeps its before end.
 //| id: frontend-controller-pull-review
 //| file: src/frontend/controllers/PullReview.tsx
 import { useEffect, useState } from "react";
-import type {
-  FileDiff,
-  GitCommit,
-  GitOid,
-  PullSummary,
-  PullVersion,
-} from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitCommit, GitOid } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
 import {
@@ -894,6 +894,7 @@ import {
   type PullPlace,
   pullHref,
 } from "../model/place";
+import type { PullSummary, PullVersion } from "../model/pull";
 import {
   type ComparisonReview,
   keptPairing,
@@ -1309,8 +1310,9 @@ screen, so they are what gets pinned, the way `heuristicSlots` is pinned in
 //| id: frontend-controller-pull-review-test
 //| file: src/frontend/controllers/PullReview.test.ts
 import { describe, expect, test } from "bun:test";
-import { type FileDiff, type GitCommit, GitOid } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import { type GitCommit, GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
 import { baseStackRows, stackRows } from "./PullReview";
 
@@ -1549,7 +1551,7 @@ say which this is.
 ```tsx
 //| id: frontend-view-pull-list
 //| file: src/frontend/views/PullList.tsx
-import type { PullSummary } from "../api";
+import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 
 export function PullList({
@@ -1659,7 +1661,7 @@ this tool does not show conversations.
 ```tsx
 //| id: frontend-view-pull-header
 //| file: src/frontend/views/PullHeader.tsx
-import type { PullSummary } from "../api";
+import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 
 export function PullHeader({ pull }: { pull: PullSummary }) {
@@ -1803,15 +1805,16 @@ than decoration.
 ```tsx
 //| id: frontend-view-pull-comparison-picker
 //| file: src/frontend/views/PullComparisonPicker.tsx
+
+import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import type { GitOid } from "../model/history";
 import type {
-  FileDiff,
-  GitOid,
   PullBaseline,
   PullHeadOrigin,
   PullHistory,
   PullVersion,
-} from "../api";
-import type { AsyncState } from "../model/asyncState";
+} from "../model/pull";
 import { ChangeCount } from "./CommitStack";
 
 export function PullComparisonPicker({
@@ -2008,7 +2011,7 @@ list and the header colour them the same.
 ```tsx
 //| id: frontend-view-pull-state-chip
 //| file: src/frontend/views/PullStateChip.tsx
-import type { PullState } from "../api";
+import type { PullState } from "../model/pull";
 
 const CHIP_CLASS: Record<PullState, string> = {
   OPEN: "chip--open",

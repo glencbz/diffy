@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-model-local-history-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "./history";
 import {
   newerOperation,
   pick,

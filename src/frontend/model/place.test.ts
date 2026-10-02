@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { GitOid } from "../api";
+import { GitOid } from "./history";
 import { type Place, readPlace, writePlace } from "./place";
 
 function oid(ch: string): GitOid {

@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-state-comparison>>[init]
 import { useEffect, useState } from "react";
-import { fetchInterdiff, type InterdiffRow } from "../api";
+import { fetchInterdiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { InterdiffRow } from "../model/diff";
 
 /** What the diff panel is being asked for. */
 export interface Comparison {

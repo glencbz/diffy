@@ -1,14 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-state-row-diffs>>[init]
 import { useEffect, useRef, useState } from "react";
-import {
-  type FileDiff,
-  fetchPullDiff,
-  GitOid,
-  type PullBaseline,
-  type PullDiffScope,
-} from "../api";
+import { fetchPullDiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import type { FileDiff } from "../model/diff";
+import { GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
+import type { PullBaseline, PullDiffScope } from "../model/pull";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything

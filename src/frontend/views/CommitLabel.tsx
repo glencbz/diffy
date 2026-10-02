@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-label>>[init]
-import type { CommitMarker, CommitRef, LogEntry } from "../api";
+import type { CommitMarker, CommitRef, LogEntry } from "../model/history";
 
 const REFS: Record<CommitRef["kind"], string> = {
   bookmark: "commit-ref--bookmark",

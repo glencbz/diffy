@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-graph>>[init]
-import type { LogEntry } from "../api";
+import type { LogEntry } from "../model/history";
 import { CommitLabel } from "./CommitLabel";
 
 const LANE_WIDTH = 12;

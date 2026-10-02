@@ -58,8 +58,9 @@ index.html + main.tsx   mount point
     |   \         |      views/ turn props into markup
     | persistence/ |     persistence/: what the browser keeps between visits
     |         \    |
- api.ts       model/     api.ts: transport, fetch plus Zod, no React
-                         model/: the app's own shapes and defaults
+ api.ts        \   |     api.ts: transport, fetch plus Zod, no React
+       \        \  |
+        `------ model/   model/: the app's own shapes and defaults
 ```
 
 Each layer is named for the job it does. The `state/` modules are React hooks.
@@ -81,8 +82,10 @@ knows those URLs and their wire formats. It knows nothing about React. It holds 
 wrapper per endpoint, and every wrapper parses its response through that
 [Zod](https://zod.dev/) schema before returning it, so a drift in a backend
 shape fails at the fetch with a named parse error instead of reaching a view as
-`undefined`. [Transport](transport.md) holds the inventory. Adding an endpoint
-means adding a schema and a wrapper beside it and nothing else.
+`undefined`. What a wrapper returns is a type from `model/`, and the compiler
+checks the schema's output against it. [Transport](transport.md) holds the
+inventory. Adding an endpoint means adding its type to `model/` and a schema
+and a wrapper to `api.ts`.
 
 Two conventions run through the arguments. An optional `atOperation` is the jj
 operation to read history at, and leaving it out reads the live repo. Anything
@@ -119,28 +122,28 @@ nothing in it hints that a server exists.
 These are the files you restyle and test. A test renders one with fixture props
 and checks the output. There is nothing to mock.
 
-Views take the wire types from `api.ts` as props. `CommitGraph` takes
+Views take the backend's shapes from `model/` as props. `CommitGraph` takes
 `LogEntry[]`. `DiffView` takes `FileDiff[]`. This holds while the UI shows
 exactly what the API returns. When it stops matching, add view-model types and
-map to them in the controllers. Until then, skip them. A copy of the wire types
-only drifts from the original.
+map to them in the controllers. Until then, skip them. A second copy of these
+types only drifts from the first.
 
 ### model
 
 A module in `model/` says what the app's own data can be and what can be
 done with it: its types, the schema and the starting value of any document the
 browser keeps, and the pure functions that read and change it. It holds no
-state and touches neither storage nor any browser API. `api.ts` is the same
-kind of module for the shapes the backend sends; `model/` is for the ones that
-never cross the wire, such as [settings](settings.md#display).
+state and touches neither storage nor any browser API. That includes the
+shapes the backend sends, such as a log entry or a file diff, which `api.ts`
+parses into but does not declare, and the ones that never cross the wire, such
+as [settings](settings.md#display).
 
 The line between `model/` and `state/` is React. A `state/` module holds a
 value and keeps it loaded or stored. Any rule for that value worth a test is
 a function in the model that the hook calls, so it is tested without
 rendering anything, and a view that names a shape imports it from `model/`. A helper that only one hook
 uses to build its request, such as the sides `useSources` asks for, stays
-beside that hook. A feature whose shapes all come off the wire already has its
-model in `api.ts` and gets no `model/` module for symmetry.
+beside that hook.
 
 ### persistence
 
@@ -212,7 +215,7 @@ rather than where they are in it.
 ### Keeping the boundary honest
 
 The one-way import rule is a convention, kept by whoever writes and reviews
-the import. Nothing stops a view from importing `fetchDiff` for "just one
+the import. Nothing stops a view from importing `fetchInterdiff` for "just one
 more field". The first time that happens, the split is gone and the view
 needs a running server to test again. An import that does not fit the list
 below is a sign the code is in the wrong layer, and the fix is to move the
@@ -220,10 +223,11 @@ code, not to add an exception.
 
 Allowed import edges:
 
-- `api.ts` imports Zod only. `model/` imports Zod, `api.ts`, and other
-  `model/` modules, since a model such as a reviewed row is a wire shape with
-  the app's own fields added, and a place holds pull request heads it parses
-  with the wire schema.
+- `api.ts` imports Zod and `model/`, for the types its wrappers return and
+  the `GitOid` schema. `model/` imports Zod and other `model/` modules, never
+  `api.ts`, since a model such as a reviewed row is a backend shape with the
+  app's own fields added, and a place holds pull request heads it parses
+  with the same `GitOid` schema.
 - The server's [review store](../backend/review-store.md) imports
   `model/review.ts`, so the command a browser applies to its copy and the
   one the server applies to the stored document are the same function. A
@@ -239,12 +243,10 @@ Allowed import edges:
   talks to the server, for the review store.
 - `state/` imports React, `api.ts`, `persistence/`, `model/`, and other
   `state/` modules.
-- `views/` imports React, other `views/`, `model/`, and *types* from
-  `api.ts`. A view never imports `state/`; a shape it names lives in
-  `model/`.
-- `controllers/` import `state/`, `views/`, `model/`, and `api.ts` *types*.
-- `screens/` import `controllers/`, `state/`, `views/`, `model/`, and
-  `api.ts` *types*.
+- `views/` imports React, other `views/`, and `model/`. A view never
+  imports `state/` or `api.ts`; a shape it names lives in `model/`.
+- `controllers/` import `state/`, `views/`, and `model/`.
+- `screens/` import `controllers/`, `state/`, `views/`, and `model/`.
 - `App.tsx` imports `screens/`, `model/`, and the `state/` hooks and
   contexts for what it holds above the screens.
 

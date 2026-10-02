@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-graph-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { LogEntry } from "../api";
+import type { LogEntry } from "../model/history";
 import { layoutGraph } from "./CommitGraph";
 
 function commit(id: string, parents: string[]): LogEntry {

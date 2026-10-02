@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-view-operation-picker>>[init]
 import type { ReactNode } from "react";
-import type { OpLogEntry } from "../api";
+import type { OpLogEntry } from "../model/history";
 
 export function OperationPicker({
   operations,
