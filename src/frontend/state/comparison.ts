@@ -26,7 +26,7 @@ export function useComparison(
     }
 
     let live = true;
-    setState({ status: "loading" });
+    setState((now) => (now?.status === "ready" ? now : { status: "loading" }));
     const { from, to } = JSON.parse(key) as Comparison;
     fetchInterdiff(from, to)
       .then(({ rows }) => {
