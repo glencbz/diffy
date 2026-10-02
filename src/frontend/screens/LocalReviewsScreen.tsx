@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-screen-local-reviews>>[init]
 import { LocalReviews } from "../controllers/LocalReviews";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
+import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
 import { ModeTabs } from "../views/ModeTabs";
 import { ReviewStrip } from "../views/ReviewStrip";
@@ -10,7 +11,7 @@ export function LocalReviewsScreen({
   onGo,
 }: {
   place: LocalPlace | null;
-  onGo: (place: Place) => void;
+  onGo: (place: Place, visit?: Visit) => void;
 }) {
   const review = useReviewContext();
 
@@ -30,7 +31,7 @@ export function LocalReviewsScreen({
       <LocalReviews
         place={place}
         review={review}
-        onGo={(local) => onGo({ tab: "reviews", review: local })}
+        onGo={(local, visit) => onGo({ tab: "reviews", review: local }, visit)}
       />
     </div>
   );

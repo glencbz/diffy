@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-screen-pull-requests>>[init]
 import { PullRequests } from "../controllers/PullRequests";
 import { type Place, type PullPlace, tabPlace } from "../model/place";
+import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
 import { ModeTabs } from "../views/ModeTabs";
 import { ReviewStrip } from "../views/ReviewStrip";
@@ -10,7 +11,7 @@ export function PullRequestsScreen({
   onGo,
 }: {
   place: PullPlace | null;
-  onGo: (place: Place) => void;
+  onGo: (place: Place, visit?: Visit) => void;
 }) {
   const review = useReviewContext();
 
@@ -30,7 +31,7 @@ export function PullRequestsScreen({
       <PullRequests
         place={place}
         review={review}
-        onGo={(pull) => onGo({ tab: "pulls", pull })}
+        onGo={(pull, visit) => onGo({ tab: "pulls", pull }, visit)}
       />
     </div>
   );

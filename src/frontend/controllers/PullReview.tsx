@@ -5,6 +5,7 @@ import { type PullPlace, pullHref } from "../model/place";
 import type { PullSummary } from "../model/pull";
 import { pullRowKey, pullSeries } from "../model/review";
 import { pullHistory } from "../model/series";
+import type { Visit } from "../state/place";
 import { usePullHistory } from "../state/pullHistory";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
@@ -22,7 +23,7 @@ export function PullReview({
   pull: PullSummary;
   place: PullPlace;
   review: ReviewHandle;
-  onGo: (place: PullPlace) => void;
+  onGo: (place: PullPlace, visit?: Visit) => void;
 }) {
   const answer = usePullHistory(repo, pull.number);
   const { number } = pull;
@@ -57,7 +58,7 @@ export function PullReview({
       screen={screen}
       place={place}
       review={review}
-      onGo={(next) => onGo({ ...next, number })}
+      onGo={(next, visit) => onGo({ ...next, number }, visit)}
       href={(next) => pullHref({ ...next, number })}
     />
   );

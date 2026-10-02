@@ -2,7 +2,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { type Place, readPlace, writePlace } from "../model/place";
 
-export function usePlace(): [Place, (next: Place) => void] {
+/** Whether a move leaves a step behind for back, or rewrites the one the
+ *  reader is on. */
+export type Visit = "push" | "replace";
+
+export function usePlace(): [Place, (next: Place, visit?: Visit) => void] {
   const [place, setPlace] = useState<Place>(() => readPlace(window.location));
 
   useEffect(() => {
@@ -11,12 +15,13 @@ export function usePlace(): [Place, (next: Place) => void] {
     return () => window.removeEventListener("popstate", follow);
   }, []);
 
-  const go = useCallback((next: Place) => {
+  const go = useCallback((next: Place, visit: Visit = "push") => {
     const { pathname, search, hash } = window.location;
     const address = writePlace(next);
     // Re-clicking the current place leaves no step for back to spend.
     if (address !== `${pathname}${search}${hash}`) {
-      window.history.pushState(null, "", address);
+      if (visit === "push") window.history.pushState(null, "", address);
+      else window.history.replaceState(null, "", address);
     }
     // Read back what was written, so a place that does not survive the round
     // trip (line 0) shows up now rather than after a reload.

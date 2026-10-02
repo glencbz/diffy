@@ -12,6 +12,7 @@ says why a review is registered rather than read off every bookmark.
 //| file: src/frontend/screens/LocalReviewsScreen.tsx
 import { LocalReviews } from "../controllers/LocalReviews";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
+import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
 import { ModeTabs } from "../views/ModeTabs";
 import { ReviewStrip } from "../views/ReviewStrip";
@@ -21,7 +22,7 @@ export function LocalReviewsScreen({
   onGo,
 }: {
   place: LocalPlace | null;
-  onGo: (place: Place) => void;
+  onGo: (place: Place, visit?: Visit) => void;
 }) {
   const review = useReviewContext();
 
@@ -41,7 +42,7 @@ export function LocalReviewsScreen({
       <LocalReviews
         place={place}
         review={review}
-        onGo={(local) => onGo({ tab: "reviews", review: local })}
+        onGo={(local, visit) => onGo({ tab: "reviews", review: local }, visit)}
       />
     </div>
   );
@@ -76,6 +77,7 @@ import {
   localSeries,
 } from "../model/review";
 import { localHistory } from "../model/series";
+import type { Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
 import { LocalReviewList } from "../views/LocalReviewList";
 import { Message } from "../views/Message";
@@ -89,7 +91,7 @@ export function LocalReviews({
 }: {
   place: LocalPlace | null;
   review: ReviewHandle;
-  onGo: (place: LocalPlace | null) => void;
+  onGo: (place: LocalPlace | null, visit?: Visit) => void;
 }) {
   if (review.status === "loading") {
     return <Message>Loading local reviews...</Message>;
@@ -158,7 +160,7 @@ function LocalReviewScreen({
   local: LocalReview;
   place: LocalPlace;
   review: ReviewHandle;
-  onGo: (place: LocalPlace) => void;
+  onGo: (place: LocalPlace, visit?: Visit) => void;
 }) {
   const { name } = local;
   const screen: SeriesScreen = {
@@ -186,7 +188,7 @@ function LocalReviewScreen({
       screen={screen}
       place={place}
       review={review}
-      onGo={(next) => onGo({ ...next, name })}
+      onGo={(next, visit) => onGo({ ...next, name }, visit)}
       href={(next) => localHref({ ...next, name })}
     />
   );

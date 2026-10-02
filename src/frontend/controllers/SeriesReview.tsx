@@ -22,7 +22,7 @@ import {
 } from "../model/series";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
-import { useArrivals } from "../state/place";
+import { useArrivals, type Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
 import { useSeriesCommits, useSeriesSize } from "../state/series";
@@ -181,7 +181,7 @@ export function SeriesReview({
   screen: SeriesScreen;
   place: SeriesPlace;
   review: ReviewHandle;
-  onGo: (place: SeriesPlace) => void;
+  onGo: (place: SeriesPlace, visit?: Visit) => void;
   href: (place: SeriesPlace) => string;
 }) {
   const { source, series, history } = screen;
@@ -397,6 +397,18 @@ export function SeriesReview({
             expanded={expanded}
             onExpand={(key) => setExpanded((now) => toggled(now, key))}
             current={currentKey}
+            onInView={(key) => {
+              const row = rows.find((candidate) => candidate.key === key);
+              if (row === undefined) return;
+              onGo(
+                {
+                  ...place,
+                  to,
+                  spot: { commit: row.commit.commitId, file: null },
+                },
+                "replace",
+              );
+            }}
             reveal={picks + arrivals}
             links={links}
             reviewOf={reviewOf}
