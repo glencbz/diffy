@@ -470,8 +470,8 @@ import type { PullSummary } from "../model/pull";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
-import { PullList } from "../views/PullList";
-import { type PullChoice, PullPanes } from "../views/PullPanes";
+import { PullList } from "../views/PullPanes/PullList";
+import { type PullChoice, PullPanes } from "../views/PullPanes/PullPanes";
 import { PullReview } from "./PullReview";
 
 export function PullRequests({
@@ -750,13 +750,13 @@ import {
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
-import type { DiffLinks } from "../views/DiffView";
+import type { DiffLinks } from "../views/DiffView/DiffView";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
-import { PullComparisonPicker } from "../views/PullComparisonPicker";
-import { PullHeader } from "../views/PullHeader";
-import { PullReviewPanes } from "../views/PullPanes";
+import { PullComparisonPicker } from "../views/PullPanes/PullReviewPanes/PullComparisonPicker";
+import { PullHeader } from "../views/PullPanes/PullReviewPanes/PullHeader";
+import { PullReviewPanes } from "../views/PullPanes/PullReviewPanes/PullReviewPanes";
 import { CommitLog } from "./CommitLog";
 
 /** One array for every version that has not arrived. `usePairing` recomputes
@@ -1376,8 +1376,8 @@ branch reads differently from one against `main`.
 
 ```tsx
 //| id: frontend-view-pull-list
-//| file: src/frontend/views/PullList.tsx
-import type { PullSummary } from "../model/pull";
+//| file: src/frontend/views/PullPanes/PullList.tsx
+import type { PullSummary } from "../../model/pull";
 import { PullStateChip } from "./PullStateChip";
 
 export function PullList({
@@ -1477,9 +1477,9 @@ show. On a phone the title wraps onto its own row.
 
 ```tsx
 //| id: frontend-view-pull-header
-//| file: src/frontend/views/PullHeader.tsx
-import type { PullSummary } from "../model/pull";
-import { PullStateChip } from "./PullStateChip";
+//| file: src/frontend/views/PullPanes/PullReviewPanes/PullHeader.tsx
+import type { PullSummary } from "../../../model/pull";
+import { PullStateChip } from "../PullStateChip";
 
 export function PullHeader({ pull }: { pull: PullSummary }) {
   return (
@@ -1569,18 +1569,18 @@ head) or a diff of diffs (two heads), which the selects alone do not say.
 
 ```tsx
 //| id: frontend-view-pull-comparison-picker
-//| file: src/frontend/views/PullComparisonPicker.tsx
+//| file: src/frontend/views/PullPanes/PullReviewPanes/PullComparisonPicker.tsx
 
-import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
-import type { GitOid } from "../model/history";
+import type { AsyncState } from "../../../model/asyncState";
+import type { FileDiff } from "../../../model/diff";
+import type { GitOid } from "../../../model/history";
 import type {
   PullBaseline,
   PullHeadOrigin,
   PullHistory,
   PullVersion,
-} from "../model/pull";
-import { ChangeCount } from "./CommitStack";
+} from "../../../model/pull";
+import { ChangeCount } from "../../CommitStack";
 
 export function PullComparisonPicker({
   history,
@@ -1758,8 +1758,8 @@ The selects wrap under each other on a phone and hold a 44px touch target.
 
 ```tsx
 //| id: frontend-view-pull-state-chip
-//| file: src/frontend/views/PullStateChip.tsx
-import type { PullState } from "../model/pull";
+//| file: src/frontend/views/PullPanes/PullStateChip.tsx
+import type { PullState } from "../../model/pull";
 
 const CHIP_CLASS: Record<PullState, string> = {
   OPEN: "chip--open",
