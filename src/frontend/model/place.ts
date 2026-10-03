@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place>>[init]
 import { GitOid } from "./history";
+import type { PullSummary } from "./pull";
 import type { SeriesBaseline } from "./series";
 
 export type Place =
@@ -32,6 +33,13 @@ export interface CommitSpot {
   commit: string;
   file: FileSpot | null;
 }
+
+/** What the pull request screen shows for a place: the list alone, a pull
+ *  request under review, or the list held over one as a sheet. */
+export type PullChoice =
+  | { phase: "browsing" }
+  | { phase: "reviewing"; pull: PullSummary }
+  | { phase: "picking"; pull: PullSummary };
 
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {

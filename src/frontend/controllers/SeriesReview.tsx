@@ -36,7 +36,7 @@ import {
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
-import { PullReviewPanes } from "../views/PullPanes";
+import { PullReviewPanes } from "../views/PullReviewPanes/PullReviewPanes";
 import { SeriesComparisonPicker } from "../views/SeriesComparisonPicker";
 import { CommitLog } from "./CommitLog";
 

@@ -416,13 +416,12 @@ its place; picking another opens it at base against latest, and
 //| id: frontend-controller-pull-requests
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
-import { openPull, type PullPlace } from "../model/place";
+import { openPull, type PullChoice, type PullPlace } from "../model/place";
 import type { PullSummary } from "../model/pull";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
-import { PullList } from "../views/PullList";
-import { type PullChoice, PullPanes } from "../views/PullPanes";
+import { PullPanes } from "../views/PullPanes/PullPanes";
 import { PullReview } from "./PullReview";
 
 export function PullRequests({
@@ -452,16 +451,11 @@ export function PullRequests({
       choice={choice}
       onOpen={() => setSheetOver(place?.number ?? null)}
       onDismiss={() => setSheetOver(null)}
-      list={
-        <PullList
-          pulls={pulls.data.pulls}
-          selected={choice.phase === "browsing" ? null : choice.pull.number}
-          onSelect={(number) => {
-            setSheetOver(null);
-            onGo(number === place?.number ? place : openPull(number));
-          }}
-        />
-      }
+      pulls={pulls.data.pulls}
+      onSelect={(number) => {
+        setSheetOver(null);
+        onGo(number === place?.number ? place : openPull(number));
+      }}
       review={
         choice.phase === "browsing" || place === null ? (
           <Message>Select a pull request to review it.</Message>
@@ -677,7 +671,7 @@ import {
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
-import { PullReviewPanes } from "../views/PullPanes";
+import { PullReviewPanes } from "../views/PullReviewPanes/PullReviewPanes";
 import { SeriesComparisonPicker } from "../views/SeriesComparisonPicker";
 import { CommitLog } from "./CommitLog";
 
@@ -1375,9 +1369,9 @@ branch reads differently from one against `main`.
 
 ```tsx
 //| id: frontend-view-pull-list
-//| file: src/frontend/views/PullList.tsx
-import type { PullSummary } from "../model/pull";
-import { PullStateChip } from "./PullStateChip";
+//| file: src/frontend/views/PullPanes/PullList.tsx
+import type { PullSummary } from "../../model/pull";
+import { PullStateChip } from "../PullStateChip";
 
 export function PullList({
   pulls,
