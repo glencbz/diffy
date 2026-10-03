@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-header>>[init]
-import type { PullSummary } from "../model/pull";
-import { PullStateChip } from "./PullStateChip";
+import type { PullSummary } from "../../../model/pull";
+import { PullStateChip } from "../PullStateChip";
 
 export function PullHeader({ pull }: { pull: PullSummary }) {
   return (

@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-pull-state-chip>>[init]
-import type { PullState } from "../model/pull";
+import type { PullState } from "../../model/pull";
 
 const CHIP_CLASS: Record<PullState, string> = {
   OPEN: "chip--open",

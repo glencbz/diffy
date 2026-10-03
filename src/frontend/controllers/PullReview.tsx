@@ -39,9 +39,9 @@ import type { DiffLinks } from "../views/DiffView/DiffView";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
-import { PullComparisonPicker } from "../views/PullComparisonPicker";
-import { PullHeader } from "../views/PullHeader";
-import { PullReviewPanes } from "../views/PullPanes";
+import { PullComparisonPicker } from "../views/PullPanes/PullReviewPanes/PullComparisonPicker";
+import { PullHeader } from "../views/PullPanes/PullReviewPanes/PullHeader";
+import { PullReviewPanes } from "../views/PullPanes/PullReviewPanes/PullReviewPanes";
 import { CommitLog } from "./CommitLog";
 
 /** One array for every version that has not arrived. `usePairing` recomputes
