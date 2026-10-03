@@ -56,6 +56,12 @@ A view is a pure function from props to markup; a test renders it with
 fixture props and mocks nothing. Views take `model/` shapes directly. Add
 view-model types only once the UI stops showing what the API returns.
 
+A view too big to read in one sitting becomes a directory named for its main
+component, holding that component in a file of the same name beside the
+subcomponents only it draws. A subcomponent with parts of its own nests the
+same way. A view more than one directory draws stays at the level that holds
+all of its callers.
+
 ### model
 
 `model/` holds the app's types, document schemas and defaults, and the pure

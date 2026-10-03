@@ -16,14 +16,9 @@ import type { GitCommit } from "../model/history";
 import type { ComparisonReview, ReviewActions } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
+import { CommentComposer, CommentThreads } from "./Comments";
 import { CommitMessage } from "./CommitMessage";
-import {
-  CommentComposer,
-  CommentThreads,
-  type DiffLinks,
-  type DiffReview,
-  DiffView,
-} from "./DiffView";
+import { type DiffLinks, type DiffReview, DiffView } from "./DiffView/DiffView";
 import { ReviewBar } from "./ReviewBar";
 
 ```

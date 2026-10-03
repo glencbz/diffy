@@ -750,7 +750,7 @@ import {
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
-import type { DiffLinks } from "../views/DiffView";
+import type { DiffLinks } from "../views/DiffView/DiffView";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
