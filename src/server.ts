@@ -36,6 +36,13 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import {
+  localCommits,
+  localDiff,
+  localSize,
+  RegistrationError,
+  resolveRegistration,
+} from "./backend/review/local";
 import type { ReviewStore } from "./backend/review/store";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
@@ -54,8 +61,10 @@ async function jjJson(build: () => Promise<unknown>): Promise<Response> {
 }
 
 export function handleLog(req: Request): Promise<Response> {
-  const atOperation = new URL(req.url).searchParams.get("op") ?? undefined;
-  return jjJson(() => jjLog({ atOperation }));
+  const params = new URL(req.url).searchParams;
+  const atOperation = params.get("op") ?? undefined;
+  const revset = params.get("revset") ?? undefined;
+  return jjJson(() => jjLog({ revset, atOperation }));
 }
 
 export function handleOperations(): Promise<Response> {
@@ -384,6 +393,69 @@ export const reviewSocket: Bun.WebSocketHandler<undefined> = {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
 
+const RegistrationBody = z.object({
+  name: z.string().min(1).optional(),
+  revset: z.string().min(1).optional(),
+  operation: z.string().min(1).optional(),
+});
+
+/** A local-review body; what the repository refuses becomes a 400. */
+async function localJson(build: () => Promise<unknown>): Promise<Response> {
+  try {
+    return Response.json(await build());
+  } catch (error) {
+    if (
+      error instanceof RegistrationError ||
+      error instanceof JjError ||
+      error instanceof z.ZodError
+    ) {
+      const message =
+        error instanceof z.ZodError ? z.prettifyError(error) : error.message;
+      return Response.json({ error: message }, { status: 400 });
+    }
+    throw error;
+  }
+}
+
+export function localReviewsRoute(store: ReviewStore) {
+  return {
+    POST: (req: Request) =>
+      localJson(async () => {
+        const asked = RegistrationBody.parse(
+          await req.json().catch(() => ({})),
+        );
+        const { name, version } = await resolveRegistration(
+          store.read().document,
+          asked,
+          new Date().toISOString(),
+        );
+        return {
+          name,
+          snapshot: store.apply({ kind: "register", name, version }),
+        };
+      }),
+  };
+}
+
+export function handleLocalCommits(req: Request): Promise<Response> {
+  const ids = new URL(req.url).searchParams.getAll("id");
+  return localJson(() => localCommits(ids));
+}
+
+export function handleLocalDiff(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  return localJson(async () => ({
+    files: await localDiff(params.get("fromCommit"), params.get("toCommit")),
+  }));
+}
+
+export function handleLocalSize(req: Request): Promise<Response> {
+  const ids = new URL(req.url).searchParams.getAll("id");
+  return localJson(async () => ({ files: await localSize(ids) }));
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[11]
+
 export function routes(store: ReviewStore) {
   return {
     "/*": index,
@@ -400,6 +472,10 @@ export function routes(store: ReviewStore) {
     "/api/github/pull/diff": handleGithubPullDiff,
     "/api/review": reviewRoute(store),
     "/api/review/changes": reviewChanges,
+    "/api/local/reviews": localReviewsRoute(store),
+    "/api/local/commits": handleLocalCommits,
+    "/api/local/diff": handleLocalDiff,
+    "/api/local/size": handleLocalSize,
   };
 }
 // ~/~ end

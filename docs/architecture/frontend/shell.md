@@ -57,6 +57,7 @@ context: [settings](settings.md#sharing-the-settings), the
 //| file: src/frontend/App.tsx
 import type { Place } from "./model/place";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
+import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
@@ -83,6 +84,8 @@ export function App() {
 
 function screenAt(place: Place, go: (place: Place) => void) {
   switch (place.tab) {
+    case "reviews":
+      return <LocalReviewsScreen place={place.review} onGo={go} />;
     case "local":
       return <LocalHistoryScreen onGo={go} />;
     case "pulls":
@@ -117,16 +120,19 @@ function screenAt(place: Place, go: (place: Place) => void) {
 ```
 ## Mode tabs
 
+"Local reviews" comes first, since they hold what is waiting for the reader,
+and the operation screen's tab is "Operations", for what it compares.
 Pressing the open screen's tab does nothing, rather than going to its bare
 [`tabPlace`](address.md#the-place) and losing the reader's place.
 
 ```tsx
 //| id: frontend-view-mode-tabs
 //| file: src/frontend/views/ModeTabs.tsx
-export type Mode = "local" | "pulls" | "settings";
+export type Mode = "reviews" | "local" | "pulls" | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
-  local: "Local history",
+  reviews: "Local reviews",
+  local: "Operations",
   pulls: "Pull requests",
   settings: "Settings",
 };

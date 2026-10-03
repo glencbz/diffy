@@ -12,17 +12,14 @@ promises, and `reviewKey` reads the null as its cue to key by revision.
 //| id: frontend-state-commits
 //| file: src/frontend/state/commits.ts
 import { useEffect, useState } from "react";
-import { fetchLog, fetchPullCommits } from "../api";
+import { fetchLocalCommits, fetchLog, fetchPullCommits } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { GitCommit, LogEntry, Source } from "../model/history";
 
-function asLogEntry(commit: GitCommit): LogEntry {
+function asLogEntry(commit: GitCommit, changeId: string | null): LogEntry {
   return {
     commitId: commit.commitId,
-    // A GitCommit carries an identity, but it is a subject line, and
-    // `changeId` on a LogEntry is what the graph prints as the commit's id.
-    // The pairing reads the identity off the GitCommit instead.
-    changeId: null,
+    changeId,
     description: commit.description,
     parents: commit.parents,
     author: commit.author,
@@ -38,12 +35,22 @@ export async function commitsFrom(source: Source): Promise<LogEntry[]> {
     return fetchLog(source.operation ?? undefined);
   }
 
+  if (source.kind === "local") {
+    const commits = await fetchLocalCommits(source.commits);
+    return commits
+      .map((commit) => asLogEntry(commit, commit.changeId))
+      .reverse();
+  }
+
+  // A pull request commit's identity is a subject line, and `changeId` on a
+  // LogEntry is what the graph prints as the commit's id, so it stays empty.
+  // The pairing reads the identity off the GitCommit instead.
   const { commits } = await fetchPullCommits(
     source.repo,
     source.number,
     source.head,
   );
-  return commits.map(asLogEntry);
+  return commits.map((commit) => asLogEntry(commit, null));
 }
 
 export function useCommits(source: Source): AsyncState<LogEntry[]> {

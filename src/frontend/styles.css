@@ -2134,6 +2134,151 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-local-review-list>>[init] */
+@layer components {
+  .local-review__open {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .local-review__commits {
+    margin-top: var(--space-3);
+    cursor: pointer;
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-register-strip>>[init] */
+@layer components {
+  .review-toggle {
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
+    font: inherit;
+    color: var(--surface);
+    white-space: nowrap;
+    cursor: pointer;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+  }
+
+  .review-toggle--open {
+    color: var(--accent);
+    background: var(--surface-selected);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-register-strip>>[1] */
+@layer components {
+  .register-strip {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--surface-selected);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .register-strip__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  .register-strip__count {
+    font-weight: bold;
+  }
+
+  .register-strip__input {
+    flex: 1;
+    min-width: 8em;
+    height: 2em;
+    padding: 0 var(--space-3);
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  /* Its own row in a column, where `flex: 1` would squash it to nothing. */
+  .register-strip__revset {
+    flex: none;
+  }
+
+  .register-strip__submit,
+  .register-strip__close {
+    flex: none;
+    height: 2em;
+    padding: 0 var(--space-4);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    border-radius: var(--radius);
+  }
+
+  .register-strip__submit {
+    color: var(--surface);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+  }
+
+  .register-strip__submit:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  .register-strip__close {
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+  }
+
+  .register-strip__problem {
+    margin: 0;
+    color: var(--danger);
+  }
+
+  .register-strip__note {
+    margin: 0;
+    color: var(--text-muted);
+  }
+
+  .register-strip__open {
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-register-strip>>[2] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .review-toggle,
+    .register-strip__input,
+    .register-strip__submit,
+    .register-strip__close {
+      height: 44px;
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[init] */
 @layer components {
   .pull-header {

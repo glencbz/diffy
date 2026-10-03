@@ -11,6 +11,7 @@ import {
   isViewed,
   keepKey,
   keptPairing,
+  localRowKey,
   markSeen,
   markViewed,
   pullRowKey,
@@ -982,6 +983,57 @@ describe("kept pairings", () => {
     expect(keptPairing(twice, heads)).toEqual(slots);
     expect(keptPairing(twice, { ...heads, after: "h3" })).toBeNull();
     expect(keptPairing(reset, heads)).toBeNull();
+  });
+});
+describe("registered local reviews", () => {
+  const version = (operation: string, revset: string) => ({
+    operation,
+    revset,
+    commits: ["c"],
+    registeredAt: "t",
+  });
+  const register = (name: string, operation: string, revset: string) =>
+    ({
+      kind: "register",
+      name,
+      version: version(operation, revset),
+    }) satisfies ReviewCommand;
+
+  test("adds a version per operation, and replaces one at the same operation", () => {
+    // arrange
+    // act
+    const document = applied(
+      empty,
+      register("x", "o1", "trunk()..x"),
+      register("x", "o2", "trunk()..x"),
+      register("x", "o2", "trunk()..y"),
+      register("other", "o1", "trunk()..o"),
+    );
+
+    // assert
+    expect(document.localReviews).toEqual([
+      {
+        name: "x",
+        versions: [version("o1", "trunk()..x"), version("o2", "trunk()..y")],
+      },
+      { name: "other", versions: [version("o1", "trunk()..o")] },
+    ]);
+  });
+});
+describe("localRowKey", () => {
+  test("files a row under its change id, whichever side holds it", () => {
+    const before = { commitId: "b1", changeId: "kx" };
+    const after = { commitId: "a1", changeId: "kx" };
+
+    expect(localRowKey(before, after).reviewKey).toBe("change:kx");
+    expect(localRowKey(before, null).reviewKey).toBe("change:kx");
+  });
+
+  test("falls back to the commit when it has no change id", () => {
+    expect(localRowKey(null, { commitId: "a1", changeId: null })).toEqual({
+      reviewKey: "rev:a1",
+      keeps: null,
+    });
   });
 });
 // ~/~ end

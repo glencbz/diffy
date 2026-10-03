@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/shell.md#frontend-app>>[init]
 import type { Place } from "./model/place";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
+import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
@@ -27,6 +28,8 @@ export function App() {
 
 function screenAt(place: Place, go: (place: Place) => void) {
   switch (place.tab) {
+    case "reviews":
+      return <LocalReviewsScreen place={place.review} onGo={go} />;
     case "local":
       return <LocalHistoryScreen onGo={go} />;
     case "pulls":
