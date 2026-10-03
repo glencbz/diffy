@@ -11,6 +11,8 @@ trap 'rm -rf "$TMP"' EXIT
 export JJ_USER=test JJ_EMAIL=test@example.com GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 export REVIEW_REPO=$TMP/repo REVIEW_STATE=$TMP/state REVIEW_SERVE=0 UPDATE_SWEEP=true
+# a, b and e stand in for branches with open PRs; d's PR has landed.
+export UPDATE_OPEN_PRS="a b e"
 R=$TMP/repo
 FAILS=0
 
@@ -45,6 +47,7 @@ commit_on a2 a g 'a2'
 commit_on b main f $'1\nB\n3\n4\n5\n6\n7\n8\n9'
 commit_on d main d 'd'
 commit_on e main e 'e'
+j git push --remote origin --bookmark a --bookmark b --bookmark e
 "$REVIEW" sync >/dev/null 2>&1
 mb=$(q 'description(exact:"review: merge b\n")' change_id)
 j new "$mb"
@@ -72,8 +75,14 @@ check "the review chain sits on the new main" "$(q 'roots(trunk()..review)' 'par
 check "the squash-merged branch is reported emptied" "$(grep -c 'emptied   d ' <<<"$out")" "1"
 check "the branch main rewrote is reported conflicted" "$(grep -c 'conflict  e ' <<<"$out")" "1"
 check "a and b stay clean in the chain" "$(states | cut -d' ' -f1-3)" "clean:a clean:a2 clean:b"
+origin() { git -C "$TMP/origin.git" rev-parse "refs/heads/$1"; }
+check "a clean branch with an open PR is pushed" "$(origin a) $(origin b)" "$(q a commit_id) $(q b commit_id)"
+check "a conflicted branch is held back" "$(grep -c 'held     e' <<<"$out")" "1"
+check "the held branch stays as it was on origin" "$(origin e)" "$(q 'e@origin' commit_id)"
+check "a branch with no open PR is not pushed" "$(git -C "$TMP/origin.git" rev-parse -q --verify refs/heads/a2)" ""
 
 again=$("$HERE/update.sh" --apply 2>/dev/null)
 check "a second run has nothing to rebase" "$(grep -c 'every branch already sits on trunk()' <<<"$again")" "1"
+check "a second run has nothing to push" "$(grep -c 'current  a' <<<"$again")" "1"
 
 [ "$FAILS" = 0 ] && echo "all passed" || { echo "$FAILS failed"; exit 1; }
