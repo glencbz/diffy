@@ -63,7 +63,7 @@ export function LocalReviews({
         {open === undefined || place === null ? (
           <Message>
             {reviews.length === 0
-              ? "Nothing is registered for review yet."
+              ? "Nothing is registered for review yet. Tick its commits in Operations and press review."
               : "Select a local review to read it."}
           </Message>
         ) : (

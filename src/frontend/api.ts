@@ -154,8 +154,16 @@ export async function fetchOperations(): Promise<OpLogEntry[]> {
     .parse(await getJson("/api/operations", "GET /api/operations"));
 }
 
-export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
-  const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
+/** The log at `atOperation`, or, given a `revset`, only what it names
+ *  there. */
+export async function fetchLog(
+  atOperation?: string,
+  revset?: string,
+): Promise<LogEntry[]> {
+  const params = new URLSearchParams();
+  if (atOperation) params.set("op", atOperation);
+  if (revset !== undefined) params.set("revset", revset);
+  const query = params.size > 0 ? `?${params}` : "";
   return z
     .array(logEntry)
     .parse(await getJson(`/api/log${query}`, "GET /api/log"));
@@ -377,5 +385,30 @@ export async function fetchLocalSize(ids: string[]): Promise<FileDiff[]> {
     "GET /api/local/size",
   );
   return filesResponse.parse(body).files;
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
+
+/** Register a version of a local review at `operation`, and answer the name
+ *  it went under. The review document announces the change to every open
+ *  screen. */
+export async function registerLocalReview(asked: {
+  name: string;
+  revset: string;
+  operation: string;
+}): Promise<string> {
+  const res = await fetch("/api/local/reviews", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(asked),
+  });
+  const body: unknown = await res.json();
+  if (!res.ok) {
+    const parsed = errorResponse.safeParse(body);
+    throw new Error(
+      parsed.success ? parsed.data.error : `registering failed (${res.status})`,
+    );
+  }
+  return z.object({ name: z.string() }).parse(body).name;
 }
 // ~/~ end
