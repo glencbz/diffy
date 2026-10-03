@@ -27,6 +27,9 @@ file instead, then tangle. If you must edit the generated file directly (e.g.
 a quick fix), immediately run sync afterwards so the change gets stitched
 back into the markdown — don't let the two drift apart.
 
+The prose around a block follows the `docs-prose` skill: flow and rejected
+alternatives in the doc, single-site reasons as comments in the block.
+
 ## Adding or changing code
 
 1. Pick the doc under `docs/` (any depth — it's reorganized into subfolders
