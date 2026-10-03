@@ -95,6 +95,9 @@ echo
 echo "### jj workspaces"
 while IFS=$'\t' read -r ws root; do
   [ "$ws" = default ] && continue
+  # The review-branch watcher owns its workspace. Between syncs its @ can sit on
+  # trunk() with nothing unpublished, which looks dead to the checks below.
+  if [ "$ws" = review ]; then say keep workspace "$ws" "the review-branch watcher's"; HELD_REVS="$HELD_REVS | \"$ws\"@"; continue; fi
   # jj reports no root once the directory is gone; its serve state is swept below.
   if [ -z "$root" ] || [ ! -d "$root" ]; then
     say drop workspace "$ws" "directory already gone"

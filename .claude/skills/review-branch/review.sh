@@ -53,7 +53,11 @@ ensure_workspace() {
   [ -d "$WS_ROOT/.jj" ] && return
   "${J[@]}" workspace forget "$WS" 2>/dev/null || true
   mkdir -p "$(dirname "$WS_ROOT")"
-  jj -R "$REPO" workspace add --name "$WS" -r 'trunk()' "$WS_ROOT"
+  # A restack from elsewhere can leave the default workspace stale, and a plain
+  # add from it refuses to run. Skipping its working copy still records the new
+  # workspace; jj only complains that it cannot check out its files, which the
+  # update-stale in do_sync then does.
+  "${J[@]}" workspace add --name "$WS" -r 'trunk()' "$WS_ROOT" 2>/dev/null || [ -d "$WS_ROOT/.jj" ]
 }
 
 do_sync() {
