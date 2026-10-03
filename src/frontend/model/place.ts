@@ -41,6 +41,15 @@ export interface FileSpot {
   line: number | null;
 }
 
+/** Where the files and lines of a diff link to, for a diff whose place is
+ *  kept in the address. */
+export interface DiffLinks {
+  /** The file or line the address names, when it is in this diff. */
+  selected: FileSpot | null;
+  href: (spot: FileSpot) => string;
+  onFollow: (spot: FileSpot) => void;
+}
+
 const OPENED: SeriesPlace = { from: { kind: "base" }, to: null, spot: null };
 
 export function openPull(number: number): PullPlace {

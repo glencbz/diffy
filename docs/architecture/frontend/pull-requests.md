@@ -646,7 +646,7 @@ import type { FileDiff } from "../model/diff";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
-import type { FileSpot, SeriesPlace } from "../model/place";
+import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
 import {
   type ComparisonReview,
   keptPairing,
@@ -674,7 +674,6 @@ import {
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
-import type { DiffLinks } from "../views/DiffView";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
