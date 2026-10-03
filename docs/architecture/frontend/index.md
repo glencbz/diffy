@@ -219,6 +219,8 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-commit-graph>>
 
+<<design-combined-graph>>
+
 <<design-paired-graph>>
 
 <<design-commit-drawer-rows>>

@@ -1239,6 +1239,51 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/combined-graph.md#design-combined-graph>>[init] */
+@layer components {
+  /* A button is border-box and the absent tick's <span> is not; without this
+     the span's border pushes its row's gutter a pixel right. */
+  .combined-graph__absent {
+    box-sizing: border-box;
+    color: var(--text-ghost);
+    cursor: default;
+  }
+
+  .combined-graph__absent:hover {
+    color: var(--text-ghost);
+    background: transparent;
+  }
+
+  .combined-graph__chip {
+    flex: none;
+    padding: 0 var(--space-2);
+    font-size: var(--text-size-small);
+    border: 1px solid currentColor;
+    border-radius: var(--radius);
+  }
+
+  .combined-graph__chip--rewritten {
+    color: var(--status-modified);
+  }
+
+  .combined-graph__chip--new {
+    color: var(--diff-added);
+  }
+
+  .combined-graph__chip--gone {
+    color: var(--diff-removed);
+  }
+
+  .combined-graph__row--gone .commit-label {
+    opacity: 0.6;
+  }
+
+  .combined-graph__row--gone .commit-label__summary {
+    text-decoration: line-through;
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/paired-graph.md#design-paired-graph>>[init] */
 @layer components {
   .paired-graph {

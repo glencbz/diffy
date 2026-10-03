@@ -53,19 +53,45 @@ export async function commitsFrom(source: Source): Promise<LogEntry[]> {
   return commits.map((commit) => asLogEntry(commit, null));
 }
 
+/** Logs already read, by source JSON, oldest read first. */
+const kept = new Map<string, LogEntry[]>();
+const KEPT_LOGS = 32;
+
+/** A source pinned to an operation, a head, or a commit list names a log
+ *  that cannot change; only the live jj log can. */
+function keepable(source: Source): boolean {
+  return source.kind !== "jj" || source.operation !== null;
+}
+
+function keep(key: string, data: LogEntry[]) {
+  kept.delete(key);
+  kept.set(key, data);
+  for (const oldest of kept.keys()) {
+    if (kept.size <= KEPT_LOGS) break;
+    kept.delete(oldest);
+  }
+}
+
+function keptState(key: string): AsyncState<LogEntry[]> {
+  const data = kept.get(key);
+  return data === undefined ? { status: "loading" } : { status: "ready", data };
+}
+
 export function useCommits(source: Source): AsyncState<LogEntry[]> {
-  const [state, setState] = useState<AsyncState<LogEntry[]>>({
-    status: "loading",
-  });
   // A source is a fresh object every render; depend on its JSON and read the
   // source back out of it, so the dependency list cannot drift from the body.
   const key = JSON.stringify(source);
+  const [state, setState] = useState(() => keptState(key));
 
   useEffect(() => {
+    const source = JSON.parse(key) as Source;
+    const now = keptState(key);
+    setState(now);
+    if (now.status === "ready") return;
     let live = true;
-    setState({ status: "loading" });
-    commitsFrom(JSON.parse(key) as Source)
+    commitsFrom(source)
       .then((data) => {
+        if (keepable(source)) keep(key, data);
         if (live) setState({ status: "ready", data });
       })
       .catch((err: unknown) => {
@@ -79,6 +105,13 @@ export function useCommits(source: Source): AsyncState<LogEntry[]> {
   return state;
 }
 ```
+
+`useCommits` keeps every log it reads from a pinned source, since that log
+cannot change. Switching the interdiff between one graph and two swaps which
+components draw the logs, and the kept arrays let the new ones draw at once,
+with layouts that `WeakMap`s hold against those same arrays. Keeping both
+layouts mounted and hiding one would also skip the refetch, but every pane
+that draws a log would have to know about every other way of drawing it.
 
 The test checks the URL asked for as well as the commits, since a source
 reaching the wrong endpoint might still parse.
@@ -254,7 +287,7 @@ import { CommitLabel } from "./CommitLabel";
 
 // A node and a half. One node per row, so a lane only separates parallel
 // edges, and gutter width comes out of the label's.
-const LANE_WIDTH = 12;
+export const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
@@ -349,6 +382,19 @@ export function layoutGraph(commits: LogEntry[]): GraphLayout {
   return { rows, laneCount };
 }
 
+// A kept log is the same array every time it is drawn, so its layout is kept
+// with it rather than redone on every tick and every remount.
+const layouts = new WeakMap<LogEntry[], GraphLayout>();
+
+function layoutOf(commits: LogEntry[]): GraphLayout {
+  let layout = layouts.get(commits);
+  if (layout === undefined) {
+    layout = layoutGraph(commits);
+    layouts.set(commits, layout);
+  }
+  return layout;
+}
+
 export function CommitGraph({
   commits: newestFirst,
   selected,
@@ -376,7 +422,7 @@ export function CommitGraph({
     );
   }
 
-  const layout = layoutGraph(newestFirst);
+  const layout = layoutOf(newestFirst);
   const commits = oldestFirst ? [...newestFirst].reverse() : newestFirst;
   const rows = oldestFirst ? [...layout.rows].reverse() : layout.rows;
   const gutterWidth = layout.laneCount * LANE_WIDTH;
@@ -414,8 +460,8 @@ export function CommitGraph({
 }
 
 /** The one control in a row: a cell down its left edge that ticks the
- *  commit in or out. */
-function Tick({
+ *  commit in or out. The combined graph draws two, one per side. */
+export function Tick({
   label,
   name,
   ticked,
@@ -439,7 +485,8 @@ function Tick({
   );
 }
 
-function RowGraphic({
+/** One row's slice of the gutter, which the combined graph draws too. */
+export function RowGraphic({
   row,
   width,
   flipped,
