@@ -1111,6 +1111,84 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/combined-graph.md#design-combined-graph>>[init] */
+@layer components {
+  .combined-graph__tick {
+    display: flex;
+    flex: none;
+    align-items: center;
+    align-self: stretch;
+    justify-content: center;
+    width: 2em;
+    padding: 0;
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .combined-graph__tick:hover {
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+
+  .combined-graph__tick[aria-pressed="true"] {
+    font-weight: bold;
+    color: var(--text-inverse);
+    background: var(--accent);
+  }
+
+  .combined-graph__tick--absent,
+  .combined-graph__tick--absent:hover {
+    color: var(--text-ghost);
+    cursor: default;
+    background: transparent;
+  }
+
+  .combined-graph__chip {
+    flex: none;
+    padding: 0 var(--space-2);
+    font-size: var(--text-size-small);
+    border: 1px solid currentColor;
+    border-radius: var(--radius);
+  }
+
+  .combined-graph__chip--rewritten {
+    color: var(--status-modified);
+  }
+
+  .combined-graph__chip--new {
+    color: var(--diff-added);
+  }
+
+  .combined-graph__chip--gone {
+    color: var(--diff-removed);
+  }
+
+  .combined-graph__row--gone .commit-label {
+    opacity: 0.6;
+  }
+
+  .combined-graph__row--gone .commit-label__summary {
+    text-decoration: line-through;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/combined-graph.md#design-combined-graph>>[1] */
+@layer components-narrow {
+  /* The app's 44px touch target. */
+  @media (max-width: 1000px) {
+    .combined-graph__tick {
+      width: 44px;
+      min-height: 44px;
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/paired-graph.md#design-paired-graph>>[init] */
 @layer components {
   .paired-graph {

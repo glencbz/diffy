@@ -5,6 +5,7 @@ export type PaneKey =
   | "local-before"
   | "local-after"
   | "local-log"
+  | "local-combined"
   | "pull-commits";
 export type Axis = "x" | "y";
 
@@ -13,6 +14,7 @@ export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-before": { axis: "x", min: 160 },
   "local-after": { axis: "x", min: 160 },
   "local-log": { axis: "x", min: 160 },
+  "local-combined": { axis: "x", min: 160 },
   "pull-commits": { axis: "y", min: 48 },
 };
 
@@ -23,6 +25,7 @@ export const PaneSizes = z.object({
   "local-before": z.number().optional(),
   "local-after": z.number().optional(),
   "local-log": z.number().optional(),
+  "local-combined": z.number().optional(),
   "pull-commits": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;
