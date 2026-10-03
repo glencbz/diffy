@@ -4,7 +4,7 @@ import { CommitLabel } from "./CommitLabel";
 
 // A node and a half. One node per row, so a lane only separates parallel
 // edges, and gutter width comes out of the label's.
-const LANE_WIDTH = 12;
+export const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
@@ -164,7 +164,8 @@ export function CommitGraph({
   );
 }
 
-function RowGraphic({
+/** One row's slice of the gutter, which the combined graph draws too. */
+export function RowGraphic({
   row,
   width,
   flipped,

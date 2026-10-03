@@ -6,18 +6,22 @@ export function OperationPicker({
   operations,
   selected,
   onSelect,
+  label = "operation",
   children,
 }: {
   operations: OpLogEntry[];
   selected: string | null;
   onSelect: (operationId: string | null) => void;
+  /** Names the select; a column holding both sides' pickers names each
+   *  after its side. */
+  label?: string;
   /** Controls that sit on the picker's row after the select. */
   children?: ReactNode;
 }) {
   return (
     <div className="operation-picker">
       <label className="operation-picker__field">
-        <span className="operation-picker__label">operation</span>
+        <span className="operation-picker__label">{label}</span>
         <select
           value={selected ?? ""}
           onChange={(event) => onSelect(event.target.value || null)}
