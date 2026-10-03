@@ -110,6 +110,11 @@ bun --hot ./index.ts
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
 
+## Docs
+
+- Load the `docs-prose` skill before writing or editing prose in
+  `docs/**/*.md`.
+
 ## Version control
 
 - This repo is jj-backed (colocated jj + Git). Use `jj`, not `git`, for
