@@ -1,45 +1,12 @@
 # Frontend
 
-The review UI is a small [React](https://react.dev/) app. It has two commit
-pickers, *before* and *after*, each drawn as a commit graph, and one diff panel.
-Pick a commit on each side and the panel shows their interdiff: how the after
-commit's change differs from the before commit's.
-
-Either side takes any number of commits. Pick a whole branch on the left and
-the branch it became on the right, and the panel shows one row per commit,
-lined up by [`alignSeries`](../backend/series.md) and scrolled like a branch.
-Reviewing a re-pushed series is the case the tool is for, and it is not a
-commit-at-a-time job.
-
-An operation selector sits above each picker. jj records every repo mutation as
-an operation; picking a past one rewinds that side's log to how it looked right
-after that step, via `jj ... --at-operation`. The two sides choose
-independently. A commit as it stood ten operations ago and the same commit now
-are exactly the pair worth comparing, and no single view of the repo holds
-both.
-
-A commit with nothing opposite it shows its own diff, whether that is because
-the reader picked one side only or because the commit was added to or dropped
-from the series. "Pick a commit, read its diff" is then this same screen with
-an empty before side, rather than a second mode to switch into.
-
-A pull request is the same comparison over a history nobody has locally. Every
-force push replaces the branch's head, so one that has been pushed six times
-has had seven heads, and its first head against its latest is exactly the
-interdiff this tool is for. A switch at the top of the window chooses between
-the two screens, `Local history` and `Pull requests`. Everything below that
-switch is shared: the same commit graph, the same diff panel, and one `Source`
-type saying where a side's commits come from.
-
-The two screens differ because the two histories do. A jj operation log is deep
-and arbitrary, so picking a point in it wants a dropdown. A pull request has
-had a handful of heads in a known order, and choosing between them wants two
-dropdowns of its own, one per end of the comparison.
-
-The tech plan first sketched this in htmx. We went with React instead. The
-pickers carry client-side state. Two selections drive the diff panel, and both
-have to survive every reload of either side. Component state does that cleanly. htmx
-would need a stack of out-of-band swaps.
+The review UI is a small [React](https://react.dev/) app with two screens.
+**Local history** has a *before* and an *after* commit graph, each read at an
+operation of its own, and a diff panel. Pick commits on each side and the
+panel shows one interdiff row per pair [`alignSeries`](../backend/series.md)
+lines up; a commit with nothing opposite shows its own diff, so reading a
+single commit needs no separate mode. **Pull requests** is the same
+comparison over a pull request's force-pushed heads.
 
 ## Architecture
 
@@ -63,184 +30,86 @@ index.html + main.tsx   mount point
         `------ model/   model/: the app's own shapes and defaults
 ```
 
-Each layer is named for the job it does. The `state/` modules are React hooks.
-A folder called `hooks/` would say nothing, because any hook can do anything.
-`state/` says what these ones are for.
-
-The documents under this one are cut a different way. A layer is a rule about
-what may import what, which is not something anyone sets out to change, so a
-document is one feature instead. It holds that feature's state hook, its
-controller, and its views together, and its code blocks tangle out into
-`state/`, `controllers/`, and `views/` as usual. Entangled is what lets the two
-trees disagree, and they should. The source tree answers what may import what.
-The document tree answers what you are changing.
+Documents are cut by feature, not by layer: each holds that feature's state,
+controller, and views, and tangles them out into their layers' folders. The
+source tree answers what may import what; the document tree answers what you
+are changing.
 
 ### transport
 
-`api.ts` does the talking to the backend about the repository and GitHub. It
-knows those URLs and their wire formats. It knows nothing about React. It holds one schema and one
-wrapper per endpoint, and every wrapper parses its response through that
-[Zod](https://zod.dev/) schema before returning it, so a drift in a backend
-shape fails at the fetch with a named parse error instead of reaching a view as
-`undefined`. What a wrapper returns is a type from `model/`, and the compiler
-checks the schema's output against it. [Transport](transport.md) holds the
-inventory. Adding an endpoint means adding its type to `model/` and a schema
-and a wrapper to `api.ts`.
-
-Two conventions run through the arguments. An optional `atOperation` is the jj
-operation to read history at, and leaving it out reads the live repo. Anything
-that names a commit names it by id rather than by a revset or a change id,
-because an id means the same commit in every view of the repo. A pull request
-head follows the same rule in git's spelling, as a `GitOid`.
+`api.ts` holds one Zod schema and one wrapper per endpoint and parses every
+response, so a backend shape drifting fails at the fetch with a named error
+rather than reaching a view as `undefined`. Wrappers return `model/` types.
+Commits are named by id, never a revset or change id, because an id means the
+same commit at every operation; an optional `atOperation` reads history at
+that operation. See [transport](transport.md).
 
 ### state
 
-Each `state/` module owns one slice of the app's data and keeps it current with
-the backend. `useOperations` owns the operation list. `useCommits` owns the
-commit list for one side's `Source`, so there is one instance of it per side,
-and it is the only place a source becomes a request. `useComparison` owns what
-the diff panel shows. `usePulls` and `usePullHistory` own the pull request list
-and one pull request's chain of heads. One module loads its slice, reloads it
-when the input changes, and holds the loading and error state around it.
-
-`useEffect` plus fetch plus cancel-on-change is fiddly, and it runs the same
-way for every slice. It lives here once. A fetching `useEffect` appears nowhere
-else.
-
-Every hook returns an `AsyncState<T>`, the union `loading | error | ready`. A
-caller switches on `status`, and the union forces it to cover every case. No
-gap opens up where the load has finished but the data is still missing.
-`useComparison` returns `null` when there is nothing to ask the backend for.
-Its caller shows a prompt in that state.
+Each `state/` module owns one slice of data and keeps it loaded: the
+fetch-on-change-and-cancel `useEffect` lives here and nowhere else. Every hook
+returns an `AsyncState<T>`, so a caller has to handle loading and error.
 
 ### views
 
-A view in `views/` is a pure function from props to markup. Give it data and
-callbacks, get elements back. It never fetches or calls into `api.ts`, and
-nothing in it hints that a server exists.
-
-These are the files you restyle and test. A test renders one with fixture props
-and checks the output. There is nothing to mock.
-
-Views take the backend's shapes from `model/` as props. `CommitGraph` takes
-`LogEntry[]`. `DiffView` takes `FileDiff[]`. This holds while the UI shows
-exactly what the API returns. When it stops matching, add view-model types and
-map to them in the controllers. Until then, skip them. A second copy of these
-types only drifts from the first.
+A view is a pure function from props to markup; a test renders it with
+fixture props and mocks nothing. Views take `model/` shapes directly. Add
+view-model types only once the UI stops showing what the API returns.
 
 ### model
 
-A module in `model/` says what the app's own data can be and what can be
-done with it: its types, the schema and the starting value of any document the
-browser keeps, and the pure functions that read and change it. It holds no
-state and touches neither storage nor any browser API. That includes the
-shapes the backend sends, such as a log entry or a file diff, which `api.ts`
-parses into but does not declare, and the ones that never cross the wire, such
-as [settings](settings.md#display).
-
-The line between `model/` and `state/` is React. A `state/` module holds a
-value and keeps it loaded or stored. Any rule for that value worth a test is
-a function in the model that the hook calls, so it is tested without
-rendering anything, and a view that names a shape imports it from `model/`. A helper that only one hook
-uses to build its request, such as the sides `useSources` asks for, stays
-beside that hook.
+`model/` holds the app's types, document schemas and defaults, and the pure
+functions that read and change them, including the backend's shapes. It
+touches no state, storage, or browser API. Any rule worth a test lives here
+rather than in a hook.
 
 ### persistence
 
-A module in `persistence/` is a repository for one document the app keeps
-between visits, and it decides where the document is kept. Settings belong to
-one browser and stay in its `localStorage`, where the key the document is kept
-under is the only thing its repository adds. The
-[review document](review.md#storage) is shared by every browser and any agent,
-so its repository reads it from the server and sends each change there as a
-command. Either way the schema that reads the document back and the document
-to start from both come from the document's model, and the repository knows
-nothing about React. The state hook that owns the document holds it in
-memory and applies each change from the model to the current value.
-[Local storage](#local-storage) holds the one implementation every
-`localStorage` repository shares.
-
-"Repository" here is the storage pattern, not the jj or GitHub repository the
-app reviews. The code spells that one `repo`.
+A `persistence/` module is a repository for one document kept between visits
+and decides where it lives: settings in `localStorage`, the
+[review document](review.md#storage) on the server. ("Repository" is the
+storage pattern; the reviewed repository is spelled `repo`.)
 
 ### controllers
 
-A controller in `controllers/` wires one state hook to one view. It calls the
-hook and reads the `AsyncState`. Then it renders the view or a `Message`. It
-has no markup of its own.
-
-When there is no diff to show yet, the controller decides what goes on screen,
-so `DiffView` stays at "render these files" with no null checks and one panel's
-branching sits in one file. `CommitLog` drives `CommitGraph`. `DiffPane` drives
-`InterdiffRows`.
-
-`PullReview` bends the one-hook-one-view rule and is the only thing that does.
-It mounts the commit list and the diff panel itself, because neither can be
-asked for until the pull request's history has come back and said which head is
-the latest. Hoisting the head into the screen would mean the screen holding a
-value it cannot compute, and an effect to fill it in later.
+A controller wires one state hook to one view and renders the view or a
+`Message`; it has no markup of its own. `PullReview` mounts several, because
+nothing can be asked for until the pull request's history says which head is
+latest.
 
 ### screens
 
-A screen in `screens/` is everything one tab draws: its window, the tab
-strip, and whatever sits under it. It is where the props are gathered. It
-reads the contexts `App` provides, calls the state hooks only it needs, holds
-the state that says how the reader has arranged it, and hands each
-controller and view what that one needs.
-
-Each screen stands alone. Two screens both draw the tab strip and the
-[review strip](review.md), and neither borrows them from a frame the other
-uses, so a screen can be read top to bottom without a second file, and
-changing one screen's layout cannot move another's.
+A screen is everything one tab draws. It reads `App`'s contexts, calls the
+hooks only it needs, and holds how the reader has arranged it. Screens share
+no frame, so each reads top to bottom on its own.
 
 ### root
 
-`App.tsx` provides the state that outlives a screen and picks which screen to
-draw. It holds three documents, each in a context: the
+`App.tsx` holds what outlives a screen, each in a context:
 [settings](settings.md#sharing-the-settings), the
-[review document](review.md#holding-it-while-it-changes), and the
-[local history](local-history.md#polling-the-operation-log). A screen
-unmounts when another tab opens, so anything that should still be there when
-the reader comes back lives here. Picking a different operation clears that
-side's selected commits, since a commit listed at one operation need not
-appear at another.
-
-Which screen is open, and on the pull request screen which pull request,
-heads, commit, file, and line, is not React state at all but the
-[address](address.md). `App` reads it through `usePlace` and hands each screen
-its part. Everything else a screen holds, such as which rows are open, stays in
-that screen's own state, because it says how a reader has arranged the page
-rather than where they are in it.
+[review document](review.md#holding-it-while-it-changes), and
+[local history](local-history.md#polling-the-operation-log). Where the reader
+is (tab, pull request, heads, commit, file, line) is the
+[address](address.md), read through `usePlace`.
 
 ### Keeping the boundary honest
 
-The one-way import rule is a convention, kept by whoever writes and reviews
-the import. Nothing stops a view from importing `fetchInterdiff` for "just one
-more field". The first time that happens, the split is gone and the view
-needs a running server to test again. An import that does not fit the list
-below is a sign the code is in the wrong layer, and the fix is to move the
-code, not to add an exception.
+The import rule is a convention kept in review. An import that does not fit
+below means the code is in the wrong layer; move the code rather than add an
+exception.
 
 Allowed import edges:
 
-- `api.ts` imports Zod and `model/`, for the types its wrappers return and
-  the `GitOid` schema. `model/` imports Zod and other `model/` modules, never
-  `api.ts`, since a model such as a reviewed row is a backend shape with the
-  app's own fields added, and a place holds pull request heads it parses
-  with the same `GitOid` schema.
+- `api.ts` imports Zod and `model/`. `model/` imports Zod and other `model/`
+  modules, never `api.ts`.
 - The server's [review store](../backend/review-store.md) imports
-  `model/review.ts`, so the command a browser applies to its copy and the
-  one the server applies to the stored document are the same function. A
-  model module never touches a browser API anyway, which is what lets the
-  server run it.
-- `model/pairing.ts` also imports `alignSeries` and `SeriesCommit` from
-  `../../backend/commit/series`. `alignSeries` is a pure function with no
-  transport and no React, so importing it needs no running server to test,
-  which is what this rule exists to protect.
-- `persistence/` imports `model/`, for the schema and the starting document
-  of what it stores, and the other `persistence/` modules. It is the only
-  layer that touches `localStorage`, and the only one besides `api.ts` that
-  talks to the server, for the review store.
+  `model/review.ts`, so browser and server apply a command with the same
+  function.
+- `model/pairing.ts` imports the pure `alignSeries` from
+  `../../backend/commit/series`.
+- `persistence/` imports `model/` and other `persistence/` modules. It is the
+  only layer that touches `localStorage`, and the only one besides `api.ts`
+  that talks to the server.
 - `state/` imports React, `api.ts`, `persistence/`, `model/`, and other
   `state/` modules.
 - `views/` imports React, other `views/`, and `model/`. A view never
@@ -252,60 +121,26 @@ Allowed import edges:
 
 ## Styling
 
-The stylesheet is a stack of [cascade layers][layers], and each one may only
-name the layer above it. The `@layer` statement at the top of the sheet
-declares their order once, so a rule's layer decides which wins before
-specificity is consulted at all.
+The stylesheet is a stack of [cascade layers][layers], declared once by the
+`@layer` statement below, so a rule's layer decides what wins before
+specificity does.
 
 [layers]: https://developer.mozilla.org/en-US/docs/Web/CSS/@layer
 
-**Primitives** are the raw ramps, named for what they are. `--grey-300` says
-nothing about where it is used. Changing one reshades the palette.
+- **Primitives** are raw ramps (`--grey-300`).
+- **Roles** map a primitive to a job (`--border`). Components name roles,
+  never primitives, so retheming is an edit here.
+- **Metrics** are the tunable lengths: spacing, type sizes, column widths.
+- **Settings** rebinds metrics to the reader's
+  [choices](settings.md#display), above `metrics-narrow` so a choice beats a
+  breakpoint.
+- **Components** are the views' classes.
 
-**Roles** map a primitive to a job. `--border` is `--grey-300`. This is the
-only layer a component is allowed to name, which is what lets the palette and
-the meaning move independently. Retheming the app is an edit to this layer.
-
-**Metrics** are the tunable lengths: the spacing step, the type sizes, and
-the widths of the columns. A breakpoint that only rebinds
-`--pane-picker-width` cannot accidentally change a colour.
-
-**Settings** rebinds metrics to the values a reader
-[chose](settings.md#display). It sits above `metrics-narrow`, so a reader's
-choice wins over a breakpoint's default.
-
-**Components** are the classes the views use. They name roles and metrics and
-never a primitive, so a component rule contains no literal a reviewer has to
-decode.
-
-Three of those have a refinement above them, named for the condition that
-switches it on. `roles-dark` is the whole of dark mode, rebinding roles and
-touching nothing else. `metrics-narrow` retunes the column widths in the
-band under 1100px where three columns still fit. `components-narrow` is where
-a rule contradicts a component instead of retuning a length: under 1000px the
-panes stop being columns, the pane being read gets the window to itself, and a
-field with nothing left to show gives up its room rather than truncating to a
-fragment.
-
-Each refinement gets a layer rather than a position further down its own
-layer, which is what makes the order of the sheet stop mattering. Two rules
-that override each other are now always in different layers, so neither
-depends on being read second.
-
-A change therefore has one address. A new brand colour is a primitive. A
-caption that should be darker is a role. A column that should be wider on
-large screens is a metric under a breakpoint. Nothing else needs reading.
-
-The primitives, the roles, the metrics, and the dark theme are shared by
-everything and live in [Design tokens](tokens.md). A component's rules live
-with the component, in the document that holds its markup, because a class and
-the element that carries it are one thing to change and were two files to find.
-
-Each block of rules names its own layer, so the list below is an inventory
-rather than an order. Two component rules meeting on the same element are
-settled by specificity, as they always were, and nothing is settled by which
-line of this block a reference sits on. Adding a component means adding a
-reference here, anywhere.
+`roles-dark`, `metrics-narrow`, and `components-narrow` refine the layer below
+them under one condition each. Giving each refinement its own layer means no
+rule depends on being read second. Primitives, roles, metrics, and dark mode
+live in [Design tokens](tokens.md); a component's rules live in the document
+with its markup. The references below are an inventory, not an order.
 
 ```css
 /*| id: stylesheet
@@ -394,8 +229,6 @@ reference here, anywhere.
 
 ## Async state
 
-Every slice reports its status as an `AsyncState<T>`.
-
 ```ts
 //| id: frontend-model-async-state
 //| file: src/frontend/model/asyncState.ts
@@ -407,32 +240,10 @@ export type AsyncState<T> =
 
 ## Local storage
 
-Every repository that keeps its document in the browser keeps it the same
-way: as JSON under one `localStorage` key. `localRepository` is that once,
-given the key, the schema, and the empty document.
-
-`load` parses whatever sits under the key with the schema and falls back to
-the empty document on anything that does not parse: absent, truncated by a
-full quota, or hand-edited in devtools into some other shape. What an older
-version of the app wrote is read through the same schema, so a field added
-later needs a default in the schema, or every document saved before it reads
-as a bad one. Content read out of `localStorage` is external input, so it gets
-the discipline any boundary gets. A corrupt blob costs the reader what was
-stored, not the ability to open the app.
-
-`save` writes back through a `try`/`catch` that swallows a thrown write.
-`localStorage.setItem` throws in Safari private browsing and whenever a tab is
-over quota, and there is no error channel here to carry that failure anywhere.
-The caller is a synchronous state update from inside a click handler, not a
-promise with a `.catch` to hang one off. A document that keeps working for the
-rest of the tab, without surviving a reload, beats throwing out of that click,
-so no hook that stores a document has an `error` field.
-
-A repository loads and saves the whole document rather than offering a method
-per change, such as `addComment`. Every document is small and sits under one
-key, so a write is the whole document whatever changed, and a method per
-change would move each mutation's logic into the storage layer, where it
-could not be tested without a stand-in for storage.
+`localRepository` keeps a document as JSON under one `localStorage` key. A
+repository loads and saves the whole document rather than a method per
+change, so each change's logic stays in the model where it can be tested
+without a storage stand-in.
 
 ```ts
 //| id: frontend-persistence-local
@@ -457,6 +268,9 @@ export function localRepository<T>(
       const raw = localStorage.getItem(key);
       if (raw === null) return empty;
 
+      // Absent, truncated by a full quota, or hand-edited: costs the reader
+      // what was stored, not the ability to open the app. A field added later
+      // needs a schema default, or every older document reads as bad.
       try {
         return schema.parse(JSON.parse(raw));
       } catch {
@@ -467,20 +281,17 @@ export function localRepository<T>(
       try {
         localStorage.setItem(key, JSON.stringify(document));
       } catch {
-        // Persistence failure is not worth a UI state.
+        // Safari private browsing and full quotas throw, and the caller is a
+        // click handler with no error channel. Keep working for this tab.
       }
     },
   };
 }
 ```
 
-`useStored` is the one place a state hook meets a repository. It reads the
-document once, lazily, as the initial value of a `useState`, so the read
-happens once rather than on every render. Its `update` computes the next
-document from the current one, saves it, and sets it. A hook built on it
-names its repository and never mentions storage again. `update` closes over
-nothing that changes, so a callback wrapped around it can be passed down
-several layers of props without retriggering effects that depend on it.
+`useStored` is where a state hook meets a repository. Its `update` closes over
+nothing that changes, so callbacks built on it can pass down several layers
+without retriggering effects.
 
 ```ts
 //| id: frontend-state-stored
@@ -510,8 +321,7 @@ export function useStored<T>(repository: Repository<T>): [T, Update<T>] {
 }
 ```
 
-`bun test` has no DOM to provide `localStorage`, so every repository's tests
-install the same in-memory stand-in before each test.
+`bun test` has no `localStorage`, so repository tests install this stand-in.
 
 ```ts
 //| id: frontend-persistence-memory-storage
@@ -536,10 +346,6 @@ export function memoryStorage(): Pick<
   };
 }
 ```
-
-The tests below use a schema of their own, since what they check holds for
-any document. Each repository's tests cover only what its own schema adds,
-such as reading a document an older version saved.
 
 ```ts
 //| id: frontend-persistence-local-test

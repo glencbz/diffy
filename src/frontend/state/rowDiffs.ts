@@ -48,6 +48,8 @@ export function useRowDiffs(
     of,
     cache: new Map(),
   });
+  // Each key is asked once, so its answer must land even if a card moved
+  // meanwhile; it is dropped only when the comparison itself changed.
   const asked = useRef<{ of: string; keys: Set<string> }>({
     of,
     keys: new Set(),

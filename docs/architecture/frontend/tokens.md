@@ -1,16 +1,9 @@
 # Design tokens
 
-Every colour, edge, and gap in the app comes from here, and the views name
-what they want rather than what it looks like. A view asks for
-`--text-muted`; it does not ask for `#666`. That indirection is the whole
-point: the question "what grey do captions use" has one answer in one
-place, and changing it changes every caption at once.
+Every colour, edge, and gap comes from here, and views name what they want
+(`--text-muted`), never what it looks like (`#666`).
 
 ## Primitives
-
-The ramps are the colours the app already used, sorted and named by
-lightness. Nothing here is new; the values are the ones the inline styles
-had, collected so that two uses of the same grey are visibly the same grey.
 
 ```css
 /*| id: design-primitives
@@ -53,10 +46,6 @@ had, collected so that two uses of the same grey are visibly the same grey.
 }
 ```
 
-The ramps carry a dark end as well as a light one. A dark theme needs
-surfaces below the darkest text grey and accents bright enough to read on
-them, and those are shades of the same ramps rather than a second palette.
-
 ```css
 /*| id: design-primitives
 @layer primitives {
@@ -87,20 +76,10 @@ them, and those are shades of the same ramps rather than a second palette.
 
 ## Roles
 
-A role is a sentence about the interface. `--surface-raised` is the shade a
-header sits on, and the fact that it is currently the same grey as a tab
-strip is a decision recorded here rather than a coincidence repeated in two
-files.
-
-The diff and review roles are kept apart from the general ones on purpose.
-Added-line green and open-comment red are the app's vocabulary, not its
-chrome, and a theme that wanted a colder interface would still want the
-patch to read the way a patch reads everywhere else.
-
-Code colours are roles for the same reason, one per [kind of
-token](syntax.md#colours). An added or removed line is tinted behind its
-text rather than coloured in it, since the text now carries the code's own
-colours and a green keyword would say nothing about either.
+Diff, review, and code-token roles stay apart from the chrome roles: a colder
+theme would still want a patch to read the way patches read everywhere.
+Added and removed lines are tinted behind the text, since the text carries
+[syntax colours](syntax.md#colours).
 
 ```css
 /*| id: design-roles
@@ -185,17 +164,8 @@ colours and a green keyword would say nothing about either.
 
 ## Metrics
 
-Spacing is a step scale rather than the free-for-all it replaces. The inline
-styles used 3, 4, 5, 6, 8, 10, 12, 14, and 16 pixels, which is nine values
-for about four intentions. Each one is snapped to the nearest step, so a few
-gaps shift by a pixel or two and every gap afterwards is a choice between
-named sizes instead of a typed-in number.
-
-The column widths are metrics rather than numbers buried in a layout
-component, and that is what makes the breakpoints below a two-line change.
-
-`--text-size` is 12 pixels, the size GitHub.com draws diff code at. A reader
-can move it from [Settings](settings.md#display).
+Spacing is a step scale. `--text-size` defaults to 12px, GitHub's diff size,
+and is a reader [setting](settings.md#display).
 
 ```css
 /*| id: design-metrics
@@ -233,14 +203,8 @@ can move it from [Settings](settings.md#display).
 
 ## Responsiveness
 
-A window too tight for three comfortable columns, and still wide enough to
-keep three, gets narrower ones. That band opens at 1100 pixels and closes just
-under a thousand, where [Layout](layout.md) gives up on columns altogether.
-Rebinding the minimum widths retunes every pane in the band at once, because
-no view and no component rule holds a width of its own.
-
-The lower breakpoint changes the layout rather than a length, so it is not a
-metric and is not here. It sits with the panes it rearranges.
+Between 1100px and the [layout](layout.md)'s single-pane breakpoint, three
+columns still fit with narrower minimums.
 
 ```css
 /*| id: design-responsive-metrics
@@ -254,16 +218,12 @@ metric and is not here. It sits with the panes it rearranges.
 }
 ```
 
-A phone is short of width in the same way and has one length left to give.
-Forty pixels stands a line number well clear of the patch, which is worth it
-beside a diff that has the room; twenty-eight still holds the numbers a file
-has and hands the difference to the code, which does not.
-
 ```css
 /*| id: design-responsive-metrics
 @layer metrics-narrow {
   @media (max-width: 480px) {
     :root {
+      /* Still holds a file's line numbers and gives the rest to the code. */
       --gutter-width: 28px;
     }
   }
@@ -272,13 +232,8 @@ has and hands the difference to the code, which does not.
 
 ## Dark theme
 
-Dark mode rebinds roles and touches nothing else. No component rule, no
-breakpoint, and no view changes, which is the claim the layering makes and
-the reason it is worth the indirection: the whole theme is the block below.
-
-The diff and review colours brighten rather than swap. A patch reads the way
-a patch reads everywhere, so added stays green and removed stays red, at a
-lightness that survives a dark surface.
+Dark mode rebinds roles and nothing else. Diff and review colours brighten
+rather than swap.
 
 ```css
 /*| id: design-dark

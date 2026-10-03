@@ -1,28 +1,15 @@
 # Syntax colours
 
-A diff line is coloured by the language it is written in, over the green or
-red that says whether it was added or removed. The server
-[highlights whole files](../backend/syntax.md), because a hunk on its own
-cannot be highlighted correctly, and the diff view picks each line it draws
-out of the side of the file that line belongs to.
+The server [highlights whole files](../backend/syntax.md), and the diff view
+picks each line it draws out of its side's file.
 
 ## Loading each side
 
-`useSources` is handed the files a screen is showing and loads both sides of
-each, keyed by blob and path. It answers with a lookup rather than the map
-itself, so a view asks for the side it needs by the names a file diff already
-carries and never learns how the answers are stored.
-
-A side that has not arrived, or that failed, is simply absent, and the view
-draws that side's lines uncoloured. Colour is an improvement on a diff that
-already reads correctly, so a missing side is not worth a loading state or an
-error message, and the one side jj never writes down, an interdiff's
-rebased before side, costs the reader nothing but its colours.
-
-Each side is asked for once for the life of the hook, whichever files asked
-for it, since a blob's contents never change. The effect depends on the JSON
-of the sides it wants, the same way `useComparison` depends on its question's,
-because the list of files is a fresh array whenever its screen renders.
+`useSources` loads both sides of every file on screen, keyed by blob and
+path, and answers with a lookup. A side that has not arrived or failed is
+absent and its lines draw uncoloured: colour improves a diff that already
+reads, so it gets no loading or error state. That includes an interdiff's
+before side, which jj never writes down.
 
 ```ts
 //| id: frontend-model-source
@@ -105,10 +92,8 @@ export function useSources(files: FileDiff[]): SourceLookup {
 
 ## Colours
 
-A token's kind picks a role, and the roles live with the rest of the palette
-in [Design tokens](tokens.md), so dark mode recolours code the way it
-recolours everything else. A token with no kind is in the default foreground
-and gets no class at all.
+A token's kind picks a role from [Design tokens](tokens.md). A token with no
+kind gets no class.
 
 ```css
 /*| id: design-syntax

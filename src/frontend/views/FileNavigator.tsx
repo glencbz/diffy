@@ -167,6 +167,9 @@ function GroupHeading({
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-view-file-navigator>>[1]
 
+/** The current file is the last whose top crossed this line in the scroll
+ *  container. A row's header counts too, so jumping to a commit names its
+ *  first file rather than the previous commit's last. */
 const READING_LINE = 60;
 
 function useCurrentFile(
@@ -205,6 +208,7 @@ function useCurrentFile(
           }
         }
       });
+      // A short final file may never cross the line.
       if (
         container.scrollTop + container.clientHeight >=
         container.scrollHeight - 2
@@ -222,6 +226,7 @@ function useCurrentFile(
     };
 
     recompute();
+    // scroll does not bubble; a capturing listener on document sees it.
     document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("scroll", onScroll, true);

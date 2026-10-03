@@ -4,19 +4,8 @@ The page, the root component, and the switch between the two screens.
 
 ## Landing page
 
-The landing page is an [HTML import](https://bun.com/docs/bundler/fullstack).
-Bun's bundler finds the `<script>` and `<link>` tags and bundles them, along
-with the React and JSX they pull in. `Bun.serve()` returns the bundle from `/`.
-The stylesheet `<link>` is how the [stylesheet](index.md#styling) reaches the
-page; every class the views name is defined there.
-
-The icon is inline so that no route has to serve it.
-
-The viewport tag is what makes a phone a narrow window. Without it a mobile
-browser lays the page out 980 pixels wide and shrinks the result to fit the
-screen, so 13-pixel text reaches the reader at about five pixels and the phone
-breakpoints never match. `width=device-width` lays the page out at the width
-of the screen.
+The landing page is an [HTML import](https://bun.com/docs/bundler/fullstack):
+Bun bundles what its `<script>` and `<link>` tags pull in.
 
 ```html
 <!--| id: landing-page
@@ -25,6 +14,8 @@ of the screen.
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- Without it a phone lays out 980px wide and shrinks to fit, so the
+         phone breakpoints never match. -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Diffy</title>
     <link rel="stylesheet" href="./styles.css" />
@@ -40,8 +31,6 @@ of the screen.
 </html>
 ```
 
-`main.tsx` mounts the React tree into `#root`. That is its whole job.
-
 ```tsx
 //| id: frontend-entry
 //| file: src/frontend/main.tsx
@@ -56,32 +45,12 @@ createRoot(container).render(<App />);
 
 ## App
 
-`App` provides what outlives a screen and picks the screen to draw. It knows
-no screen's layout and no screen's props beyond the place it routes on.
-
-Which screen is open is part of the [address](address.md), so `App` reads it
-from `usePlace` rather than holding it in `useState`, hands each screen its
-part of the place, and hands every screen `go` to leave it by. The `switch`
-over `place.tab` is the routing table, and the type checker holds it to one
-screen per tab.
-
-Everything else `App` holds, it holds in a context, because it belongs to
-more than one screen or has to survive the one that shows it unmounting:
-
-- [`useSettings`](settings.md#sharing-the-settings), because a text size
-  governs the whole window and the diff settings govern every diff on every
-  screen. Calling it inside the settings screen would apply the reader's
-  size only while that screen is open.
-- [`useReview`](review.md#holding-it-while-it-changes), because one review
-  document serves both screens that draw diffs, and loading it per screen
-  would reload it on every switch of tab.
-- [`useLocalHistory`](local-history.md#polling-the-operation-log), because
-  the picks and ticks of a local review should still be there after a look
-  at the settings.
-
-What a screen holds only for itself, such as whether the interdiff is open or
-which pane a narrow window shows, stays in that screen, in
-[`screens/`](index.md#screens).
+`App` reads the open screen from the [address](address.md) through
+`usePlace`; the `switch` over `place.tab` is the routing table. What belongs to
+more than one screen, or must survive one unmounting, is held here in a
+context: [settings](settings.md#sharing-the-settings), the
+[review document](review.md#holding-it-while-it-changes), and
+[local history](local-history.md#polling-the-operation-log).
 
 ```tsx
 //| id: frontend-app
@@ -124,30 +93,17 @@ function screenAt(place: Place, go: (place: Place) => void) {
 }
 ```
 
-Every screen draws its window as a column: a tab strip that does not
-scroll, and under it the screen's own content. The body's default margin goes, because a
-full-height app measured against the viewport inside an eight-pixel margin is
-sixteen pixels taller than the window and scrolls when it should not.
-
-The height is `100dvh` and not `100vh`. A mobile browser's address bar and
-toolbar sit inside what `vh` calls the viewport, so on a phone `100vh` is the
-window plus the chrome covering it, and the last rows of the diff spend their
-life underneath it. `dvh` is the window as it currently stands, which is the
-only number a full-height layout can mean.
-
-`min-height: 0` appears here and on every flex ancestor of a scrolling pane,
-because a flex item defaults to `min-height: auto`, which refuses to shrink
-below its content and pushes the overflow out of the window instead of into a
-scrollbar. It is the one rule in the stylesheet that is a workaround rather
-than a decision.
-
 ```css
 /*| id: design-app
 @layer components {
+  /* An 8px margin makes a full-height app scroll. */
   body {
     margin: 0;
   }
 
+  /* dvh: on a phone 100vh includes the browser chrome over the page. Every
+     flex ancestor of a scrolling pane also needs min-height: 0, since the
+     default auto refuses to shrink below content. */
   .app {
     display: flex;
     flex-direction: column;
@@ -161,14 +117,8 @@ than a decision.
 ```
 ## Mode tabs
 
-Two screens, one strip. The tabs sit above everything, because the choice they
-make is which history is being read, and that governs the whole window.
-
-Each screen draws the strip itself and goes to the place a tab opens on,
-[`tabPlace`](address.md#the-place). Pressing the tab of the screen already
-open does nothing. Going to that screen's bare place instead would throw
-away the pull request and the line a reader is on, for a click that asked
-for nothing new.
+Pressing the open screen's tab does nothing, rather than going to its bare
+[`tabPlace`](address.md#the-place) and losing the reader's place.
 
 ```tsx
 //| id: frontend-view-mode-tabs
@@ -206,14 +156,6 @@ export function ModeTabs({
 }
 ```
 
-The strip takes its own height and no more, so the screen under it gets
-everything left over however tall the window is. A tab is a button dressed as
-a tab rather than a link, because choosing a screen changes no address.
-
-On a phone the tabs' side padding halves, which keeps all three on a
-390-pixel screen at every text size. A narrower screen scrolls the strip
-sideways, and no tab shrinks or wraps its caption.
-
 ```css
 /*| id: design-mode-tabs
 @layer components {
@@ -249,6 +191,7 @@ sideways, and no tab shrinks or wraps its caption.
 }
 
 @layer components-narrow {
+  /* Keeps every tab on a 390px screen; narrower scrolls the strip. */
   @media (max-width: 480px) {
     .tab {
       padding-inline: var(--space-4);
@@ -258,8 +201,6 @@ sideways, and no tab shrinks or wraps its caption.
 ```
 
 ## Message
-
-The controllers route all of their status text through this one component.
 
 ```tsx
 //| id: frontend-view-message
@@ -280,9 +221,6 @@ export function Message({
   );
 }
 ```
-
-The only variable is whether the news is bad. `.message--error` is the single
-modifier that recolours it, leaving the ordinary case as plain body text.
 
 ```css
 /*| id: design-message

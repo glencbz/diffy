@@ -1,25 +1,13 @@
 # File tree
 
-A diff with a handful of files reads fine top to bottom. One with dozens
-does not: a reader who wants `src/server.ts` has to scroll past everything
-that sorts before it. This is the summary that answers "what changed" before
-the patch does, and the navigator that jumps straight to a file from
-anywhere in it. Both draw the same folded tree, so a reader learns its shape
-once.
+A diff with dozens of files needs a summary of what changed and a way to jump
+to one file. The summary card and the navigator draw the same folded tree.
 
 ## Folding a diff's files into a tree
 
-`FileDiff` names a file by its wire shape: `path` for an add, a delete, or
-an edit, `oldPath`/`newPath` for a rename or a copy. Every reader of the
-tree wants the same few facts regardless of which shape they came from, so
-`ChangedFile` is that shape read once, up front, rather than a union every
-caller re-narrows.
-
-`anchor` is the DOM id of the file's own `<section>` in the diff below. It
-is what the tree and the navigator jump to, and `fileAnchor` is the one
-function that spells it: a scope (the row a comparison sits in, or the
-commit a stack row is) and the file's own after-side path, so the same file
-in two different rows still gets two different ids.
+`ChangedFile` reads a `FileDiff`'s union of path shapes once, up front.
+`fileAnchor` spells the DOM id of a file's `<section>`, scoped by row or
+commit so one file in two rows gets two ids.
 
 ```ts
 //| id: frontend-model-changed-files
@@ -130,18 +118,9 @@ export function changedFilesOf(
 }
 ```
 
-The backend sends files in path order, so a tree built without sorting
-already reads in that order, depth first. That is also the order the diff
-itself draws its files in, so a tree's leaves, the diff's own order, and
-the order `Prev`/`Next` step through agree by construction rather than by a
-sort the three would otherwise have to share.
-
-`fileTree` builds the un-folded tree first, one folder per path segment,
-keyed in a `Map` so each folder keeps the order its children first
-appeared in. Folding is a second pass: a folder whose only child is another
-folder is the same row as that child, chained under one name, so it
-collapses; a folder whose only child is a file is not, because a file is
-never folded into anything.
+The backend sends files in path order and the tree keeps first-appearance
+order, so the tree, the diff, and `Prev`/`Next` agree without a shared sort.
+A chain of single-child folders folds into one row; a file never folds.
 
 ```ts
 //| id: frontend-model-changed-files
@@ -433,18 +412,10 @@ describe("shownPathOf", () => {
 
 ## The tree view
 
-`FileTree` draws the shape `fileTree` built: a folder is a row that toggles
-its own children, a file is a row that reports itself picked. Neither reads
-the diff or the page around it, so the same component draws
-[the summary card above a diff](diff.md#diff-view) and
-[the navigator's own list](#stepping-through-files) without either caring
-that the other exists.
-
-A folder starts open, because a reader who has not yet folded anything
-should see everything a diff touched, not a tree they must unfold one
-level at a time before they can tell what changed. Each folder owns its own
-`open` state rather than reading it from a set the caller holds, since
-nothing outside one row's own disclosure cares whether it is open.
+`FileTree` reads nothing but its tree, so it draws both the
+[summary card](diff.md#diff-view) and the
+[navigator's list](#stepping-through-files). Folders start open, so a reader
+sees everything a diff touched before folding anything.
 
 ```tsx
 //| id: frontend-view-file-tree
@@ -616,12 +587,8 @@ function depthStyle(depth: number): CSSProperties {
 }
 ```
 
-A row indents by its depth through a custom property rather than a nesting
-selector, because the tree's own `<ul>`s already nest one per folder and a
-selector keyed to nesting depth would have to repeat itself once per level
-the tree could ever reach. Renamed-file colour and deleted-file colour are
-role tokens, `--status-renamed` and `--diff-removed`, the same way every
-other colour in the app names a role rather than a shade.
+A row indents by a `--depth` custom property, since a nesting selector would
+repeat once per level.
 
 ```css
 /*| id: design-file-tree
@@ -755,17 +722,12 @@ other colour in the app names a role rather than a shade.
 }
 ```
 
-A row is a touch target as much as it is a click target, and 26px is
-comfortable for a mouse but not for a thumb. Under the narrow breakpoint
-[Layout](layout.md) already draws the whole page at, a row grows to 40px,
-the minimum an accessibility guideline signs off on.
-
 ```css
 /*| id: design-file-tree
 @layer components-narrow {
   @media (max-width: 1000px) {
     .file-tree__row {
-      min-height: 40px;
+      min-height: 40px; /* a thumb-sized target */
     }
   }
 }
@@ -773,29 +735,13 @@ the minimum an accessibility guideline signs off on.
 
 ## Stepping through files
 
-The [summary card](diff.md#diff-view) says what changed; it does not help a
-reader who is mid-patch and wants the next file without scrolling back up
-for it. `FileNavigator` is a bar [`DiffPane`](diff.md#diff-pane-controller)
-renders alongside `InterdiffRows`, once the comparison has more than one
-file across every row put together: a step back, a step forward, and a
-middle button that opens the same kind of tree the summary draws, this time
-grouped by row.
-
-When the comparison has more than one row, the bar also names the commit
-the current file belongs to, by its short change id, between the count and
-the path. Rows run one after another in one scroll, and a path alone does
-not say which commit it came from. In the tree each group is headed by
-that id and the commit's subject. The heading is a button that jumps to
-the top of the row, its comparison header, so a reader can go to a commit
-as easily as to a file.
-
-A comparison's own files already have anchors, [scoped per row](#folding-a-diffs-files-into-a-tree)
-the same way `DiffView` scopes them, so the navigator is handed the same
-`ChangedFile[]` per row rather than the raw `FileDiff[]` it would otherwise
-have to re-derive. `DiffPane` builds that list once, keyed by `rowKey`, the
-same key `InterdiffRows` already scopes each row's `DiffView` under, so a
-file the navigator names and the file its click lands on are always the
-same section.
+`FileNavigator` is a bar [`DiffPane`](diff.md#diff-pane-controller) shows
+when a comparison has more than one file: previous, next, and a button that
+opens the tree grouped by row. With several rows it also names the current
+file's commit by short change id, since rows run in one scroll; each group's
+heading jumps to that row's header. `DiffPane` builds each row's
+`ChangedFile[]` under the same `rowKey` `InterdiffRows` scopes its anchors
+by, so a named file and its click target are always the same section.
 
 ```tsx
 //| id: frontend-view-file-navigator
@@ -967,26 +913,12 @@ function GroupHeading({
 }
 ```
 
-The current file is the last one whose top has scrolled above a reading
-line near the top of the scroll container, and at the very bottom of the
-scroll the last file is current outright, since a short final file might
-never cross the line on its own. A row's own section counts too: once its
-header crosses the line, that row is the current group and its first file
-the current file, even while the header still hides the file itself. A jump
-to the top of a commit would otherwise leave the bar naming the last file
-of the commit before it. One scroll listener does this for the
-whole bar: a `ref` on the bar's own wrapper finds `.pane--diff`, [the flex
-column `.pane--diff` already scrolls as](layout.md#the-pane-rules), by
-walking up from an element the effect actually has a handle on, rather than
-assuming a container the bar never renders. The listener is attached to
-`document` with capture on, because a `scroll` event does not bubble but a
-capturing listener still sees it on the way down regardless, and a
-`requestAnimationFrame` throttle keeps a fast scroll from recomputing every
-file's position on every event.
-
 ```tsx
 //| id: frontend-view-file-navigator
 
+/** The current file is the last whose top crossed this line in the scroll
+ *  container. A row's header counts too, so jumping to a commit names its
+ *  first file rather than the previous commit's last. */
 const READING_LINE = 60;
 
 function useCurrentFile(
@@ -1025,6 +957,7 @@ function useCurrentFile(
           }
         }
       });
+      // A short final file may never cross the line.
       if (
         container.scrollTop + container.clientHeight >=
         container.scrollHeight - 2
@@ -1042,6 +975,7 @@ function useCurrentFile(
     };
 
     recompute();
+    // scroll does not bubble; a capturing listener on document sees it.
     document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("scroll", onScroll, true);
@@ -1062,29 +996,10 @@ function useCloseOnEscape(open: boolean, onClose: () => void) {
 }
 ```
 
-The middle button opens the same list either as a popover or as a bottom
-sheet, and which one it is is a media query, not a branch: both are the one
-`.file-navigator__sheet`, and the narrow rule repositions it instead of a
-second component drawing it a second way. On a wide screen the bar sits
-above the diff, sticky to the top of `.pane--diff`; on a phone it moves to
-the bottom edge, in thumb reach, by giving it `order: 2` in the same flex
-column and switching `top: 0` for `bottom: 0`. `DiffPane` renders the bar
-once, before `InterdiffRows`, and the two rules are what move it without
-either component knowing the other exists.
-
-The path is truncated from the left, so the file's own name survives a long
-directory and not the other way around. `direction: rtl` truncates that
-end, and a leading left-to-right mark keeps the path itself reading
-forwards despite the container's direction, the same trick a phone's URL
-bar uses to keep a domain visible ahead of a long path.
-
-On a wide pane the bar holds the top of `.pane--diff`, so a jump to a file
-has to stop below it rather than put the file's first lines under it. The
-bar has a fixed height, and a pane holding a navigator hands that height to
-the diff as `--diff-sticky-top`, which `.diff-file` takes as its
-`scroll-margin-top`. The [summary card](diff.md#diff-view) jumps to the
-same sections and stops at the same offset. On a phone the bar is at the
-bottom, so the offset is zero.
+One `.file-navigator__sheet` is a popover on a wide screen and a bottom sheet
+on a phone, where the bar also moves to the bottom edge; media queries move
+them, not a second component. A pane holding the bar hands its height to the
+diff as `--diff-sticky-top`, so a jump stops below it.
 
 ```css
 /*| id: design-file-navigator
@@ -1161,6 +1076,8 @@ bottom, so the offset is zero.
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* Truncate from the left so the file name survives; a leading LRM in the
+       text keeps the path reading forwards. */
     direction: rtl;
     font-weight: bold;
   }
@@ -1248,10 +1165,6 @@ bottom, so the offset is zero.
   }
 }
 ```
-
-Under the narrow breakpoint the bar changes edge and the sheet changes
-shape, and nothing else about either moves: the same elements, the same
-handlers, two rules apart.
 
 ```css
 /*| id: design-file-navigator

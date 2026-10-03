@@ -35,6 +35,8 @@ export async function reviewStorePath(
 
 export function openReviewStore(path: string): ReviewStore {
   const db = new Database(path, { create: true, strict: true });
+  // Each workspace's server writes this file. WAL lets reads run beside a
+  // write; a second writer waits rather than failing.
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
   db.run(
@@ -58,6 +60,8 @@ export function openReviewStore(path: string): ReviewStore {
        revision = excluded.revision, document = excluded.document`,
   );
 
+  // A row that does not parse throws rather than reading as empty: the next
+  // write would replace every reader's marks and comments.
   function read(): ReviewSnapshot {
     const row = select.get();
     if (row === null) return { revision: 0, document: EMPTY_REVIEW };
@@ -82,6 +86,9 @@ export function openReviewStore(path: string): ReviewStore {
 
   return {
     read,
+    // immediate takes the write lock before reading, so two servers applying
+    // at once each see what the other wrote. The revision lets a browser
+    // keep the newer of two answers that arrive out of order.
     apply: (command) => apply.immediate(command),
     revision: () => selectRevision.get()?.revision ?? 0,
   };

@@ -36,7 +36,8 @@ function parseJson(raw: string): unknown {
   }
 }
 
-/** `gh` writes GraphQL errors to stdout and still exits non-zero. */
+/** `gh` writes GraphQL errors to stdout (the JSON body, `errors` and all) and
+ *  exits non-zero; stderr holds only a one-line summary. */
 function ghFailure(error: InstanceType<typeof $.ShellError>): GitHubError {
   const body = GraphQLErrors.safeParse(parseJson(error.stdout.toString()));
   const [first] = body.success ? body.data.errors : [];
@@ -197,6 +198,9 @@ const PullRequestsWire = z.object({
   }),
 });
 
+// `states` is a list of enums, spliced in rather than passed as a variable
+// so the transport seam carries only strings and numbers. Values come from
+// the closed PULL_STATES map, so no caller text reaches the document.
 function pullRequestsQuery(states: string): string {
   return `query($owner:String!, $name:String!, $limit:Int!) {
   repository(owner:$owner, name:$name) {
@@ -214,6 +218,7 @@ export async function githubPullRequests(
   gh: GitHubGraphQL = ghCliGraphQL,
 ): Promise<PullRequestSummary[]> {
   const query = pullRequestsQuery(PULL_STATES[options.state ?? "open"]);
+  // 100 is the largest page GraphQL returns; past it, ask by number.
   const limit = Math.min(options.limit ?? 50, 100);
   const wire = PullRequestsWire.parse(
     await gh(query, { owner: repo.owner, name: repo.name, limit }),
@@ -367,6 +372,7 @@ export async function githubPullRequestHistory(
     }),
   );
 
+  // GraphQL's other "no such thing": a 200 with a null in it.
   const pull = wire.data.repository?.pullRequest ?? null;
   if (pull === null) {
     throw new GitHubError(

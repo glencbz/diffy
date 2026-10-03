@@ -1,167 +1,53 @@
 # Review
 
-What the reader has already looked at, which of it has changed since, and
-where the answer is kept between visits.
+What the reader has looked at, what changed since, and where that is kept.
 
 ## Review state
 
-`/api/interdiff` must never learn that review state exists. Every row it
-returns costs a `jj` process, so a mark that triggered a refetch would spawn a
-subprocess to record a click. The review document is read from
-[the review store](#storage) on its own, independently of the interdiff fetch;
-whichever row a mark or comment belongs to is worked out here, client-side,
-from ids both already carry.
+`/api/interdiff` never learns review state exists: every row costs a jj
+process, so a mark must not trigger a refetch. The review document loads on
+its own, and rows are matched to it client-side by ids both already carry.
 
-`reviewKey` picks `row.to ?? row.from`: the after side is the version being
-approved, so when a row has a real after side that commit is the one whose
-identity counts. `alignSeries` guarantees at least one side is present, so
-only a row with neither side throws.
+**Keys.** `reviewKey` uses the after commit (the version being approved),
+else the before. `change:<id>` survives an amend; `rev:<commit id>`, for a
+commit with no change id, does not, so a rewrite makes the row read `unseen`,
+never falsely `reviewed`. The prefixes keep the two id spaces apart in one
+field.
 
-That commit's own id, not the row's, decides the key's shape: `change:${id}`
-when it carries a jj change id, `rev:${id}` on its commit id when it does not.
-A jj change id and a git commit id are drawn from different id spaces and
-could collide as bare strings, so the prefix keeps a `change:` key and a
-`rev:` key apart in the one `reviewKey` field a mark or comment is stored
-under, with no schema change needed to say so.
+**Marks** are the triple `(reviewKey, fromCommitId, toCommitId)`, because
+`alignSeries` can give one change id two rows (a reorder is a drop plus an
+insert of the same change). `reviewed` needs the exact triple. `changed`
+needs a mark that shares a side (an amend moved the after side, a rebase the
+before) or fills the same sides (a rebase that moved both); together these
+leave only a reorder's two halves unrelated, as they must be.
 
-The two kinds of key degrade differently. A change id survives an amend, so a
-`change:` key still finds its row after the commit is rewritten, and
-`reviewed` still reads `reviewed`. A `rev:` key names one exact revision, so
-rewriting the commit it was built from changes the key outright and the row
-reads `unseen`, never `reviewed`, because nothing durable was ever true about
-that identity. That loses memory, but safely: a `rev:`-keyed row can never
-falsely claim to have been reviewed. It stays useful in the one case that does
-not require surviving a rewrite. If the identifying commit is untouched but
-the other side of the comparison moves, the key is unchanged, the stored
-triple no longer matches, and the row correctly reads `changed`.
+**Comments** are anchored to a line on one side, a file, or the whole
+comparison. The anchor's fields sit on the comment itself so line comments
+stored before the other anchors existed still parse. A comment is stale when
+neither of the row's current commits is the one it was written against, the
+same rule for every anchor; a per-file rule would need a second id meaning
+something slightly different.
 
-A mark is identified by the full `(reviewKey, fromCommitId, toCommitId)`
-triple, not by the review key alone. `alignSeries` can put one change id on
-two rows in the same series, because a reorder is a drop and an insert of the
-same change and both halves identify off the same surviving commit, so a mark
-on one must not paint the other as reviewed or even as changed. They are
-different comparisons that share an identity only by coincidence of the
-algorithm. Reading takes the same care writing does: `reviewed` needs an exact
-triple match, and `changed` needs more than a shared review key, or the same
-bug resurfaces one layer up.
+**Viewed files** are filed under the row's key and named by path and both
+blobs, so an amend that leaves the file alone keeps it viewed and one that
+touches it does not. A stale mark is left in place; a rewrite that restores
+the blobs finds it again.
 
-A mark counts toward `changed` when it fills the same sides as the row, or
-when it shares one: the same `fromCommitId` because an amend moved the after
-side, or the same `toCommitId` because a rebase moved the before side. Sharing
-a side alone is not enough, because a rebase that rewrites both sides at once
-shares neither, and reporting a change the reader has already looked at as
-`unseen` loses the memory the review document exists to keep. Filling the same sides
-alone is not enough either, because a change that was a modification and is
-now a drop fills different slots while being the same thing the reader
-reviewed. The two together leave exactly one pair unrelated, which is the pair
-that has to be: the drop half of a reorder (`from: A, to: null`) and its
-insert half (`from: null, to: A`) neither share a side nor fill the same
-slots, so a mark on one leaves the other `unseen`. The insert is a comparison
-the reader has never looked at.
+**Commands.** Every change is a `ReviewCommand` saying what the state should
+become, never which way to flip, so a retry after a failure is harmless.
+`applyCommand` is the only statement of what one does, run by the browser and
+the [server](../backend/review-store.md) alike. The screen's toggles decide
+the direction where the reader clicked.
 
-A comment is about one of three things, and its `Anchor` says which: a line
-on one `side` of a file, a whole file, or the whole comparison the row stands
-for. The anchor's fields sit on the comment itself rather than under a field
-of their own, so a line comment stored before files and comparisons took
-comments is still a valid line comment: the `kind` it lacks defaults to
-`line`, the way its missing `side` defaults to `after`. Nesting the anchor
-would need a migration written in front of the schema, and a document that
-fails to parse [cannot be read or written](../backend/review-store.md#the-document-as-one-row)
-until someone repairs it, so a bug in that migration would cost every reader
-their review state.
-
-A comment's `stale` flag asks whether what the note is about still reads as
-it did when the note was written, a narrower question than a mark's `changed`
-state. Its `commitId` names the version it was read against, and it is stale
-when neither of the row's current sides is that commit. The rule is the same
-for every anchor. A file comment could instead stay fresh until the file's own
-blob changed, which would spare it a rewrite that touched only other files,
-but a line comment already goes stale on any rewrite of its commit, and a
-second rule would need a second id on every comment to mean something
-slightly different by the same word.
-
-Which commit that is depends on the row. A paired row compares two commits, so
-the after side is `to` and the before side is `from`. A lone row is one
-commit's own diff against its parent, so that commit is the one version the
-row names and it stands for both sides. `addComment` picks `from ?? to` for a
-before-side line and `to ?? from` for everything else, since a file or a
-comparison is read as the version being approved. The stale rule needs no side
-of its own: a rewrite of either commit moves it off the row.
-
-A viewed mark says the reader is done with one file of a row, as that file
-reads now. It is filed under the row's review key, so it follows a change
-through an amend the way a mark does, and it names the file by the path its
-header shows and the blob on each side. The blobs are what keep it honest.
-An amend or a rebase that leaves the file alone leaves both blobs alone, and
-the file stays viewed. One that touches the file changes a blob, and the file
-reads as not viewed until the reader looks again. A path alone would keep a
-file marked viewed after it changed underneath the reader, which is the one
-thing a viewed mark must not claim. The two blob ids are enough without
-hashing the patch, because the patch is drawn from them. A mark that no longer
-matches is left in place rather than pruned, as a stale comparison mark is:
-nothing reads it, and a later rewrite that puts the old blobs back finds it.
-
-Every comment names who wrote it. A comment written on this screen is the
-reader's, and a comment kept before comments had authors reads as the
-reader's too, since nothing else could have written it. The field is there
-from the first comment so that once something other than the browser writes
-comments, none of the earlier ones are left unattributed.
-
-A change to the document is a `ReviewCommand`, a value that says what the
-state should become: this comparison seen or not, this file viewed or not,
-this comment added under the id its writer chose, resolved or not, or gone.
-`applyCommand` turns a document and a command into the next document. None of
-them says which way to flip anything, so a command applied twice leaves what
-applying it once did, and whoever sends one can send it again after a failure
-without asking whether the first attempt landed. A flip would undo itself on
-the retry. Adding a comment under an id that is already there changes
-nothing, for the same reason.
-
-The screen still offers toggles, and the toggle is decided where the reader
-clicked, from what the row reads at that moment. `markSeen` builds a command
-that marks the row seen unless it reads reviewed, and `markViewed` one that
-marks the file viewed unless it is. `commentOn` pins a new comment to the
-commit it was read against, as described above.
-
-A comparison's review reads the same way whichever screen draws it.
-`reviewComparison` gathers everything filed under one key and reads it
-against the commits a comparison has on each side now. A row on the local
-history screen gets its key from `reviewKey`, and a row of a pull request's
-commit stack from `pullRowKey`.
-
-A pull request commit has no id that survives a force push, only the
-subject-line guess its pairing starts from, and a key built from that guess
-would disagree with the pairing as soon as the reader corrected it. So a
-pull request row takes the key of the commit its pairing puts on the before
-side, and a row whose before commit was never written on starts a key from
-its own commit, `rev:<commit id>`. The document keeps, in `keys`, the key each
-commit was last written on under, and writing anything on a row first sends
-`set-key` for the row's own commit, which `keepKey` builds. The row that
-commit's successor lands on in the next version then inherits the key, and a
-reader who pairs a commit with a different one by hand moves the marks and
-comments with the pairing. A row with nothing before it, which is every row
-of a pull request read against its base, takes the key its own commit was
-kept under.
-
-The keys are kept rather than read back off the marks and comments, which
-already name commits. A viewed mark names none, and unmarking a row or
-deleting its last comment would take the evidence of its key with it, so the
-next version would start over. `set-key` is a command of its own, sent before
-the write it serves, rather than a field on each writing command. One
-command then records one fact, and a key that lands while the write after it
-fails records nothing false.
-
-The document also keeps each pairing the reader corrected by hand, under the
-series and the two heads it pairs, as [pairing](pairing.md#keeping-a-correction)
-describes. `set-pairing` replaces the one kept for those heads, and a null
-pairing forgets it.
-
-All of this is the review [model](index.md#model): marks, comments, and
-viewed files, each with the Zod schema that reads it back from storage; how
-the stored document is read against the rows the interdiff returns; and the
-commands that change it. The views name these shapes and call the readers,
-and none of it needs React or storage, so it sits apart from the state that
-holds the document.
+**Pull request keys.** A pull request commit has no id that survives a force
+push, so `pullRowKey` gives a row the key its before commit was last written
+under, else `rev:` of its own commit. Writing on a row first sends `set-key`
+(`keepKey`) for its own commit, so the next version's row inherits it, and a
+hand-corrected pairing moves marks and comments with it. Keys are stored
+rather than read off marks and comments, since viewed marks name no commit
+and deleting the last comment would lose the key. `set-key` is its own
+command so one command records one fact. Corrected pairings are kept too,
+under the series and the two heads ([pairing](pairing.md#keeping-a-correction)).
 
 ```ts
 //| id: frontend-model-review
@@ -781,10 +667,8 @@ export function keepKey(row: ComparisonReview): ReviewCommand[] {
 }
 ```
 
-The reorder case runs `alignSeries` for real rather than using a hand-rolled
-fixture. The bug this schema guards against is in how `alignSeries`'s output
-becomes review state, and a fixture written by hand could encode the same
-wrong assumption the code is being tested against.
+The reorder case runs `alignSeries` for real, since a hand-written fixture
+could encode the same wrong assumption the code makes.
 
 ```ts
 //| id: frontend-model-review-test
@@ -1776,12 +1660,8 @@ describe("kept pairings", () => {
 });
 ```
 
-A comment or a comparison row is always in one of the same three states —
-still open, resolved, or stale against a rewrite since it was written — and
-`--review-open`, `--review-resolved`, and `--review-stale` are the one set
-of roles that both the tone chip on a comparison header and the accent on a
-comment thread read from. A resolved comment and a resolved row share a
-colour without either file naming it.
+`--review-open`, `--review-resolved`, and `--review-stale` are shared by a
+comparison's tone chip and a comment thread's accent.
 
 ```css
 /*| id: design-review-state
@@ -1835,15 +1715,10 @@ colour without either file naming it.
 ```
 ## The review bar
 
-Every reviewed row, a comparison on the local history screen or a commit on
-a pull request's stack, says where the reader stands on it in one line:
-whether it has been looked at, whether it moved since, and how many open
-comments sit on it. The `mark seen` / `mark unseen` button reads its own
-label off the row's review state, so the caller wires the click through
-without working out which action is current. Next to it, the row counts its
-files the reader has marked viewed, read off the same marks the files'
-checkboxes are, so the two never disagree. A bar with no review document
-behind it keeps the chips and drops the two buttons.
+The review bar says in one line whether a row was looked at, whether it
+moved since, how many comments are open, and how many files are viewed. The
+`mark seen` button reads its label off the row's state. Without a review
+document the bar keeps the chips and drops the buttons.
 
 ```tsx
 //| id: frontend-view-review-bar
@@ -1960,27 +1835,15 @@ function Chip({
 
 ## Storage
 
-The review document lives on the server, in the
-[review store](../backend/review-store.md), so a second browser, a second tab,
-and an agent all read and write the one the reader does. It used to live in
-the browser's `localStorage`, which made a read synchronous and a write
-unable to fail. Both come back with the server: the document arrives some
-time after the screen does, and a write can be refused or never answered.
+The review document lives in the [review store](../backend/review-store.md),
+so it arrives after the screen does and a write can fail.
 
 ### Reading it from the server
 
-`reviewStore` is the review document's repository, the same role
-`localRepository` plays for [settings](settings.md), with the server behind
-it instead of `localStorage`. It loads the document with its revision and
-sends one command, answering with the document and revision the command
-left. A refusal comes back as an `Error` carrying the server's own message.
-
-It sits in `persistence/` rather than beside the other endpoints in
-[`api.ts`](transport.md). `api.ts` reads what the repository and GitHub
-say, and nothing it reads is the app's to change. `persistence/` is where
-the app keeps its own documents, and which store keeps one is that layer's
-decision, so moving the review document to the server changed that layer and
-left `state/review.ts` talking to a repository as before.
+`reviewStore` is the document's repository in `persistence/`, like
+`localRepository` for [settings](settings.md); `state/review.ts` talks to a
+repository either way. A refusal comes back as an `Error` with the server's
+message.
 
 ```ts
 //| id: frontend-persistence-review
@@ -2054,42 +1917,19 @@ const Change = z.object({ revision: z.number().int() });
 
 ### Holding it while it changes
 
-`useReview` loads the document once, when the app starts, and holds it for
-every screen. Until it arrives the handle is `loading` and the document is
-empty, so a diff draws without review state rather than waiting for it,
-since the diff is what the reader came for. A document the server cannot
-read makes the handle `unavailable`, and the diff draws the same way. Only a
-`ready` handle has `actions`, so a screen that draws the diff while nothing
-has loaded has nothing to offer the reader that would write, and the type
-says so rather than a flag each view has to remember to check.
+`useReview` loads the document once for the app. While `loading` or
+`unavailable` the document is empty and the diff draws without review state;
+only a `ready` handle has `actions`, so nothing can offer to write.
 
-A change shows at once. Each command the reader makes is applied to what
-the screen shows before the server answers, and kept in a list of commands
-in flight. The document on screen is the last one the server answered with,
-with every command still in flight applied on top, through the same
-`applyCommand` the server runs. An answer replaces the server's document and
-takes its command off the list, and the answer already holds that command's
-effect, so nothing on screen moves. A refused or unanswered command is taken
-off the list too, which puts back what the server holds, and the reason is
-kept in `failure` for the screen to say.
+Each command applies on screen at once: the screen shows the server's last
+document with every in-flight command applied on top. An answer replaces the
+server's document and drops its command; a failure drops the command, which
+restores what the server holds, and sets `failure`. Restoring a snapshot
+from before the change would also undo later changes that landed.
 
-Holding the server's document apart from the commands in flight is what makes
-a failure safe to undo. Undoing a failed change by restoring the document
-from before it would also undo any change made since that did land.
-
-Another writer's change arrives as a revision announced over
-[a WebSocket](../backend/review-store.md#telling-screens-about-changes), and a
-revision newer than the one held reads the document again. The socket also
-counts as news each time it opens, since a write may have landed while it was
-closed, and it reconnects after it drops, so a restarted server finds the
-screen again. A read that fails leaves the document as it was, and the next
-announcement tries again. Commands in flight stay applied on top of the new
-document the way they sat on the old one.
-
-Two answers can arrive in the order opposite to the one the server wrote
-them in, and taking the second as it came would show the first command
-undone until the next write. An answer replaces the document only when its
-revision is higher than the one held.
+A revision announced over [the WebSocket](../backend/review-store.md#telling-screens-about-changes),
+or the socket (re)opening, rereads the document. In-flight commands stay on
+top of it.
 
 ```tsx
 //| id: frontend-state-review
@@ -2269,13 +2109,9 @@ export function useReview(): ReviewHandle {
 }
 ```
 
-`App` calls `useReview` once and puts the handle in `ReviewContext`, and each
-screen that draws a diff or the review strip reads it from there. A second
-`useReview` per screen would load the document again on every switch of
-tab, open a second socket, and lose the commands in flight on the screen
-left behind. The context has no default, because no review document is one
-a screen could safely draw from, and reading it outside `App` throws
-rather than drawing an empty review as if it were the reader's.
+`App` holds the handle in `ReviewContext`; one per screen would reload on
+every tab switch and lose in-flight commands. Reading it outside `App`
+throws rather than drawing an empty review.
 
 ```tsx
 //| id: frontend-state-review
@@ -2289,10 +2125,9 @@ export function useReviewContext(): ReviewHandle {
 }
 ```
 
-The strip under the mode tabs says when review state is missing or a change
-was lost, and says nothing otherwise. A lost change stays on the strip until
-the reader dismisses it, since it has already disappeared from the screen
-and the strip is the only place left that says it happened.
+The strip under the tabs shows only when review state is missing or a change
+was lost; a lost change stays until dismissed, since it is no longer on
+screen anywhere else.
 
 ```tsx
 //| id: frontend-view-review-strip
@@ -2358,23 +2193,13 @@ export function ReviewStrip({
 
 ### Moving what the browser kept
 
-A reader who marked and commented before the server kept review state still
-has all of it in `localStorage`, under `diffy.session.v1` and one
-`diffy.last-reviewed.v1:` key per pull request. `legacyReview` reads all of
-it into one document, and `useReview` sends that to the server as an
-`import` command whenever the keys hold anything, then clears them.
-
-An import adds what the server's document lacks and keeps what it has, so
-sending one twice changes nothing, and one from a second browser, or from a
-workspace served on another port with a `localStorage` of its own, adds that
-browser's marks beside the first one's. Importing only into an empty
-document was the other rule, and it would drop everything but the first
-browser's for good. A clear that fails leaves the keys to be imported again,
-which is the same harmless repeat.
-
-A pull request's last reviewed head becomes a version
-[marked reviewed](pull-requests.md#the-head-last-reviewed). The browser never
-kept when it was marked, so it is dated at the import.
+`legacyReview` reads what older versions kept in `localStorage`
+(`diffy.session.v1` and `diffy.last-reviewed.v1:` keys) into one document,
+and `useReview` sends it as an `import` whenever the keys hold anything, then
+clears them. An import adds only what the server lacks, so a repeat or a
+second browser's import is harmless; importing only into an empty document
+would drop every browser but the first. A last reviewed head is dated at the
+import.
 
 ```ts
 //| id: frontend-persistence-legacy-review

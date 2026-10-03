@@ -1,58 +1,25 @@
 # Review store
 
-The [review document](../frontend/review.md#review-state) lives on the server,
-so that anything able to reach the server can read and write it: a second
-browser, a second tab, or an agent. The
-[direction](../../direction.md#the-review-document-moves-to-the-server) sets
-out why it moved out of the browser.
+The [review document](../frontend/review.md#review-state) lives on the server
+so a second browser, a second tab, or an agent can read and write it.
 
 ## One file per repository
 
-The document is a SQLite file in diffy's data directory,
-`$XDG_DATA_HOME/diffy/`, or `~/.local/share/diffy/` when that variable is
-unset, one per repository, read and written with `bun:sqlite`. It stays out of
-the repository's own directories because those belong to jj and git, and a
-file in the working copy would be snapshotted into whatever change is checked
-out.
-
-A repository is named by [the real path of its store](jj.md#finding-the-repository),
-which every workspace of it shares, so every workspace's server reads and
-writes the same file. The file's name is the directory the repository was
-made in, for whoever lists the data directory, and a hash of the store's
-path, so two repositories made in directories of the same name keep apart.
+One SQLite file per repository under `$XDG_DATA_HOME/diffy/`, outside the
+repository because a file in the working copy would be snapshotted into
+whatever change is checked out. A repository is named by
+[the real path of its store](jj.md#finding-the-repository), so every workspace's
+server shares the file.
 
 ## The document as one row
 
-The file holds one row, the whole document as JSON, with a revision number
-beside it. Every change is a
-[command](../frontend/review.md#review-state), and the store applies it with
-the same `applyCommand` the browser uses, inside a transaction that reads the
-row, applies the command, and writes the row back. The model's function is
-then the only statement of what a command does.
-
-A table per kind of thing, one for marks and one for comments, was the other
-shape. It would let SQL answer questions about one kind without reading the
-rest, but every command would need a second implementation written in SQL
-next to the model's, and the two could disagree about what a command means.
-The document is small enough to read whole on every write.
-
-Several servers write the one file, since each workspace runs its own. The
-transaction takes SQLite's write lock before it reads, so two servers
-applying a command at once apply one after the other, and each reads what
-the other wrote. A reader waits for a writer rather than failing, for up to
-five seconds, since write-ahead logging lets reads go on beside a write and
-only a second writer has to wait.
-
-The revision counts writes. Two answers to two commands sent close together
-can arrive in either order, and a browser holding the older one would show
-the second command undone. The revision lets it keep whichever answer is
-newer.
-
-A row that does not parse is an error, not an empty document. The browser's
-store fell back to an empty document because the next write would at worst
-store what the reader did afterwards. Here the next write would replace every
-reader's marks and comments, so the store refuses to read or write until the
-row is dealt with, and the server answers with a 500.
+The file holds one row: the whole document as JSON, plus a revision. The store
+applies each [command](../frontend/review.md#review-state) with the same
+`applyCommand` the browser uses, so the model is the only statement of what a
+command does. A table per kind of thing would let SQL query one kind alone,
+but every command would need a second implementation in SQL that could
+disagree with the model's. The document is small enough to read whole on
+every write.
 
 ```ts
 //| id: backend-review-store
@@ -93,6 +60,8 @@ export async function reviewStorePath(
 
 export function openReviewStore(path: string): ReviewStore {
   const db = new Database(path, { create: true, strict: true });
+  // Each workspace's server writes this file. WAL lets reads run beside a
+  // write; a second writer waits rather than failing.
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
   db.run(
@@ -116,6 +85,8 @@ export function openReviewStore(path: string): ReviewStore {
        revision = excluded.revision, document = excluded.document`,
   );
 
+  // A row that does not parse throws rather than reading as empty: the next
+  // write would replace every reader's marks and comments.
   function read(): ReviewSnapshot {
     const row = select.get();
     if (row === null) return { revision: 0, document: EMPTY_REVIEW };
@@ -140,6 +111,9 @@ export function openReviewStore(path: string): ReviewStore {
 
   return {
     read,
+    // immediate takes the write lock before reading, so two servers applying
+    // at once each see what the other wrote. The revision lets a browser
+    // keep the newer of two answers that arrive out of order.
     apply: (command) => apply.immediate(command),
     revision: () => selectRevision.get()?.revision ?? 0,
   };
@@ -148,20 +122,10 @@ export function openReviewStore(path: string): ReviewStore {
 
 ## Telling screens about changes
 
-An open screen learns that the document changed without asking over and
-over. The server keeps a WebSocket to each screen, and says the new revision
-whenever the document moves on, and the screen reads the document again. An
-agent's comment then reaches the reader's open screen without a reload.
-
-A write can come from this server or from another one, since every
-workspace's server writes the same file, and a server hears nothing of the
-other's writes. `watchReview` asks the store for its revision twice a second
-and passes on each new one, which finds both kinds of write the same way. The
-query reads one integer and parses nothing. Publishing straight after this
-server's own writes would reach its screens half a second sooner, but it
-would be a second path to keep right beside the one other servers' writes
-need anyway, and the screen that wrote already has the answer to its own
-command.
+The server tells each open screen over a WebSocket when the revision moves.
+Other workspaces' servers write the same file and this one hears nothing of
+it, so `watchReview` polls the revision rather than publishing after its own
+writes; one path covers both kinds of writer.
 
 ```ts
 //| id: backend-review-store
@@ -186,9 +150,8 @@ export function watchReview(
 
 ## Tests
 
-The store's tests open it on a file in a fresh temporary directory, since two
-stores sharing one file is one of the things they check, and an in-memory
-database cannot be opened twice.
+Tests use a file in a temporary directory, since an in-memory database cannot
+be opened twice.
 
 ```ts
 //| id: backend-review-store-test

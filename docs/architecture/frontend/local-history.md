@@ -5,13 +5,10 @@ pinned to a jj operation.
 
 ## The model
 
-A side's pick is either "latest", meaning the reader asked for the newest
-operation, or "pinned" to one operation they chose from the dropdown. Either
-way `at` is a concrete operation id, and a side reads the repo at `at` and
-nowhere else. A side never reads the live repo, so nothing it shows changes
-while the reader is looking at it. A "latest" side stays where it is when a
-newer operation lands. The pick only records that the reader wanted the
-newest, so the screen knows to offer the new one.
+A side's pick is "latest" or "pinned", and either way `at` is a concrete
+operation id. A side never reads the live repo, so nothing changes under the
+reader; "latest" only means the screen offers a newer operation when one
+lands.
 
 ```ts
 //| id: frontend-model-local-history
@@ -42,19 +39,9 @@ export type LocalHistory =
     };
 ```
 
-`withOperations` is the only place a load of the operation log turns into the
-next `LocalHistory`. Both sides are made by the first successful load, on
-"latest" at whatever is newest then, and every later load replaces only
-`operations`. A side therefore never exists without an operation to read at.
-The alternative was a side that starts at "unknown" and an effect that fills
-it in once the log arrives. That costs a render at the live repo, a second
-fetch at the real operation, and a state that has to be kept in sync. An idle
-poll returns the same object, so it re-renders nothing.
-
-Only a "latest" side that has fallen behind the head has a newer operation to
-report, and only the after side shows it. The before side is the baseline,
-and a baseline that offers to move is an invitation to lose track of what is
-being compared. It stays pinned where it was without comment.
+`withOperations` makes both sides on the first successful load, so a side
+never exists without an operation. A side starting "unknown" would cost a
+render at the live repo, a second fetch, and an effect to keep in sync.
 
 ```ts
 //| id: frontend-model-local-history
@@ -73,6 +60,7 @@ export function withOperations(
       after: { pick: { kind: "latest", at: head.id }, commits: [] },
     };
   }
+  // An idle poll returns the same object and re-renders nothing.
   if (history.operations[0]?.id === head.id) return history;
   return { ...history, operations };
 }
@@ -86,16 +74,13 @@ export function pick(head: string, operationId: string | null): OperationPick {
 }
 ```
 
-Only a side that is still tracking latest and has fallen behind the head has
-a newer operation to report, and only the after side renders it: the before
-side is the historical baseline the reader picked or was handed, and moving
-it under them would change what they are comparing from without being asked.
-
 ```ts
 //| id: frontend-model-local-history
 
 /** The newest operation a "latest" side has not moved to yet, or `null` when
- *  the side is pinned or already at the newest. */
+ *  the side is pinned or already at the newest. Only the after side shows it:
+ *  the before side is the baseline, and offering to move it invites losing
+ *  track of what is compared. */
 export function newerOperation(
   side: LocalSide,
   operations: OpLogEntry[],
@@ -120,20 +105,12 @@ export function pickerValue(
 
 ## Polling the operation log
 
-`useLocalHistory` owns the one piece of state both sides and the pickers
-read. It polls `fetchOperations` every two seconds while the tab is visible,
-and at once when the tab becomes visible again. A `polling` ref, not state,
-keeps two requests from being in flight at once. A failed poll after the
-first success leaves the last good list on screen. A failed first load shows
-the error and keeps polling, so the screen recovers once the backend answers.
-
-Polling `/api/operations` is the whole of the mechanism. `jj op log`
-snapshots the working copy before it lists anything, so a poll also records
-an edited file as a new operation, and costs tens of milliseconds. The
-alternative was a server that watches `.jj/repo/op_heads` and pushes
-changes over a socket. That needs a watcher and a channel the server does not
-otherwise have, and it would still miss a file edit until some other `jj`
-command snapshotted it.
+`useLocalHistory` polls `fetchOperations` every two seconds while the tab is
+visible. `jj op log` snapshots the working copy first, so a poll also turns a
+file edit into an operation. A server watching `op_heads` and pushing over a
+socket would need a watcher and a channel, and would still miss an edit until
+some jj command snapshotted it. A failed poll keeps the last good list; a
+failed first load keeps polling.
 
 ```tsx
 //| id: frontend-state-local-history
@@ -221,14 +198,8 @@ export function useLocalHistory(): LocalHistoryHandle {
 }
 ```
 
-`App` calls `useLocalHistory` and hands the handle to the local history
-screen through `LocalHistoryContext`, rather than the screen calling it. The
-screen unmounts whenever another tab opens, and the operations each side
-reads at and the commits ticked on it are a review in progress that should
-still be there when the reader comes back from the settings or a pull
-request. Like the [review context](review.md#holding-it-while-it-changes)
-it has no default, since an empty history would be a lie about the
-repository.
+`App` holds it in `LocalHistoryContext` so the picks and ticks survive a
+visit to another tab.
 
 ```tsx
 //| id: frontend-state-local-history
@@ -248,35 +219,10 @@ export function useLocalHistoryContext(): LocalHistoryHandle {
 
 ## The screen
 
-The screen is the [mode tabs](shell.md#mode-tabs), the
-[review strip](review.md), and the [panes](layout.md): the after graph, the
-before graph when an interdiff is open, and the diff of what is ticked. It
-takes the history and the review document from the contexts `App` provides
-and its column widths from [`usePaneSizes`](layout.md#resizing-a-pane), and
-from the address it needs only a way to leave.
-
-Whether the before side is open is held here. The screen opens on one graph
-and a normal diff of what is ticked in it, and the before graph only appears
-when the reader asks for an interdiff. Closed, the before side's ticks are
-not sent to the diff, but they are kept in the history, so closing and
-reopening the interdiff does not lose them. It is not part of the address,
-for the same reason the ticked commits are not: neither is.
-
-Which pane a narrow window is showing lives here too: it is one choice about
-the whole screen, made in a strip above the panes it governs, and
-[`ReviewPanes`](layout.md) is a view and holds no state. On a wide screen the
-value is carried and never read. It stays out of the address because it says
-how big the window is, not where the reader is, and a link opened on a wide
-screen would carry it for nothing.
-
-Both are how the reader has arranged this screen, so like the open rows of
-the pull request screen they start over when the screen opens again. The
-history they arrange is held above the screen and does not.
-
-The review document is handed to the local history's `DiffPane` and to
-nothing else here. Wiring it into the commit pickers would mean threading it
-through `CommitLog` and `CommitGraph` too, for a graph that shows nothing
-about review state and has no requested feature that would use it.
+The screen holds whether the interdiff is open and which pane a narrow window
+shows. Both are arrangement, not place, so they stay out of the address and
+reset when the screen reopens. Closing the interdiff keeps the before side's
+ticks in the history but stops sending them to the diff.
 
 ```tsx
 //| id: frontend-screen-local-history
@@ -423,20 +369,9 @@ function SidePicker({
 
 ## Operation picker
 
-A single `<select>` above the graph. The first option is "latest (current)",
-value `""`, which maps back to `null`. The rest are operations newest first,
-each labelled with its short id, its description or the command that caused
-it, and when it finished. `onSelect` gets the operation id, or `null` for
-latest. What value it is passed for `selected` is decided above it, by
-`pickerValue`: a picker never sees a side's pick directly, only where that
-pick lands relative to the current head.
-
-The row also holds whatever controls the side needs beside the select,
-passed in as `children`: the [newer operation](#newer-operation) notice, and
-the button that opens or closes an interdiff. They sit on the picker's row so
-the row is the only thing above the graph and never changes height. Anything
-that came and went between the picker and the graph would push one side's
-graph down and leave the two sides of an interdiff out of line.
+The picker row also holds the [newer operation](#newer-operation) notice and
+the interdiff toggle as `children`, so nothing comes and goes between picker
+and graph to push one side's graph out of line with the other.
 
 ```tsx
 //| id: frontend-view-operation-picker
@@ -485,21 +420,9 @@ export function optionLabel(operation: OpLogEntry): string {
 }
 ```
 
-OperationPicker is a label wrapping a native `<select>`, so there is little
-to style beyond lining the caption up with the control and letting the
-select itself take the rest of the row, less whatever controls follow it.
-
-The select and every button on the row are the same height, `2em`, so the
-row is as tall with a button on it as without one. One side's row can hold a
-button the other's does not, and a row a few pixels taller on one side was
-enough to start its graph that much lower than the other.
-
-A `<select>` asks for the width of its longest option, and an option here is
-an id, a description and a timestamp on one line. A described operation runs
-to hundreds of characters, wider than a picker pane at any window size, so
-`min-width: 0` holds the select to the row it sits in. Capping it is the one
-place the app still shows a fragment on purpose: the text a select cuts is a
-tap from being read in full, so nothing is lost by cutting it.
+Every control on the row is `2em` tall, so a row with a button is as tall as
+one without. `min-width: 0` holds the select to its row, since a described
+operation is wider than any pane; the cut text is a tap from being read.
 
 ```css
 /*| id: design-operation-picker
@@ -534,13 +457,10 @@ tap from being read in full, so nothing is lost by cutting it.
 }
 ```
 
-On a phone the row's controls grow to the 44 pixel touch target the other
-buttons in the app keep. The select grows with them, so the row stays the
-same height whichever buttons it holds.
-
 ```css
 /*| id: design-operation-picker
 @layer components-narrow {
+  /* The app's 44px touch target, on every control so the row stays even. */
   @media (max-width: 1000px) {
     .operation-picker__select,
     .newer-operation,
@@ -553,19 +473,11 @@ same height whichever buttons it holds.
 
 ## Newer operation
 
-The after side is the side under review, so when it is on "latest" and a
-poll finds a newer head, it says so. It neither follows the new head nor
-stays behind without a word. Following would swap the commits out from under
-a reader mid-diff. Staying silent would leave them approving a state the repo
-has already moved past. `onUpdate` picks `null`, the same as the dropdown's
-first option, so updating takes the side to whatever is newest now and drops
-its selected commits.
-
-It is one button on the picker's row, reading `newer` and the operation's
-short id, with the whole label in its tooltip and its accessible name. A
-banner under the picker said more, but it pushed the after graph a few rows
-down the moment an operation landed, out of line with the before graph
-beside it.
+When the after side is on "latest" and a newer operation lands, a `newer`
+button says so rather than following it (swapping commits under a reader
+mid-diff) or staying silent (approving a state the repo moved past).
+Updating picks `null`, the newest now, and drops the side's selection. It
+sits on the picker row because a banner pushed the after graph down.
 
 ```tsx
 //| id: frontend-view-newer-operation
@@ -595,9 +507,6 @@ export function NewerOperation({
 }
 ```
 
-It is outlined in the accent colour, so it reads as something that wants a
-click rather than another label on the row.
-
 ```css
 /*| id: design-newer-operation
 @layer components {
@@ -618,12 +527,8 @@ click rather than another label on the row.
 
 ## Interdiff toggle
 
-The screen shows one graph until the reader asks to compare two operations.
-The button that asks sits at the end of the graph's picker row and reads
-`interdiff`. Once the before side is open, the same component sits on the
-before side's row and reads `close`, so the way out is beside the column it
-removes. Its accessible name says what it does in full, since `close` alone
-does not say what closes.
+`interdiff` on the after side's row opens the before side; the same button
+on the before row reads `close`, beside the column it removes.
 
 ```tsx
 //| id: frontend-view-interdiff-toggle
@@ -649,9 +554,6 @@ export function InterdiffToggle({
   );
 }
 ```
-
-It is outlined in the quiet border colour, so the newer operation notice
-beside it is the louder of the two.
 
 ```css
 /*| id: design-interdiff-toggle

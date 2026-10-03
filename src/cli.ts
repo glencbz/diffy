@@ -12,6 +12,8 @@ import { REVIEW_TOPIC, reviewSocket, routes } from "./server";
 
 const USAGE = "usage: diffy [--port <n>]";
 
+// A typed port is held to and a busy one ends the run; otherwise diffy walks
+// up from 3000 so several repositories can be served side by side.
 export type PortChoice =
   | { kind: "given"; port: number }
   | { kind: "first-free"; from: number };
@@ -78,6 +80,9 @@ function listen(choice: PortChoice, store: ReviewStore): Bun.Server<undefined> {
 }
 
 async function serve(choice: PortChoice): Promise<void> {
+  // Outside a repository every route would fail, so stop with jj's own
+  // explanation. The printed root tells a reader started from a
+  // subdirectory which repository they got.
   const root = await $`jj root`.quiet().nothrow();
   if (root.exitCode !== 0) fail(1, root.stderr.toString().trim());
 

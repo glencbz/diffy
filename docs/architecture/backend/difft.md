@@ -1,59 +1,26 @@
 # Structural diffs
 
-A line diff reports which lines differ. A function signature split over four
-lines reads as one line removed and four added, even though no argument
-changed. [Difftastic](https://difftastic.wilfred.me.uk/) parses both sides
-with tree-sitter and compares the syntax trees, so the same edit reads as
-no change at all, and a changed argument is marked as that argument rather
-than as its whole line. Structural diffs are what diffy shows by default,
-with the `git` patch kept alongside for the reader who wants lines. The
-reader chooses per file. See the [diff view](../frontend/diff.md#diff-view).
+[Difftastic](https://difftastic.wilfred.me.uk/) compares syntax trees, so a
+signature reflowed over four lines reads as no change, and a changed argument
+is marked as that argument rather than its whole line. Structural diffs are
+the default view, with the `git` patch kept for readers who want lines, per
+file (see the [diff view](../frontend/diff.md#diff-view)).
 
-## What difftastic gives us
-
-`difft --display=json` prints one object per file. `aligned_lines` pairs up
-every line of the two sides, `[before, after]`, with `null` where a line has
-no counterpart. `chunks` names the lines that changed and, on each one, the
-byte ranges of the tokens that did. Line numbers count from 0. The format is
-marked unstable and refuses to run unless `DFT_UNSTABLE=yes` is set, so it is
-parsed with Zod here and nowhere else, and the version is pinned by the
-[Nix flake](../../devtools/nix.md).
-
-Two things about it are easy to get wrong. The ranges count UTF-8 bytes, and
-a JavaScript string counts UTF-16 code units, so `"héllo"` ends at 6 for
-difftastic and at 5 for the browser. They are converted here, once, so the
-wire only ever carries offsets into the string it also carries. And the JSON
-never includes the text of a line, only its number, so the text comes from
-the two files, which only exist while jj runs the tool (see [running
-it](#running-it-under-jj)).
+`difft --display=json` is marked unstable (it needs `DFT_UNSTABLE=yes`), so it
+is parsed with Zod here and nowhere else and the version is pinned by the
+[Nix flake](../../devtools/nix.md). The JSON gives line numbers but never line
+text, so the text has to be read from the two files while they exist (see
+[running it under jj](#running-it-under-jj)).
 
 ## From chunks to hunks
 
-The frontend already draws a diff as hunks of numbered context, removed, and
-added lines, so a structural diff is turned into the same shape rather than
-drawn a second way. A hunk reads as the after side with the removed lines
-interleaved, exactly like a patch hunk, which is what keeps the gutter,
-comments, and hidden lines working on it unchanged.
-
-Walking `aligned_lines` in order gives that reading directly. A row is
-changed when either of its lines is one a chunk names. A run of changed rows
-becomes its removed lines followed by its added lines, the order a patch
-uses for an edit. An unchanged row is context from the after side.
-
-Difftastic's own verdict on what is unchanged is kept even when the text
-differs. A line that only moved in a reformat is an after-side line with no
-before-side partner and no changed token. It is drawn as context, since it
-is part of the after file and difftastic says nothing about it changed. Its
-mirror, a before-side line that a reformat folded away, is not in the after
-file at all, and is left out. A context line carries its before-side
-number where it has a partner, and none where it does not, so a
-[side-by-side](../frontend/diff.md#side-by-side) diff can number the before
-column and keep a moved line out of it. A hunk carries its before-side start
-for the same column's hidden lines.
-
-Three rows of context on either side of a change is what `git` prints, so a
-reader switching a file between the two views sees about the same amount of
-file around each change.
+A structural diff is turned into the same hunks a patch gives, the after side
+with removed lines interleaved, so the gutter, comments, and hidden lines work
+on it unchanged. Difftastic's verdict on what is unchanged wins even when the
+text differs: a line that only moved in a reformat is context, and its
+before-side twin is left out. A context line keeps its before-side number
+where it has a partner, for the [side-by-side](../frontend/diff.md#side-by-side)
+before column.
 
 ```ts
 //| id: difft-module
@@ -141,6 +108,7 @@ export const DifftFile = z.object({
 });
 export type DifftFile = z.infer<typeof DifftFile>;
 
+/** What `git` prints, so switching views shows about the same context. */
 const CONTEXT = 3;
 
 /** A row of the alignment: a before-side and an after-side line, 0-based. */
@@ -321,20 +289,14 @@ function hunkOf(
 
 ## Running difftastic on a file
 
-`difftFile` diffs one file between two paths on disk. Everything that can go
-wrong is an answer rather than an exception: a file without a structural
-diff still has its line diff, so the reader loses a view, not the file.
-
-Difftastic falls back to a line diff of its own above a megabyte, and that
-fallback is not cheap: a 4 MB file took 38 seconds. A file over the same
-limit is refused before difftastic starts, and a timeout covers whatever the
-limit does not. Past either one, the reader has the `git` patch, which is the
-same line diff difftastic would have fallen back to.
+`difftFile` answers every failure as `unavailable` rather than throwing: the
+file still has its line diff, so the reader loses a view, not the file.
 
 ```ts
 //| id: difft-module
 
-/** Difftastic's own `DFT_BYTE_LIMIT` default. */
+/** Difftastic's own `DFT_BYTE_LIMIT`. Above it difftastic falls back to a slow
+ *  line diff of its own (a 4 MB file took 38 s), the same one `git` gives. */
 const BYTE_LIMIT = 1_000_000;
 const TIMEOUT_MS = 10_000;
 
@@ -398,26 +360,13 @@ export async function difftFile(
 
 ## Running it under jj
 
-The two sides of a diff are not always files anywhere. An
-[interdiff](jj.md#comparing-two-commits)'s before side is a tree jj builds
-for the comparison and never writes down, so neither `git` nor jj can hand
-it over by id afterwards. What jj can do is run an external diff tool with
-both sides written out as two directories, `left` and `right`, which it
-deletes once the tool exits. That is the only moment both files exist, so
-the text of each line has to be read then, which is why the tool jj runs is
-this module rather than `difft` itself. jj runs it as [`diffy
-difft`](cli.md#difftastic-as-jjs-diff-tool).
-
-`difftDirectories` diffs every file present in both directories and answers
-with one object keyed by path. jj only writes the files the diff touches, so
-nothing is diffed that the patch does not also report. A file on only one
-side is left out. Added and deleted files read the same either way, and a
-rename puts its two halves under different paths, so there is no pair to
-compare.
-
-Files are diffed in parallel, up to one per core. A row with many files
-would otherwise start one difftastic per file at once, and a series of rows
-does that many times over.
+An [interdiff](jj.md#comparing-two-commits)'s before side is a tree jj builds
+and never writes down, so it cannot be fetched by id afterwards. jj can run an
+external diff tool with both sides written to two directories, deleted when
+the tool exits, so the tool jj runs is this module ([`diffy
+difft`](cli.md#difftastic-as-jjs-diff-tool)), which reads the line text while
+the files exist. jj writes only the files the diff touches. A file on one side
+only (an add, a delete, either half of a rename) has no pair and is skipped.
 
 ```ts
 //| id: difft-module
@@ -442,6 +391,8 @@ export async function difftDirectories(
   ]);
   const paths = [...after].filter((path) => before.has(path));
 
+  // At most one difftastic per core; a series of many-file rows would
+  // otherwise start hundreds at once.
   const answers: Record<string, StructuralDiff> = {};
   let next = 0;
   const worker = async () => {
@@ -461,10 +412,8 @@ export async function difftDirectories(
 
 ## Test
 
-`readDifft` is tested against difftastic's real output for small files,
-recorded once so the tests pin what diffy does with that shape. The run
-through `difftFile` is tested against the real binary, so a difftastic
-upgrade that changes the format fails here first.
+`readDifft` runs on recorded difftastic output; `difftFile` runs the real
+binary, so a format change in an upgrade fails here first.
 
 ```ts
 //| id: difft-module-test

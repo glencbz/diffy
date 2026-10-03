@@ -19,6 +19,9 @@ export function localRepository<T>(
       const raw = localStorage.getItem(key);
       if (raw === null) return empty;
 
+      // Absent, truncated by a full quota, or hand-edited: costs the reader
+      // what was stored, not the ability to open the app. A field added later
+      // needs a schema default, or every older document reads as bad.
       try {
         return schema.parse(JSON.parse(raw));
       } catch {
@@ -29,7 +32,8 @@ export function localRepository<T>(
       try {
         localStorage.setItem(key, JSON.stringify(document));
       } catch {
-        // Persistence failure is not worth a UI state.
+        // Safari private browsing and full quotas throw, and the caller is a
+        // click handler with no error channel. Keep working for this tab.
       }
     },
   };

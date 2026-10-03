@@ -9,6 +9,7 @@ export type Resize = (pane: PaneKey, size: number | null) => void;
 export function usePaneSizes(): [PaneSizes, Resize] {
   const [sizes, update] = useStored(paneSizesRepository);
 
+  // null means the default: drop the entry rather than freeze today's value.
   const resize = useCallback<Resize>(
     (pane, size) => {
       update((current) => {

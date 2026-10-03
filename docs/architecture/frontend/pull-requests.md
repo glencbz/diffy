@@ -1,15 +1,13 @@
 # Pull requests
 
-The screen that reviews a history nobody has locally, where a side is pinned
-to one of the heads the branch has had.
+The screen that reviews a pull request, each side pinned to a head the
+branch has had.
 
 ## Loading the list and one pull's heads
 
-`usePulls` loads the repository's pull requests in every state. A merged pull
-request that was force-pushed on the way is exactly the history worth reading
-back, and a list of open ones would never reach it. The repository is whichever
-one the server names from its `origin` remote, asked for first, so a build is
-not tied to the checkout it was built from.
+`usePulls` lists pull requests in every state, since a merged one that was
+force-pushed is exactly the history worth reading back. The repository is
+whichever one the server's `origin` names.
 
 ```tsx
 //| id: frontend-state-pulls
@@ -49,10 +47,6 @@ export function usePulls(): AsyncState<RepoPulls> {
 }
 ```
 
-`usePullHistory` loads one pull request's chain of heads. Everything the review
-pane shows below the header depends on it, down to which head counts as the
-latest, so it loads first and on its own.
-
 ```tsx
 //| id: frontend-state-pull-history
 //| file: src/frontend/state/pullHistory.ts
@@ -88,20 +82,10 @@ export function usePullHistory(
 }
 ```
 
-The graph draws a commit by its id and never needs a real change id, so
-[`useCommits`](commit-history.md) maps every pull request commit through
-`asLogEntry`, which sets `changeId` to null on the way there. Reusing that
-hook for the pairing would read back exactly the field it strips.
-`usePullCommits` loads the same commits straight off `GitCommit`, so the
-pairing sees the guess GitHub's subject line encodes instead of the null the
-graph's own model has no room for.
-
-`usePullCommits` also turns the backend's newest-first list around, so every
-lane, row, and section on this screen reads oldest first. A pull request is
-read as a sequence, each commit building on the one before it, and a reader
-going top to bottom should meet a commit before the ones that depend on it.
-Reversing here rather than in each view means the pairing, the paired graph,
-and the commit stack cannot disagree about which end is up.
+`useCommits` maps pull request commits to `LogEntry` with a null `changeId`,
+so the pairing reads `usePullCommits` instead, which keeps the subject-line
+guess. It also reverses the list so the pairing, the paired graph, and the
+stack all read oldest first, the order a series is meant to be read in.
 
 ```tsx
 //| id: frontend-state-pull-commits
@@ -151,31 +135,14 @@ export function usePullCommits(
 ```
 ## The head last reviewed
 
-A reader who has been through a pull request once wants the second visit to
-start on what moved since, not on the whole thing again. The review document
-keeps every head of a pull request the reader said they reviewed, and a pull
-request opened with nothing in the address after its number starts on the
-comparison from the last of them to the latest head.
-
-Reviewed means the reader pressed "Mark reviewed" with that head as the after
-end. Inferring it from what was on screen would be quieter and wrong: a
-reader who opens a pull request to glance at the title, or who follows a link
-to one line, has not reviewed the head it was on, and the next visit would
-then hide everything they never read behind an interdiff that starts past it.
-An explicit mark costs one click and says only what the reader said.
-
-A marked head is a version marked reviewed in the
-[review document](review.md#review-state), under the series
-`pull:<repo>#<number>`, so it reaches the server with every other mark and
-any browser reads it. Marking a head keeps the heads marked before it rather
-than replacing them, so a reader who steps back to read an older head does
-not lose the newer one they reviewed. The head last reviewed is the newest
-marked head the history still lists. When the history lists none of them,
-it is the one marked most recently, which the strip below names as gone.
-
-`LastReviewed`, the shape the browser kept one head under before the server
-kept review state, stays in the model for the
-[import](review.md#moving-what-the-browser-kept) to read it with.
+A second visit should start on what moved since the last. The review
+document keeps every head the reader marked reviewed under
+`pull:<repo>#<number>`, and a bare pull request address opens on the
+comparison from the newest marked head the history still lists to the latest.
+Marking is explicit: inferring it from what was on screen would treat a
+glance at the title as a review and hide everything after it. `LastReviewed`,
+the shape the browser used to keep, stays for the
+[import](review.md#moving-what-the-browser-kept).
 
 ```ts
 //| id: frontend-model-last-reviewed
@@ -212,22 +179,12 @@ export function lastReviewed(
 }
 ```
 
-`opening` decides where a pull request starts. Only the bare address, the
-pull request number and nothing else, is open to the remembered default. Any
-head, commit, or file in the address is a place someone asked for, by a link
-or by back and forward, and it wins. The since-review comparison is not
-written into the address either. The address says "this pull request at its
-default", and for this reader the default has moved, the way "the latest
-head" moves when the branch is pushed.
-
-A remembered head that is the latest one has nothing new to show, so the
-pull request opens whole. A remembered head can also drop out of the history.
-[The history](../backend/github.md#a-pull-requests-history) is built from
-force pushes, so a head that a later fast-forward push moved past was never an
-event's end and is no longer listed once it stops being the tip, and a long
-enough run of force pushes loses the middle of the chain. The diff route only
-compares heads the history lists, so there is no version to start from, and
-the pull request opens whole with a note saying why.
+Only a bare address takes the remembered default; any head, commit, or file
+in it wins. The since-review comparison is not written into the address,
+which still means "this pull request at its default". A remembered head that
+is the latest, or that the history no longer lists (a fast-forward moved
+past it, or the chain was truncated), opens the pull request whole, the
+latter with a note.
 
 ```ts
 //| id: frontend-model-last-reviewed
@@ -334,19 +291,11 @@ describe("lastReviewed", () => {
 });
 ```
 
-`LastReviewed` is the strip under the comparison picker that shows all of
-this. It names the head last reviewed when the comparison on screen starts
-there and ends on the latest head, with a button back to the whole pull
-request; it says so when the head last reviewed is gone from the history; and
-it holds the button that marks the head on the after end reviewed, which
-reads as done once that head is marked and is missing while there is no
-review document to mark it in. The note
-follows the comparison rather than how it was reached, so a link to the same
-two heads reads the same as the default that opened them.
-
-Marking pins the comparison on screen into the address. The default would
-otherwise move under the reader the moment they mark the latest head, and
-switch the screen they are reading to the whole pull request.
+`LastReviewed` names the head last reviewed when the comparison starts there
+and ends on the latest, says when that head is gone, and holds the "Mark
+reviewed" button for the after end. Marking pins the comparison into the
+address, or the default would jump to the whole pull request as soon as the
+latest head is marked.
 
 ```tsx
 //| id: frontend-view-last-reviewed
@@ -424,11 +373,6 @@ function name(states: PullVersion[], head: GitOid): string {
 }
 ```
 
-The strip sits in the same band as the picker above it and wraps the same
-way, so on a phone the note takes a line and the button drops under it. The
-buttons are outlined like the pairing's reset button, and hold the same 44
-pixel touch target as the picker's selects.
-
 ```css
 /*| id: design-last-reviewed
 @layer components {
@@ -465,12 +409,6 @@ pixel touch target as the picker's selects.
 ```
 
 ## The screen
-
-The screen is the [mode tabs](shell.md#mode-tabs), the
-[review strip](review.md), and the pull requests controller under them. `App`
-hands it the pull request part of the [address](address.md) and a way to go
-somewhere else; the review document it reads from the context `App`
-provides.
 
 ```tsx
 //| id: frontend-screen-pull-requests
@@ -515,35 +453,13 @@ export function PullRequestsScreen({
 
 ## Pull requests controller
 
-The list, and whichever pull request is picked out of it. Which one is picked
-is part of the [address](address.md), so it arrives from the screen as a
-`PullPlace` and a pick goes back up through `onGo`. Everything below the pull
-request number, the heads, the commit, and the line, is handed straight on to
-`PullReview`, which is the only thing that reads it.
-
-A `PullChoice` says which of three things a reader is in the middle of:
-browsing the list, reading a review, or picking a different pull request over
-the one they are reading. Whether the list is open over the review is the one
-part of that not in the address, since it is how the window shows the list
-and not a place to link to. It is held as the number of the pull request it was opened
-over rather than as a flag. A flag would say the same until it said a sheet
-was open with nothing under it, and [the layout](layout.md) has no such
-screen to draw. Going back to another pull request, or to none, leaves the
-number behind, so the list folds away without anything having to close it.
-That holds at every width: a narrow window shows the list as a sheet and a
-wide one as a column, and both fold it once a pull request is chosen.
-
-A pull request the list does not hold reads as none at all, which is the one
-place `chosen` can answer something the reader did not ask for. A number in
-the address can be typed by hand or outlive the pull request it named, and
-dropping back to browsing is the only answer that leaves a screen a reader can
-act on.
-
-Picking the pull request already open keeps its place, rather than starting
-it over, since the reader asked for the one they are on. Picking any other
-opens it at "the base against the latest head", and `PullReview` is keyed by
-the pull request number, so its own state, which rows are open and which
-messages are expanded, starts again with it.
+The pull request number arrives in a `PullPlace` and picks go up through
+`onGo`; the rest of the place passes to `PullReview`. Whether the list is
+open over a review is not in the address, since it is window state. It is
+held as the number of the pull request it was opened over, so navigating
+elsewhere folds it with nothing to close. Picking the open pull request keeps
+its place; picking another opens it at base against latest, and
+`PullReview` is keyed by number so its own state starts over.
 
 ```tsx
 //| id: frontend-controller-pull-requests
@@ -620,6 +536,8 @@ function chosen(
 ): PullChoice {
   if (place === null) return { phase: "browsing" };
   const pull = pulls.find((candidate) => candidate.number === place.number);
+  // A typed or outdated number falls back to browsing, the one screen a
+  // reader can act on.
   if (pull === undefined) return { phase: "browsing" };
   return { phase: sheetOver === pull.number ? "picking" : "reviewing", pull };
 }
@@ -627,26 +545,10 @@ function chosen(
 
 ## Row comparisons
 
-Every row in the stack is a comparison between one commit and another, or a
-commit on its own, and that comparison is the one thing on the row the
-backend has to be asked for. `useRowDiffs` keys each fetch the same way
-`stackRows` keys its rows, so an answer and the row that wants it agree on
-which slot it belongs to without either side recomputing the other's key.
-
-A card moving to a new slot only changes what surrounds it. The two commits
-it names, and so the comparison behind it, do not change with it. Refetching
-every row on every move would ask the backend the same question it already
-answered, once per row, for no new information. `useRowDiffs` keeps every
-answer it has fetched in a cache, keyed by slot, and only asks for a key it
-has not seen. The cache clears when the repository, the pull request, or
-either end of the comparison changes, because those are the only changes
-that make an old answer wrong.
-
-A request is asked once, so its answer has to land. Moving a card mid-flight
-is exactly when a row is waiting on one, and an effect that discarded its
-own requests on every move would leave that row loading for good. An answer
-is dropped only when the comparison it was asked for is no longer the one
-on screen, which `asked` records alongside the keys it has sent.
+`useRowDiffs` fetches each row's comparison keyed like `stackRows` keys its
+rows, and caches by slot: moving a card changes what surrounds it, not what
+it compares. The cache clears only when the repository, pull request, or
+either end changes.
 
 ```tsx
 //| id: frontend-state-row-diffs
@@ -700,6 +602,8 @@ export function useRowDiffs(
     of,
     cache: new Map(),
   });
+  // Each key is asked once, so its answer must land even if a card moved
+  // meanwhile; it is dropped only when the comparison itself changed.
   const asked = useRef<{ of: string; keys: Set<string> }>({
     of,
     keys: new Set(),
@@ -735,20 +639,10 @@ export function useRowDiffs(
 
 ## Whole pull request
 
-Each row in the stack says how many files its commit touches and how many
-lines it adds and removes. The pull request as a whole wants the same line,
-the one GitHub puts on its files tab, and no sum of the rows gives it: two
-commits editing the same file count that file twice, and a line one commit
-adds and a later one removes counts in both. `usePullFiles` asks the backend
-for the version's whole head against the merge base instead, the diff the
-pull request would land.
-
-That count follows the after end alone. A version-to-version comparison
-still has a whole pull request behind its after end, and the size of what
-that version would land is the same number whichever older version it is
-being read against. Asking for the two heads against each other instead
-would get an interdiff of the tip commits only, which is not a size anyone
-asked about.
+The whole pull request's size cannot be summed from rows (a file two commits
+touch would count twice), so `usePullFiles` asks for the after head against
+the merge base, what the pull request would land. It follows the after end
+alone, whatever the before end is.
 
 ```tsx
 //| id: frontend-state-pull-files
@@ -793,91 +687,29 @@ export function usePullFiles(
 
 ## Pull review controller
 
-One pull request, head by head. The before end defaults to the base and the
-after end to the latest head, so a pull request opens on what it introduces
-against the branch it targets. That is the question a reviewer asks on
-opening a pull request, and it replaces a defect the old default had: a pull
-request with only one version used to compare that version against itself
-and show an empty diff, because the before end also defaulted to a head.
+The before end defaults to the base and the after end to the latest head, so
+a pull request opens on what it introduces.
 
-The before end is a `PullBaseline` rather than a head, which is what the
-[diff route](../backend/server.md) takes. The picker below hands one back
-directly, so this controller passes what it is given straight through
-instead of converting a head into a baseline itself.
+The pairing flows one way: only `PairedGraph` can move a card, and
+`stackRows` reads the pairing, so the diff pane draws whatever the graph
+decided. A pick is a commit, not a row index, since a move renumbers rows. A
+base comparison has nothing to pair, so it draws `CommitLog`'s single lane and
+builds rows from the commit list; `usePairing` still runs, since hooks run on
+every render, but its all-added answer goes unused.
 
-The graph pane is where a reader corrects a guess. `usePairing` lives above
-both panes in `PullReview`, but only `PairedGraph` gives the reader anything
-to drag or nudge, so it is the one place a reorder can start. The diff pane
-has no control of its own that lets a reader move a row. It only has rows to
-show. Reading the pairing straight into `stackRows` keeps that direction one
-way. A card moved in the graph changes which two commits a row compares, and
-the diff pane draws whatever that turns out to be. It never happens the
-other way round.
+Each row is reviewed under the key [`pullRowKey`](review.md#review-state)
+gives its two commits, so a hand-paired card carries its marks and comments.
+Only open rows hand their files to
+[`useSources`](syntax.md#loading-each-side).
 
-What the reader picks in the graph is a commit, not a row. Moving a card
-renumbers the rows around it, and a picked index would then point at
-whichever commit slid into its place. Both graphs pick, the paired one and
-the single lane a base comparison draws, and either way the stack scrolls to
-that commit's section.
-
-The single lane is `CommitGraph`, which hands back a whole selection because
-the local history screen picks a series. This screen wants one commit, so
-`pickedFrom` reads the click out of that selection: the commit that was not
-already current, or the current one again when the click toggled it off.
-Giving `CommitGraph` a second, single-pick callback would add a mode to the
-graph that only this screen uses.
-
-A base comparison has one version on screen, not two, so there is nothing for
-a graph to pair against. `usePairing` still runs against an empty before
-side, because every hook downstream of it is called on every render no
-matter which comparison is open, but its answer is the wrong shape to draw
-there. Every row would read as added, which is true of nothing a reviewer
-asked to see plain. `CommitLog` already draws one lane well, so a base
-comparison keeps that lane and builds its stack rows straight from the
-commit list instead of from a pairing with nothing on one side.
-
-Every row is reviewed as the two commits it compares: a dropped row as its
-old commit with nothing after it, and every other row as its commit against
-the one it was, if any. `reviewOf` files the row under the key
-[`pullRowKey`](review.md#review-state) gives it for those two commits, so a
-row reads the marks and comments the pairing on screen carries to it, and a
-card moved in the graph moves them along with it.
-
-Only an open row draws its diff, so only an open row's files are handed to
-[`useSources`](syntax.md#loading-each-side) to load. A stack of twenty commits
-then costs nothing extra until someone opens one of them.
-
-The two ends of the comparison, the picked commit, and the picked file and
-line all come from the [address](address.md) as one `PullPlace`, and every
-pick goes back through `onGo` rather than into state of its own here. Which
-rows are open and whose message is expanded stay in `useState`, because they
-say how the reader has arranged the stack, not where in it they are, and a
-link that reopened every row its sender had opened would be noise. The one
-exception is the row holding a linked file, which opens so the file is there
-to see.
-
-Moving the before end keeps the picked commit, because the after end, and
-with it every commit id on that side, is unchanged. Moving the after end
-drops it, because a commit id belongs to one head and the new one may not
-have it.
-
-The stack scrolls to the picked row when the reader picks in the graph, and
-when back or forward, or loading the page, lands on a new place. A click on a
-file or a line in the diff moves the place too, but the reader is already
-looking at what they clicked, so it scrolls nothing. `reveal` is the count of
-the first two, and the stack scrolls when it moves.
-
-The [drawer's bar](layout.md#the-commit-drawer) is told which row is current
-and steps through `rows` by calling `pick`, the way a click in the graph does.
-A step is then a pick in every respect, so it goes into the address and
-scrolls the stack to the row it lands on, and `pick` already looks a commit up
-on both sides, which is what a dropped row needs.
-
-The place this controller reads is not quite the one it is handed. A bare
-address opens on the changes since the head this reader last reviewed, which
-[`opening`](#the-head-last-reviewed) works out once the history is in, and
-every pick below builds on that place, so picking a commit in a since-review
-comparison keeps its before end.
+The ends, picked commit, file, and line come from the address; open rows and
+expanded messages are local state, except that a linked file's row opens.
+Moving the before end keeps the picked commit, moving the after end drops it.
+The stack scrolls on a graph pick or an arrival from back/forward
+(`reveal`), never on a click in the diff. The [drawer's bar](layout.md#the-commit-drawer)
+steps by calling `pick`, so a step is a pick in every respect. The place used
+is the one [`opening`](#the-head-last-reviewed) resolves, so picks in a
+since-review comparison keep its before end.
 
 ```tsx
 //| id: frontend-controller-pull-review
@@ -1302,10 +1134,6 @@ export function PullReview({
 
 ## Tests
 
-`stackRows` and `baseStackRows` carry every branching decision in this
-screen, so they are what gets pinned, the way `heuristicSlots` is pinned in
-[pairing.md](pairing.md) without rendering anything.
-
 ```ts
 //| id: frontend-controller-pull-review-test
 //| file: src/frontend/controllers/PullReview.test.ts
@@ -1543,10 +1371,8 @@ describe("baseStackRows", () => {
 
 ## Pull request list
 
-One row per pull request: its number, its state, its title, and the branch it
-targets. The base branch is there because a pull request against a release
-branch and one against `main` read differently, and the number alone does not
-say which this is.
+Each row shows the base branch, since a pull request against a release
+branch reads differently from one against `main`.
 
 ```tsx
 //| id: frontend-view-pull-list
@@ -1588,10 +1414,6 @@ export function PullList({
   );
 }
 ```
-
-PullList renders each pull request as a full-width button standing in for
-a row, and the selected one takes the same selection colour a picked commit
-gets in the graph.
 
 ```css
 /*| id: design-pull-list
@@ -1636,10 +1458,6 @@ gets in the graph.
 }
 ```
 
-A title is how a pull request is told from the others in the list, and the
-part that tells them apart is rarely in the first thirty characters. On a
-narrow screen it wraps onto as many lines as it needs.
-
 ```css
 /*| id: design-pull-list
 @layer components-narrow {
@@ -1654,9 +1472,8 @@ narrow screen it wraps onto as many lines as it needs.
 
 ## Pull request header
 
-What is being read, on one line, including a link out to GitHub. The link is
-there because half of reviewing a pull request is the conversation on it, and
-this tool does not show conversations.
+The header links out to GitHub for the conversation, which diffy does not
+show. On a phone the title wraps onto its own row.
 
 ```tsx
 //| id: frontend-view-pull-header
@@ -1684,10 +1501,6 @@ export function PullHeader({ pull }: { pull: PullSummary }) {
   );
 }
 ```
-
-PullHeader is a strip of small facts about a pull request, and the number,
-the base branch, and the author share one muted style since none of them
-outranks the others.
 
 ```css
 /*| id: design-pull-header
@@ -1719,11 +1532,6 @@ outranks the others.
 }
 ```
 
-One line is what a desk has the width for. A phone does not, so the strip
-wraps and the title, the longest string on it, takes a row of its own above
-the small facts. That spends height, which a phone has, to stop spending
-width, which it has not.
-
 ```css
 /*| id: design-pull-header
 @layer components-narrow {
@@ -1745,62 +1553,19 @@ width, which it has not.
 
 ## Pull comparison picker
 
-Two native `<select>`s, one per end of the comparison, each wrapped in a
-`<label>` with a visible text caption. [`OperationPicker`](local-history.md)
-is the only other place in the app that reaches for a native select, and this
-follows its shape: a label naming the field, a select whose `value` is looked
-up rather than trusted, and `onChange` turning the chosen option back into a
-real value before it leaves the component.
+Two native `<select>`s, which a phone renders as a full-screen list. Only
+"from" offers the base, since base as the after end reads the pull request
+backwards, hence `from: PullBaseline` and `to: GitOid`. An option's value is
+looked up in `history.states` rather than cast to a `GitOid`.
+`truncated` adds a note that some versions are missing, since a collapsed
+list gives no hint and GitHub does not say where the gap is.
 
-A native select is the right control for a phone as well as a desktop. A
-touch browser renders it as a full-screen list a reader taps through, and it
-is keyboard- and screen-reader-complete with no work of its own.
+The whole pull request's size sits beside "to", drawn by `ChangeCount`, as a
+sibling of the `<label>` so it is not read as part of the field's name. It
+shows nothing while loading or on failure; each row reports its own.
 
-The "from" select offers the base branch tip alongside every version; the
-"to" select offers versions only. The base as the after end is the pull
-request read backwards, which nobody reads, and the commit list above the
-diff takes `to` as a head with nothing to draw for a base. That asymmetry is
-why the component takes `from: PullBaseline` and `to: GitOid` rather than a
-matched pair.
-
-Each option is one line: `base (main @ a1b2c3d)` for the base, and
-`v3 (c3d4e5f, force-pushed 2024-05-01)` for a version, built from its
-position in the chain, its short oid, and how it became the head. A version
-option is never picked by casting `event.target.value`, a DOM string, to a
-`GitOid`. It is looked up in `history.states` instead, and the branded oid
-that was already there is handed back; a value matching nothing is a bug,
-and it throws rather than inventing an oid.
-
-`PullHistory.truncated` is true when the branch was force-pushed more times
-than one page of GitHub's history holds, so the middle of the chain is
-missing and the version numbers this component labels options with are
-positions among the states that survived, not actual push counts. A dropdown
-hides that gap worse than a row of chips would have, since a collapsed list
-gives no visual hint that anything is missing, so a short note says a gap
-exists. GitHub's own history does not say where the gap is, only that there
-is one, so the note does not try to mark it between two options either.
-
-The size of the [whole pull request](#whole-pull-request) sits right after
-the "to" select, since that is the version it measures, and it is drawn by
-the stack's own [`ChangeCount`](commit-stack.md) so it reads the way every
-commit's count below it does. It is labelled "whole pull request" because a
-version-to-version comparison shows it too, beside a caption about the change
-between two versions that it is not the size of. It is a sibling of the `<label>` rather than
-inside it, because text inside a label becomes part of the select's
-accessible name, and a screen reader announcing "to, 5 files +120 -30" would
-name the field by its current answer. Until the count lands, and if it
-fails, there is nothing there: every row in the stack below asks for its own
-comparison and reports its own failure, so a second error up here would say
-nothing new.
-
-The caption matters more here than the chip row's caption did, because the
-two selects name which versions are being compared but not which kind of
-comparison is on screen. Base against a head is a tree diff of content;
-version against version is a diff of diffs. Those answer different
-questions, and [the backend route](../backend/server.md) refused to offer a
-second comparison here for exactly as long as it would have gone unlabelled.
-The caption is what discharges that objection, so it is load-bearing rather
-than decoration.
+The caption names which comparison is on screen, a tree diff (base against a
+head) or a diff of diffs (two heads), which the selects alone do not say.
 
 ```tsx
 //| id: frontend-view-pull-comparison-picker
@@ -1933,24 +1698,8 @@ function caption(
 }
 ```
 
-A reader loses something real here. A row of chips names both ends of the
-whole force-push history at a glance; two dropdowns hide that history behind
-a list a reader has to open and count through. The change is made anyway,
-because a picker a phone cannot operate is not a picker. Shift-click has no
-touch equivalent, so a reader on a phone could move the after end and never
-the before end, which is a control that only half works for part of its
-audience.
-
-`PullComparisonPicker` is two labelled selects, the size of the whole pull
-request, and two caption lines, so `.pull-compare` is the flex row that
-holds all five and the rest of the
-classes only line each part up. `flex-wrap: wrap` on that row is what lets
-the two fields sit side by side on a wide screen and drop to a stack on a
-phone, and `min-height: 44px` on the select is the standard minimum touch
-target size (WCAG 2.5.5), which a desktop pointer never notices. `min-width:
-0` on the field and the select keeps a long option label from forcing the
-row wider than its column, the same problem a text-overflow ellipsis solves
-elsewhere in this app.
+The selects wrap under each other on a phone and hold a 44px touch target.
+`min-width: 0` keeps a long option from widening the row.
 
 ```css
 /*| id: design-pull-comparison-picker
@@ -2004,9 +1753,8 @@ elsewhere in this app.
 
 ## Pull request state chip
 
-A pull request is open, merged or closed, and a reader scanning a list should
-tell which at a glance rather than by reading the word. One component, so the
-list and the header colour them the same.
+`PullStateChip` colours a state the same in the list and the header, from
+`--state-open`, `--state-merged`, and `--state-closed`.
 
 ```tsx
 //| id: frontend-view-pull-state-chip
@@ -2025,10 +1773,6 @@ export function PullStateChip({ state }: { state: PullState }) {
   );
 }
 ```
-
-Three states and nothing else, so the chip is `.chip` plus one modifier each
-rather than a colour keyed by string. `--state-open`, `--state-merged`, and
-`--state-closed` are the only place those three colours are written down.
 
 ```css
 /*| id: design-pull-state-chip

@@ -1,29 +1,12 @@
 # Commit history
 
-The commit list a side is picked from, drawn as a graph. Both screens mount
-it, the local one over a jj operation and the pull request one over a fetched
-head.
+The commit list a side is picked from, drawn as a graph, on both screens.
 
 ## Loading a side's commits
 
-`useCommits` takes a side's `Source` and reloads whenever it changes, dropping
-a response that lands after the source has moved on again. `commitsFrom` is the
-one place in the app that dispatches on `source.kind`, so adding a third kind
-of source is one branch here and nothing anywhere else.
-
-A git commit has no change id, and `commitsFrom` leaves the field null rather
-than filling it with the commit id. A row names both ids, so a commit id
-standing in for a change id would print twice, and the two are not
-interchangeable: a change id survives an amend and a commit id does not. The
-row falls back to the short oid on its own, which is how GitHub names the same
-commit on the same screen, and `reviewKey` reads the null as its cue to key a
-mark by revision.
-
-A source is an object, freshly built every render, so the effect cannot depend
-on it directly without restarting on every render. It depends on the source's
-JSON instead and reads the source back out of that JSON, which keeps one source
-of truth rather than a dependency list that has to be kept in step with the
-body by hand.
+`commitsFrom` is the one place that dispatches on `source.kind`. A git commit
+keeps `changeId: null` rather than its commit id: the two make different
+promises, and `reviewKey` reads the null as its cue to key by revision.
 
 ```tsx
 //| id: frontend-state-commits
@@ -67,6 +50,8 @@ export function useCommits(source: Source): AsyncState<LogEntry[]> {
   const [state, setState] = useState<AsyncState<LogEntry[]>>({
     status: "loading",
   });
+  // A source is a fresh object every render; depend on its JSON and read the
+  // source back out of it, so the dependency list cannot drift from the body.
   const key = JSON.stringify(source);
 
   useEffect(() => {
@@ -88,10 +73,8 @@ export function useCommits(source: Source): AsyncState<LogEntry[]> {
 }
 ```
 
-The dispatch is tested through `commitsFrom`, which is a plain async function,
-so the test needs no renderer. It serves one canned response and checks both
-the commits that come back and the URL that was asked for. The values alone
-would not catch a source reaching the wrong endpoint and being parsed anyway.
+The test checks the URL asked for as well as the commits, since a source
+reaching the wrong endpoint might still parse.
 
 ```ts
 //| id: frontend-state-commits-test
@@ -241,51 +224,20 @@ export function CommitLog({
 
 ## Commit graph
 
-Side-by-side branch lanes. One node per commit, top to bottom in the order the
-backend sent them, where a child always lands above its parents. Each lane
-tracks the commit it is currently routing toward. A commit takes the leftmost
-lane already pointing at it, or a fresh lane when none is. Its first parent
-stays in that lane; the extra parents of a merge fan out into their own lanes,
-and a commit with more than one parent draws as a hollow node. A lane that
-already points at a parent absorbs the incoming branch instead of doubling up,
-which is how a side branch collapses back into its base.
+`layoutGraph` is pure: commits in backend order, lanes and edges out. A
+commit takes the leftmost lane already pointing at it, its first parent stays
+there, and a merge's other parents fan out; a lane already pointing at a
+parent absorbs the branch. The gutter draws in percentages of the row's
+height, since the row grows with `--text-size`.
 
-`layoutGraph` is the whole algorithm, and it is pure, commits in, lanes and
-edges out. The view turns each row into an `<svg>` gutter as tall as the
-row. A row's height follows its label, and the label grows with
-`--text-size`, so the gutter draws in
-percentages of its height and never in pixels. A fixed-height gutter beside
-a taller label leaves a gap in every lane. Lane colour is
-cycled by index so parallel branches stay distinct, and lane zero stays grey,
-so a linear history looks the same as `jj log`.
+Rows select by commit id, never change id, which names a different version
+in each operation's log. The selection comes back in log order, not click
+order, or a series would line up in whatever order the reader clicked.
 
-A lane is twelve pixels, a node and a half. Only one node sits in any row, so
-lanes never have to keep two nodes apart, only the parallel edges running
-past one, and a pixel of gutter is a pixel the label loses. A history with a
-handful of open branches would otherwise spend a phone's width on its lines.
-
-Clicking a row toggles that commit by commit id, never by the change id the
-label leads with. The two are not interchangeable as identifiers. A change id names whichever version of a commit
-the current view holds, so it says something different in each operation's log,
-and a selection has to keep meaning the one commit the reader clicked.
-
-Any number of rows can be selected, and the graph hands back the whole
-selection rather than the row that was clicked. It orders that selection the
-way the log is ordered, because it is the only piece of the app that knows what
-the order is. Click order would line a series up against the other side in
-whatever sequence the reader happened to click.
-
-`onSelect` is optional. Without it the same graph draws a history that is read
-rather than picked from.
-
-The pull request screen also draws its graph oldest first, the order its
-commits are meant to be read in. `layoutGraph` still runs over the backend's
-newest-first order, and `oldestFirst` reverses the rows it hands back and
-mirrors each row's gutter top to bottom. Every edge a row draws runs from its
-top edge to its middle or from its middle to its bottom, so the mirror image of
-a row is exactly the row the reversed history needs, lane colours included. A
-second layout pass that walked parents before children would be a second
-algorithm to keep agreeing with the first.
+The pull request screen draws oldest first. `oldestFirst` reverses the rows
+and mirrors each gutter, which is exact because every edge runs from a row's
+top or bottom to its middle; a second layout pass would be a second
+algorithm to keep in agreement.
 
 ```tsx
 //| id: frontend-view-commit-graph
@@ -293,6 +245,8 @@ algorithm to keep agreeing with the first.
 import type { LogEntry } from "../model/history";
 import { CommitLabel } from "./CommitLabel";
 
+// A node and a half. One node per row, so a lane only separates parallel
+// edges, and gutter width comes out of the label's.
 const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 
@@ -505,20 +459,8 @@ function RowGraphic({
 }
 ```
 
-CommitGraph reads its edge and node colours off a seven-step lane ramp
-instead of picking one by hand: a lane's index selects one of the
-`--graph-lane-N` roles as `color`, and the line and circle underneath both
-draw in `currentColor`, so an edge always agrees with the node it meets.
-
-The gutter is the one width the stylesheet does not set. It depends on how many
-lanes a history happens to use, and the `<svg>` already carries that number
-in its own `width` attribute, so a rule here would be a second copy of a
-figure the markup has. The height is the stylesheet's. The gutter stretches
-to the row, and the row has a floor of forty pixels at the standard text
-size, written in `em` so the floor grows with the text. An `<svg>` with no
-height of its own claims 150 pixels, which would make every row that tall.
-`contain: size` withdraws that claim, so only the label decides how tall a
-row is.
+Lanes cycle through `--graph-lane-N` as `color`, and edges and nodes draw in
+`currentColor`. The gutter's width comes from the `<svg>`'s own attribute.
 
 ```css
 /*| id: design-commit-graph
@@ -546,6 +488,8 @@ row is.
     cursor: pointer;
   }
 
+  /* An <svg> with no height claims 150px; contain: size lets the label alone
+     set the row's height. */
   .commit-graph__gutter {
     flex: none;
     align-self: stretch;
@@ -598,10 +542,6 @@ row is.
   }
 }
 ```
-
-A test pins the lane arithmetic: a linear run stays in lane zero, and a
-fork/merge diamond puts the merge on a hollow node and collapses the side
-branch back to lane zero.
 
 ```tsx
 //| id: frontend-view-commit-graph-test
@@ -656,34 +596,12 @@ describe("layoutGraph", () => {
 ```
 ## Commit label
 
-The graph rows and the diff panel's header both name a commit the same way,
-and they name it the way `jj log` does: a line of metadata over the first line
-of the description. One component, so the two never drift apart, and a reader
-who knows the terminal already knows the row.
-
-The metadata line follows jj's order. The change id, who wrote it, when, the
-names pointing at it, the commit id, and then the standings jj reports. Every
-standing lands there, including the two jj puts elsewhere: `@` for the
-working copy, which jj spends a glyph column on, and `(empty)`, which jj puts
-in front of the description. One list renders as one map over one array, where
-jj's placement would scatter five values over three places for no gain a
-reader can use.
-
-A commit with no change id falls back to its short commit id, in italic, and
-drops the commit id from jj's position rather than printing the same eight
-characters twice. The two are not the same promise. A change id is the
-commit's identity across a rewrite; a commit id names one revision and does
-not survive an amend. Rendering them identically would invite a reader to
-trust the wrong one. The cue stays small and stays in the same dim grey,
-because on a git-backed row this is ordinary, not an error.
-
-The `<time>` element carries the full timestamp the backend sent, so the
-offset survives in the markup even though the text is trimmed to the seconds
-`jj log` shows. It is cut at the `T` into a date and a clock rather than
-printed as one string, because the two are worth different amounts of the
-line and a narrow window keeps only the first. `REFS` and `MARKERS` are maps from a union to a class name and
-a word, matching the rest of the app: a kind jj grows is a row in a table and
-a type error until it has one.
+`CommitLabel` names a commit the way `jj log` does, metadata over the first
+line of the description, for both the graph and the diff header. Every
+standing jj reports goes on the metadata line, including `@` and `(empty)`,
+which jj places elsewhere. A commit with no change id shows its short commit
+id in italic in that slot and drops the duplicate: the two are different
+promises, and drawing them alike would invite trusting the wrong one.
 
 ```tsx
 //| id: frontend-view-commit-label
@@ -760,45 +678,11 @@ export function CommitLabel({ commit }: { commit: LogEntry }) {
 }
 ```
 
-A label is two stacked lines, the way `jj log` writes one: metadata over the
-description. The metadata line is the smaller type and a muted colour, so a
-pane of them still scans as a list of descriptions.
-
-`.commit-label__id--synthetic` is the one modifier this label needs.
-Everything else about a commit's line is the same shape whether the id is a
-change id or a stand-in for one.
-
-The metadata line holds more than a narrow pane can show, and only the two
-fields that survive being cut short give up any of it. The author yields four
-times as fast as the timestamp, and an id, a name and a marker yield nothing:
-a pane too narrow for the line reads `glencbz@gm…` and keeps `main`, the
-commit id and the `conflict` whole.
-
-That is a rule about ellipses more than about priority. A token here is eight
-characters or one short word, so shrinking it by a pixel costs it a character
-and then a second one for the ellipsis, and `main` becomes `ma…` for a
-rounding error. Only a field long enough to read once truncated can be asked
-to truncate, and `--ref-max-width` caps a name at its own expense rather than
-letting one long bookmark push the line apart.
-
-A phone is that rule with nothing left over. At 390 pixels the two fields
-that were long enough stop being long enough, and the line reads `verif…` and
-`04:…`, which answer nothing and cost the room a whole field would have sat
-in. So the metadata wraps rather than clipping, and where even two lines will
-not do, the fastest-yielding field leaves entirely: the author first, since
-it was always the first to break, and then the clock. A date without its
-clock still places a commit in the history, which is what a picker is asked;
-a clock without its date places nothing.
-
-A name and a standing are each a colour rather than a chip. The line is
-already dense at eleven pixels, and a row of filled pills at that size reads
-as furniture rather than as the handful of words jj colours in a terminal.
-
-Neither id carries a colour of its own. Both inherit the line's one muted
-grey, and the change id leads while the commit id follows the names, which is
-the order `jj log` reads in and enough to tell them apart. Grading them by
-lightness instead would have cost the fainter of the two its WCAG AA contrast
-at eleven pixels, for a hierarchy their positions already carry.
+Only the author and the timestamp truncate (the author four times as fast);
+an eight-character id or a short word loses its meaning to one ellipsis.
+`--ref-max-width` caps a long bookmark. Names and standings are coloured
+text rather than chips, and both ids share one grey, since a lighter one
+would fail WCAG AA at this size.
 
 ```css
 /*| id: design-commit-label
@@ -905,12 +789,9 @@ at eleven pixels, for a hierarchy their positions already carry.
 }
 ```
 
-Below a thousand pixels the label has the window to itself and can spend a
-second line on the metadata and as many as it takes on the description, so
-the clipping stops there. A clipped description stays clipped however far the
-reader zooms or pans, since the row is only ever as wide as the pane. The two widths
-under it are where a second line is not enough either, and each drops the
-field that has the least left to say.
+Below 1000px the metadata wraps rather than clipping, and narrower screens
+drop the author, then the clock: a date still places a commit, a clock alone
+does not.
 
 ```css
 /*| id: design-commit-label

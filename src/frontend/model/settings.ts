@@ -24,6 +24,8 @@ const DEFAULT_DISPLAY = {
   wordMarkLimit: 0.7,
 } as const;
 
+// Every field added after the first needs a default, or older saved
+// settings fail to parse and reset the reader's text size with them.
 export const Display = z.object({
   textSize: TextSize,
   diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),

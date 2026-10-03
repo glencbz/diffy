@@ -106,7 +106,8 @@ export function InterdiffRows({
   );
 }
 
-/** Also the scope [`DiffView` anchors](file-tree.md#folding-a-diffs-files-into-a-tree)
+/** Keyed on commit ids: a reorder can put one change id on two rows.
+ *  Also the scope [`DiffView` anchors](file-tree.md#folding-a-diffs-files-into-a-tree)
  *  its files under, so two rows never collide on the same file's id. */
 export function rowKey(row: ReviewedRow): string {
   return `${row.from?.commitId ?? ""}:${row.to?.commitId ?? ""}`;

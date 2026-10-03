@@ -46,6 +46,8 @@ export function usePairing(
     setState(current);
   }
 
+  // Kept, then edits made while the review document is unavailable, then the
+  // guess. A kept pairing that does not fit was written by something else.
   const keptSlots =
     kept?.slots != null && fits(kept.slots, before, after) ? kept.slots : null;
   const slots = keptSlots ?? current.edits ?? current.heuristic;

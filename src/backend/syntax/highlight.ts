@@ -134,6 +134,8 @@ export async function highlightSource(
   return {
     language,
     lines: tokens.map((line) => {
+      // Grammars split a line far finer than there are colours; merge
+      // neighbours of one kind so each piece does not cost an element.
       const merged: SyntaxToken[] = [];
       for (const token of line) {
         const kind = kindOf(token.color);

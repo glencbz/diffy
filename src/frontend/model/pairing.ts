@@ -11,7 +11,7 @@ export interface Slot {
 }
 
 /** The heuristic pairing, read off `alignSeries` by commit id. Both series
- *  and the slots run oldest first. */
+ *  and the slots run oldest first; `alignSeries` runs newest first. */
 export function heuristicSlots(
   before: SeriesCommit[],
   after: SeriesCommit[],

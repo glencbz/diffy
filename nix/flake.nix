@@ -60,6 +60,8 @@
             dontFixup = true;
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
+            # Fixed-output, so it may fetch. A bun.lock change fails the build with
+            # the new hash, which goes here.
             outputHash = "sha256-DhZ6xo336k5VWKj4IUf/hDi5TsfAntVISnK+UDZG6kM=";
           };
         in

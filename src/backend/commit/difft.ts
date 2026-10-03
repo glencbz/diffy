@@ -82,6 +82,7 @@ export const DifftFile = z.object({
 });
 export type DifftFile = z.infer<typeof DifftFile>;
 
+/** What `git` prints, so switching views shows about the same context. */
 const CONTEXT = 3;
 
 /** A row of the alignment: a before-side and an after-side line, 0-based. */
@@ -261,7 +262,8 @@ function hunkOf(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/difft.md#difft-module>>[1]
 
-/** Difftastic's own `DFT_BYTE_LIMIT` default. */
+/** Difftastic's own `DFT_BYTE_LIMIT`. Above it difftastic falls back to a slow
+ *  line diff of its own (a 4 MB file took 38 s), the same one `git` gives. */
 const BYTE_LIMIT = 1_000_000;
 const TIMEOUT_MS = 10_000;
 
@@ -344,6 +346,8 @@ export async function difftDirectories(
   ]);
   const paths = [...after].filter((path) => before.has(path));
 
+  // At most one difftastic per core; a series of many-file rows would
+  // otherwise start hundreds at once.
   const answers: Record<string, StructuralDiff> = {};
   let next = 0;
   const worker = async () => {

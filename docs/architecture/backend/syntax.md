@@ -1,49 +1,19 @@
 # Syntax highlighting
 
-A patch shows a file in fragments, and a fragment cannot be highlighted on its
-own. A hunk that opens inside a multi-line string or a block comment reads as
-code to anything that sees only the hunk. So the server highlights whole
-files, one side at a time, and the diff view picks the lines it needs out of
-the result.
+A hunk that opens inside a multi-line string reads wrong when highlighted
+alone, so the server highlights whole files, one side at a time, and the diff
+view picks out the lines it needs. [Shiki](https://shiki.style/) runs VS
+Code's TextMate grammars in Bun with no build step. Tree-sitter would add a
+syntax tree nobody here needs.
 
-[Shiki](https://shiki.style/) does the highlighting. It runs the TextMate
-grammars VS Code uses, so the languages it knows and the way it splits a line
-are the ones most readers already see in their editor, and it runs in Bun with
-no build step. Tree-sitter would give a syntax tree as well as colours, and
-nothing here needs a tree.
+Shiki's CSS variables theme names each token's kind (`keyword`) rather than
+a colour, and the frontend colours kinds in [its own tokens](../frontend/tokens.md),
+so highlighting follows the app's light and dark themes and one answer serves
+both.
 
-## Colours are kinds, not colours
-
-Shiki normally resolves every token to a colour out of a theme. Its CSS
-variables theme resolves a token to a variable name instead, such as
-`var(--shiki-token-keyword)`, out of a short fixed list. `highlightSource`
-strips that down to the kind, `keyword`, and the frontend decides what a
-keyword looks like in [its own tokens](../frontend/tokens.md). The app's light
-and dark themes then colour code the way they colour everything else, and a
-highlighted file is the same answer whichever theme asks for it.
-
-A token in the default foreground has no kind. Neighbouring tokens of the same
-kind are merged, because the grammar splits a line far finer than there are
-colours to tell the pieces apart, and each piece would otherwise cost an
-element in the page.
-
-## Which language
-
-A file's language comes from its name. A whole basename that Shiki knows,
-such as `justfile` or `Dockerfile`, wins over an extension, and otherwise the
-extension is looked up among Shiki's language ids and aliases, which cover
-most extensions as they are written. `EXTENSIONS` holds the common ones they
-miss. A file whose language is unknown still gets its lines back, as plain
-text, because the diff view uses the lines for more than colour.
-
-## What it costs
-
-The first file in a language loads that language's grammar, and the first
-file of all starts the highlighter, so both are done once per process and
-shared. Highlighting itself is synchronous and holds the event loop for as
-long as it takes, so a file past `MAX_HIGHLIGHT_BYTES` comes back plain rather
-than making every other request wait on it. `tokenizeMaxLineLength` does the
-same for a single long line, such as a minified bundle's.
+Highlighting is synchronous and holds the event loop, so a file past
+`MAX_HIGHLIGHT_BYTES` comes back plain rather than stalling every other
+request.
 
 ```ts
 //| id: backend-syntax
@@ -183,6 +153,8 @@ export async function highlightSource(
   return {
     language,
     lines: tokens.map((line) => {
+      // Grammars split a line far finer than there are colours; merge
+      // neighbours of one kind so each piece does not cost an element.
       const merged: SyntaxToken[] = [];
       for (const token of line) {
         const kind = kindOf(token.color);
@@ -199,9 +171,8 @@ export async function highlightSource(
 
 ## Test
 
-The highlighter is real rather than mocked. What is worth pinning is the
-contract the diff view leans on, that a line's tokens join back into the line,
-and not which kind a grammar gives any one token, which is Shiki's business.
+The tests pin the contract the diff view relies on, that a line's tokens join
+back into the line, not which kind a grammar picks.
 
 ```ts
 //| id: backend-syntax-test

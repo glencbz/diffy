@@ -1,63 +1,23 @@
 # Layout
 
-Both screens pair a picker with a wide diff: the local history screen puts
-one commit graph beside it, or two when the reader asks for an interdiff, and
-the pull request screen puts its commit list in a drawer over it. These are
-the two components that arrange them, and the rules for a window with no room
-for columns, where the review screen shows one pane at a time and the pull
-request screen stacks.
+How both screens arrange a picker beside a wide diff, and what they do in a
+window with no room for columns.
 
 ## Review panes
 
-Two columns by default: one commit graph, then the diff. Most of the time a
-reader wants a normal diff of the commits they tick, and a second graph at
-some other operation is a question they have not asked. The graph column is
-called `commits` and is wide enough to read a description in, and the diff
-takes the rest, because it is the thing being read.
+The local screen shows one commit graph and the diff; `interdiff` opens the
+before graph as a third column on the left, each picker captioned with its
+side. The lone graph and the after graph are the same side, so ticks carry
+over, but their widths are kept under separate keys.
 
-`interdiff` opens the before side as a third column to the left. The two
-pickers are then narrow, as wide as the reader has dragged them, and each
-carries its own caption, since "before" and "after" are the only labels that
-say which direction the interdiff runs. The one graph of the default and the
-after graph of an interdiff are the same side, so ticking commits and then
-opening an interdiff keeps what was ticked. Its width is not the same,
-though: the lone graph is kept under its own key, `local-log`, so dragging a
-narrow after column does not shrink the wide one, or the other way round.
-
-The panes fill whatever the screen gives them rather than claiming the viewport,
-because the mode switch sits above them and takes a strip of it.
-
-Columns on a wide screen, one pane at a time on a narrow one. Stacked, the
-pickers take most of a phone before the diff starts, so a tab list chooses
-which single pane has the window instead. In an interdiff the two graphs
-then land in the identical rectangle, and moving from `before` to `after`
-shows what changed between them in place, which is the comparison an
-interdiff exists to make. That is why the tabs render above `.panes` and not
-inside a pane: anything drawn between them would move under the reader as
-they flip. A `showing` that names the before pane after the interdiff is
-closed falls back to the graph, so closing it never leaves a phone on a pane
-that is gone.
-
-Picking a commit does not move the tabs on. Jumping to the diff would take
-the reader out of the graph they are reading and cost them the flip the
-layout is for, so the tabs are the only way from one pane to another.
-
-`PaneTabs` is private to this file for the same reason `PickerColumn` is: one
-caller, and no meaning away from it. Both take their words from `caption`,
-so a pane's name in its tab and in its own header cannot drift apart. A tab
-carries what is picked on its side as well as its name, because a pane off
-screen is a pane whose state the reader has no other way to see, and a count
-answers the question a picker raises.
-
-Each picker column is followed by a [splitter](#resizing-a-pane) that sets
-its width, and the sizes come in as props like everything else here, so the
-view stays a function of what it is handed and the screen owns the document they
-are kept in.
-
-`pane--showing` is computed in React rather than left for CSS to work out
-from an attribute, which makes the narrow rule two selectors: every pane
-hidden, the one carrying the class shown. On a wide screen the class is inert
-because nothing outside the media query reads it.
+Under 1000px a tab list shows one pane at a time instead of stacking, since
+stacked pickers fill a phone before the diff starts. In an interdiff the two
+graphs then occupy the same rectangle, so flipping between `before` and
+`after` shows the change in place; that is why the tabs sit above `.panes`,
+where nothing between them moves during a flip. Picking a commit does not
+switch tabs, which would cost the reader that flip. Each tab shows how many
+commits its side has picked, since an off-screen pane's state is otherwise
+invisible.
 
 ```tsx
 //| id: frontend-view-review-panes
@@ -226,15 +186,8 @@ function paneClass(pane: string, showing: boolean): string {
 }
 ```
 
-The tab list is `display: none` until the narrow rule turns it on, and its
-whole appearance is defined here anyway, because how a component looks belongs
-to the `components` layer whether or not the window is currently showing it.
-The rows run down the window rather than across it: three captions each
-carrying a line of detail have nowhere to go on a phone in a row, and a list
-is what a tab strip becomes when the space is tall rather than wide. The
-current row is marked with weight and the accent colour, as `.tab--current` is
-marked, on the left edge instead of the bottom because that is the edge these
-rows share.
+The tab list is fully styled in `components` and switched on only by the
+narrow rule; its rows run down the window, marked current on the left edge.
 
 ```css
 /*| id: design-pane-tabs
@@ -282,15 +235,9 @@ rows share.
 
 ## Pull request panes
 
-Two layouts, because the pull request screen nests. The outer one is the list
-against everything else. The inner one stacks the header and the comparison
-picker over [a drawer of commits](#the-commit-drawer) and the diff, which is
-the part being read and so gets the room.
-
-The outer one also carries the bar and the scrim that [the list as a
-sheet](#the-list-as-a-sheet) needs, and the rail that [the list as a
-column](#the-list-as-a-column) folds to, since all three belong to the same
-choice between the list and the review.
+The pull request screen nests: the list against everything else, and inside
+that the header and picker over [a drawer of commits](#the-commit-drawer) and
+the diff.
 
 ```tsx
 //| id: frontend-view-pull-panes
@@ -490,33 +437,15 @@ function commitCount(count: number): string {
 
 ## The commit drawer
 
-The commits of a pull request sit above the diff, full width, rather than in
-a column beside it. A column is as narrow as the diff can spare, and the
-paired graph draws two lanes of subjects side by side, so beside the diff
-either the lanes truncate every subject to a stub or the diff gives up a
-third of the window for the whole session. Above the diff the graph has the
-window's width and the diff keeps it too, and what they trade is height,
-which the [splitter](#resizing-a-pane) under the drawer hands to the reader
-to set.
+The commits sit above the diff, full width, because the paired graph's two
+lanes of subjects would truncate to stubs in a column beside it. They trade
+height instead, set by the [splitter](#resizing-a-pane) under the drawer.
 
-Most of a review is spent reading the diff, not choosing from the list, so
-the drawer folds away to its bar. The bar keeps what the list was for: where
-the reader is in the stack, the row being read, and a stepper that moves to
-the row before or after it without opening the list again. The stepper sits
-apart from the rest of the bar, which is one button that folds or unfolds
-the drawer, so a press on the bar does what it looks like it does wherever
-it lands, and a press on an arrow never also folds.
-
-The drawer opens on every visit. Whether it is folded is the arrangement of
-one sitting, like which rows of the stack are open, and a screen that
-remembered it would open a pull request with its commit list hidden and
-nothing saying there is one, which is the first thing a reader of a new pull
-request needs. So it is plain state in the view, and only its height, a
-preference about the window, is kept.
-
-The bar walks the rows the stack draws, not the commits of one side, so a
-dropped commit is a step like any other. With nothing picked it says how many
-commits there are and a step forward goes to the first.
+The drawer folds to a bar that keeps where the reader is in the stack and a
+stepper to the previous or next row; the rest of the bar is one fold button,
+so a press on an arrow never also folds. It opens on every visit, since a
+pull request opened with its commit list hidden hides the first thing a new
+reader needs; only its height is kept.
 
 ```css
 /*| id: design-commit-drawer
@@ -609,10 +538,6 @@ commits there are and a step forward goes to the first.
 }
 ```
 
-On a phone the stepper is the control a thumb reaches for while reading, so
-its buttons grow to a touch target, and the splitter's reach grows with them
-because a finger is wider than a cursor.
-
 ```css
 /*| id: design-commit-drawer
 @layer components-narrow {
@@ -631,41 +556,13 @@ because a finger is wider than a cursor.
 
 ## The list as a sheet
 
-A phone has one column of room, and the list and the review both want it.
-Stacked, the list holds the top third of the window for the whole session,
-including long after the reader has finished choosing out of it, and the
-review they opened gets what is left.
-
-The list is modal instead. With nothing chosen it is the window. Choosing a
-pull request collapses it to a bar naming the choice, and the review takes
-everything under the bar. Pressing the bar brings the list back as a sheet
-over the review, and the scrim or the sheet's own close control sends it away
-again.
-
-The screen next door meets the same squeeze with a tab list and this one does
-not, because the two choices are not alike. Flipping between `before` and
-`after` in one rectangle is the comparison that screen exists to make, and a
-reader does it all session. Choosing a pull request is done once, so a control
-for it standing on screen afterwards spends a phone's width on an answered
-question. The bar is what is left of the question: the answer, and a way back.
-
-`PullPanes` is told the phase as one value rather than a summary beside a
-flag, because a flag admits a sheet open over nothing and there is no such
-screen. [The controller](pull-requests.md) holds the same three phases keyed
-by number, and this is that union with the summary looked up, which is what
-the bar needs to name the choice.
-
-The phase lands on the row of panes and not on the list pane, because each of
-the three says how the row is divided: the list has the window, the review has
-it, or the list is over the review. A wide window reads the same three,
-[as a column](#the-list-as-a-column).
-
-The bar and the scrim are drawn whole here and left switched off, for the
-reason the tab list above is: how a component looks belongs to the
-`components` layer, and the narrow rules decide only whether it is on screen.
-The sheet's header is on wherever it is rendered, since a column opened over
-a review needs the same caption and the same way to put it away. The scrim is a `<button>` because it is a control, and a click
-handler on a `<div>` is a control a keyboard cannot reach.
+On a phone the list is modal: with nothing chosen it is the window, choosing
+collapses it to a bar naming the choice, and pressing the bar brings it back
+as a sheet over the review. The local screen's tab list does not fit here:
+choosing a pull request happens once, so a standing control for it spends
+width on an answered question. `PullChoice` is one value with three phases,
+since a flag beside a summary could say "sheet open over nothing". The scrim
+is a `<button>` so a keyboard can reach it.
 
 ```css
 /*| id: design-pull-sheet
@@ -733,18 +630,6 @@ handler on a `<div>` is a control a keyboard cannot reach.
 }
 ```
 
-The sheet slides out of the window rather than hiding, because a pane that is
-`display: none` until it is wanted has nothing to animate from, and a reader
-who just pressed the bar is owed the sight of where the list comes from.
-`visibility` rides along with the transform so a sheet that is away is out of
-the tab order as well as out of sight, and transitioning it is what holds the
-sheet visible until the slide out has finished.
-
-The sheet stops short of the top of the window so a strip of the review shows
-above it. That strip is what says the list is over the review rather than
-instead of it, which is the whole difference between this and giving the list
-the window back.
-
 ```css
 /*| id: design-pull-sheet
 @layer components-narrow {
@@ -782,6 +667,10 @@ the window back.
       border-top: 1px solid var(--border);
       border-bottom: none;
       border-radius: var(--radius-large) var(--radius-large) 0 0;
+      /* Slides rather than display: none, so there is something to animate.
+         visibility leaves the tab order and holds the sheet visible until
+         the slide out ends. 85dvh leaves a strip of the review showing, which
+         says the list is over it, not instead of it. */
       visibility: hidden;
       transform: translateY(100%);
       transition:
@@ -799,23 +688,10 @@ the window back.
 
 ## The list as a column
 
-A wide window has room for the list beside the review, but the list is still
-an answered question once a pull request is open, and the diff is the thing
-that wants the width. So the three phases divide a wide row too. Browsing, the
-list is a column beside a review that has nothing in it yet. Choosing a pull
-request folds the column to a rail down the left edge, and the review takes
-the width back. Pressing the rail opens the column again beside the review,
-with the sheet's header to fold it, and choosing out of it folds it by
-itself, because the controller's phase is the only state there is and the
-choice ends picking.
-
-The rail is the wide window's bar, not the bar itself. The review's own header
-already names the pull request across the top of a wide window, so a bar
-there would say it twice; a rail spends thirty pixels of width instead of a
-row of height, and says only what pressing it brings back. Nothing is over
-anything, so there is no scrim, and the column takes its place in the row
-rather than sliding over the review, which keeps the diff where the reader
-left it.
+A wide window divides by the same three phases: browsing shows the list as a
+column, choosing folds it to a rail on the left edge, and pressing the rail
+reopens the column beside the review. A rail rather than a bar, since the
+review's header already names the pull request.
 
 ```css
 /*| id: design-pull-sheet
@@ -847,10 +723,8 @@ left it.
 
 ## The pane rules
 
-Every screen is the same shape: columns that scroll on their own, divided by
-a single-pixel rule. `.panes` is that row, `.pane` is a column, and the
-modifiers say only how big. Nothing about a pane's default size lives in the
-view that renders it; a size the reader dragged arrives as `--pane-size`.
+`.panes` is a row of independently scrolling `.pane` columns; a size the
+reader dragged arrives as `--pane-size`.
 
 ```css
 /*| id: design-panes
@@ -922,35 +796,12 @@ view that renders it; a size the reader dragged arrives as `--pane-size`.
 }
 ```
 
-Three columns want about 180 pixels for each picker and 680 for the diff, so
-they hold together above roughly 1040 and nowhere below it. Under a thousand a
-row of panes stops being columns at all: it turns into a stack that scrolls
-as one page.
-An iPad held in portrait is 834 pixels wide, so a breakpoint drawn any tighter
-than this leaves the commonest tablet with two pickers eating half the window
-and not one description readable.
-
-Under a thousand the review screen hides every pane but the showing one, and
-with it the pane's own caption: the tab that put the pane on screen is marked
-current and already reads `before`, so the header below it is the same word a
-second time. The caption earns its place in columns, where nothing else says
-which of the two a column is.
-
-The pull request screen goes on stacking, inside a review. Its inner panes are
-a commit drawer over a diff, and nothing offers a reader a way to choose between
-those, so each rule names `.panes--review` or everything that is not it.
-Scoping the tab rules alone and leaving the stacking rules unscoped would hide
-the pull request screen outright, since none of its panes ever carries
-`pane--showing`. Its outer row asks a different question: the list against the
-review is the choice [the sheet](#the-list-as-a-sheet) takes over, which
-leaves the drawer as the one pane wanting a limit on how much of a phone it
-may hold, and it keeps the height its splitter gives it on a wide screen.
-
-A rule that contradicts a component instead of retuning a length belongs to
-the `components-narrow` layer, and it sits in the document that holds the
-component it overrides, so the contradiction is one scroll apart rather than
-two documents. The breakpoint above this one, which only retunes widths, is a
-metrics edit and lives in [Design tokens](tokens.md).
+Three columns need roughly 1040px, so below 1000px (still above an iPad's
+834 in portrait) rows of panes stop being columns. The review screen shows
+only the current pane, without its caption, which the tab already reads. The
+pull request screen keeps stacking, so every rule names `.panes--review` or
+its complement; unscoped, the tab rules would hide the pull request screen,
+whose panes never carry `pane--showing`.
 
 ```css
 /*| id: design-responsive-panes
@@ -1003,21 +854,10 @@ metrics edit and lives in [Design tokens](tokens.md).
 
 ## Resizing a pane
 
-A fixed column is a guess about the reader's window and their repository. A
-picker a quarter of the window wide is too narrow for a stack of long
-subjects and too wide for a laptop reading a long diff, and only the reader
-knows which of those they have today. So the picker columns carry a splitter
-on their right edge, and [the commit drawer](#the-commit-drawer) one along its
-foot, and dragging it sets the size the pane keeps.
-
-Every resizable pane in the app is one entry in `PANES`, which says which way
-it grows and how small it may get. A drag is clamped at both ends: at the
-pane's minimum, so a column cannot be dragged down to a sliver nobody can
-grab again, and at whatever leaves the pane giving way `REST` pixels, so the
-diff is never squeezed out of the row. The document the browser keeps is a
-size per pane, each one missing until the reader drags it, because a pane
-nobody has resized should go on following the default in
-[Design tokens](tokens.md) as that changes.
+Picker columns and the commit drawer carry a splitter. A drag is clamped at
+the pane's minimum and at whatever leaves the giving pane `REST` pixels. A
+pane nobody has resized stores nothing, so it keeps following the default in
+[Design tokens](tokens.md).
 
 ```ts
 //| id: frontend-model-pane-sizes
@@ -1114,9 +954,6 @@ describe("clampSize", () => {
 });
 ```
 
-The sizes belong to one browser, like [settings](settings.md#display), and
-are kept the same way.
-
 ```ts
 //| id: frontend-persistence-pane-sizes
 //| file: src/frontend/persistence/paneSizes.ts
@@ -1129,9 +966,6 @@ export const paneSizesRepository = localRepository<PaneSizes>(
   {},
 );
 ```
-
-`resize` takes `null` to mean the default, which drops the pane's entry
-rather than writing down whatever the default measured at the time.
 
 ```ts
 //| id: frontend-state-pane-sizes
@@ -1146,6 +980,7 @@ export type Resize = (pane: PaneKey, size: number | null) => void;
 export function usePaneSizes(): [PaneSizes, Resize] {
   const [sizes, update] = useStored(paneSizesRepository);
 
+  // null means the default: drop the entry rather than freeze today's value.
   const resize = useCallback<Resize>(
     (pane, size) => {
       update((current) => {
@@ -1160,25 +995,9 @@ export function usePaneSizes(): [PaneSizes, Resize] {
 }
 ```
 
-`Splitter` is the handle, and it sits in the row right after the pane it
-resizes, so it finds that pane as its previous sibling and needs no ref
-threaded through from the screen. The pane that gives way is the row's last
-child, the diff on both screens, and the pane's own size plus that one's is
-the room a drag has to work with.
-
-A drag does not go through React. The diff beside a picker can be thousands
-of rows, and setting state on every pointer move would render it sixty times
-a second for a change that is one CSS length. The handle writes the clamped
-length straight onto the pane's `--pane-size` while the pointer moves, and
-calls `onResize` once when it is let go, at which point React writes the same
-length and the stored document catches up. `pane--sized` goes onto the pane
-as soon as the drag moves, for the same reason it is on a sized pane at rest:
-the stylesheet's minimum would otherwise stop the drag short of the model's.
-
-The keyboard gets the same control in steps, along the handle's own axis, and
-a double click puts the pane back to its default. `aria-orientation` names
-the line the handle draws, not the way it moves, which is why the handle
-between two columns is `vertical`.
+`Splitter` sits right after the pane it resizes, so it finds that pane as
+its previous sibling, and the row's last child is the pane that gives way.
+Arrow keys step it and a double click restores the default.
 
 ```tsx
 //| id: frontend-view-splitter
@@ -1234,6 +1053,8 @@ export function Splitter({
     return axis === "x" ? rect.width : rect.height;
   };
 
+  // No ref threaded from the screen: the pane is the previous sibling and the
+  // pane giving way is the row's last child.
   const measure = (handle: HTMLElement): Measure | null => {
     const target = handle.previousElementSibling;
     const giving = handle.parentElement?.lastElementChild;
@@ -1255,6 +1076,7 @@ export function Splitter({
     // biome-ignore lint/a11y/useSemanticElements: a focusable separator the reader drags is a widget, and `<hr>` is a thematic break
     <div
       role="separator"
+      // Names the line the handle draws, not the way it moves.
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
       aria-label={label}
       aria-valuenow={size ?? undefined}
@@ -1276,6 +1098,9 @@ export function Splitter({
           now.start + point(event) - now.origin,
           now.room,
         );
+        // Not through React: re-rendering a thousand-row diff per pointer
+        // move for one CSS length. onResize runs once, on release.
+        // pane--sized lifts the stylesheet's minimum during the drag too.
         now.last = next;
         now.pane.classList.add("pane--sized");
         now.pane.style.setProperty("--pane-size", `${next}px`);
@@ -1296,13 +1121,8 @@ export function Splitter({
 }
 ```
 
-The handle draws the rule between the pane and the one beside it, so the
-pane it follows gives up its own border on that edge rather than doubling it.
-The rule stays one pixel and the handle's reach is wider, from a
-pseudo-element hanging either side of it, because a pixel is too fine a
-target for a mouse and a two-pixel rule would read as a heavier divider than
-every other edge in the app. `touch-action: none` hands the pointer to the
-drag instead of letting a finger on the handle scroll the page.
+The handle draws the one-pixel rule, so the pane before it drops its own
+border there; a pseudo-element widens the hit area without thickening it.
 
 ```css
 /*| id: design-splitter
@@ -1358,10 +1178,6 @@ drag instead of letting a finger on the handle scroll the page.
   }
 }
 ```
-
-Under the thousand-pixel line the review screen shows one pane at a time, and
-a column's width means nothing there, so its splitters go with the columns
-and the showing pane's `width: auto` already outranks any size it carries.
 
 ```css
 /*| id: design-splitter

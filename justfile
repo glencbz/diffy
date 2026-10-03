@@ -27,7 +27,8 @@ nix_runtime := "nix --extra-experimental-features 'nix-command flakes' develop p
 # ~/~ end
 
 # ~/~ begin <<docs/devtools/entangled.md#just-docs>>[init]
-# Serve the docs site with live reload
+# Serve the docs site with live reload. Binds all interfaces so the exe.dev
+# proxy can reach it; the port lets two workspaces serve at once.
 @docs port="8000":
   uv run mkdocs serve --dev-addr 0.0.0.0:{{port}}
 
@@ -58,6 +59,8 @@ serve:
   fi
   source "{{serve_state}}/ports"
   just serve-stop
+  # Something this workspace did not start would otherwise answer the
+  # readiness check below and pass for ours.
   for name in app docs; do
     if (exec 3<>/dev/tcp/127.0.0.1/"${!name}") 2>/dev/null; then
       echo "port ${!name} is held by something this workspace did not start" >&2
@@ -66,6 +69,7 @@ serve:
   done
   just _spawn "{{serve_state}}/app" env NODE_ENV=production just run "$app"
   just _spawn "{{serve_state}}/docs" just docs "$docs"
+  # Print the URLs only once both ports answer.
   for name in app docs; do
     for _ in $(seq 100); do
       if (exec 3<>/dev/tcp/127.0.0.1/"${!name}") 2>/dev/null; then continue 2; fi
@@ -92,7 +96,10 @@ serve-stop:
 
 # ~/~ begin <<docs/devtools/serving.md#just-serve-helpers>>[init]
 
-# Run a command detached, logging to <prefix>.log, recording <prefix>.pid
+# Run a command detached, logging to <prefix>.log, recording <prefix>.pid.
+# setsid makes it a process-group leader, so serve-stop's group kill takes
+# down whatever just and bun spawned under it. Returns only once the pidfile
+# exists, so serve never leaves a process it cannot stop.
 _spawn prefix +command:
   #!/usr/bin/env bash
   set -euo pipefail

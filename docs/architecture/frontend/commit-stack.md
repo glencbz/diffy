@@ -1,13 +1,10 @@
 # Commit stack
 
-A pull request read as one squashed patch, one head against another
-flattened into a single diff, throws away which commit each hunk came from. `CommitStack` replaces it with
-one section per commit, read top to bottom the way the branch itself reads.
-
-Every commit in the stack needs to be seen. Only some need to be read in
-full, so a section shows its commit's message by default and keeps its
-contents folded shut until asked for. A reader scrolling the whole stack
-sees what every commit is and opens only the ones that matter to them.
+`CommitStack` reads a pull request one section per commit, top to bottom,
+rather than as one squashed patch that loses which commit each hunk came
+from. Each section shows its message (a [`CommitMessage`](commit-message.md),
+cut to its opening) and keeps its diff folded until asked for, so a reader
+sees every commit and opens only the ones that matter.
 
 ```ts
 //| id: frontend-view-commit-stack
@@ -33,53 +30,12 @@ import { ReviewBar } from "./ReviewBar";
 
 ## The view
 
-A row folds its contents shut because opening every commit's diff by
-default is the same problem the message solves the other way. The message
-stays visible, cut down to its opening, because it is what tells a reader
-whether the commit is worth a second look at all. The diff stays hidden
-until asked for, because reading it is a decision a reader makes commit by
-commit, not something the stack should spend their scroll on for free.
-The message is a [`CommitMessage`](commit-message.md), boxed by the row.
-
-A dropped or an unchanged row carries nothing to decide. One commit is gone
-from the branch, the other made it through untouched, and neither is asking
-for a read. Both collapse to their spine and one line saying which of the
-two it is, with a control that opens the row back up for a reader who wants
-it anyway.
-
-A reworded row always has contents to show. `jj interdiff` reports a changed
-message as a synthetic `JJ-COMMIT-DESCRIPTION` file, so the row's contents
-are the old message against the new one, captioned as a change like any
-other.
-
-Under the message sits the [review bar](review.md#the-review-bar), the same
-line a comparison carries on the local history screen, and under that the
-comments on the whole commit. The row's diff takes line and file comments and
-viewed marks the way a comparison's does. What the row reads and writes is
-`reviewOf(row)`, the review of the two commits it compares under the key its
-pairing gives it, which the controller works out; the view only draws it.
-Without a review document the row draws its diff read-only.
-
-Picking a commit in the graph pane scrolls its row to the top of the stack.
-A highlight on a row the reader cannot see answers nothing. Picking the same
-commit again scrolls it back, since a reader who has read on past it and
-clicks it a second time is asking to go back to it. `reveal` counts the
-times the reader asked to be taken to the current row, so the second click
-changes something the row can react to even though `current` did not change.
-A row that becomes current any other way, by a click on one of its lines, is
-already in front of the reader and stays where it is.
-
-Each row's diff links its files and lines to [the address](address.md), and
-`links` says where each one goes. A row whose current file or line is linked
-leaves the scrolling to its diff, which brings that file or line into view
-itself. Scrolling the row to the top first would be undone at once, or worse,
-land after it.
-
-A row's spine sticks to the top while the row is on screen, and so does the
-header of each file in its diff, so the file headers have to stop below the
-spine instead of covering it. The spine wraps on a phone and grows with the
-text size setting, so its height is measured rather than written down, and
-the row hands it to its diff as `--diff-sticky-top`.
+A dropped or unchanged row has nothing to decide and collapses to its spine
+and a one-line caption, with a control to reopen it. A reworded row shows
+the old message against the new, from the `JJ-COMMIT-DESCRIPTION` file
+`jj interdiff` emits. Each row carries the [review bar](review.md#the-review-bar)
+and takes comments and viewed marks like a comparison does, reading
+`reviewOf(row)`; without a review document its diff is read-only.
 
 ```tsx
 //| id: frontend-view-commit-stack
@@ -242,6 +198,9 @@ function StackSection({
 }) {
   const section = useRef<HTMLElement>(null);
   const [composing, setComposing] = useState(false);
+  // Picking a commit in the graph scrolls its row to the top; picking it
+  // again scrolls back, which is why this keys on `reveal`, a count of
+  // requests. A linked file or line scrolls itself, so the row stays put.
   const diffScrolls = links.selected !== null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
@@ -250,6 +209,8 @@ function StackSection({
     }
   }, [reveal]);
 
+  // File headers stick below the sticky spine, whose height wraps and
+  // follows the text size, so it is measured rather than written down.
   useEffect(() => {
     const row = section.current;
     const spine = row?.querySelector(".commit-stack__spine");
@@ -498,15 +459,9 @@ function StackContents({
 
 ## Styling
 
-The spine sticks to the top of the pane so a reader who has scrolled deep
-into an open patch still sees whose commit they are reading. Nothing else on
-a row says that once the spine has scrolled off, and a patch can run well
-past one screen.
-
-A dropped commit's subject is struck through. Muted colour alone reads the
-same as "unremarkable," which is what an unchanged row wants it to say, and
-a dropped row wants the opposite, that this is gone. The strike is the one
-mark that reads as gone before a caption has to say so.
+The spine sticks to the top of the pane so a reader deep in a long patch
+still sees whose commit it is. A dropped subject is struck through, since
+muted alone would read as "unchanged".
 
 ```css
 /*| id: design-commit-stack
@@ -637,12 +592,6 @@ mark that reads as gone before a caption has to say so.
 }
 ```
 
-Below [the thousand-pixel line every narrow rule in this app shares](layout.md),
-the fold caption gives up its room the way a narrow field elsewhere in the
-app does, and the 72ch cap on the message comes off since the pane itself is
-already narrower than that measure and the cap would only add a second limit
-to the one the pane already imposes.
-
 ```css
 /*| id: design-commit-stack
 @layer components-narrow {
@@ -665,10 +614,6 @@ to the one the pane already imposes.
 ```
 
 ## Tests
-
-The pure helper is what carries the logic here, so it is what gets pinned,
-tested without rendering anything, the pattern `CommitGraph.test.ts` already
-sets for this app.
 
 ```ts
 //| id: frontend-view-commit-stack-test

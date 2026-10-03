@@ -1,10 +1,7 @@
 # Address
 
-Where a reader is lives in the address bar, so a link to it can be shared and a
-reload puts the reader back in the same place. Which screen is open is there,
-and on the pull request screen so are the pull request, the two heads it is
-compared between, the commit picked in the graph, and the file and line picked
-in a diff.
+Where a reader is lives in the address, so a link can be shared and a reload
+returns to the same place:
 
 A pull request opened on a line reads like this, with the ids cut short here:
 
@@ -12,45 +9,19 @@ A pull request opened on a line reads like this, with the ids cut short here:
 /pulls/41/commits/77d2…/files/src/server.ts?from=4c1e…&to=9a0b…#L120
 ```
 
-The path names what is being read, from the screen down to the file. The
-place is a hierarchy, and a path is one: a line means nothing without the
-file it is in, a file nothing without its commit, and a commit nothing without
-the pull request. Reading walks the path from the left and stops at the first
-segment it cannot read, so a link cut short or mistyped by hand opens as much
-of the place as still makes sense, instead of an error. The file's path is the
-last thing in the path because it is the one part that holds slashes of its
-own, and the line goes in the fragment after it, as `#L120`, the way GitHub
-writes a line.
-
-The two heads a pull request is compared between go in the query. They are
-settings on the view rather than a step down into it, each has a default that
-is left out (no `from` is the base, no `to` is the latest head), and either
-can be set without the other. A commit is only found under the pair it was
-picked under, so a head that does not parse ends the place at the pull
-request. A head that parses but that the pull request never had is not caught
-here, since only the pull request's history knows its heads, and it reads as
-the error the commit list gives for any head it cannot fetch.
-
-A query string holding every part would ask nothing of the server, which hands
-out the same page for every address. It loses because it is flat: nothing in
-`?pull=41&commit=…&file=…` says the commit sits under the pull request, so
-the reader of the address and the code that parses it both have to know the
-nesting from somewhere else. The server's side of paths is one catch-all
-route, in [the server](../backend/server.md).
-
-A line is an after-side line number, the one the gutter shows and the one a
-comment is pinned to. A removed line has no after-side number, so it cannot be
-linked yet, for the same reason it cannot be commented on yet.
+The path is the place's hierarchy, screen down to file, and reading stops at
+the first segment that does not parse, so a cut-short or mistyped link opens
+as much as still makes sense. The file path comes last because it holds
+slashes; the line is the fragment, as GitHub writes it. A flat query string
+(`?pull=41&commit=…&file=…`) would hide that nesting. The two heads go in the
+query because they are settings on the view, each with a default that is
+left out (no `from` is the base, no `to` the latest head). A head the pull
+request never had is not caught here; it reads as the commit list's fetch
+error.
 
 ## The place
 
-`Place` is the parsed address. Its nesting is the nesting above, so a line
-with no file is not a value the type can hold.
-
-`to` is `null` until a reader picks a commit, a file, or a line. A link to a
-pull request should open on its latest head, whatever that is by the time the
-link is followed, but a commit id only means something under the head that
-has it, so picking one pins the head it was picked under.
+`Place`'s nesting is the path's, so a line without a file cannot be held.
 
 ```ts
 //| id: frontend-model-place
@@ -66,7 +37,8 @@ export type Place =
 export interface PullPlace {
   number: number;
   from: PullBaseline;
-  /** `null` is whichever head is latest when the place is opened. */
+  /** `null` is whichever head is latest when the place is opened. Picking a
+   *  commit pins it, since a commit id only means something under its head. */
   to: GitOid | null;
   spot: CommitSpot | null;
 }
@@ -80,7 +52,8 @@ export interface CommitSpot {
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {
   path: string;
-  /** An after-side line number, the one the gutter shows. */
+  /** An after-side line number, the one the gutter shows. A removed line has
+   *  none, so it cannot be linked, as it cannot be commented on. */
   line: number | null;
 }
 
@@ -94,10 +67,8 @@ export function tabPlace(tab: Place["tab"]): Place {
 }
 ```
 
-Reading and writing are each other's inverse on every place the type can
-hold, which the tests below check. Reading is where the address is treated as
-untrusted input: anything a reader could have typed is parsed, and a part that
-does not parse ends the place there.
+Reading and writing are inverses on every place the type can hold. Reading
+treats the address as untrusted input.
 
 ```ts
 //| id: frontend-model-place
@@ -199,17 +170,7 @@ export function pullHref(pull: PullPlace): string {
 
 ## Following the address
 
-`usePlace` is the one place the app touches `window.history`. Going somewhere
-pushes an entry, so back returns to the place before it, a pull request, a
-version, a commit, or a line at a time, the way a reader stepping through a
-review expects. Going to the place already in the address pushes nothing, so
-clicking the current commit again does not leave a step behind for back to
-spend. A `popstate` reads the address again, and the screen follows.
-
-The place it hands back is always the one read from the address it just
-wrote, never the one it was given. A place that does not survive the round
-trip, such as a line number of zero, then shows up on screen straight away
-instead of only after a reload.
+`usePlace` is the only code that touches `window.history`.
 
 ```ts
 //| id: frontend-state-place
@@ -229,9 +190,12 @@ export function usePlace(): [Place, (next: Place) => void] {
   const go = useCallback((next: Place) => {
     const { pathname, search, hash } = window.location;
     const address = writePlace(next);
+    // Re-clicking the current place leaves no step for back to spend.
     if (address !== `${pathname}${search}${hash}`) {
       window.history.pushState(null, "", address);
     }
+    // Read back what was written, so a place that does not survive the round
+    // trip (line 0) shows up now rather than after a reload.
     setPlace(readPlace(window.location));
   }, []);
 
@@ -239,18 +203,12 @@ export function usePlace(): [Place, (next: Place) => void] {
 }
 ```
 
-Following the address changes what is picked, but a screen also has to
-bring what is picked into view, and only sometimes. A reader who clicks a line
-is already looking at it, and one who presses back is not. `useArrivals`
-counts the second kind, the times the address changed under the page rather
-than through it, so a screen can scroll when that count moves and leave the
-view alone when the reader's own click moved the place. Loading the page is
-an arrival too, and a screen sees it as mounting.
-
 ```ts
 //| id: frontend-state-place
 
-/** How many times back or forward has changed the address since mount. */
+/** How many times back or forward has changed the address since mount. A
+ *  screen scrolls to what is picked when this moves, and leaves the view
+ *  alone when the reader's own click moved the place. */
 export function useArrivals(): number {
   const [arrivals, setArrivals] = useState(0);
 

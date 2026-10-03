@@ -1,63 +1,17 @@
 # Pairing
 
-A pull request's commits carry a `changeId` guessed from their subject line,
-and [`alignSeries`](../backend/series.md) uses it to decide which commit on
-an old head faces which commit on a new one. A guess can be wrong. Two
-unrelated commits can share a subject, or a rebase can change what a commit
-became in a way the subject never followed. The reader has to be able to say
-"no, put this one there instead," and a guess the reader cannot correct is
-not good enough to build a review screen on.
-
-That is why the pairing is a `Slot[]` the reader edits, not a value
-recomputed from `before` and `after` on every render. A purely derived
-pairing would throw the reader's correction away the instant anything else on
-the page caused a re-render, and a correction is kept past the page as well,
-so the next visit to the same two heads reads it back.
+A pull request commit's `changeId` is guessed from its subject, so
+[`alignSeries`](../backend/series.md) can pair the wrong commits. The pairing
+is therefore a `Slot[]` the reader edits, not a value derived on every
+render, and a correction is kept for the next visit to the same two heads.
 
 ## Moving a card
 
-A slot's `left` holds a `before` commit id, `right` holds an `after` commit
-id, and a card moves by changing which slot holds it. It may only travel
-through slots that are blank on its own side, and only as far as the nearest
-slot already holding a card on that side, above or below. Passing that
-neighbour would let the reader put an older `before` commit after a newer
-one, or the same mistake on the `after` side, and a column's order is not the
-reader's to set. It is that version's real history, jj's or GitHub's,
-however it lines up against the other side. The reader chooses what a commit
-faces, never when it happened.
-
-`legalTargets` finds that pair of neighbours by walking outward from the card
-in both directions and returns everything strictly between them. `moved`
-performs the move if the target slot is free on that side, and drops any slot
-both sides have left, so a card that leaves nothing behind in its old slot
-does not leave a blank line nothing points to.
-
-`nudged` moves a card one row at a time. When the neighbouring row is free on
-that side, that is just `moved`. When the neighbour is a card, there is
-nowhere to put the moving card without passing it, so `nudged` opens a fresh
-blank row on that side and moves into that instead. A card can always travel
-one step, even in a column packed shoulder to shoulder, and the blank
-collapses again the moment nothing needs it, since `moved` drops empty rows
-on every call.
-
-## Recomputing the heuristic
-
-`heuristicSlots` calls `alignSeries` and reads `commitId` off each side of
-its answer. A pairing runs oldest first, the order the pull request screen
-reads in, and `alignSeries` keeps `jj log`'s newest-first convention, so
-`heuristicSlots` turns both series around on the way in and the answer
-around on the way out. It is not a new algorithm, because `alignSeries` already answers
-the question this heuristic needs answered, over the same two lists, and it
-is already tested against the reorders, drops, and inserts a pull request's
-history actually produces. A second heuristic here would mean keeping two
-implementations of "which commit probably faces which" agreeing with each
-other, for no gain a reader would notice over calling the one that already
-exists.
-
-`usePairing` calls `heuristicSlots` once for the initial state and again
-whenever `before` or `after` change identity. The pull request's commits are
-being read afresh at that point, so a pairing built against the old commits
-no longer describes anything on screen.
+A card moves only through blanks on its own side, never past its nearest
+neighbour: each column is that version's real order, so the reader chooses
+what a commit faces, never when it happened. `moved` drops any slot both
+sides have left; `nudged` opens a blank row when the neighbour is a card, so a
+card can always step once.
 
 ```ts
 //| id: frontend-model-pairing
@@ -74,7 +28,7 @@ export interface Slot {
 }
 
 /** The heuristic pairing, read off `alignSeries` by commit id. Both series
- *  and the slots run oldest first. */
+ *  and the slots run oldest first; `alignSeries` runs newest first. */
 export function heuristicSlots(
   before: SeriesCommit[],
   after: SeriesCommit[],
@@ -211,28 +165,11 @@ export interface Pairing {
 
 ## Keeping a correction
 
-A correction is kept in the [review document](review.md#review-state), under
-the series and the two heads it pairs, and read back whenever the reader
-opens the same two heads again, in this browser or any other. A correction
-made against other heads describes commits that are not on screen, so it is
-applied nowhere else. Every move sends the whole pairing as it now stands,
-and `reset` sends none, which forgets the correction and puts the guess
-back, for a reader who wants it without switching to a different pull
-request to get it.
-
-The pairing on screen is the kept one if there is one, then any edits with
-nowhere to be kept, then the guess. A kept pairing is checked against the
-series before it is used: every commit on each side once, in its series'
-order, which is what `fits` asks. Two heads name the same commits every time,
-so a pairing that fails is one written by something other than this screen,
-and the guess serves better than a pairing that points at nothing. Edits
-with nowhere to be kept are the reader's moves while the review document
-has not loaded or cannot be read. They hold until the series change, as
-every edit did before there was a document to keep them in.
-
-The key each row is [filed under](review.md#review-state) is read through
-the pairing, so a kept correction also keeps the reader's marks and comments
-on the commits they paired by hand.
+A correction is kept in the [review document](review.md#review-state) under
+the series and the two heads it pairs, and applies only to those heads. Every
+move sends the whole pairing; `reset` sends null, forgetting it. The rows'
+[review keys](review.md#review-state) are read through the pairing, so a
+correction also moves the marks and comments of the commits it pairs.
 
 ```ts
 //| id: frontend-state-pairing
@@ -284,6 +221,8 @@ export function usePairing(
     setState(current);
   }
 
+  // Kept, then edits made while the review document is unavailable, then the
+  // guess. A kept pairing that does not fit was written by something else.
   const keptSlots =
     kept?.slots != null && fits(kept.slots, before, after) ? kept.slots : null;
   const slots = keptSlots ?? current.edits ?? current.heuristic;
@@ -303,20 +242,9 @@ export function usePairing(
 }
 ```
 
-`heuristicSlots`'s own tests fixture `SeriesCommit` lists directly, the same
-way `series.test.ts` does, since `alignSeries`'s behaviour against a reorder
-or a drop is already proven there. These tests only need to check the
-mapping onto `Slot` sitting on top of it.
-
-The 500-move test is the one that matters. `legalTargets`, `moved`, and
-`nudged` are three separate functions agreeing to never let a card skip its
-neighbour, and a unit test on each in isolation cannot show that the
-agreement still holds once hundreds of moves compose. A property test can:
-build a pairing, apply five hundred random legal nudges, and check that
-reading each column top to bottom still names the same commits in the same
-order it started with. The generator is a tiny seeded LCG rather than
-`Math.random`, so a failure is the same failure on every run and worth
-chasing rather than a flake to shrug off.
+The 500-move property test checks that `legalTargets`, `moved`, and `nudged`
+together never reorder a column, which unit tests of each cannot show. It
+uses a seeded LCG, so a failure repeats.
 
 ```ts
 //| id: frontend-model-pairing-test

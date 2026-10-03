@@ -1,23 +1,15 @@
 # Command line
 
-`diffy`, run from inside a jj repository, serves that repository. Every route
-shells out to `jj` or `git` in the process's working directory, so the
-directory it starts in is the only thing that says which repository it reads.
-`src/cli.ts` is the one process entrypoint: `just run` starts the server
-through it, and [the Nix package](../../devtools/nix.md#installing-diffy)
-compiles it into the installed `diffy` executable. `NODE_ENV` still picks dev or production mode, so the same
-entrypoint serves both.
+`diffy`, run from inside a jj repository, serves that repository: every route
+shells out to `jj` or `git` in the working directory. `src/cli.ts` is the one
+entrypoint for both `just run` and the
+[installed executable](../../devtools/nix.md#installing-diffy).
 
 ```sh
 cd ~/src/some-repo
 diffy              # serves some-repo on the first free port from 3000
 diffy --port 4100  # serves it on 4100, or fails if 4100 is taken
 ```
-
-Reading the command line is a pure function from `argv` to a `Command`, so it
-is tested without binding a port or running jj. A port the caller typed and a
-port nobody asked for behave differently once the port turns out to be busy,
-so they are two variants rather than a number that might be missing.
 
 ```ts
 //| id: cli-module
@@ -35,6 +27,8 @@ import { REVIEW_TOPIC, reviewSocket, routes } from "./server";
 
 const USAGE = "usage: diffy [--port <n>]";
 
+// A typed port is held to and a busy one ends the run; otherwise diffy walks
+// up from 3000 so several repositories can be served side by side.
 export type PortChoice =
   | { kind: "given"; port: number }
   | { kind: "first-free"; from: number };
@@ -78,21 +72,6 @@ export function parseCommand(argv: string[]): Command {
 }
 ```
 
-A port given by name is held to, since whoever typed it chose it for a
-reason, and a busy one ends the run. Without one, diffy walks up from 3000,
-because serving several repositories side by side is routine and each only
-needs a port of its own. `Bun.serve` reports a busy port by throwing an error
-whose `code` is `EADDRINUSE`.
-
-`jj root` runs before anything binds. Outside a repository every route would
-fail, so diffy stops with jj's own explanation instead of serving a page that
-cannot load. Inside one, it answers with the root to print, which tells a
-reader who started diffy from a subdirectory which repository they got. The
-[review store](review-store.md) is named after that repository, so it opens
-only once the check has passed. Once the server is up, every revision the
-store reaches is [published to open screens](server.md), whichever process
-wrote it.
-
 ```ts
 //| id: cli-module
 
@@ -118,6 +97,9 @@ function listen(choice: PortChoice, store: ReviewStore): Bun.Server<undefined> {
 }
 
 async function serve(choice: PortChoice): Promise<void> {
+  // Outside a repository every route would fail, so stop with jj's own
+  // explanation. The printed root tells a reader started from a
+  // subdirectory which repository they got.
   const root = await $`jj root`.quiet().nothrow();
   if (root.exitCode !== 0) fail(1, root.stderr.toString().trim());
 
@@ -154,13 +136,9 @@ if (import.meta.main) {
 
 ## Difftastic as jj's diff tool
 
-[Structural diffs](difft.md) come from jj running diffy as an external diff
-tool, `diffy difft <left> <right>`, once per diff. It is left out of the usage
-because nobody types it. jj runs the program that is already running, found
-through `process.execPath`, so the helper is always the same build as the
-server. Installed, that program is the compiled `diffy` itself, which holds
-no source files a separate script could be read from. From source it is Bun,
-which needs `cli.ts` named first.
+`diffy difft <left> <right>` is the external diff tool jj runs for
+[structural diffs](difft.md); it is left out of the usage because nobody types
+it.
 
 ```ts
 //| id: cli-test

@@ -62,6 +62,8 @@ export function PairedGraph({
   const [drag, setDrag] = useState<Drag | null>(null);
   const refocus = useRef<string | null>(null);
 
+  // A nudge remounts the card it moved and drops focus; the arrow that was
+  // pressed takes it back as it mounts, so holding a key keeps walking.
   function handleNudge(side: Side, index: number, step: -1 | 1) {
     const id = pairing.slots[index]?.[side] ?? null;
     refocus.current = id === null ? null : `${id}${step}`;
