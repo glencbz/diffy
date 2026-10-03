@@ -5,8 +5,8 @@ description: >
   with main, restack all WIP onto the new main, catch up after PRs landed, or
   clean up dead branches and workspaces. Fetches origin, sweeps landed and
   dead bookmarks, workspaces and preview servers, rebases every remaining WIP
-  bookmark onto the new trunk() in one rebase, and rebuilds the review chain.
-  Local only: it pushes nothing.
+  bookmark onto the new trunk() in one rebase, rebuilds the review chain,
+  resolves what conflicts, and pushes every open PR's branch.
 ---
 
 # Updating every branch
@@ -21,8 +21,10 @@ all up in one pass:
    else.
 3. Rebases every local bookmark with work not on `trunk()` onto it. The set is
    the same one the review chain merges.
-4. Runs `review.sh sync`, then lists the WIP changes and review merges that
-   still need a hand.
+4. Runs `review.sh sync`.
+5. Pushes the branch of every open PR that moved and has no conflict, and
+   holds back any branch that has one.
+6. Lists the WIP changes and review merges that still need a hand.
 
 ```sh
 .claude/skills/update-branches/update.sh           # fetch, then dry run
@@ -31,17 +33,24 @@ all up in one pass:
 ```
 
 Read the dry run first. It prints the sweep's plan and every branch root that
-would move. Before `--apply`, call `ListAgents` too, for the reason the
-`clean-stale-work` skill gives: a paused session leaves no process for the
-sweep to find. Rerunning is safe. Once everything is current, a run fetches
-and reports, and changes nothing.
+would move, and pushes nothing. Before `--apply`, call `ListAgents` too, for
+the reason the `clean-stale-work` skill gives: a paused session leaves no
+process for the sweep to find. Rerunning is safe. Once everything is current
+and pushed, a run fetches and reports, and changes nothing.
+
+Run `trunk()`'s copy of the script, never one in a workspace the sweep may
+drop: bash reads a script as it runs, and the sweep deletes that directory
+partway through. `jj file show -r 'trunk()'` the three skills' scripts into
+a scratch directory when no checkout of main is at hand.
 
 The output carries a restore point. `jj op restore <id>` undoes the whole run,
 along with anything other sessions did since.
 
 ## What is left to do
 
-The last section of the output lists what the run could not finish.
+The last section of the output lists what the run could not finish. The run
+is not done until it is empty and the review chain is clean, so work through
+it, then run `--apply` again to push what it held back.
 
 - **`conflict`**: a WIP change that conflicts with the new main. Resolve it in
   that change, in a scratch workspace, as in the `jj-commit-stack` skill.
@@ -53,7 +62,18 @@ The last section of the output lists what the run could not finish.
   forgets the bookmark.
 - **Review chain**: the `review.sh status` table. Resolve any `conflict`
   merge bottom-up, as the `review-branch` skill says. Fix the WIP conflicts
-  first, because a conflicted branch makes its merge conflict as well.
+  first, because a conflicted branch makes its merge conflict as well. Once
+  they are fixed, a merge often still conflicts, because its stored
+  resolution was written against the old code. A merge whose only parents
+  are `trunk()` and its branch, with the branch already on `trunk()`, has
+  nothing to resolve: `jj restore --from <branch tip>` in it and squash.
+
+A branch that sat on a main many PRs old is a port, not a merge. Resolve the
+`docs/**` side and tangle, as the `review-branch` skill says. A file the
+branch deletes stays on disk with conflict markers after the tangle, because
+nothing writes it any more; delete it by hand. Then typecheck: a block the
+branch adds still names whatever main has since moved or renamed, and only
+`tsc` finds those.
 
 Other sessions whose `@` sat on a rebased branch now have a stale working copy,
 and their next jj command says so. That is theirs to settle. Never run
@@ -61,9 +81,16 @@ and their next jj command says so. That is theirs to settle. Never run
 
 ## Pushing
 
-The run is local. Each rebased branch with an open PR now differs from its
-remote. Push one only when the user asks, through the `submit-for-review`
-skill, so the PR gets fresh preview servers too.
+Each rebased branch with an open PR differs from its remote, and the run
+pushes it once it has no conflict. A push leaves the PR's preview serving the
+old code, so refresh it as step 3 of the `submit-for-review` skill says, and
+check the PR body's `## Preview` URLs. A preview served from another
+session's workspace cannot be refreshed there, since that workspace is stale
+and is not yours to update. Serve the branch from a scratch workspace and
+rewrite the URLs in the body.
+
+The run pushes only bookmarks that already head an open PR. A new branch
+still goes up through `submit-for-review`, which opens its PR.
 
 ## Why one rebase
 
