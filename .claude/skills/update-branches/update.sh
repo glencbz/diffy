@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 # Bring every local branch up to date with origin's main: fetch, sweep what is
 # dead, rebase every WIP bookmark onto trunk(), rebuild the review chain, and
-# push each open PR's branch that came out clean. Dry run by default; --apply
-# executes. Safe to rerun, and rerunning after resolving a conflict pushes the
-# branch it held back.
-#
-#   update.sh           fetch, then print the sweep plan and what would move
-#   update.sh --apply   sweep, rebase, sync the chain, push, report conflicts
+# push each open PR's branch that came out clean, then restart every preview
+# the rebase left serving old code. There is no dry run; `jj op restore` the
+# restore point it prints to undo a run. Safe to rerun, and rerunning after
+# resolving a conflict pushes the branch it held back.
 set -euo pipefail
 
-APPLY=0
-[ "${1:-}" = "--apply" ] && APPLY=1
 HERE=$(cd "$(dirname "$0")" && pwd)
 SKILLS=$(dirname "$HERE")
 SWEEP=${UPDATE_SWEEP:-$SKILLS/clean-stale-work/sweep.sh}
@@ -43,23 +39,19 @@ echo "restore point: $("${J[@]}" op log --no-graph -n1 -T 'id.short()')"
 
 echo
 echo "### sweep"
-if [ "$APPLY" = 1 ]; then "$SWEEP" --apply; else "$SWEEP"; fi
+"$SWEEP" --apply --no-previews
 
 echo
 echo "### rebase onto $(q 'trunk()' 'commit_id.short() ++ " " ++ description.first_line()')"
 stale=$(q "$ROOTS ~ children(trunk())" 'change_id.short() ++ "  " ++ local_bookmarks.map(|b| b.name()).join(" ") ++ "  " ++ description.first_line() ++ "\n"')
 if [ -z "$stale" ]; then
   echo "every branch already sits on trunk()"
-elif [ "$APPLY" = 1 ]; then
+else
   echo "$stale" | sed 's/^/  /'
   # One rebase moves every root with its descendants, the review merges included,
   # so jj rewrites each merge once and carries its resolution along.
   "${J[@]}" rebase -s "$ROOTS ~ children(trunk())" -o 'trunk()'
-else
-  echo "$stale" | sed 's/^/  would rebase: /'
 fi
-
-[ "$APPLY" = 1 ] || { printf '\ndry run. Re-run with --apply to execute.\n'; exit 0; }
 
 echo
 echo "### review chain"
@@ -84,6 +76,9 @@ for b in $OPEN; do
     echo "  failed   $b: jj git push --bookmark $b says why"
   fi
 done
+
+# The previews the sweep kept still serve the code from before the rebase.
+"$SWEEP" --previews
 
 echo
 echo "### left to do"

@@ -60,11 +60,7 @@ check "the chain starts out clean" "$(states)" "clean:a clean:a2 clean:b clean:d
 land h 'main'
 land d 'd'        # d lands as a squash merge
 land e 'main e'   # e is rewritten under it
-before=$(q 'bookmarks() ~ bookmarks(exact:"main")' 'commit_id ++ " "')
-"$HERE/update.sh" >/dev/null 2>&1
-check "a dry run moves no branch" "$(q 'bookmarks() ~ bookmarks(exact:"main")' 'commit_id ++ " "')" "$before"
-
-out=$("$HERE/update.sh" --apply 2>/dev/null)
+out=$("$HERE/update.sh" 2>/dev/null)
 check "every branch root sits on the new main" \
   "$(q 'roots(trunk()..(bookmarks() ~ bookmarks(exact:"review")))' 'parents.map(|p| p.commit_id()).join(",") ++ " "')" \
   "$(q 'trunk()' commit_id) $(q 'trunk()' commit_id) $(q 'trunk()' commit_id) $(q 'trunk()' commit_id) "
@@ -81,7 +77,7 @@ check "a conflicted branch is held back" "$(grep -c 'held     e' <<<"$out")" "1"
 check "the held branch stays as it was on origin" "$(origin e)" "$(q 'e@origin' commit_id)"
 check "a branch with no open PR is not pushed" "$(git -C "$TMP/origin.git" rev-parse -q --verify refs/heads/a2)" ""
 
-again=$("$HERE/update.sh" --apply 2>/dev/null)
+again=$("$HERE/update.sh" 2>/dev/null)
 check "a second run has nothing to rebase" "$(grep -c 'every branch already sits on trunk()' <<<"$again")" "1"
 check "a second run has nothing to push" "$(grep -c 'current  a' <<<"$again")" "1"
 

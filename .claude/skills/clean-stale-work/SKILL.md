@@ -26,24 +26,34 @@ Run it from any workspace; it finds the default one itself. Read the dry run
 before applying. Every line is `drop`, `hold`, or `keep`, followed by the reason.
 Rerunning is safe: a second `--apply` does nothing new.
 
-Before `--apply`, call `ListAgents` as well. The script holds a workspace only
-if a Claude process has its cwd inside it. A session that is paused, or that
-moved to a different workspace, leaves no process to find.
+A Claude process keeps its cwd in the checkout it started in, so a session
+busy in a workspace of its own often leaves no process there to find. The
+script also holds anything written to in the last five minutes
+(`SWEEP_FRESH_MINUTES`). Without that, a workspace a session has just created
+looks dead.
 
 ## What it decides
 
-A workspace, worktree or bookmark is dropped only if everything it holds
-already exists on `origin` or in `main`, and no open PR builds on it. Held
-workspaces serve the preview URLs that open PR bodies link to, so they stay up
-too. Anything with changes that exist nowhere else is held and reported, never
-removed. So is a directory neither jj nor git knows about.
+A workspace, worktree or bookmark is dropped once everything it holds
+already exists on `origin` or in `main`. Sitting on an open PR's stack is not
+enough to keep it. A workspace whose preview server is still wanted is kept:
+an open PR body links its port, or it started in the last five minutes. After
+the sweep, `--apply` restarts each kept preview whose workspace was rewritten
+from elsewhere, on the same ports. Previews nothing links to are stopped with
+their workspace. Anything with changes that exist nowhere else is held and
+reported, never removed.
+
+A directory under `.claude/worktrees/` that neither jj nor git knows about is
+usually a forgotten workspace. Its non-ignored files go into a tarball under
+`~/.cache/diffy-sweep/` before it is deleted.
 
 Two checks are easy to get wrong by hand:
 
 - **Stale working copies.** A workspace whose `@` was rewritten from elsewhere,
   usually by a restack from the main checkout, refuses to snapshot. Its files
   may hold edits jj never recorded. The script diffs them against the tree jj
-  last checked out there. Never run `jj workspace update-stale` to "fix" one
+  last checked out there, ignoring the `.jjconflict-*` directories jj leaves
+  behind. Never run `jj workspace update-stale` to "fix" one
   before looking.
 - **Old pid files.** `/tmp/diffy-serve/<dir>/*.pid` outlives its server, and
   PIDs get reused. The script kills a process group only while its leader's
