@@ -38,6 +38,8 @@ alternatives in the doc, single-site reasons as comments in the block.
    uv/python doc. Search by topic/id, don't hardcode a path, since files move.
    Create a new doc under `docs/` if none fits — it just needs to match the
    `watch_list` glob `docs/**/*.md` in `entangled.toml`.
+   For a view under `src/frontend/views/`, new or growing, lay out its files
+   and its doc sections as `docs/architecture/frontend/index.md#views` says.
 2. Add a fenced code block whose language tag is one of the identifiers
    configured in `entangled.toml` (`[[languages]]`). **Read the
    `[[languages]]` table for what is configured today**, because a language
