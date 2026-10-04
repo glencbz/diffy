@@ -2273,10 +2273,21 @@
 
 /* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-local-review-list>>[init] */
 @layer components {
+  .local-review {
+    box-sizing: border-box;
+  }
+
+  .local-review__head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
   .local-review__open {
     display: flex;
     flex-direction: column;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 0;
     font: inherit;
     color: inherit;
@@ -2284,6 +2295,45 @@
     cursor: pointer;
     background: transparent;
     border: none;
+  }
+
+  .local-review--forgotten {
+    color: var(--text-faint);
+    cursor: default;
+  }
+
+  .local-review__label {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .local-review__deleted {
+    padding: var(--space-4) var(--space-4) var(--space-2);
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .local-review__action {
+    flex: none;
+    padding: var(--space-1) var(--space-4);
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .local-review__action:hover {
+    color: var(--text);
+    border-color: var(--text-faint);
+  }
+
+  .local-review__action--danger:hover {
+    color: var(--danger);
+    border-color: var(--danger);
   }
 
   .local-review__commits {

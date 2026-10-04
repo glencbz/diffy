@@ -4,6 +4,7 @@ import { $ } from "bun";
 import { difftDirectories } from "./backend/commit/difft";
 import {
   openReviewStore,
+  purgeForgotten,
   type ReviewStore,
   reviewStorePath,
   watchReview,
@@ -91,6 +92,7 @@ async function serve(choice: PortChoice): Promise<void> {
   watchReview(store, (revision) =>
     server.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
+  purgeForgotten(store);
   console.log(
     `diffy serving ${root.stdout.toString().trim()} at ${server.url}`,
   );

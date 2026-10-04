@@ -145,6 +145,8 @@ export function useReview(): ReviewHandle {
         send({ kind: "mark-reviewed", series, version, at: now() }),
       keepPairing: (series, before, after, slots) =>
         send({ kind: "set-pairing", series, before, after, slots }),
+      forgetReview: (name) => send({ kind: "forget-review", name, at: now() }),
+      restoreReview: (name) => send({ kind: "restore-review", name }),
     };
   }, [accept]);
 

@@ -6,7 +6,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EMPTY_REVIEW, type ReviewCommand } from "../../frontend/model/review";
-import { openReviewStore, reviewStorePath, watchReview } from "./store";
+import {
+  openReviewStore,
+  purgeForgotten,
+  reviewStorePath,
+  watchReview,
+} from "./store";
 
 let dir: string;
 
@@ -131,6 +136,61 @@ describe("watchReview", () => {
 
     // assert
     expect(heard).toEqual([1]);
+  });
+});
+
+describe("purgeForgotten", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.parse("2026-10-10T00:00:00.000Z");
+  const register = (name: string): ReviewCommand => ({
+    kind: "register",
+    name,
+    version: {
+      operation: "o",
+      revset: name,
+      commits: ["c"],
+      registeredAt: "t",
+    },
+  });
+  const forget = (name: string, daysAgo: number): ReviewCommand => ({
+    kind: "forget-review",
+    name,
+    at: new Date(now - daysAgo * day).toISOString(),
+  });
+
+  test("purges reviews forgotten over a week ago, and keeps the rest", () => {
+    // arrange
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    for (const command of [
+      register("old"),
+      register("recent"),
+      register("live"),
+      forget("old", 8),
+      forget("recent", 6),
+    ]) {
+      store.apply(command);
+    }
+
+    // act
+    purgeForgotten(store, day, () => now)();
+
+    // assert
+    expect(
+      store.read().document.localReviews.map((review) => review.name),
+    ).toEqual(["recent", "live"]);
+  });
+
+  test("writes nothing when no review is due", () => {
+    // arrange
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    store.apply(register("recent"));
+    store.apply(forget("recent", 6));
+
+    // act
+    purgeForgotten(store, day, () => now)();
+
+    // assert
+    expect(store.revision()).toBe(2);
   });
 });
 // ~/~ end

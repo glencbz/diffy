@@ -7,6 +7,8 @@ import { basename, dirname, join } from "node:path";
 import {
   applyCommand,
   EMPTY_REVIEW,
+  KEEP_FORGOTTEN_MS,
+  purgeable,
   type ReviewCommand,
   ReviewDocument,
   type ReviewSnapshot,
@@ -110,6 +112,25 @@ export function watchReview(
     seen = revision;
     publish(revision);
   }, everyMs);
+  return () => clearInterval(timer);
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/review-store.md#backend-review-store>>[2]
+
+/** Purges the local reviews forgotten `KEEP_FORGOTTEN_MS` before `now`, at
+ *  once and every `everyMs` after, until the returned function is called. */
+export function purgeForgotten(
+  store: ReviewStore,
+  everyMs = 60 * 60 * 1000,
+  now: () => number = Date.now,
+): () => void {
+  const purge = () => {
+    const before = new Date(now() - KEEP_FORGOTTEN_MS).toISOString();
+    if (purgeable(store.read().document, before).length === 0) return;
+    store.apply({ kind: "purge-forgotten", before });
+  };
+  purge();
+  const timer = setInterval(purge, everyMs);
   return () => clearInterval(timer);
 }
 // ~/~ end

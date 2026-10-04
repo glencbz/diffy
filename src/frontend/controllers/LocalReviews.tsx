@@ -27,9 +27,15 @@ export function LocalReviews({
     return <Message>Loading local reviews...</Message>;
   }
 
-  const reviews = review.document.localReviews;
-  const open =
+  const reviews = review.document.localReviews.filter(
+    (local) => local.forgottenAt === undefined,
+  );
+  const forgotten = review.document.localReviews.filter(
+    (local) => local.forgottenAt !== undefined,
+  );
+  const found =
     place === null ? undefined : localReview(review.document, place.name);
+  const open = found?.forgottenAt === undefined ? found : undefined;
 
   return (
     <div
@@ -48,9 +54,21 @@ export function LocalReviews({
       <div className="pane pane--list">
         <LocalReviewList
           reviews={reviews}
+          forgotten={forgotten}
           selected={open?.name ?? null}
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
+          }
+          onForget={
+            review.status === "ready"
+              ? (name) => {
+                  review.actions.forgetReview(name);
+                  if (name === place?.name) onGo(null);
+                }
+              : null
+          }
+          onRestore={
+            review.status === "ready" ? review.actions.restoreReview : null
           }
           commits={(version) => (
             <CommitLog
