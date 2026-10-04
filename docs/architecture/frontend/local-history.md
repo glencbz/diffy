@@ -224,15 +224,22 @@ shows. Both are arrangement, not place, so they stay out of the address and
 reset when the screen reopens. Closing the interdiff keeps the before side's
 ticks in the history but stops sending them to the diff.
 
+It also holds whether the strip that
+[registers a local review](local-reviews.md#registering-from-the-graph) is
+open over the graph. Only the lone graph offers it: an interdiff compares two
+operations rather than declaring a series ready, and the strip would push the
+after graph out of line with the before one.
+
 ```tsx
 //| id: frontend-screen-local-history
 //| file: src/frontend/screens/LocalHistoryScreen.tsx
 import { type ReactNode, useState } from "react";
 import { CommitLog } from "../controllers/CommitLog";
 import { DiffPane } from "../controllers/DiffPane";
+import { RegisterReview } from "../controllers/RegisterReview";
 import type { LocalHistory } from "../model/localHistory";
 import { newerOperation, pickerValue } from "../model/localHistory";
-import { type Place, tabPlace } from "../model/place";
+import { openLocal, type Place, tabPlace } from "../model/place";
 import { useLocalHistoryContext } from "../state/localHistory";
 import { usePaneSizes } from "../state/paneSizes";
 import { useReviewContext } from "../state/review";
@@ -243,10 +250,12 @@ import { NewerOperation } from "../views/NewerOperation";
 import { OperationPicker } from "../views/OperationPicker";
 import { type Pane, ReviewPanes } from "../views/ReviewPanes";
 import { ReviewStrip } from "../views/ReviewStrip";
+import { ReviewToggle } from "../views/ReviewToggle";
 
 export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
   const [pane, setPane] = useState<Pane>("after");
   const [interdiff, setInterdiff] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [sizes, resize] = usePaneSizes();
   const { history, pickOperation, selectCommits } = useLocalHistoryContext();
   const review = useReviewContext();
@@ -286,9 +295,34 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
             onSelect={(commits) => selectCommits("after", commits)}
             toggle={
               !interdiff && (
-                <InterdiffToggle
-                  open={false}
-                  onToggle={() => setInterdiff(true)}
+                <>
+                  <ReviewToggle
+                    open={registering}
+                    ticked={after?.commits.length ?? 0}
+                    onToggle={() => setRegistering((open) => !open)}
+                  />
+                  <InterdiffToggle
+                    open={false}
+                    onToggle={() => {
+                      setRegistering(false);
+                      setInterdiff(true);
+                    }}
+                  />
+                </>
+              )
+            }
+            strip={
+              registering &&
+              !interdiff &&
+              after !== null && (
+                <RegisterReview
+                  operation={after.pick.at}
+                  ticked={after.commits}
+                  onTick={(commits) => selectCommits("after", commits)}
+                  onOpen={(name) =>
+                    onGo({ tab: "reviews", review: openLocal(name) })
+                  }
+                  onClose={() => setRegistering(false)}
                 />
               )
             }
@@ -318,20 +352,23 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
 }
 
 /** One local history side: its operation picker, its commit log, and, on
- *  the picker's row, the button that opens or closes the interdiff and, for
- *  the after side, the alert that a newer operation has arrived. */
+ *  the picker's row, the buttons that act on the side and, for the after
+ *  side, the alert that a newer operation has arrived. `strip` sits between
+ *  the row and the log. */
 function SidePicker({
   history,
   side,
   onPick,
   onSelect,
   toggle,
+  strip,
 }: {
   history: LocalHistory;
   side: "before" | "after";
   onPick: (operationId: string | null) => void;
   onSelect: (commitIds: string[]) => void;
   toggle: ReactNode;
+  strip?: ReactNode;
 }) {
   if (history.status === "loading") {
     return <Message>Loading operations...</Message>;
@@ -357,6 +394,7 @@ function SidePicker({
         )}
         {toggle}
       </OperationPicker>
+      {strip}
       <CommitLog
         source={{ kind: "jj", operation: local.pick.at }}
         selected={local.commits}

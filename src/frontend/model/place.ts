@@ -1,24 +1,35 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place>>[init]
 import { GitOid } from "./history";
-import type { PullBaseline } from "./pull";
+import type { SeriesBaseline } from "./series";
 
 export type Place =
   | { tab: "local" }
   | { tab: "settings" }
-  | { tab: "pulls"; pull: PullPlace | null };
+  | { tab: "pulls"; pull: PullPlace | null }
+  | { tab: "reviews"; review: LocalPlace | null };
 
-export interface PullPlace {
-  number: number;
-  from: PullBaseline;
-  /** `null` is whichever head is latest when the place is opened. Picking a
-   *  commit pins it, since a commit id only means something under its head. */
-  to: GitOid | null;
+/** Where the reader is in one series: the two versions compared, and what
+ *  they picked out of them. */
+export interface SeriesPlace {
+  from: SeriesBaseline;
+  /** `null` is whichever version is newest when the place is opened. Picking
+   *  a commit pins it, since a commit id only means something under its
+   *  version. */
+  to: string | null;
   spot: CommitSpot | null;
+}
+
+export interface PullPlace extends SeriesPlace {
+  number: number;
+}
+
+export interface LocalPlace extends SeriesPlace {
+  name: string;
 }
 
 /** A commit picked in the graph, and what in its diff is picked. */
 export interface CommitSpot {
-  commit: GitOid;
+  commit: string;
   file: FileSpot | null;
 }
 
@@ -30,13 +41,21 @@ export interface FileSpot {
   line: number | null;
 }
 
+const OPENED: SeriesPlace = { from: { kind: "base" }, to: null, spot: null };
+
 export function openPull(number: number): PullPlace {
-  return { number, from: { kind: "base" }, to: null, spot: null };
+  return { number, ...OPENED };
+}
+
+export function openLocal(name: string): LocalPlace {
+  return { name, ...OPENED };
 }
 
 /** A screen as it opens from its tab, with nothing picked on it yet. */
 export function tabPlace(tab: Place["tab"]): Place {
-  return tab === "pulls" ? { tab: "pulls", pull: null } : { tab };
+  if (tab === "pulls") return { tab: "pulls", pull: null };
+  if (tab === "reviews") return { tab: "reviews", review: null };
+  return { tab };
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place>>[1]
@@ -46,44 +65,60 @@ export type Address = Pick<URL, "pathname" | "search" | "hash">;
 export function readPlace(address: Address): Place {
   const [tab, ...rest] = address.pathname.split("/").filter((s) => s !== "");
   if (tab === "settings") return { tab: "settings" };
-  if (tab !== "pulls") return { tab: "local" };
-  return { tab: "pulls", pull: readPull(rest, address) };
+  if (tab === "pulls") {
+    const [numberSegment, ...after] = rest;
+    const number = positive(numberSegment);
+    if (number === null) return { tab: "pulls", pull: null };
+    const place = readSeries(after, address, oid);
+    return { tab: "pulls", pull: { number, ...place } };
+  }
+  if (tab === "reviews") {
+    const [nameSegment, ...after] = rest;
+    const name = nameSegment === undefined ? null : decoded(nameSegment);
+    if (name === null) return { tab: "reviews", review: null };
+    const place = readSeries(after, address, (value) => {
+      const number = positive(value);
+      return number === null ? null : String(number);
+    });
+    return { tab: "reviews", review: { name, ...place } };
+  }
+  return { tab: "local" };
 }
 
-function readPull(
-  [numberSegment, commits, commitSegment, files, ...pathSegments]: string[],
+/** A place in one series, from what follows the series in the address.
+ *  `version` reads a version id, and a pull request's is a head oid. */
+function readSeries(
+  [commits, commitSegment, files, ...pathSegments]: string[],
   { search, hash }: Address,
-): PullPlace | null {
-  const number = positive(numberSegment);
-  if (number === null) return null;
-
+  version: (value: string | null) => string | null,
+): SeriesPlace {
   const params = new URLSearchParams(search);
   const fromParam = params.get("from");
-  const fromHead = oid(fromParam);
-  const from: PullBaseline =
-    fromHead === null ? { kind: "base" } : { kind: "version", head: fromHead };
+  const fromId = version(fromParam);
+  const from: SeriesBaseline =
+    fromId === null ? { kind: "base" } : { kind: "version", id: fromId };
   const toParam = params.get("to");
-  const to = oid(toParam);
-  // A head that does not parse is a link to a version nobody can find, and
-  // reading on past it would pin a commit under whatever head stood in.
+  const to = version(toParam);
+  // A version that does not parse is a link to one nobody can find, and
+  // reading on past it would pin a commit under whatever version stood in.
   if (
-    (fromParam !== null && fromHead === null) ||
+    (fromParam !== null && fromId === null) ||
     (toParam !== null && to === null)
   ) {
-    return openPull(number);
+    return OPENED;
   }
 
   const commit = commits === "commits" ? oid(commitSegment) : null;
-  if (commit === null) return { number, from, to, spot: null };
+  if (commit === null) return { from, to, spot: null };
 
   const path =
     files === "files" && pathSegments.length > 0
       ? decoded(pathSegments.join("/"))
       : null;
-  if (path === null) return { number, from, to, spot: { commit, file: null } };
+  if (path === null) return { from, to, spot: { commit, file: null } };
 
   const line = positive(/^#L(.*)$/.exec(hash)?.[1]);
-  return { number, from, to, spot: { commit, file: { path, line } } };
+  return { from, to, spot: { commit, file: { path, line } } };
 }
 
 function positive(value: string | null | undefined): number | null {
@@ -108,10 +143,18 @@ function decoded(value: string): string | null {
 export function writePlace(place: Place): string {
   if (place.tab === "local") return "/";
   if (place.tab === "settings") return "/settings";
-  if (place.pull === null) return "/pulls";
+  if (place.tab === "pulls") {
+    if (place.pull === null) return "/pulls";
+    return writeSeries(["pulls", String(place.pull.number)], place.pull);
+  }
+  if (place.review === null) return "/reviews";
+  return writeSeries(["reviews", place.review.name], place.review);
+}
 
-  const { number, from, to, spot } = place.pull;
-  const segments = ["pulls", String(number)];
+function writeSeries(
+  segments: string[],
+  { from, to, spot }: SeriesPlace,
+): string {
   let hash = "";
   if (spot !== null) {
     segments.push("commits", spot.commit);
@@ -122,7 +165,7 @@ export function writePlace(place: Place): string {
   }
 
   const params = new URLSearchParams();
-  if (from.kind === "version") params.set("from", from.head);
+  if (from.kind === "version") params.set("from", from.id);
   if (to !== null) params.set("to", to);
   const search = params.toString();
 
@@ -133,5 +176,10 @@ export function writePlace(place: Place): string {
 /** The href a link to a place on the pull request screen carries. */
 export function pullHref(pull: PullPlace): string {
   return writePlace({ tab: "pulls", pull });
+}
+
+/** The href a link to a place in a local review carries. */
+export function localHref(review: LocalPlace): string {
+  return writePlace({ tab: "reviews", review });
 }
 // ~/~ end

@@ -16,6 +16,7 @@ import {
   handleLog,
   handleOperations,
   handleSource,
+  localReviewsRoute,
   pullDiffResponse,
   REVIEW_TOPIC,
   reviewChanges,
@@ -41,6 +42,17 @@ describe("handleLog", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBeGreaterThan(0);
+  });
+
+  test("reads only what a revset names", async () => {
+    // arrange
+    // act
+    const res = await handleLog(new Request("http://test/api/log?revset=@"));
+    const body = (await res.json()) as unknown[];
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body).toHaveLength(1);
   });
 
   test("reports an unknown operation as 400 with jj's message", async () => {
@@ -370,6 +382,38 @@ describe("the review route", () => {
       );
       expect(read.revision).toBe(0);
     }));
+
+  test("registers a local review and answers with its name", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    const route = localReviewsRoute(store);
+    const post = (body: unknown) =>
+      route.POST(
+        new Request("http://test/api/local/reviews", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+
+    try {
+      // act
+      const res = await post({ name: "t", revset: "trunk()" });
+      const refused = await post({ name: "t", revset: "none()" });
+
+      // assert
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        name: string;
+        snapshot: { document: { localReviews: unknown[] } };
+      };
+      expect(body.name).toBe("t");
+      expect(body.snapshot.document.localReviews).toHaveLength(1);
+      expect(refused.status).toBe(400);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test("announces a new revision to an open socket", async () => {
     // arrange

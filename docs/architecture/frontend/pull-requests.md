@@ -83,56 +83,11 @@ export function usePullHistory(
 ```
 
 `useCommits` maps pull request commits to `LogEntry` with a null `changeId`,
-so the pairing reads `usePullCommits` instead, which keeps the subject-line
-guess. It also reverses the list so the pairing, the paired graph, and the
-stack all read oldest first, the order a series is meant to be read in.
+so the pairing reads [`useSeriesCommits`](series.md#reading-a-series)
+instead, which keeps the subject-line guess. It also reverses the list so the
+pairing, the paired graph, and the stack all read oldest first, the order a
+series is meant to be read in.
 
-```tsx
-//| id: frontend-state-pull-commits
-//| file: src/frontend/state/pullCommits.ts
-import { useEffect, useState } from "react";
-import { fetchPullCommits } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { GitCommit, GitOid } from "../model/history";
-
-/** One version's commits, oldest first, as the pull request's own, so the
- *  pairing can read the identity the graph deliberately drops. */
-export function usePullCommits(
-  repo: string,
-  number: number,
-  head: GitOid | null,
-): AsyncState<GitCommit[]> {
-  const [state, setState] = useState<AsyncState<GitCommit[]>>({
-    status: "loading",
-  });
-
-  useEffect(() => {
-    let live = true;
-
-    if (head === null) {
-      setState({ status: "ready", data: [] });
-      return;
-    }
-
-    setState({ status: "loading" });
-    fetchPullCommits(repo, number, head)
-      .then((data) => {
-        if (live) {
-          setState({ status: "ready", data: [...data.commits].reverse() });
-        }
-      })
-      .catch((err: unknown) => {
-        if (live) setState({ status: "error", message: String(err) });
-      });
-
-    return () => {
-      live = false;
-    };
-  }, [repo, number, head]);
-
-  return state;
-}
-```
 ## The head last reviewed
 
 A second visit should start on what moved since the last. The review
@@ -149,33 +104,32 @@ the shape the browser used to keep, stays for the
 //| file: src/frontend/model/lastReviewed.ts
 import * as z from "zod";
 import { GitOid } from "./history";
-import type { PullPlace } from "./place";
-import type { PullVersion } from "./pull";
+import type { SeriesPlace } from "./place";
 import type { ReviewedVersion } from "./review";
+import type { SeriesVersion } from "./series";
 
 /** What the browser kept per pull request before the server kept review
  *  state, read once to import it. */
 export const LastReviewed = z.object({ head: GitOid });
 export type LastReviewed = z.infer<typeof LastReviewed>;
 
-/** The head the reader last reviewed, out of every head they marked on one
- *  pull request: the newest the history still lists, or, when it lists
+/** The version the reader last reviewed, out of every version they marked
+ *  in one series: the newest the history still lists, or, when it lists
  *  none of them, the one marked most recently. */
 export function lastReviewed(
   marked: ReviewedVersion[],
-  states: PullVersion[],
-): GitOid | null {
-  const heads = new Set(marked.map((mark) => mark.version));
-  const listed = [...states].reverse().find((state) => heads.has(state.head));
-  if (listed !== undefined) return listed.head;
+  versions: SeriesVersion[],
+): string | null {
+  const ids = new Set(marked.map((mark) => mark.version));
+  const listed = [...versions].reverse().find((version) => ids.has(version.id));
+  if (listed !== undefined) return listed.id;
 
   const latest = marked.reduce<ReviewedVersion | null>(
     (found, mark) =>
       found === null || mark.reviewedAt > found.reviewedAt ? mark : found,
     null,
   );
-  const head = GitOid.safeParse(latest?.version);
-  return head.success ? head.data : null;
+  return latest?.version ?? null;
 }
 ```
 
@@ -188,20 +142,20 @@ latter with a note.
 
 ```ts
 //| id: frontend-model-last-reviewed
-/** The place a pull request opens on, given the head this reader last
- *  reviewed and the heads the pull request has had, oldest first. */
-export function opening(
-  place: PullPlace,
-  reviewed: GitOid | null,
-  states: PullVersion[],
-): PullPlace {
+/** The place a series opens on, given the version this reader last
+ *  reviewed and the versions the series has had, oldest first. */
+export function opening<P extends SeriesPlace>(
+  place: P,
+  reviewed: string | null,
+  versions: SeriesVersion[],
+): P {
   const bare =
     place.from.kind === "base" && place.to === null && place.spot === null;
-  if (!bare || reviewed === null || reviewed === states.at(-1)?.head) {
+  if (!bare || reviewed === null || reviewed === versions.at(-1)?.id) {
     return place;
   }
-  if (!states.some((state) => state.head === reviewed)) return place;
-  return { ...place, from: { kind: "version", head: reviewed } };
+  if (!versions.some((version) => version.id === reviewed)) return place;
+  return { ...place, from: { kind: "version", id: reviewed } };
 }
 ```
 
@@ -209,84 +163,79 @@ export function opening(
 //| id: frontend-model-last-reviewed-test
 //| file: src/frontend/model/lastReviewed.test.ts
 import { describe, expect, test } from "bun:test";
-import { GitOid } from "./history";
 import { lastReviewed, opening } from "./lastReviewed";
 import { openPull, type PullPlace } from "./place";
-import type { PullVersion } from "./pull";
 import type { ReviewedVersion } from "./review";
+import type { SeriesVersion } from "./series";
 
-function oid(ch: string): GitOid {
-  return GitOid.parse(ch.repeat(40));
-}
-
-function version(n: number, ch: string): PullVersion {
-  return { version: n, head: oid(ch), origin: { kind: "opened" } };
+function version(number: number, id: string): SeriesVersion {
+  return { id, number, label: "" };
 }
 
 describe("opening", () => {
-  const states = [version(1, "a"), version(2, "b"), version(3, "c")];
+  const versions = [version(1, "a"), version(2, "b"), version(3, "c")];
 
-  test("opens a bare address on the changes since the head last reviewed", () => {
-    expect(opening(openPull(7), oid("a"), states)).toEqual({
+  test("opens a bare address on the changes since the version last reviewed", () => {
+    expect(opening(openPull(7), "a", versions)).toEqual({
       number: 7,
-      from: { kind: "version", head: oid("a") },
+      from: { kind: "version", id: "a" },
       to: null,
       spot: null,
     });
   });
 
   test("opens whole when nothing was reviewed", () => {
-    expect(opening(openPull(7), null, states)).toEqual(openPull(7));
+    expect(opening(openPull(7), null, versions)).toEqual(openPull(7));
   });
 
-  test("opens whole when the latest head is the one reviewed", () => {
-    expect(opening(openPull(7), oid("c"), states)).toEqual(openPull(7));
+  test("opens whole when the latest version is the one reviewed", () => {
+    expect(opening(openPull(7), "c", versions)).toEqual(openPull(7));
   });
 
-  test("opens whole when the head reviewed is no longer in the history", () => {
-    expect(opening(openPull(7), oid("f"), states)).toEqual(openPull(7));
+  test("opens whole when the version reviewed is no longer in the history", () => {
+    expect(opening(openPull(7), "f", versions)).toEqual(openPull(7));
   });
 
   test("leaves an address that names anything past the number alone", () => {
     const places: PullPlace[] = [
-      { ...openPull(7), to: oid("c") },
-      { ...openPull(7), from: { kind: "version", head: oid("b") } },
-      { ...openPull(7), to: oid("c"), spot: { commit: oid("d"), file: null } },
+      { ...openPull(7), to: "c" },
+      { ...openPull(7), from: { kind: "version", id: "b" } },
+      { ...openPull(7), to: "c", spot: { commit: "d", file: null } },
     ];
 
     for (const place of places) {
-      expect(opening(place, oid("a"), states)).toEqual(place);
+      expect(opening(place, "a", versions)).toEqual(place);
     }
   });
 });
 
 describe("lastReviewed", () => {
-  const states = [version(1, "a"), version(2, "b"), version(3, "c")];
+  const versions = [version(1, "a"), version(2, "b"), version(3, "c")];
 
-  function mark(ch: string, reviewedAt: string): ReviewedVersion {
-    return { series: "pull:o/r#7", version: oid(ch), reviewedAt };
+  function mark(id: string, reviewedAt: string): ReviewedVersion {
+    return { series: "pull:o/r#7", version: id, reviewedAt };
   }
 
-  test("takes the newest head marked, whenever it was marked", () => {
+  test("takes the newest version marked, whenever it was marked", () => {
     // arrange
     const marked = [mark("b", "t1"), mark("a", "t2")];
 
     // act
     // assert
-    expect(lastReviewed(marked, states)).toBe(oid("b"));
+    expect(lastReviewed(marked, versions)).toBe("b");
   });
 
-  test("takes the head marked last when the history lists none", () => {
+  test("takes the version marked last when the history lists none", () => {
     // arrange
     const marked = [mark("e", "t2"), mark("f", "t1")];
 
     // act
     // assert
-    expect(lastReviewed(marked, states)).toBe(oid("e"));
+    expect(lastReviewed(marked, versions)).toBe("e");
   });
 
   test("reads nothing reviewed when nothing is marked", () => {
-    expect(lastReviewed([], states)).toBeNull();
+    expect(lastReviewed([], versions)).toBeNull();
   });
 });
 ```
@@ -300,41 +249,48 @@ latest head is marked.
 ```tsx
 //| id: frontend-view-last-reviewed
 //| file: src/frontend/views/LastReviewed.tsx
-import type { GitOid } from "../model/history";
-import type { PullBaseline, PullVersion } from "../model/pull";
+import {
+  type SeriesBaseline,
+  type SeriesVersion,
+  versionName,
+} from "../model/series";
 
 export function LastReviewed({
-  states,
+  versions,
   reviewed,
   from,
   to,
   toMarked,
+  wholeLabel,
   onMark,
   onWhole,
 }: {
-  states: PullVersion[];
-  reviewed: GitOid | null;
-  from: PullBaseline;
-  to: GitOid;
-  /** Whether the reader has marked the after head reviewed. */
+  versions: SeriesVersion[];
+  reviewed: string | null;
+  from: SeriesBaseline;
+  to: string;
+  /** Whether the reader has marked the after version reviewed. */
   toMarked: boolean;
+  /** What reading the newest version whole is called: `the whole pull
+   *  request`. */
+  wholeLabel: string;
   /** Null when there is no review document to write to. */
   onMark: (() => void) | null;
   onWhole: () => void;
 }) {
-  const known = states.find((state) => state.head === reviewed);
+  const known = versions.find((version) => version.id === reviewed);
   const since =
     known !== undefined &&
     from.kind === "version" &&
-    from.head === known.head &&
-    to === states.at(-1)?.head;
+    from.id === known.id &&
+    to === versions.at(-1)?.id;
 
   return (
     <div className="last-reviewed">
       {since ? (
         <>
           <p className="last-reviewed__note">
-            Showing what changed since v{known.version}, the head you last
+            Showing what changed since v{known.number}, the version you last
             reviewed.
           </p>
           <button
@@ -342,13 +298,13 @@ export function LastReviewed({
             className="last-reviewed__action"
             onClick={onWhole}
           >
-            Show the whole pull request
+            Show {wholeLabel}
           </button>
         </>
       ) : reviewed !== null && known === undefined ? (
         <p className="last-reviewed__note">
-          You last reviewed {reviewed.slice(0, 7)}, which this pull request's
-          history no longer lists, so it opens whole.
+          You last reviewed {reviewed.slice(0, 7)}, which this history no longer
+          lists, so it opens whole.
         </p>
       ) : null}
       {(toMarked || onMark !== null) && (
@@ -359,17 +315,12 @@ export function LastReviewed({
           disabled={toMarked}
         >
           {toMarked
-            ? `Reviewed at ${name(states, to)}`
-            : `Mark reviewed at ${name(states, to)}`}
+            ? `Reviewed at ${versionName(versions, to)}`
+            : `Mark reviewed at ${versionName(versions, to)}`}
         </button>
       )}
     </div>
   );
-}
-
-function name(states: PullVersion[], head: GitOid): string {
-  const state = states.find((candidate) => candidate.head === head);
-  return state === undefined ? head.slice(0, 7) : `v${state.version}`;
 }
 ```
 
@@ -547,19 +498,21 @@ function chosen(
 
 `useRowDiffs` fetches each row's comparison keyed like `stackRows` keys its
 rows, and caches by slot: moving a card changes what surrounds it, not what
-it compares. The cache clears only when the repository, pull request, or
-either end changes.
+it compares. The cache clears only when the `RowAsk` changes, which
+[`rowAsk`](series.md#reading-a-series) builds from the series and both ends
+of the comparison.
 
 ```tsx
 //| id: frontend-state-row-diffs
 //| file: src/frontend/state/rowDiffs.ts
 import { useEffect, useRef, useState } from "react";
-import { fetchPullDiff } from "../api";
+import { fetchLocalDiff, fetchPullDiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
-import type { PullBaseline, PullDiffScope } from "../model/pull";
+import type { PullDiffScope } from "../model/pull";
+import type { RowAsk } from "../model/series";
 
 /** The key a slot is addressed by. A fetched comparison and the row that
  *  shows it agree on this, so neither has to look the other up by anything
@@ -585,19 +538,24 @@ function slotScope(slot: Slot): PullDiffScope | null {
   return null;
 }
 
+/** One slot's comparison, or null for a slot with no commit in it. */
+function slotDiff(ask: RowAsk, slot: Slot): Promise<FileDiff[]> | null {
+  if (slot.left === null && slot.right === null) return null;
+  if (ask.kind === "local") return fetchLocalDiff(slot.left, slot.right);
+  const scope = slotScope(slot);
+  if (scope === null) return null;
+  return fetchPullDiff(ask.repo, ask.number, ask.to, ask.from, scope).then(
+    (answer) => answer.files,
+  );
+}
+
 export type RowDiffs = Map<string, AsyncState<FileDiff[]>>;
 
 const NO_DIFFS: RowDiffs = new Map();
 
 /** The comparison behind each row, keyed the way a row is keyed. */
-export function useRowDiffs(
-  repo: string,
-  number: number,
-  from: PullBaseline,
-  to: GitOid,
-  slots: Slot[],
-): RowDiffs {
-  const of = `${repo}#${number}:${from.kind === "base" ? "base" : from.head}:${to}`;
+export function useRowDiffs(ask: RowAsk, slots: Slot[]): RowDiffs {
+  const of = JSON.stringify(ask);
   const [state, setState] = useState<{ of: string; cache: RowDiffs }>({
     of,
     cache: new Map(),
@@ -609,14 +567,16 @@ export function useRowDiffs(
     keys: new Set(),
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `of` stands for `ask`
   useEffect(() => {
     if (asked.current.of !== of) asked.current = { of, keys: new Set() };
     const { keys } = asked.current;
 
     for (const slot of slots) {
       const key = slotKey(slot);
-      const scope = slotScope(slot);
-      if (scope === null || keys.has(key)) continue;
+      if (keys.has(key)) continue;
+      const diff = slotDiff(ask, slot);
+      if (diff === null) continue;
       keys.add(key);
 
       const put = (value: AsyncState<FileDiff[]>) => {
@@ -626,12 +586,12 @@ export function useRowDiffs(
           cache: new Map(now.of === of ? now.cache : []).set(key, value),
         }));
       };
-      fetchPullDiff(repo, number, to, from, scope).then(
-        (answer) => put({ status: "ready", data: answer.files }),
+      diff.then(
+        (files) => put({ status: "ready", data: files }),
         (err: unknown) => put({ status: "error", message: String(err) }),
       );
     }
-  }, [of, repo, number, from, to, slots]);
+  }, [of, slots]);
 
   return state.of === of ? state.cache : NO_DIFFS;
 }
@@ -640,55 +600,20 @@ export function useRowDiffs(
 ## Whole pull request
 
 The whole pull request's size cannot be summed from rows (a file two commits
-touch would count twice), so `usePullFiles` asks for the after head against
+touch would count twice), so for a pull request
+[`useSeriesSize`](series.md#reading-a-series) asks for the after head against
 the merge base, what the pull request would land. It follows the after end
 alone, whatever the before end is.
 
-```tsx
-//| id: frontend-state-pull-files
-//| file: src/frontend/state/pullFiles.ts
-import { useEffect, useState } from "react";
-import { fetchPullDiff } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
-import type { GitOid } from "../model/history";
+## Series review controller
 
-/** Every file one version changes against its base, as the pull request
- *  would land it. */
-export function usePullFiles(
-  repo: string,
-  number: number,
-  head: GitOid,
-): AsyncState<FileDiff[]> {
-  const [state, setState] = useState<AsyncState<FileDiff[]>>({
-    status: "loading",
-  });
-
-  useEffect(() => {
-    let live = true;
-
-    setState({ status: "loading" });
-    fetchPullDiff(repo, number, head, { kind: "base" }, { kind: "heads" })
-      .then((data) => {
-        if (live) setState({ status: "ready", data: data.files });
-      })
-      .catch((err: unknown) => {
-        if (live) setState({ status: "error", message: String(err) });
-      });
-
-    return () => {
-      live = false;
-    };
-  }, [repo, number, head]);
-
-  return state;
-}
-```
-
-## Pull review controller
-
-The before end defaults to the base and the after end to the latest head, so
-a pull request opens on what it introduces.
+`SeriesReview` reads one series version by version, a pull request's heads
+or a [local review](local-reviews.md)'s registrations, through a
+[`SeriesScreen`](series.md), which holds what differs between kinds of
+series: where versions and commits come from, what the whole is called, how
+a row is filed, and where a base comparison's single lane reads from.
+Everything else lives here once. The before end defaults to the base and the
+after end to the newest version, so a series opens on what it introduces.
 
 The pairing flows one way: only `PairedGraph` can move a card, and
 `stackRows` reads the pairing, so the diff pane draws whatever the graph
@@ -697,52 +622,51 @@ base comparison has nothing to pair, so it draws `CommitLog`'s single lane and
 builds rows from the commit list; `usePairing` still runs, since hooks run on
 every render, but its all-added answer goes unused.
 
-Each row is reviewed under the key [`pullRowKey`](review.md#review-state)
-gives its two commits, so a hand-paired card carries its marks and comments.
-Only open rows hand their files to
-[`useSources`](syntax.md#loading-each-side).
+Each row is reviewed under the key the screen's `keyOf` gives its two
+commits, [`pullRowKey`](review.md#review-state) for a pull request, so a
+hand-paired card carries its marks and comments. Only open rows hand their
+files to [`useSources`](syntax.md#loading-each-side).
 
-The ends, picked commit, file, and line come from the address; open rows and
-expanded messages are local state, except that a linked file's row opens.
-Moving the before end keeps the picked commit, moving the after end drops it.
-The stack scrolls on a graph pick or an arrival from back/forward
-(`reveal`), never on a click in the diff. The [drawer's bar](layout.md#the-commit-drawer)
-steps by calling `pick`, so a step is a pick in every respect. The place used
-is the one [`opening`](#the-head-last-reviewed) resolves, so picks in a
-since-review comparison keep its before end.
+The ends, picked commit, file, and line come from the address as one
+`SeriesPlace`; open rows and expanded messages are local state, except that
+a linked file's row opens. Moving the before end keeps the picked commit,
+moving the after end drops it. The stack scrolls on a graph pick or an
+arrival from back/forward (`reveal`), never on a click in the diff. The
+[drawer's bar](layout.md#the-commit-drawer) steps by calling `pick`, so a
+step is a pick in every respect. The place used is the one
+[`opening`](#the-head-last-reviewed) resolves, so picks in a since-review
+comparison keep its before end.
 
 ```tsx
-//| id: frontend-controller-pull-review
-//| file: src/frontend/controllers/PullReview.tsx
-import { useEffect, useState } from "react";
+//| id: frontend-controller-series-review
+//| file: src/frontend/controllers/SeriesReview.tsx
+import { type ReactNode, useEffect, useState } from "react";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
-import type { GitCommit, GitOid } from "../model/history";
+import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
-import {
-  type FileSpot,
-  openPull,
-  type PullPlace,
-  pullHref,
-} from "../model/place";
-import type { PullSummary, PullVersion } from "../model/pull";
+import type { FileSpot, SeriesPlace } from "../model/place";
 import {
   type ComparisonReview,
   keptPairing,
-  pullRowKey,
-  pullSeries,
+  type ReviewDocument,
   reviewComparison,
   reviewedIn,
 } from "../model/review";
+import {
+  rowAsk,
+  type SeriesHistory,
+  type SeriesSource,
+  versionAsk,
+  versionName,
+} from "../model/series";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals } from "../state/place";
-import { usePullCommits } from "../state/pullCommits";
-import { usePullFiles } from "../state/pullFiles";
-import { usePullHistory } from "../state/pullHistory";
 import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
+import { useSeriesCommits, useSeriesSize } from "../state/series";
 import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
@@ -754,9 +678,8 @@ import type { DiffLinks } from "../views/DiffView";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
-import { PullComparisonPicker } from "../views/PullComparisonPicker";
-import { PullHeader } from "../views/PullHeader";
 import { PullReviewPanes } from "../views/PullPanes";
+import { SeriesComparisonPicker } from "../views/SeriesComparisonPicker";
 import { CommitLog } from "./CommitLog";
 
 /** One array for every version that has not arrived. `usePairing` recomputes
@@ -855,15 +778,6 @@ export function baseStackRows(after: GitCommit[], diffs: RowDiffs): StackRow[] {
   });
 }
 
-function versionName(states: PullVersion[], head: GitOid): string {
-  const state = states.find((candidate) => candidate.head === head);
-  return state === undefined ? "?" : `v${state.version}`;
-}
-
-function versionLabel(states: PullVersion[], head: GitOid): string {
-  return `${versionName(states, head)} · ${head.slice(0, 7)}`;
-}
-
 /** The commit a click on the single-lane graph picked, read off the
  *  selection it hands back. A click on the current commit toggles it out of
  *  that selection, and still means that commit. */
@@ -878,32 +792,46 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
   return next;
 }
 
-export function PullReview({
-  repo,
-  pull,
+/** What differs between one kind of series and another, which is where its
+ *  versions and commits come from and how its rows are filed. */
+export interface SeriesScreen {
+  source: SeriesSource;
+  /** The series its versions are marked reviewed under. */
+  series: string;
+  /** Every version, at least one, oldest first. */
+  history: SeriesHistory;
+  header: ReactNode;
+  /** What the whole of one version is called: `whole pull request`. */
+  wholeLabel: string;
+  /** The key a row comparing these two commits is filed under. */
+  keyOf: (
+    document: ReviewDocument,
+    before: GitCommit | null,
+    after: GitCommit | null,
+  ) => { reviewKey: string; keeps: string | null };
+  /** Where the single lane of a base comparison reads one version from. */
+  lane: (id: string) => Source;
+}
+
+export function SeriesReview({
+  screen,
   place: asked,
   review,
   onGo,
+  href,
 }: {
-  repo: string;
-  pull: PullSummary;
-  place: PullPlace;
+  screen: SeriesScreen;
+  place: SeriesPlace;
   review: ReviewHandle;
-  onGo: (place: PullPlace) => void;
+  onGo: (place: SeriesPlace) => void;
+  href: (place: SeriesPlace) => string;
 }) {
-  const history = usePullHistory(repo, pull.number);
+  const { source, series, history } = screen;
+  const { versions } = history;
   const { display } = useSettingsContext().settings;
-  const series = pullSeries(repo, pull.number);
   const marked = reviewedIn(review.document, series);
-  const reviewed = lastReviewed(
-    marked,
-    history.status === "ready" ? history.data.states : [],
-  );
-  const place = opening(
-    asked,
-    reviewed,
-    history.status === "ready" ? history.data.states : [],
-  );
+  const reviewed = lastReviewed(marked, versions);
+  const place = opening(asked, reviewed, versions);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
@@ -912,26 +840,22 @@ export function PullReview({
   const { from, spot } = place;
   const current = spot?.commit ?? null;
 
-  const latest =
-    history.status === "ready" ? history.data.states.at(-1) : undefined;
-  const beforeHead = from.kind === "version" ? from.head : null;
-  // Falls back to the pull's own head so there is always a real oid to read
-  // here, even on the render before the history request comes back. Every
-  // hook below runs on every render, loading or not, so there is no point
-  // in this function where "not loaded yet" can mean "call fewer hooks".
-  const to = place.to ?? latest?.head ?? pull.headRefOid;
-  const number = pull.number;
+  const newest = versions.at(-1)?.id ?? "";
+  const beforeId = from.kind === "version" ? from.id : null;
+  const to = place.to ?? newest;
 
-  const beforeState = usePullCommits(repo, number, beforeHead);
-  const afterState = usePullCommits(repo, number, to);
+  const beforeState = useSeriesCommits(
+    beforeId === null ? null : versionAsk(source, beforeId),
+  );
+  const afterState = useSeriesCommits(versionAsk(source, to));
   const beforeCommits =
     beforeState.status === "ready" ? beforeState.data : NO_COMMITS;
   const afterCommits =
     afterState.status === "ready" ? afterState.data : NO_COMMITS;
 
-  const pullFiles = usePullFiles(repo, number, to);
+  const size = useSeriesSize(versionAsk(source, to));
   const pairingHeads =
-    beforeHead === null ? null : { series, before: beforeHead, after: to };
+    beforeId === null ? null : { series, before: beforeId, after: to };
   const pairing = usePairing(
     beforeCommits,
     afterCommits,
@@ -948,7 +872,7 @@ export function PullReview({
             ),
         },
   );
-  const diffs = useRowDiffs(repo, number, from, to, pairing.slots);
+  const diffs = useRowDiffs(rowAsk(source, from, to), pairing.slots);
   const sources = useSources(
     [...open].flatMap((key) => {
       const files = diffs.get(key);
@@ -974,16 +898,6 @@ export function PullReview({
     if (fileKey === null) return;
     setOpen((now) => (now.has(fileKey) ? now : new Set(now).add(fileKey)));
   }, [fileKey]);
-
-  if (history.status === "loading") {
-    return <Message>Loading versions...</Message>;
-  }
-  if (history.status === "error") {
-    return <Message tone="error">{history.message}</Message>;
-  }
-  if (latest === undefined) {
-    return <Message tone="error">This pull request has had no head.</Message>;
-  }
 
   const commitsLoading =
     beforeState.status === "loading" || afterState.status === "loading";
@@ -1022,48 +936,57 @@ export function PullReview({
   const reviewOf = (row: StackRow): ComparisonReview => {
     const before = row.kind === "dropped" ? row.commit : row.was;
     const after = row.kind === "dropped" ? null : row.commit;
-    const from = before?.commitId ?? null;
-    const to = after?.commitId ?? null;
-    const { reviewKey, keeps } = pullRowKey(review.document, from, to);
-    return reviewComparison(review.document, reviewKey, from, to, keeps);
+    const { reviewKey, keeps } = screen.keyOf(review.document, before, after);
+    return reviewComparison(
+      review.document,
+      reviewKey,
+      before?.commitId ?? null,
+      after?.commitId ?? null,
+      keeps,
+    );
   };
 
   const links = (row: StackRow): DiffLinks => {
-    const at = (file: FileSpot): PullPlace => ({
+    const at = (file: FileSpot): SeriesPlace => ({
       ...place,
       to,
       spot: { commit: row.commit.commitId, file },
     });
     return {
       selected: row.key === currentKey ? (spot?.file ?? null) : null,
-      href: (file) => pullHref(at(file)),
+      href: (file) => href(at(file)),
       onFollow: (file) => onGo(at(file)),
     };
   };
 
+  const label = (id: string) =>
+    `${versionName(versions, id)} · ${id.slice(0, 7)}`;
+
   return (
     <PullReviewPanes
-      header={<PullHeader pull={pull} />}
+      header={screen.header}
       position={position}
       onStep={step}
       size={sizes["pull-commits"] ?? null}
       onResize={(size) => resize("pull-commits", size)}
       picker={
         <>
-          <PullComparisonPicker
-            history={history.data}
+          <SeriesComparisonPicker
+            history={history}
             from={from}
             to={to}
-            files={pullFiles}
+            files={size}
+            wholeLabel={screen.wholeLabel}
             onPickFrom={(next) => onGo({ ...place, from: next })}
-            onPickTo={(head) => onGo({ ...place, to: head, spot: null })}
+            onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
           />
           <LastReviewed
-            states={history.data.states}
+            versions={versions}
             reviewed={reviewed}
             from={from}
             to={to}
             toMarked={marked.some((mark) => mark.version === to)}
+            wholeLabel={`the ${screen.wholeLabel}`}
             onMark={
               review.status === "ready"
                 ? () => {
@@ -1072,7 +995,9 @@ export function PullReview({
                   }
                 : null
             }
-            onWhole={() => onGo({ ...openPull(number), to: latest.head })}
+            onWhole={() =>
+              onGo({ from: { kind: "base" }, to: newest, spot: null })
+            }
           />
         </>
       }
@@ -1086,14 +1011,14 @@ export function PullReview({
             before={beforeCommits}
             after={afterCommits}
             pairing={pairing}
-            beforeLabel={versionLabel(history.data.states, from.head)}
-            afterLabel={versionLabel(history.data.states, to)}
+            beforeLabel={label(from.id)}
+            afterLabel={label(to)}
             current={current}
             onSelect={pick}
           />
         ) : (
           <CommitLog
-            source={{ kind: "pull", repo, number, head: to }}
+            source={screen.lane(to)}
             selected={current === null ? [] : [current]}
             onSelect={(selection) => pick(pickedFrom(selection, current))}
             oldestFirst
@@ -1121,12 +1046,87 @@ export function PullReview({
             display={display}
             since={
               from.kind === "version"
-                ? versionName(history.data.states, from.head)
+                ? versionName(versions, from.id)
                 : "the base"
             }
           />
         )
       }
+    />
+  );
+}
+```
+
+## Pull review controller
+
+`PullReview` fills in a `SeriesScreen` from GitHub's heads and adds the
+number back to every place the series screen hands up. It mounts
+`SeriesReview` only once the history is in, since the history says which head
+is newest, so the series screen never has to invent a version while it waits.
+
+```tsx
+//| id: frontend-controller-pull-review
+//| file: src/frontend/controllers/PullReview.tsx
+import { useMemo } from "react";
+import { GitOid } from "../model/history";
+import { type PullPlace, pullHref } from "../model/place";
+import type { PullSummary } from "../model/pull";
+import { pullRowKey, pullSeries } from "../model/review";
+import { pullHistory } from "../model/series";
+import { usePullHistory } from "../state/pullHistory";
+import type { ReviewHandle } from "../state/review";
+import { Message } from "../views/Message";
+import { PullHeader } from "../views/PullHeader";
+import { SeriesReview, type SeriesScreen } from "./SeriesReview";
+
+export function PullReview({
+  repo,
+  pull,
+  place,
+  review,
+  onGo,
+}: {
+  repo: string;
+  pull: PullSummary;
+  place: PullPlace;
+  review: ReviewHandle;
+  onGo: (place: PullPlace) => void;
+}) {
+  const answer = usePullHistory(repo, pull.number);
+  const { number } = pull;
+  const history = useMemo(
+    () => (answer.status === "ready" ? pullHistory(answer.data) : null),
+    [answer],
+  );
+
+  if (answer.status === "loading") {
+    return <Message>Loading versions...</Message>;
+  }
+  if (answer.status === "error") {
+    return <Message tone="error">{answer.message}</Message>;
+  }
+  if (history === null || history.versions.length === 0) {
+    return <Message tone="error">This pull request has had no head.</Message>;
+  }
+
+  const screen: SeriesScreen = {
+    source: { kind: "pull", repo, number },
+    series: pullSeries(repo, number),
+    history,
+    header: <PullHeader pull={pull} />,
+    wholeLabel: "whole pull request",
+    keyOf: (document, before, after) =>
+      pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
+    lane: (id) => ({ kind: "pull", repo, number, head: GitOid.parse(id) }),
+  };
+
+  return (
+    <SeriesReview
+      screen={screen}
+      place={place}
+      review={review}
+      onGo={(next) => onGo({ ...next, number })}
+      href={(next) => pullHref({ ...next, number })}
     />
   );
 }
@@ -1142,7 +1142,7 @@ import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { type GitCommit, GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
-import { baseStackRows, stackRows } from "./PullReview";
+import { baseStackRows, stackRows } from "./SeriesReview";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -1551,70 +1551,73 @@ export function PullHeader({ pull }: { pull: PullSummary }) {
 }
 ```
 
-## Pull comparison picker
+## Series comparison picker
 
 Two native `<select>`s, which a phone renders as a full-screen list. Only
-"from" offers the base, since base as the after end reads the pull request
-backwards, hence `from: PullBaseline` and `to: GitOid`. An option's value is
-looked up in `history.states` rather than cast to a `GitOid`.
+"from" offers the base, since base as the after end reads the series
+backwards, hence `from: SeriesBaseline` and `to` as a version id. An
+option's value is looked up in `history.versions` rather than trusted, and
+labelled by its [number and label](series.md#describing-a-series).
 `truncated` adds a note that some versions are missing, since a collapsed
 list gives no hint and GitHub does not say where the gap is.
 
-The whole pull request's size sits beside "to", drawn by `ChangeCount`, as a
+The whole series' size sits beside "to", drawn by `ChangeCount`, as a
 sibling of the `<label>` so it is not read as part of the field's name. It
 shows nothing while loading or on failure; each row reports its own.
 
 The caption names which comparison is on screen, a tree diff (base against a
-head) or a diff of diffs (two heads), which the selects alone do not say.
+version) or a diff of diffs (two versions), which the selects alone do not
+say.
 
 ```tsx
-//| id: frontend-view-pull-comparison-picker
-//| file: src/frontend/views/PullComparisonPicker.tsx
-
+//| id: frontend-view-series-comparison-picker
+//| file: src/frontend/views/SeriesComparisonPicker.tsx
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
-import type { GitOid } from "../model/history";
-import type {
-  PullBaseline,
-  PullHeadOrigin,
-  PullHistory,
-  PullVersion,
-} from "../model/pull";
+import {
+  type SeriesBaseline,
+  type SeriesHistory,
+  type SeriesVersion,
+  versionName,
+} from "../model/series";
 import { ChangeCount } from "./CommitStack";
 
-export function PullComparisonPicker({
+export function SeriesComparisonPicker({
   history,
   from,
   to,
   files,
+  wholeLabel,
   onPickFrom,
   onPickTo,
 }: {
-  history: PullHistory;
-  from: PullBaseline;
-  to: GitOid;
+  history: SeriesHistory;
+  from: SeriesBaseline;
+  to: string;
   /** Everything the `to` version changes against the base. */
   files: AsyncState<FileDiff[]>;
-  onPickFrom: (from: PullBaseline) => void;
-  onPickTo: (head: GitOid) => void;
+  /** What the whole of one version is called: `whole pull request`. */
+  wholeLabel: string;
+  onPickFrom: (from: SeriesBaseline) => void;
+  onPickTo: (id: string) => void;
 }) {
-  const { states, baseRefName, baseRefOid, truncated } = history;
+  const { versions, baseLabel, truncated } = history;
 
   return (
     <div className="pull-compare">
       <label className="pull-compare__field">
         <span className="pull-compare__label">from</span>
         <select
-          value={from.kind === "base" ? "base" : from.head}
+          value={from.kind === "base" ? "base" : from.id}
           onChange={(event) =>
-            onPickFrom(parseBaseline(event.target.value, states))
+            onPickFrom(parseBaseline(event.target.value, versions))
           }
           className="pull-compare__select"
         >
-          <option value="base">{`base (${baseRefName} @ ${baseRefOid.slice(0, 7)})`}</option>
-          {states.map((state) => (
-            <option key={state.head} value={state.head}>
-              {versionLabel(state)}
+          <option value="base">{`base (${baseLabel})`}</option>
+          {versions.map((version) => (
+            <option key={version.id} value={version.id}>
+              {versionLabel(version)}
             </option>
           ))}
         </select>
@@ -1623,19 +1626,19 @@ export function PullComparisonPicker({
         <span className="pull-compare__label">to</span>
         <select
           value={to}
-          onChange={(event) => onPickTo(lookupHead(event.target.value, states))}
+          onChange={(event) => onPickTo(lookup(event.target.value, versions))}
           className="pull-compare__select"
         >
-          {states.map((state) => (
-            <option key={state.head} value={state.head}>
-              {versionLabel(state)}
+          {versions.map((version) => (
+            <option key={version.id} value={version.id}>
+              {versionLabel(version)}
             </option>
           ))}
         </select>
       </label>
       {files.status === "ready" && (
         <span className="pull-compare__size">
-          <span className="pull-compare__label">whole pull request</span>
+          <span className="pull-compare__label">{wholeLabel}</span>
           <ChangeCount files={files.data} />
         </span>
       )}
@@ -1646,55 +1649,43 @@ export function PullComparisonPicker({
           were lost.
         </p>
       ) : null}
-      <p className="pull-compare__caption">
-        {caption(states, baseRefName, from, to)}
-      </p>
+      <p className="pull-compare__caption">{caption(history, from, to)}</p>
     </div>
   );
 }
 
-function parseBaseline(value: string, states: PullVersion[]): PullBaseline {
+function parseBaseline(
+  value: string,
+  versions: SeriesVersion[],
+): SeriesBaseline {
   if (value === "base") return { kind: "base" };
-  return { kind: "version", head: lookupHead(value, states) };
+  return { kind: "version", id: lookup(value, versions) };
 }
 
-function lookupHead(value: string, states: PullVersion[]): GitOid {
-  const state = states.find((candidate) => candidate.head === value);
-  if (state === undefined) {
-    throw new Error(`no version of this pull request has head ${value}`);
+function lookup(value: string, versions: SeriesVersion[]): string {
+  const version = versions.find((candidate) => candidate.id === value);
+  if (version === undefined) {
+    throw new Error(`no version of this series is ${value}`);
   }
-  return state.head;
+  return version.id;
 }
 
-function versionLabel(state: PullVersion): string {
-  return `v${state.version} (${state.head.slice(0, 7)}, ${when(state.origin)})`;
-}
-
-function when(origin: PullHeadOrigin): string {
-  if (origin.kind === "force-pushed") {
-    return `force-pushed ${origin.at.slice(0, 10)}`;
-  }
-  return origin.kind;
-}
-
-function label(states: PullVersion[], head: GitOid): string {
-  const state = states.find((candidate) => candidate.head === head);
-  return state === undefined ? head.slice(0, 7) : `v${state.version}`;
+function versionLabel(version: SeriesVersion): string {
+  return `v${version.number} (${version.label})`;
 }
 
 function caption(
-  states: PullVersion[],
-  baseRefName: string,
-  from: PullBaseline,
-  to: GitOid,
+  { versions, base }: SeriesHistory,
+  from: SeriesBaseline,
+  to: string,
 ): string {
   if (from.kind === "base") {
-    return `what ${label(states, to)} adds to ${baseRefName}`;
+    return `what ${versionName(versions, to)} adds to ${base}`;
   }
-  if (from.head === to) {
-    return `${label(states, to)} against itself`;
+  if (from.id === to) {
+    return `${versionName(versions, to)} against itself`;
   }
-  return `what changed between ${label(states, from.head)} and ${label(states, to)}`;
+  return `what changed between ${versionName(versions, from.id)} and ${versionName(versions, to)}`;
 }
 ```
 

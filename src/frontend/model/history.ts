@@ -54,8 +54,11 @@ export type PullSource = {
   head: GitOid;
 };
 
+/** One version of a local review, named by the commits it registered. */
+export type LocalSource = { kind: "local"; commits: string[] };
+
 /** Where one side's commits come from. */
-export type Source = JjSource | PullSource;
+export type Source = JjSource | PullSource | LocalSource;
 
 export type GitCommit = {
   commitId: GitOid;

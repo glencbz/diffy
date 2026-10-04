@@ -1,7 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[init]
 import * as z from "zod";
-import type { InterdiffResponse } from "./model/diff";
-import { GitOid, type LogEntry, type OpLogEntry } from "./model/history";
+import type { FileDiff, InterdiffResponse } from "./model/diff";
+import {
+  type GitCommit,
+  GitOid,
+  type LogEntry,
+  type OpLogEntry,
+} from "./model/history";
 import type {
   PullBaseline,
   PullCommitsResponse,
@@ -149,8 +154,16 @@ export async function fetchOperations(): Promise<OpLogEntry[]> {
     .parse(await getJson("/api/operations", "GET /api/operations"));
 }
 
-export async function fetchLog(atOperation?: string): Promise<LogEntry[]> {
-  const query = atOperation ? `?op=${encodeURIComponent(atOperation)}` : "";
+/** The log at `atOperation`, or, given a `revset`, only what it names
+ *  there. */
+export async function fetchLog(
+  atOperation?: string,
+  revset?: string,
+): Promise<LogEntry[]> {
+  const params = new URLSearchParams();
+  if (atOperation) params.set("op", atOperation);
+  if (revset !== undefined) params.set("revset", revset);
+  const query = params.size > 0 ? `?${params}` : "";
   return z
     .array(logEntry)
     .parse(await getJson(`/api/log${query}`, "GET /api/log"));
@@ -333,5 +346,69 @@ export async function fetchSource(
   return sourceFile.parse(
     await getJson(`/api/source?${params}`, "GET /api/source"),
   );
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
+
+/** The commits `ids` name, in that order. */
+export async function fetchLocalCommits(ids: string[]): Promise<GitCommit[]> {
+  const params = new URLSearchParams(ids.map((id) => ["id", id]));
+  return z
+    .array(gitCommit)
+    .parse(
+      await getJson(`/api/local/commits?${params}`, "GET /api/local/commits"),
+    );
+}
+
+const filesResponse = z.object({ files: z.array(fileDiff) });
+
+/** One row of a local review: two commits' interdiff, or one's own diff. */
+export async function fetchLocalDiff(
+  fromCommit: string | null,
+  toCommit: string | null,
+): Promise<FileDiff[]> {
+  const params = new URLSearchParams();
+  if (fromCommit !== null) params.set("fromCommit", fromCommit);
+  if (toCommit !== null) params.set("toCommit", toCommit);
+  const body = await getJson(
+    `/api/local/diff?${params}`,
+    "GET /api/local/diff",
+  );
+  return filesResponse.parse(body).files;
+}
+
+/** Everything the commits `ids` change together. */
+export async function fetchLocalSize(ids: string[]): Promise<FileDiff[]> {
+  const params = new URLSearchParams(ids.map((id) => ["id", id]));
+  const body = await getJson(
+    `/api/local/size?${params}`,
+    "GET /api/local/size",
+  );
+  return filesResponse.parse(body).files;
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
+
+/** Register a version of a local review at `operation`, and answer the name
+ *  it went under. The review document announces the change to every open
+ *  screen. */
+export async function registerLocalReview(asked: {
+  name: string;
+  revset: string;
+  operation: string;
+}): Promise<string> {
+  const res = await fetch("/api/local/reviews", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(asked),
+  });
+  const body: unknown = await res.json();
+  if (!res.ok) {
+    const parsed = errorResponse.safeParse(body);
+    throw new Error(
+      parsed.success ? parsed.data.error : `registering failed (${res.status})`,
+    );
+  }
+  return z.object({ name: z.string() }).parse(body).name;
 }
 // ~/~ end

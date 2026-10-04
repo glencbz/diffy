@@ -212,6 +212,10 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-pull-list>>
 
+<<design-local-review-list>>
+
+<<design-register-strip>>
+
 <<design-pull-header>>
 
 <<design-pull-comparison-picker>>
