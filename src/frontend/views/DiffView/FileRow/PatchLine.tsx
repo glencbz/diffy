@@ -4,22 +4,29 @@ import type { PaintedToken } from "../../../model/words";
 import type { CodeKind, DrawnLine, Side } from "./drawnLines";
 import { type FileLinks, follow } from "./links";
 
-/** A `<button>` when the line is a line of the file, a `<div>` otherwise. A
- *  read-only diff passes no `onOpenComposer`, which makes every line static,
- *  and a read-only diff with `links` makes the gutter number of every
- *  after-side line a link to it. In a column a line is numbered by that
- *  column's side, and opens the composer only in the column of the side it
- *  is anchored to, so each line is commented on from one place. */
+/** What reaching for a line does. */
+export type LineAction =
+  /** Nothing: the line is static. */
+  | { kind: "none" }
+  /** The gutter number of an after-side line links to it. */
+  | { kind: "link"; links: FileLinks }
+  /** The line is a `<button>` that opens the composer on it. */
+  | { kind: "comment"; onOpenComposer: (anchor: LineAnchor) => void };
+
+/** One line of a patch. In a column a line is numbered by that column's
+ *  side, and opens the composer only in the column of the side it is
+ *  anchored to, so each line is commented on from one place. */
 export function PatchLine({
   line,
   side,
-  onOpenComposer,
-  links,
+  action,
+  selected,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
   side?: Side;
-  onOpenComposer?: (anchor: LineAnchor) => void;
-  links?: FileLinks;
+  action: LineAction;
+  /** The after-side line the address names, if any. */
+  selected: number | null;
 }) {
   const anchor =
     "anchor" in line && (side === undefined || line.anchor.side === side)
@@ -28,61 +35,79 @@ export function PatchLine({
   const afterLine = anchor?.side === "after" ? anchor.line : null;
   const number =
     side === "before" && "beforeLine" in line ? line.beforeLine : afterLine;
-  const linked =
-    afterLine !== null && links !== undefined && onOpenComposer === undefined;
-  const body = (
-    <>
-      {linked ? (
-        <a
-          href={links.href(afterLine)}
-          onClick={(event) => follow(event, () => links.onFollow(afterLine))}
-          className="diff-line__gutter diff-line__anchor"
-        >
-          {afterLine}
-        </a>
-      ) : (
-        <span className="diff-line__gutter">{number ?? ""}</span>
-      )}
-      {"text" in line ? (
-        <span className={`diff-line__text--${line.kind}`}>
-          {line.text === "" ? " " : line.text}
-        </span>
-      ) : (
-        <span>
-          <span className="diff-line__sign">{SIGNS[line.kind]}</span>
-          {line.tokens.map((token, index) => (
-            <span
-              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
-              key={index}
-              className={tokenClass(token)}
-            >
-              {token.text}
-            </span>
-          ))}
-        </span>
-      )}
-    </>
-  );
-  const selected =
-    afterLine !== null && links?.selected?.line === afterLine
-      ? " diff-line--selected"
-      : "";
+  const gutter = <span className="diff-line__gutter">{number ?? ""}</span>;
+  const text =
+    "text" in line ? (
+      <span className={`diff-line__text--${line.kind}`}>
+        {line.text === "" ? " " : line.text}
+      </span>
+    ) : (
+      <span>
+        <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+        {line.tokens.map((token, index) => (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
+            key={index}
+            className={tokenClass(token)}
+          >
+            {token.text}
+          </span>
+        ))}
+      </span>
+    );
+  const marked =
+    afterLine !== null && selected === afterLine ? " diff-line--selected" : "";
   const column = side === undefined ? "" : ` diff-line--${side}`;
-  const className = `diff-line diff-line--${line.kind}${column}${selected}`;
+  const className = `diff-line diff-line--${line.kind}${column}${marked}`;
 
-  if (anchor === null || onOpenComposer === undefined) {
-    return <div className={className}>{body}</div>;
+  switch (action.kind) {
+    case "none":
+      return (
+        <div className={className}>
+          {gutter}
+          {text}
+        </div>
+      );
+    case "link": {
+      const { links } = action;
+      return (
+        <div className={className}>
+          {afterLine === null ? (
+            gutter
+          ) : (
+            <a
+              href={links.href(afterLine)}
+              onClick={(event) =>
+                follow(event, () => links.onFollow(afterLine))
+              }
+              className="diff-line__gutter diff-line__anchor"
+            >
+              {afterLine}
+            </a>
+          )}
+          {text}
+        </div>
+      );
+    }
+    case "comment": {
+      const { onOpenComposer } = action;
+      return anchor === null ? (
+        <div className={className}>
+          {gutter}
+          {text}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpenComposer(anchor)}
+          className={`${className} diff-line--interactive`}
+        >
+          {gutter}
+          {text}
+        </button>
+      );
+    }
   }
-
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenComposer(anchor)}
-      className={`${className} diff-line--interactive`}
-    >
-      {body}
-    </button>
-  );
 }
 
 /** The other column's half of a row whose line is only on one side. */

@@ -351,7 +351,7 @@ import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
+import type { Anchor, RowComment } from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -365,8 +365,8 @@ import {
   sidesOf,
   structuralBody,
 } from "./drawnLines";
-import { fileLinks, follow } from "./links";
-import { EmptyCell, PatchLine } from "./PatchLine";
+import { type FileLinks, fileLinks, follow } from "./links";
+import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
 
 /** What a file is drawn for: to be read, or to be reviewed. */
 export type FileRowVariant = PlainDiffFileRow | ReviewFileRow;
@@ -439,7 +439,7 @@ export function FileRow({
   const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const open = opened ?? (isSelected || startsOpen(variant, reason));
-  const parts = partsOf(variant, path, open, setOpened);
+  const parts = partsOf(variant, path, links, open, setOpened);
   const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
@@ -465,8 +465,8 @@ export function FileRow({
         key={key}
         line={line}
         side={side}
-        onOpenComposer={parts.onOpenComposer}
-        links={links}
+        action={parts.lineAction}
+        selected={links?.selected?.line ?? null}
       />
     );
   const cell = (line: DrawnLine | null, key: number, side: Side) =>
@@ -561,8 +561,7 @@ function startsOpen(variant: FileRowVariant, reason: string | null): boolean {
 
 /** What a variant adds to the file a plain diff draws. */
 interface VariantParts {
-  /** Opens the composer on a line. A plain diff's lines are static. */
-  onOpenComposer?: (at: LineAnchor) => void;
+  lineAction: LineAction;
   /** Controls at the end of the header. */
   controls: ReactNode;
   aboveBody: ReactNode;
@@ -572,16 +571,26 @@ interface VariantParts {
 function partsOf(
   variant: FileRowVariant,
   path: string,
+  links: FileLinks | undefined,
   open: boolean,
   setOpened: (opened: boolean) => void,
 ): VariantParts {
   switch (variant.kind) {
     case "plain-diff":
-      return { controls: null, aboveBody: null, belowBody: null };
+      return {
+        lineAction:
+          links === undefined ? { kind: "none" } : { kind: "link", links },
+        controls: null,
+        aboveBody: null,
+        belowBody: null,
+      };
     case "review":
       return {
-        onOpenComposer: (at) =>
-          variant.onOpenComposer({ kind: "line", path, ...at }),
+        lineAction: {
+          kind: "comment",
+          onOpenComposer: (at) =>
+            variant.onOpenComposer({ kind: "line", path, ...at }),
+        },
         controls: (
           <>
             {open && (
@@ -964,8 +973,12 @@ after-side numbers, blank for a removed line, a hunk header, or git's
 no-newline note.
 
 Only the gutter links, so selecting a line's text still works. A commentable
-line is a `<button>` and cannot contain a link, so a diff with review memory
-draws no line links; no screen needs both.
+line is a `<button>` and cannot contain a link, so a line either links or
+opens the composer, never both. `LineAction` names the three things a line
+can do, so a reviewed diff's lines comment and a linked one's gutters link
+without a pair of optional props whose fourth combination draws nothing new.
+Marking the addressed line is apart from the action: a pull request's stack
+marks it in reviewed diffs too.
 
 ```tsx
 //| id: frontend-view-diff-patch-line
@@ -975,22 +988,29 @@ import type { PaintedToken } from "../../../model/words";
 import type { CodeKind, DrawnLine, Side } from "./drawnLines";
 import { type FileLinks, follow } from "./links";
 
-/** A `<button>` when the line is a line of the file, a `<div>` otherwise. A
- *  read-only diff passes no `onOpenComposer`, which makes every line static,
- *  and a read-only diff with `links` makes the gutter number of every
- *  after-side line a link to it. In a column a line is numbered by that
- *  column's side, and opens the composer only in the column of the side it
- *  is anchored to, so each line is commented on from one place. */
+/** What reaching for a line does. */
+export type LineAction =
+  /** Nothing: the line is static. */
+  | { kind: "none" }
+  /** The gutter number of an after-side line links to it. */
+  | { kind: "link"; links: FileLinks }
+  /** The line is a `<button>` that opens the composer on it. */
+  | { kind: "comment"; onOpenComposer: (anchor: LineAnchor) => void };
+
+/** One line of a patch. In a column a line is numbered by that column's
+ *  side, and opens the composer only in the column of the side it is
+ *  anchored to, so each line is commented on from one place. */
 export function PatchLine({
   line,
   side,
-  onOpenComposer,
-  links,
+  action,
+  selected,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
   side?: Side;
-  onOpenComposer?: (anchor: LineAnchor) => void;
-  links?: FileLinks;
+  action: LineAction;
+  /** The after-side line the address names, if any. */
+  selected: number | null;
 }) {
   const anchor =
     "anchor" in line && (side === undefined || line.anchor.side === side)
@@ -999,61 +1019,79 @@ export function PatchLine({
   const afterLine = anchor?.side === "after" ? anchor.line : null;
   const number =
     side === "before" && "beforeLine" in line ? line.beforeLine : afterLine;
-  const linked =
-    afterLine !== null && links !== undefined && onOpenComposer === undefined;
-  const body = (
-    <>
-      {linked ? (
-        <a
-          href={links.href(afterLine)}
-          onClick={(event) => follow(event, () => links.onFollow(afterLine))}
-          className="diff-line__gutter diff-line__anchor"
-        >
-          {afterLine}
-        </a>
-      ) : (
-        <span className="diff-line__gutter">{number ?? ""}</span>
-      )}
-      {"text" in line ? (
-        <span className={`diff-line__text--${line.kind}`}>
-          {line.text === "" ? " " : line.text}
-        </span>
-      ) : (
-        <span>
-          <span className="diff-line__sign">{SIGNS[line.kind]}</span>
-          {line.tokens.map((token, index) => (
-            <span
-              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
-              key={index}
-              className={tokenClass(token)}
-            >
-              {token.text}
-            </span>
-          ))}
-        </span>
-      )}
-    </>
-  );
-  const selected =
-    afterLine !== null && links?.selected?.line === afterLine
-      ? " diff-line--selected"
-      : "";
+  const gutter = <span className="diff-line__gutter">{number ?? ""}</span>;
+  const text =
+    "text" in line ? (
+      <span className={`diff-line__text--${line.kind}`}>
+        {line.text === "" ? " " : line.text}
+      </span>
+    ) : (
+      <span>
+        <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+        {line.tokens.map((token, index) => (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
+            key={index}
+            className={tokenClass(token)}
+          >
+            {token.text}
+          </span>
+        ))}
+      </span>
+    );
+  const marked =
+    afterLine !== null && selected === afterLine ? " diff-line--selected" : "";
   const column = side === undefined ? "" : ` diff-line--${side}`;
-  const className = `diff-line diff-line--${line.kind}${column}${selected}`;
+  const className = `diff-line diff-line--${line.kind}${column}${marked}`;
 
-  if (anchor === null || onOpenComposer === undefined) {
-    return <div className={className}>{body}</div>;
+  switch (action.kind) {
+    case "none":
+      return (
+        <div className={className}>
+          {gutter}
+          {text}
+        </div>
+      );
+    case "link": {
+      const { links } = action;
+      return (
+        <div className={className}>
+          {afterLine === null ? (
+            gutter
+          ) : (
+            <a
+              href={links.href(afterLine)}
+              onClick={(event) =>
+                follow(event, () => links.onFollow(afterLine))
+              }
+              className="diff-line__gutter diff-line__anchor"
+            >
+              {afterLine}
+            </a>
+          )}
+          {text}
+        </div>
+      );
+    }
+    case "comment": {
+      const { onOpenComposer } = action;
+      return anchor === null ? (
+        <div className={className}>
+          {gutter}
+          {text}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpenComposer(anchor)}
+          className={`${className} diff-line--interactive`}
+        >
+          {gutter}
+          {text}
+        </button>
+      );
+    }
   }
-
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenComposer(anchor)}
-      className={`${className} diff-line--interactive`}
-    >
-      {body}
-    </button>
-  );
 }
 
 /** The other column's half of a row whose line is only on one side. */

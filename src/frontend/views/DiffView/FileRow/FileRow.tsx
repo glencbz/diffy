@@ -4,7 +4,7 @@ import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
+import type { Anchor, RowComment } from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -18,8 +18,8 @@ import {
   sidesOf,
   structuralBody,
 } from "./drawnLines";
-import { fileLinks, follow } from "./links";
-import { EmptyCell, PatchLine } from "./PatchLine";
+import { type FileLinks, fileLinks, follow } from "./links";
+import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
 
 /** What a file is drawn for: to be read, or to be reviewed. */
 export type FileRowVariant = PlainDiffFileRow | ReviewFileRow;
@@ -92,7 +92,7 @@ export function FileRow({
   const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const open = opened ?? (isSelected || startsOpen(variant, reason));
-  const parts = partsOf(variant, path, open, setOpened);
+  const parts = partsOf(variant, path, links, open, setOpened);
   const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
@@ -118,8 +118,8 @@ export function FileRow({
         key={key}
         line={line}
         side={side}
-        onOpenComposer={parts.onOpenComposer}
-        links={links}
+        action={parts.lineAction}
+        selected={links?.selected?.line ?? null}
       />
     );
   const cell = (line: DrawnLine | null, key: number, side: Side) =>
@@ -214,8 +214,7 @@ function startsOpen(variant: FileRowVariant, reason: string | null): boolean {
 
 /** What a variant adds to the file a plain diff draws. */
 interface VariantParts {
-  /** Opens the composer on a line. A plain diff's lines are static. */
-  onOpenComposer?: (at: LineAnchor) => void;
+  lineAction: LineAction;
   /** Controls at the end of the header. */
   controls: ReactNode;
   aboveBody: ReactNode;
@@ -225,16 +224,26 @@ interface VariantParts {
 function partsOf(
   variant: FileRowVariant,
   path: string,
+  links: FileLinks | undefined,
   open: boolean,
   setOpened: (opened: boolean) => void,
 ): VariantParts {
   switch (variant.kind) {
     case "plain-diff":
-      return { controls: null, aboveBody: null, belowBody: null };
+      return {
+        lineAction:
+          links === undefined ? { kind: "none" } : { kind: "link", links },
+        controls: null,
+        aboveBody: null,
+        belowBody: null,
+      };
     case "review":
       return {
-        onOpenComposer: (at) =>
-          variant.onOpenComposer({ kind: "line", path, ...at }),
+        lineAction: {
+          kind: "comment",
+          onOpenComposer: (at) =>
+            variant.onOpenComposer({ kind: "line", path, ...at }),
+        },
         controls: (
           <>
             {open && (
