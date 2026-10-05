@@ -440,7 +440,11 @@ export function FileRow({
   const [opened, setOpened] = useState<boolean | null>(null);
   const open = opened ?? (isSelected || startsOpen(variant, reason));
   const parts = partsOf(variant, path, links, open, setOpened);
-  const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
+  const content: FileContent = !open
+    ? { kind: "folded" }
+    : file.binary
+      ? { kind: "binary" }
+      : { kind: "text", lines: drawnLines(body, sides, shown) };
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -509,7 +513,7 @@ export function FileRow({
           </a>
         )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
-        {open && !file.binary && (
+        {content.kind === "text" && (
           <DiffModeSwitch
             mode={mode}
             unavailable={
@@ -523,11 +527,11 @@ export function FileRow({
         {parts.controls}
       </header>
       {parts.aboveBody}
-      {!open ? null : file.binary ? (
+      {content.kind === "folded" ? null : content.kind === "binary" ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : split ? (
         <pre className="diff-file__patch diff-file__patch--split">
-          {splitRows(lines).flatMap((row, index) =>
+          {splitRows(content.lines).flatMap((row, index) =>
             row.kind === "across"
               ? [drawn(row.line, 2 * index)]
               : [
@@ -538,13 +542,20 @@ export function FileRow({
         </pre>
       ) : (
         <pre className="diff-file__patch">
-          {lines.map((line, index) => drawn(line, index))}
+          {content.lines.map((line, index) => drawn(line, index))}
         </pre>
       )}
       {parts.belowBody}
     </section>
   );
 }
+
+/** What a file draws under its header. Only text has lines to draw or a
+ *  view to draw them in. */
+type FileContent =
+  | { kind: "folded" }
+  | { kind: "binary" }
+  | { kind: "text"; lines: DrawnLine[] };
 
 /** Whether a file is open until the reader folds it, when the address does
  *  not name it. */
