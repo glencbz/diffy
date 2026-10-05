@@ -59,16 +59,17 @@ export function LocalReviews({
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
           }
-          onForget={
+          variant={
             review.status === "ready"
-              ? (name) => {
-                  review.actions.forgetReview(name);
-                  if (name === place?.name) onGo(null);
+              ? {
+                  kind: "writable",
+                  onForget: (name) => {
+                    review.actions.forgetReview(name);
+                    if (name === place?.name) onGo(null);
+                  },
+                  onRestore: review.actions.restoreReview,
                 }
-              : null
-          }
-          onRestore={
-            review.status === "ready" ? review.actions.restoreReview : null
+              : { kind: "read-only" }
           }
           commits={(version) => (
             <CommitLog
