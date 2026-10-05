@@ -46,8 +46,15 @@ export function InterdiffRows({
           <ComparisonHeader
             row={row}
             plain={plain}
-            onMarkSeen={review && (() => review.markSeen(row))}
-            onComment={review && (() => setComposing(rowKey(row)))}
+            bar={
+              review === null
+                ? { kind: "read-only" }
+                : {
+                    kind: "writable",
+                    onMarkSeen: () => review.markSeen(row),
+                    onComment: () => setComposing(rowKey(row)),
+                  }
+            }
           />
           <CommitMessage
             description={(row.to ?? row.from)?.description ?? ""}
