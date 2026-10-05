@@ -32,6 +32,8 @@ import { basename, dirname, join } from "node:path";
 import {
   applyCommand,
   EMPTY_REVIEW,
+  KEEP_FORGOTTEN_MS,
+  purgeable,
   type ReviewCommand,
   ReviewDocument,
   type ReviewSnapshot,
@@ -148,6 +150,36 @@ export function watchReview(
 }
 ```
 
+## Dropping forgotten reviews
+
+A forgotten [local review](../frontend/review.md#review-state) waits
+`KEEP_FORGOTTEN_MS` to be restored, then the server purges it. The purge runs
+when the server starts and hourly after, since a server can stay up for days.
+It writes only when something is due, so a start does not move the revision
+and refetch every open screen's document for nothing. Two servers purging at
+once is harmless: the second finds nothing left to drop.
+
+```ts
+//| id: backend-review-store
+
+/** Purges the local reviews forgotten `KEEP_FORGOTTEN_MS` before `now`, at
+ *  once and every `everyMs` after, until the returned function is called. */
+export function purgeForgotten(
+  store: ReviewStore,
+  everyMs = 60 * 60 * 1000,
+  now: () => number = Date.now,
+): () => void {
+  const purge = () => {
+    const before = new Date(now() - KEEP_FORGOTTEN_MS).toISOString();
+    if (purgeable(store.read().document, before).length === 0) return;
+    store.apply({ kind: "purge-forgotten", before });
+  };
+  purge();
+  const timer = setInterval(purge, everyMs);
+  return () => clearInterval(timer);
+}
+```
+
 ## Tests
 
 Tests use a file in a temporary directory, since an in-memory database cannot
@@ -163,7 +195,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EMPTY_REVIEW, type ReviewCommand } from "../../frontend/model/review";
-import { openReviewStore, reviewStorePath, watchReview } from "./store";
+import {
+  openReviewStore,
+  purgeForgotten,
+  reviewStorePath,
+  watchReview,
+} from "./store";
 
 let dir: string;
 
@@ -288,6 +325,61 @@ describe("watchReview", () => {
 
     // assert
     expect(heard).toEqual([1]);
+  });
+});
+
+describe("purgeForgotten", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.parse("2026-10-10T00:00:00.000Z");
+  const register = (name: string): ReviewCommand => ({
+    kind: "register",
+    name,
+    version: {
+      operation: "o",
+      revset: name,
+      commits: ["c"],
+      registeredAt: "t",
+    },
+  });
+  const forget = (name: string, daysAgo: number): ReviewCommand => ({
+    kind: "forget-review",
+    name,
+    at: new Date(now - daysAgo * day).toISOString(),
+  });
+
+  test("purges reviews forgotten over a week ago, and keeps the rest", () => {
+    // arrange
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    for (const command of [
+      register("old"),
+      register("recent"),
+      register("live"),
+      forget("old", 8),
+      forget("recent", 6),
+    ]) {
+      store.apply(command);
+    }
+
+    // act
+    purgeForgotten(store, day, () => now)();
+
+    // assert
+    expect(
+      store.read().document.localReviews.map((review) => review.name),
+    ).toEqual(["recent", "live"]);
+  });
+
+  test("writes nothing when no review is due", () => {
+    // arrange
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    store.apply(register("recent"));
+    store.apply(forget("recent", 6));
+
+    // act
+    purgeForgotten(store, day, () => now)();
+
+    // assert
+    expect(store.revision()).toBe(2);
   });
 });
 ```

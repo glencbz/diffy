@@ -53,7 +53,15 @@ under the series and the two heads ([pairing](pairing.md#keeping-a-correction)).
 [versions](../backend/local-reviews.md) registered under it. `register` adds a
 version, starting the review if there is none; a second registration at an
 operation the review already has replaces that version, since it is the reader
-correcting the first.
+correcting the first. `forget-review` only stamps a review forgotten, so
+`restore-review` can bring it back with everything it kept; registering a
+forgotten name brings it back too, since someone said it is ready again.
+`purge-forgotten` drops the reviews forgotten before a time, with the reviewed
+marks and corrected pairings kept under their series, so the name starts fresh
+after that. The [server](../backend/review-store.md#dropping-forgotten-reviews)
+sends it for reviews forgotten `KEEP_FORGOTTEN_MS` ago. Marks and comments on
+a review's rows stay, since they are filed under change ids another review of
+the same commits reads too.
 A local review's row is filed by `localRowKey`, under its change id the way
 `reviewKey` files one.
 
@@ -172,8 +180,14 @@ export type LocalVersion = z.infer<typeof LocalVersion>;
 export const LocalReview = z.object({
   name: z.string(),
   versions: z.array(LocalVersion),
+  /** When the reader forgot it; it can be restored until it is purged. */
+  forgottenAt: z.string().optional(),
 });
 export type LocalReview = z.infer<typeof LocalReview>;
+
+/** How long a forgotten local review waits to be restored before it is
+ *  purged. */
+export const KEEP_FORGOTTEN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
@@ -497,6 +511,13 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     name: z.string().min(1),
     version: LocalVersion,
   }),
+  z.object({
+    kind: z.literal("forget-review"),
+    name: z.string(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("restore-review"), name: z.string() }),
+  z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -604,6 +625,38 @@ export function applyCommand(
           command.version,
         ),
       };
+    case "forget-review":
+      return {
+        ...document,
+        localReviews: document.localReviews.map((review) =>
+          review.name === command.name && review.forgottenAt === undefined
+            ? { ...review, forgottenAt: command.at }
+            : review,
+        ),
+      };
+    case "restore-review":
+      return {
+        ...document,
+        localReviews: document.localReviews.map((review) => {
+          if (review.name !== command.name) return review;
+          const { forgottenAt: _, ...restored } = review;
+          return restored;
+        }),
+      };
+    case "purge-forgotten": {
+      const gone = purgeable(document, command.before);
+      const purged = new Set(gone.map((review) => localSeries(review.name)));
+      return {
+        ...document,
+        localReviews: document.localReviews.filter(
+          (review) => !gone.includes(review),
+        ),
+        reviewed: document.reviewed.filter(
+          (version) => !purged.has(version.series),
+        ),
+        pairings: document.pairings.filter((kept) => !purged.has(kept.series)),
+      };
+    }
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -653,8 +706,18 @@ export function applyCommand(
   }
 }
 
+/** The local reviews forgotten before `before`. */
+export function purgeable(
+  document: ReviewDocument,
+  before: string,
+): LocalReview[] {
+  return document.localReviews.filter(
+    (review) => review.forgottenAt !== undefined && review.forgottenAt < before,
+  );
+}
+
 /** `reviews` with `version` added to the review called `name`, which is
- *  started if there is none. A version read at an operation the review
+ *  started if there is none, or restored if it was forgotten. A version read at an operation the review
  *  already has a version for replaces it, since both describe the same
  *  moment of the repository. */
 function registered(
@@ -723,6 +786,8 @@ export interface ReviewActions {
     after: string,
     slots: KeptPairing["slots"] | null,
   ) => void;
+  forgetReview: (name: string) => void;
+  restoreReview: (name: string) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */
@@ -806,7 +871,9 @@ import {
   isViewed,
   keepKey,
   keptPairing,
+  localReview,
   localRowKey,
+  localSeries,
   markSeen,
   markViewed,
   pullRowKey,
@@ -1814,6 +1881,114 @@ describe("registered local reviews", () => {
       { name: "other", versions: [version("o1", "trunk()..o")] },
     ]);
   });
+
+  /** Reviews "x" and "other", each with a version marked reviewed, and a
+   *  pairing kept under "x". */
+  const kept = () =>
+    applied(
+      empty,
+      register("x", "o1", "trunk()..x"),
+      register("other", "o1", "trunk()..o"),
+      {
+        kind: "mark-reviewed",
+        series: localSeries("x"),
+        version: "1",
+        at: "t",
+      },
+      {
+        kind: "mark-reviewed",
+        series: localSeries("other"),
+        version: "1",
+        at: "t",
+      },
+      {
+        kind: "set-pairing",
+        series: localSeries("x"),
+        before: "1",
+        after: "2",
+        slots: [],
+      },
+    );
+
+  test("forgets a review without dropping what it kept", () => {
+    // arrange
+    const document = kept();
+
+    // act
+    const forgotten = applied(
+      document,
+      { kind: "forget-review", name: "x", at: "t1" },
+      { kind: "forget-review", name: "x", at: "t2" },
+    );
+
+    // assert
+    expect(
+      forgotten.localReviews.map(({ name, forgottenAt }) => [
+        name,
+        forgottenAt,
+      ]),
+    ).toEqual([
+      ["x", "t1"],
+      ["other", undefined],
+    ]);
+    expect(forgotten.reviewed).toEqual(document.reviewed);
+    expect(forgotten.pairings).toEqual(document.pairings);
+  });
+
+  test("restores a forgotten review as it was", () => {
+    // arrange
+    const document = kept();
+
+    // act
+    const restored = applied(
+      document,
+      { kind: "forget-review", name: "x", at: "t1" },
+      { kind: "restore-review", name: "x" },
+    );
+
+    // assert
+    expect(restored).toEqual(document);
+  });
+
+  test("restores a forgotten review registered again", () => {
+    // arrange
+    const forgotten = applied(kept(), {
+      kind: "forget-review",
+      name: "x",
+      at: "t1",
+    });
+
+    // act
+    const document = applied(forgotten, register("x", "o2", "trunk()..x"));
+
+    // assert
+    expect(localReview(document, "x")).toEqual({
+      name: "x",
+      versions: [version("o1", "trunk()..x"), version("o2", "trunk()..x")],
+    });
+  });
+
+  test("purges reviews forgotten before a time, with what their series kept", () => {
+    // arrange
+    const forgotten = applied(
+      kept(),
+      { kind: "forget-review", name: "x", at: "2026-10-01T00:00:00.000Z" },
+      { kind: "forget-review", name: "other", at: "2026-10-05T00:00:00.000Z" },
+    );
+
+    // act
+    const purged = applied(forgotten, {
+      kind: "purge-forgotten",
+      before: "2026-10-03T00:00:00.000Z",
+    });
+
+    // assert
+    expect(purged.localReviews.map((review) => review.name)).toEqual(["other"]);
+    expect(purged.reviewed.map((version) => version.series)).toEqual([
+      localSeries("other"),
+    ]);
+    expect(purged.pairings).toEqual([]);
+  });
 });
 describe("localRowKey", () => {
   test("files a row under its change id, whichever side holds it", () => {
@@ -2253,6 +2428,8 @@ export function useReview(): ReviewHandle {
         send({ kind: "mark-reviewed", series, version, at: now() }),
       keepPairing: (series, before, after, slots) =>
         send({ kind: "set-pairing", series, before, after, slots }),
+      forgetReview: (name) => send({ kind: "forget-review", name, at: now() }),
+      restoreReview: (name) => send({ kind: "restore-review", name }),
     };
   }, [accept]);
 

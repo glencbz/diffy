@@ -11,7 +11,9 @@ import {
   isViewed,
   keepKey,
   keptPairing,
+  localReview,
   localRowKey,
+  localSeries,
   markSeen,
   markViewed,
   pullRowKey,
@@ -1018,6 +1020,114 @@ describe("registered local reviews", () => {
       },
       { name: "other", versions: [version("o1", "trunk()..o")] },
     ]);
+  });
+
+  /** Reviews "x" and "other", each with a version marked reviewed, and a
+   *  pairing kept under "x". */
+  const kept = () =>
+    applied(
+      empty,
+      register("x", "o1", "trunk()..x"),
+      register("other", "o1", "trunk()..o"),
+      {
+        kind: "mark-reviewed",
+        series: localSeries("x"),
+        version: "1",
+        at: "t",
+      },
+      {
+        kind: "mark-reviewed",
+        series: localSeries("other"),
+        version: "1",
+        at: "t",
+      },
+      {
+        kind: "set-pairing",
+        series: localSeries("x"),
+        before: "1",
+        after: "2",
+        slots: [],
+      },
+    );
+
+  test("forgets a review without dropping what it kept", () => {
+    // arrange
+    const document = kept();
+
+    // act
+    const forgotten = applied(
+      document,
+      { kind: "forget-review", name: "x", at: "t1" },
+      { kind: "forget-review", name: "x", at: "t2" },
+    );
+
+    // assert
+    expect(
+      forgotten.localReviews.map(({ name, forgottenAt }) => [
+        name,
+        forgottenAt,
+      ]),
+    ).toEqual([
+      ["x", "t1"],
+      ["other", undefined],
+    ]);
+    expect(forgotten.reviewed).toEqual(document.reviewed);
+    expect(forgotten.pairings).toEqual(document.pairings);
+  });
+
+  test("restores a forgotten review as it was", () => {
+    // arrange
+    const document = kept();
+
+    // act
+    const restored = applied(
+      document,
+      { kind: "forget-review", name: "x", at: "t1" },
+      { kind: "restore-review", name: "x" },
+    );
+
+    // assert
+    expect(restored).toEqual(document);
+  });
+
+  test("restores a forgotten review registered again", () => {
+    // arrange
+    const forgotten = applied(kept(), {
+      kind: "forget-review",
+      name: "x",
+      at: "t1",
+    });
+
+    // act
+    const document = applied(forgotten, register("x", "o2", "trunk()..x"));
+
+    // assert
+    expect(localReview(document, "x")).toEqual({
+      name: "x",
+      versions: [version("o1", "trunk()..x"), version("o2", "trunk()..x")],
+    });
+  });
+
+  test("purges reviews forgotten before a time, with what their series kept", () => {
+    // arrange
+    const forgotten = applied(
+      kept(),
+      { kind: "forget-review", name: "x", at: "2026-10-01T00:00:00.000Z" },
+      { kind: "forget-review", name: "other", at: "2026-10-05T00:00:00.000Z" },
+    );
+
+    // act
+    const purged = applied(forgotten, {
+      kind: "purge-forgotten",
+      before: "2026-10-03T00:00:00.000Z",
+    });
+
+    // assert
+    expect(purged.localReviews.map((review) => review.name)).toEqual(["other"]);
+    expect(purged.reviewed.map((version) => version.series)).toEqual([
+      localSeries("other"),
+    ]);
+    expect(purged.pairings).toEqual([]);
   });
 });
 describe("localRowKey", () => {

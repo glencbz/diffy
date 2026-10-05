@@ -111,8 +111,14 @@ export type LocalVersion = z.infer<typeof LocalVersion>;
 export const LocalReview = z.object({
   name: z.string(),
   versions: z.array(LocalVersion),
+  /** When the reader forgot it; it can be restored until it is purged. */
+  forgottenAt: z.string().optional(),
 });
 export type LocalReview = z.infer<typeof LocalReview>;
+
+/** How long a forgotten local review waits to be restored before it is
+ *  purged. */
+export const KEEP_FORGOTTEN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const ReviewDocument = z.object({
   marks: z.array(Mark),
@@ -436,6 +442,13 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     name: z.string().min(1),
     version: LocalVersion,
   }),
+  z.object({
+    kind: z.literal("forget-review"),
+    name: z.string(),
+    at: z.string(),
+  }),
+  z.object({ kind: z.literal("restore-review"), name: z.string() }),
+  z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -543,6 +556,38 @@ export function applyCommand(
           command.version,
         ),
       };
+    case "forget-review":
+      return {
+        ...document,
+        localReviews: document.localReviews.map((review) =>
+          review.name === command.name && review.forgottenAt === undefined
+            ? { ...review, forgottenAt: command.at }
+            : review,
+        ),
+      };
+    case "restore-review":
+      return {
+        ...document,
+        localReviews: document.localReviews.map((review) => {
+          if (review.name !== command.name) return review;
+          const { forgottenAt: _, ...restored } = review;
+          return restored;
+        }),
+      };
+    case "purge-forgotten": {
+      const gone = purgeable(document, command.before);
+      const purged = new Set(gone.map((review) => localSeries(review.name)));
+      return {
+        ...document,
+        localReviews: document.localReviews.filter(
+          (review) => !gone.includes(review),
+        ),
+        reviewed: document.reviewed.filter(
+          (version) => !purged.has(version.series),
+        ),
+        pairings: document.pairings.filter((kept) => !purged.has(kept.series)),
+      };
+    }
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -592,8 +637,18 @@ export function applyCommand(
   }
 }
 
+/** The local reviews forgotten before `before`. */
+export function purgeable(
+  document: ReviewDocument,
+  before: string,
+): LocalReview[] {
+  return document.localReviews.filter(
+    (review) => review.forgottenAt !== undefined && review.forgottenAt < before,
+  );
+}
+
 /** `reviews` with `version` added to the review called `name`, which is
- *  started if there is none. A version read at an operation the review
+ *  started if there is none, or restored if it was forgotten. A version read at an operation the review
  *  already has a version for replaces it, since both describe the same
  *  moment of the repository. */
 function registered(
@@ -662,6 +717,8 @@ export interface ReviewActions {
     after: string,
     slots: KeptPairing["slots"] | null,
   ) => void;
+  forgetReview: (name: string) => void;
+  restoreReview: (name: string) => void;
 }
 
 /** The comparison a row stands for, as a mark names it. */

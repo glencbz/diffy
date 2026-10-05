@@ -66,6 +66,10 @@ The panes are the pull request screen's. The rail returns to the list rather
 than opening it over the review as the pull request screen's sheet does,
 since a phone has no room for both.
 
+Forgetting a review returns to the list when the review was the open one,
+which would otherwise read as not found. It asks nothing first: the review
+waits under the list to be restored until the server purges it.
+
 ```tsx
 //| id: frontend-controller-local-reviews
 //| file: src/frontend/controllers/LocalReviews.tsx
@@ -97,9 +101,15 @@ export function LocalReviews({
     return <Message>Loading local reviews...</Message>;
   }
 
-  const reviews = review.document.localReviews;
-  const open =
+  const reviews = review.document.localReviews.filter(
+    (local) => local.forgottenAt === undefined,
+  );
+  const forgotten = review.document.localReviews.filter(
+    (local) => local.forgottenAt !== undefined,
+  );
+  const found =
     place === null ? undefined : localReview(review.document, place.name);
+  const open = found?.forgottenAt === undefined ? found : undefined;
 
   return (
     <div
@@ -118,9 +128,21 @@ export function LocalReviews({
       <div className="pane pane--list">
         <LocalReviewList
           reviews={reviews}
+          forgotten={forgotten}
           selected={open?.name ?? null}
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
+          }
+          onForget={
+            review.status === "ready"
+              ? (name) => {
+                  review.actions.forgetReview(name);
+                  if (name === place?.name) onGo(null);
+                }
+              : null
+          }
+          onRestore={
+            review.status === "ready" ? review.actions.restoreReview : null
           }
           commits={(version) => (
             <CommitLog
@@ -201,6 +223,9 @@ An entry is its name, how many versions it has, and the newest version's
 revset over that version's commits. The graph comes in through `commits`,
 since loading commits is a controller's job and the list is a view. The
 graph picks nothing, so a click anywhere on the entry opens the review.
+`delete` sits beside the name. Forgotten reviews wait under the list with
+`restore` in its place. Both buttons are left out while the review document
+cannot be written.
 
 ```tsx
 //| id: frontend-view-local-review-list
@@ -210,13 +235,19 @@ import type { LocalReview, LocalVersion } from "../model/review";
 
 export function LocalReviewList({
   reviews,
+  forgotten,
   selected,
   onSelect,
+  onForget,
+  onRestore,
   commits,
 }: {
   reviews: LocalReview[];
+  forgotten: LocalReview[];
   selected: string | null;
   onSelect: (name: string) => void;
+  onForget: ((name: string) => void) | null;
+  onRestore: ((name: string) => void) | null;
   /** The graph of one version's commits. */
   commits: (version: LocalVersion) => ReactNode;
 }) {
@@ -229,25 +260,37 @@ export function LocalReviewList({
             key={review.name}
             className={
               review.name === selected
-                ? "pull-list__item pull-list__item--selected"
-                : "pull-list__item"
+                ? "pull-list__item pull-list__item--selected local-review"
+                : "pull-list__item local-review"
             }
           >
-            <button
-              type="button"
-              onClick={() => onSelect(review.name)}
-              className="local-review__open"
-            >
-              <span className="pull-list__row">
-                <span className="pull-list__number">
-                  v{review.versions.length}
+            <div className="local-review__head">
+              <button
+                type="button"
+                onClick={() => onSelect(review.name)}
+                className="local-review__open"
+              >
+                <span className="pull-list__row">
+                  <span className="pull-list__number">
+                    v{review.versions.length}
+                  </span>
+                  <span className="pull-list__title">{review.name}</span>
                 </span>
-                <span className="pull-list__title">{review.name}</span>
-              </span>
-              {newest !== undefined && (
-                <span className="pull-list__base">{newest.revset}</span>
+                {newest !== undefined && (
+                  <span className="pull-list__base">{newest.revset}</span>
+                )}
+              </button>
+              {onForget !== null && (
+                <button
+                  type="button"
+                  aria-label={`forget the local review ${review.name}`}
+                  onClick={() => onForget(review.name)}
+                  className="local-review__action local-review__action--danger"
+                >
+                  delete
+                </button>
               )}
-            </button>
+            </div>
             {newest !== undefined && (
               // biome-ignore lint/a11y/noStaticElementInteractions: the button above opens the same review for keyboards
               // biome-ignore lint/a11y/useKeyWithClickEvents: the button above opens the same review for keyboards
@@ -261,21 +304,67 @@ export function LocalReviewList({
           </div>
         );
       })}
+      {forgotten.length > 0 && (
+        <>
+          <div className="local-review__deleted">recently deleted</div>
+          {forgotten.map((review) => (
+            <div
+              key={review.name}
+              className="pull-list__item local-review local-review--forgotten"
+            >
+              <div className="local-review__head">
+                <span className="local-review__label">
+                  <span className="pull-list__title">{review.name}</span>
+                  <span className="pull-list__base">
+                    {review.versions.at(-1)?.revset}
+                  </span>
+                </span>
+                {onRestore !== null && (
+                  <button
+                    type="button"
+                    aria-label={`restore the local review ${review.name}`}
+                    onClick={() => onRestore(review.name)}
+                    className="local-review__action"
+                  >
+                    restore
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
 ```
 
 The entry keeps the list's item styling; the button inside it fills the row
-like the item it replaces, and the graph sits flush beneath it.
+like the item it replaces, and the graph sits flush beneath it. The entry is
+a `div` where the pull request list's item is a `button`, so it sets the
+border-box sizing a button has by default, or its padding pushes `delete` past
+the pane's edge. `delete` and `restore` are quiet until hovered, styled like
+the picker row's buttons, and a forgotten entry is drawn faint and opens
+nothing.
 
 ```css
 /*| id: design-local-review-list
 @layer components {
+  .local-review {
+    box-sizing: border-box;
+  }
+
+  .local-review__head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
   .local-review__open {
     display: flex;
     flex-direction: column;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 0;
     font: inherit;
     color: inherit;
@@ -283,6 +372,45 @@ like the item it replaces, and the graph sits flush beneath it.
     cursor: pointer;
     background: transparent;
     border: none;
+  }
+
+  .local-review--forgotten {
+    color: var(--text-faint);
+    cursor: default;
+  }
+
+  .local-review__label {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .local-review__deleted {
+    padding: var(--space-4) var(--space-4) var(--space-2);
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .local-review__action {
+    flex: none;
+    padding: var(--space-1) var(--space-4);
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .local-review__action:hover {
+    color: var(--text);
+    border-color: var(--text-faint);
+  }
+
+  .local-review__action--danger:hover {
+    color: var(--danger);
+    border-color: var(--danger);
   }
 
   .local-review__commits {
