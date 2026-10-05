@@ -32,14 +32,14 @@ Preconditions:
   operation right after the fixture's first commit.
 
 - **Read the picker.** `browser_navigate` to `$URL`, `browser_wait_for` with
-  `text: "fixture: merge the two topics"`, then `browser_snapshot`. Each
-  `combobox "operation"` lists `latest (current)` as `[selected]`, then one
-  option per operation down to `00000000`. The option whose label starts with
+  `text: "fixture: merge the two topics"`, then `browser_click` a column's
+  `combobox "operation"` and `browser_snapshot`. Its `listbox` lists
+  `latest (current)` as `[selected]`, then one option per operation down to
+  `00000000`. The option whose label starts with
   the first eight characters of `$OP` is the travel target.
-- **Travel one column.** `browser_select_option` with
-  `target: '.pane:has(h2:text-is("before")) select'` and `values: ["$OP"]`, the
-  full id, because the option's value is the full id while its label is the
-  short one. Then `browser_wait_for` with `text: "fixture: add the notes file"`.
+- **Travel one column.** With the `before` column's list open,
+  `browser_click` the `option` whose name starts with the first eight
+  characters of `$OP`. Then `browser_wait_for` with `text: "fixture: add the notes file"`.
 - **Confirm the log shrank.** The `before` column now lists three rows: an
   undescribed working copy carrying `@` and `(empty)`, `fixture: add the notes
   file`, and the root. Nothing about sidecars, the extension or the merge is
@@ -52,8 +52,8 @@ Preconditions:
   pane shows only the `after` column's commits.
 - **Confirm against the API.** `curl -fsS "$URL/api/log?op=$OP"` returns the
   same three entries in the same order.
-- **Return to the present.** `browser_select_option` with
-  `values: ["latest (current)"]`, then `browser_wait_for` with
+- **Return to the present.** Open the picker again and `browser_click` the
+  `option` named `latest (current)`, then `browser_wait_for` with
   `text: "fixture: merge the two topics"`.
 - **Proof.** A snapshot and an unnamed screenshot at the travelled state,
   showing one column's selected option and its shortened log beside the other

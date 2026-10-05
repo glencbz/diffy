@@ -411,10 +411,29 @@ The picker row also holds the [newer operation](#newer-operation) notice and
 the interdiff toggle as `children`, so nothing comes and goes between picker
 and graph to push one side's graph out of line with the other.
 
+The picker is a listbox drawn by the app rather than a native `<select>`. A
+browser draws a select's options in a menu of its own, as wide as the longest
+operation description and in the system font, so it spills past the column
+it belongs to. The list here opens beneath the picker row and spans it, so it
+is as wide as the column. The field alone would be too narrow, since the row's
+buttons take most of a narrow column. Each option cuts its description to one line between the operation id and
+when it ran, and keeps the full label as its title and accessible name.
+
+Opening the list puts focus on it with the current pick active. The arrow
+keys, Home and End move the active option, Enter or Space picks it, and
+Escape or a click outside closes the list without picking.
+
 ```tsx
 //| id: frontend-view-operation-picker
 //| file: src/frontend/views/OperationPicker.tsx
-import type { ReactNode } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import type { OpLogEntry } from "../model/history";
 
 export function OperationPicker({
@@ -426,28 +445,167 @@ export function OperationPicker({
   operations: OpLogEntry[];
   selected: string | null;
   onSelect: (operationId: string | null) => void;
-  /** Controls that sit on the picker's row after the select. */
+  /** Controls that sit on the picker's row after the field. */
   children?: ReactNode;
 }) {
+  const id = useId();
+  const list = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const choices: (string | null)[] = [null, ...operations.map((op) => op.id)];
+  const at = Math.max(0, choices.indexOf(selected));
+  const [active, setActive] = useState(at);
+  const current = operations.find((operation) => operation.id === selected);
+
+  useEffect(() => {
+    if (!open) return;
+    list.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    document
+      .getElementById(`${id}-${active}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [open, active, id]);
+
+  const show = () => {
+    setActive(at);
+    setOpen(true);
+  };
+  const pick = (index: number) => {
+    setOpen(false);
+    const choice = choices[index];
+    if (choice !== undefined && choice !== selected) onSelect(choice);
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    const last = choices.length - 1;
+    const moves: Record<string, number> = {
+      ArrowDown: Math.min(active + 1, last),
+      ArrowUp: Math.max(active - 1, 0),
+      Home: 0,
+      End: last,
+    };
+    const move = moves[event.key];
+    if (move !== undefined) setActive(move);
+    else if (event.key === "Enter" || event.key === " ") pick(active);
+    else if (event.key === "Escape") setOpen(false);
+    else return;
+    event.preventDefault();
+  };
+
   return (
     <div className="operation-picker">
-      <label className="operation-picker__field">
-        <span className="operation-picker__label">operation</span>
-        <select
-          value={selected ?? ""}
-          onChange={(event) => onSelect(event.target.value || null)}
-          className="operation-picker__select"
+      <div className="operation-picker__field">
+        <span className="operation-picker__label" id={`${id}-label`}>
+          operation
+        </span>
+        <button
+          type="button"
+          role="combobox"
+          aria-labelledby={`${id}-label`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={`${id}-list`}
+          title={current === undefined ? undefined : optionLabel(current)}
+          onClick={() => (open ? setOpen(false) : show())}
+          className="operation-picker__trigger"
         >
-          <option value="">latest (current)</option>
-          {operations.map((operation) => (
-            <option key={operation.id} value={operation.id}>
-              {optionLabel(operation)}
-            </option>
-          ))}
-        </select>
-      </label>
+          {current === undefined ? (
+            <OptionText what="latest (current)" />
+          ) : (
+            <OperationText operation={current} />
+          )}
+        </button>
+        {open && (
+          <>
+            <button
+              type="button"
+              aria-label="close the operation list"
+              tabIndex={-1}
+              onClick={() => setOpen(false)}
+              className="operation-picker__scrim"
+            />
+            <div
+              ref={list}
+              id={`${id}-list`}
+              role="listbox"
+              aria-labelledby={`${id}-label`}
+              aria-activedescendant={`${id}-${active}`}
+              tabIndex={-1}
+              onKeyDown={onKeyDown}
+              className="operation-picker__list"
+            >
+              {choices.map((choice, index) => {
+                const operation = operations[index - 1];
+                return (
+                  // biome-ignore lint/a11y/useKeyWithClickEvents: the listbox handles keys for its options
+                  <div
+                    key={choice ?? ""}
+                    id={`${id}-${index}`}
+                    role="option"
+                    aria-selected={choice === selected}
+                    tabIndex={-1}
+                    title={
+                      operation === undefined
+                        ? undefined
+                        : optionLabel(operation)
+                    }
+                    aria-label={
+                      operation === undefined
+                        ? undefined
+                        : optionLabel(operation)
+                    }
+                    onClick={() => pick(index)}
+                    onMouseMove={() => setActive(index)}
+                    className={
+                      index === active
+                        ? "operation-picker__option operation-picker__option--active"
+                        : "operation-picker__option"
+                    }
+                  >
+                    {operation === undefined ? (
+                      <OptionText what="latest (current)" />
+                    ) : (
+                      <OperationText operation={operation} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
       {children}
     </div>
+  );
+}
+
+function OperationText({ operation }: { operation: OpLogEntry }) {
+  return (
+    <OptionText
+      id={operation.id.slice(0, 8)}
+      what={operation.description || operation.args}
+      when={operation.time.slice(5, 16).replace("T", " ")}
+    />
+  );
+}
+
+function OptionText({
+  id,
+  what,
+  when,
+}: {
+  id?: string;
+  what: string;
+  when?: string;
+}) {
+  return (
+    <>
+      {id !== undefined && <span className="operation-picker__id">{id}</span>}
+      <span className="operation-picker__what">{what}</span>
+      {when !== undefined && (
+        <span className="operation-picker__when">{when}</span>
+      )}
+    </>
   );
 }
 
@@ -459,13 +617,15 @@ export function optionLabel(operation: OpLogEntry): string {
 ```
 
 Every control on the row is `2em` tall, so a row with a button is as tall as
-one without. `min-width: 0` holds the select to its row, since a described
-operation is wider than any pane; the cut text is a tap from being read.
+one without. `min-width: 0` holds the field to its row, since a described
+operation is wider than any pane. The list hangs from the row, so its width is
+the column's, and it scrolls past half the window's height.
 
 ```css
 /*| id: design-operation-picker
 @layer components {
   .operation-picker {
+    position: relative;
     display: flex;
     flex: none;
     align-items: center;
@@ -486,11 +646,88 @@ operation is wider than any pane; the cut text is a tap from being read.
     color: var(--text-faint);
   }
 
-  .operation-picker__select {
+  .operation-picker__trigger {
+    display: flex;
     flex: 1;
+    align-items: center;
+    gap: var(--space-4);
     min-width: 0;
     height: 2em;
+    padding: 0 var(--space-4);
     font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .operation-picker__trigger::after {
+    flex: none;
+    margin-left: auto;
+    color: var(--text-faint);
+    content: "▾";
+  }
+
+  .operation-picker__trigger:hover,
+  .operation-picker__trigger[aria-expanded="true"] {
+    border-color: var(--accent);
+  }
+
+  .operation-picker__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+  }
+
+  .operation-picker__list {
+    position: absolute;
+    z-index: 4;
+    top: calc(100% - var(--space-2));
+    right: var(--space-4);
+    left: var(--space-4);
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: var(--space-2) 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+    outline: none;
+  }
+
+  .operation-picker__option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+  }
+
+  .operation-picker__option--active {
+    background: var(--surface-sunken);
+  }
+
+  .operation-picker__option[aria-selected="true"] {
+    background: var(--surface-selected);
+  }
+
+  .operation-picker__id,
+  .operation-picker__when {
+    flex: none;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .operation-picker__what {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }
 ```
@@ -500,10 +737,20 @@ operation is wider than any pane; the cut text is a tap from being read.
 @layer components-narrow {
   /* The app's 44px touch target, on every control so the row stays even. */
   @media (max-width: 1000px) {
-    .operation-picker__select,
+    .operation-picker__trigger,
     .newer-operation,
     .interdiff-toggle {
       height: 44px;
+    }
+
+    .operation-picker__option {
+      min-height: 44px;
+      box-sizing: border-box;
+    }
+
+    /* The time is the first thing to go on a phone; the title keeps it. */
+    .operation-picker__when {
+      display: none;
     }
   }
 }

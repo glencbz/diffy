@@ -716,6 +716,7 @@
 /* ~/~ begin <<docs/architecture/frontend/local-history.md#design-operation-picker>>[init] */
 @layer components {
   .operation-picker {
+    position: relative;
     display: flex;
     flex: none;
     align-items: center;
@@ -736,11 +737,88 @@
     color: var(--text-faint);
   }
 
-  .operation-picker__select {
+  .operation-picker__trigger {
+    display: flex;
     flex: 1;
+    align-items: center;
+    gap: var(--space-4);
     min-width: 0;
     height: 2em;
+    padding: 0 var(--space-4);
     font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .operation-picker__trigger::after {
+    flex: none;
+    margin-left: auto;
+    color: var(--text-faint);
+    content: "▾";
+  }
+
+  .operation-picker__trigger:hover,
+  .operation-picker__trigger[aria-expanded="true"] {
+    border-color: var(--accent);
+  }
+
+  .operation-picker__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+  }
+
+  .operation-picker__list {
+    position: absolute;
+    z-index: 4;
+    top: calc(100% - var(--space-2));
+    right: var(--space-4);
+    left: var(--space-4);
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: var(--space-2) 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+    outline: none;
+  }
+
+  .operation-picker__option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+  }
+
+  .operation-picker__option--active {
+    background: var(--surface-sunken);
+  }
+
+  .operation-picker__option[aria-selected="true"] {
+    background: var(--surface-selected);
+  }
+
+  .operation-picker__id,
+  .operation-picker__when {
+    flex: none;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .operation-picker__what {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }
 /* ~/~ end */
@@ -748,10 +826,20 @@
 @layer components-narrow {
   /* The app's 44px touch target, on every control so the row stays even. */
   @media (max-width: 1000px) {
-    .operation-picker__select,
+    .operation-picker__trigger,
     .newer-operation,
     .interdiff-toggle {
       height: 44px;
+    }
+
+    .operation-picker__option {
+      min-height: 44px;
+      box-sizing: border-box;
+    }
+
+    /* The time is the first thing to go on a phone; the title keeps it. */
+    .operation-picker__when {
+      display: none;
     }
   }
 }
