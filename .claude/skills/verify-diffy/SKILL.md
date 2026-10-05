@@ -94,8 +94,11 @@ Point it at the URL from `verify.sh url`, then work from an ARIA snapshot:
 - `browser_snapshot` for the ARIA tree, or read the `.yml` file that every tool
   result links.
 - `browser_click` with `target` as a snapshot `ref` or a selector.
-- `browser_select_option` with the full operation id as the value, scoped to
-  one column: each of `before` and `after` owns an `operation` combobox.
+- An operation picker is an app-drawn listbox, not a `<select>`, so
+  `browser_select_option` does not reach it. `browser_click` the
+  `combobox "operation"`, then the `option` whose name starts with the first
+  eight characters of the operation id, scoped to one column: each of
+  `before` and `after` owns an `operation` combobox.
 
 Stable handles in this UI:
 
@@ -105,7 +108,7 @@ Stable handles in this UI:
 | A commit row | `button` whose name is the whole `jj log` line, so match a fragment: `button:has-text("fixture: extend the notes file")` |
 | The root commit row | `button` named `zzzzzzzz 1970-01-01 00:00:00 00000000 (empty) (no description)` |
 | A merge row | commit row whose lane circle is hollow; confirm merges through `parents` in `/api/log` |
-| An operation picker | `combobox "operation"` inside a column, options labelled `<opId8>  <what>  <when>` |
+| An operation picker | `combobox "operation"` inside a column; once clicked open, a `listbox` of `option`s named `<opId8>  <what>  <when>` |
 | A comparison section | `section` holding a `.comparison-header` and its files |
 | A diff file header | a fold `button` named `added sidecar.txt`, `[expanded]` when open |
 | A file's diff view | `group "Diff view"` holding `button "structural"` and `button "lines"` |
