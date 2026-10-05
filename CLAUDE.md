@@ -7,7 +7,7 @@ alwaysApply: false
 Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
+- Use `bun:test` instead of `jest` or `vitest`, and run it through `just test`
 - Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
 - Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
 - Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
@@ -26,89 +26,21 @@ Default to using Bun instead of Node.js.
 
 ## Testing
 
-Use `bun test` to run tests.
+Run tests with `just test`. It runs `bun test` inside the pinned `nix`
+runtime, which puts difftastic on the `PATH`; a bare `bun test` fails the
+difftastic tests. Write tests with `bun:test`.
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+## Code
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
+The `justfile` and everything under `src/` are tangled from fenced blocks in
+`docs/**/*.md`. Change the doc and tangle; see the `entangled` skill.
 
 ## Frontend
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
-
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+`src/server.ts` serves `src/frontend/index.html` as an HTML import, and Bun
+bundles the React app it loads. Don't use `vite`. `just run` starts the app in
+Bun's dev mode; `just serve` starts it in production mode for review. For
+more, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
 
 ## Docs
 

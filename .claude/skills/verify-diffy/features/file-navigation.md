@@ -15,10 +15,12 @@ section and opens a filterable list of them.
 - `files-navigator` appears above the pane once the whole comparison spans two
   or more files. `Previous file` and `Next file` step through them, and
   `Show changed files` reads `<n> / <total>` and the current path, which
-  follows the reader's scrolling.
+  follows the reader's scrolling. With more than one section it also names
+  the current file's change id, `1 / 3 lquyvsnk sidecar.txt`.
 - `files-sheet` is what `Show changed files` opens: a `Changed files` dialog
-  with a `Filter files` textbox over the same tree, grouped by section when
-  there is more than one. Picking a file scrolls to it and closes the dialog.
+  with a `Filter files` textbox over the same tree, grouped under a button
+  per section's commit when there is more than one. Picking a file scrolls
+  to it and closes the dialog.
 - `files-narrow` moves the navigator to a bar along the bottom of the screen
   in the [narrow layout](./narrow-layout.md).
 
@@ -32,8 +34,8 @@ Preconditions:
 
 - `verify.sh doctor` reports `OK`.
 
-- **Summary.** Click `fixture: edit the long file and the script` in the
-  `after` column and wait for `greet.js`. The `Files changed` region reads
+- **Summary.** Click `fixture: edit the long file and the script` and wait
+  for `greet.js`. The `Files changed` region reads
   `3 files`, `+3`, `−4`, and lists `D bun.lock −1`, `M greet.js +1 −1` and
   `M long.txt +2 −2`.
 - **Navigator.** `Show changed files` reads `1 / 3` and `bun.lock`. Click

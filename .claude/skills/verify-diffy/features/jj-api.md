@@ -2,7 +2,8 @@
 
 The Bun server answers the page's jj-backed calls. Each shells out to `jj` in
 the server's working directory and returns JSON; a revset or operation jj
-refuses becomes a 400 carrying jj's own message.
+refuses becomes a 400 carrying jj's own message. The review store's routes sit
+beside them, and so do the routes the Local reviews screen reads.
 
 ## Sub-features
 
@@ -28,12 +29,23 @@ refuses becomes a 400 carrying jj's own message.
   asks it for both sides of every text file it draws.
 - `api-error` turns a jj failure into HTTP 400 with `{"error": "..."}` for every
   jj-backed route.
+- `api-review` returns `GET /api/review` as `{revision, document}`, the whole
+  review document, and takes one command per `POST /api/review`, answering
+  the new snapshot or a 400 for a command it cannot parse.
+  `/api/review/changes` upgrades to the WebSocket that tells open pages a
+  change landed, and answers a plain request with a 400.
+- `api-local` covers `POST /api/local/reviews` with `{name, revset,
+  operation}`, each optional, which registers a local review version and
+  answers `{name, snapshot}`, plus `GET /api/local/commits`, `/api/local/diff`
+  and `/api/local/size`, which the Local reviews screen reads; see
+  [local reviews](./local-reviews.md).
 
 ## How to get to it (user POV)
 
-- The page calls `/api/log`, `/api/operations`, `/api/interdiff` and
-  `/api/source`; a user
-  reaches them only through the UI.
+- The Operations screen calls `/api/log`, `/api/operations`, `/api/interdiff`
+  and `/api/source`, every screen reads and writes `/api/review`, and the
+  Local reviews screen calls `/api/local/*`. A user reaches them only through
+  the UI.
 - A developer or script can call them directly with `curl` against `$URL`.
 
 ## Driving it with Playwright MCP
@@ -72,6 +84,9 @@ Preconditions:
   prints `400`, and the body is
   `{"error":"Error: Revision \`nope-no-such\` doesn't exist"}`. The same holds
   for `/api/log?op=` with an unknown operation id.
+- **Review store.** `curl -fsS "$URL/api/review"` on a fresh fixture returns
+  `revision: 0` and a document whose lists are all empty. After a drive it
+  holds what the UI wrote.
 - **In the browser.** `browser_network_requests` after a drive lists the page's
   own calls with their status codes; use it to prove the UI actually fetched
   rather than rendering stale state.

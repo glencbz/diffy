@@ -7,9 +7,11 @@ description: Drive diffy's web UI (React commit graphs, comparison pane, operati
 
 diffy is a jj-backed code review UI: a Bun server answers the page's `/api/*`
 calls by shelling out to `jj` in its own working directory, and serves a React
-single page that renders a commit graph twice, `before` and `after`, and the
-diff between the commit picked on each side, with a settings tab and a
-one-pane layout for narrow screens. The same app also reviews GitHub pull
+single page. Its landing screen, `Operations`, draws the repo's commit graph
+beside the diff of the commits ticked in it, and can split the graph in two to
+interdiff one operation against another. `Local reviews` reads series
+registered for review, review state lives in a server-side store, and narrow
+screens get one pane at a time. The same app also reviews GitHub pull
 requests, a mode this harness does not reach; see the scope note in
 `features/README.md`.
 
@@ -97,28 +99,32 @@ Point it at the URL from `verify.sh url`, then work from an ARIA snapshot:
 - An operation picker is an app-drawn listbox, not a `<select>`, so
   `browser_select_option` does not reach it. `browser_click` the
   `combobox "operation"`, then the `option` whose name starts with the first
-  eight characters of the operation id, scoped to one column: each of
-  `before` and `after` owns an `operation` combobox.
+  eight characters of the operation id, `role=option[name=/^<opId8>/]`. With
+  the interdiff open, scope both clicks to one column: each of `before` and
+  `after` owns an `operation` combobox.
 
 Stable handles in this UI:
 
 | What | Handle |
 | --- | --- |
-| One column | `.pane:has(h2:text-is("before"))`, or `"after"` |
+| The graph | `.pane:has(h2:text-is("commits"))`; with the interdiff open, `"before"` or `"after"` |
 | A commit row | `button` whose name is the whole `jj log` line, so match a fragment: `button:has-text("fixture: extend the notes file")` |
 | The root commit row | `button` named `zzzzzzzz 1970-01-01 00:00:00 00000000 (empty) (no description)` |
 | A merge row | commit row whose lane circle is hollow; confirm merges through `parents` in `/api/log` |
-| An operation picker | `combobox "operation"` inside a column; once clicked open, a `listbox` of `option`s named `<opId8>  <what>  <when>` |
+| An operation picker | `combobox "operation"` inside a column; once clicked open, a `listbox "operation"` of `option`s named `<opId8> <what> <yyyy-mm-dd hh:mm:ss>`, and a `close the operation list` button |
+| Picker row toggles | `button "register the ticked commits as a local review"` (`review`), `button "interdiff against another operation"`, `close` |
 | A comparison section | `section` holding a `.comparison-header` and its files |
 | A diff file header | a fold `button` named `added sidecar.txt`, `[expanded]` when open |
 | A file's diff view | `group "Diff view"` holding `button "structural"` and `button "lines"` |
 | A context gap | `button` named `⋯ show N unchanged lines` |
-| A commentable line | `.diff-line--interactive`, a `button` named `<afterLine> <text>` |
+| A commentable line | `.diff-line--interactive`, a `button` named `<afterLine> <text>`, or `-<text>` for a removal |
+| Viewed | `checkbox "Viewed"` in each file header |
 | File summary | `region "Files changed"`, rows named `<status letter> <path> <counts>` |
 | File navigator | `button "Previous file"`, `"Show changed files"`, `"Next file"`; `dialog "Changed files"` |
-| Top tabs | `nav button:text-is("Settings")`, or `"Local history"`, `"Pull requests"` |
-| Narrow pane tabs | `button "before <what it holds>"`, `"after ..."`, `"diff"`, below 1000px |
-| Empty states | `Select commits on either side to compare them.`, `No changes in this commit.`, `Both commits make the same change.` |
+| Top tabs | `nav button:text-is("Operations")`, or `"Local reviews"`, `"Pull requests"`, `"Settings"` |
+| Narrow pane tabs | `button "commits <what it holds>"` (or `before`/`after` with the interdiff open), `"diff"`, below 1000px |
+| Local reviews | `button "show the local review list"`, `combobox "from"`, `combobox "to"`, list entries `v<n> <name> <revset>` |
+| Empty states | `Select commits to see their diff.`, `No changes in this commit.`, `Both commits make the same change.`, `Select a local review to read it.` |
 
 The API is a legitimate second view for proving a side effect, never a substitute
 for driving the UI:
@@ -127,6 +133,7 @@ for driving the UI:
 curl -fsS "$URL/api/log"
 curl -fsS "$URL/api/interdiff?from=<commitId>&to=<commitId>"
 curl -fsS "$URL/api/log?op=$(cat /tmp/diffy-verify/default/early-op)"
+curl -fsS "$URL/api/review"
 ```
 
 ## Evidence
