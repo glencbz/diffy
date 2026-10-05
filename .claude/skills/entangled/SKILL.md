@@ -83,3 +83,24 @@ alternatives in the doc, single-site reasons as comments in the block.
 - `entangled reset` rewrites the file database as if a tangle had just run,
   without touching files — only use it if the db and files have gotten
   confused (e.g. after manual file surgery), not as a routine command.
+- `.entangled/filedb.json` is gitignored, so it describes whatever commit
+  this checkout last tangled at. In a fresh workspace, or after `jj new` /
+  `jj edit` onto another commit of a stack, `sync` stops with `conflicts
+  found` or tangle crashes with `FileNotFoundError`. Rebuild it from the docs
+  on disk: `rm -f .entangled/filedb.json && uv run entangled tangle --force`.
+  The `WARNING conflicts found, but continuing anyway` line is harmless once
+  `tangle -s` shows no drift.
+- When a `file:` block moves or goes away, leave the old generated file on
+  disk and tangle; it logs `delete <path>` itself. Removing the file by hand
+  first makes tangle crash on the path its database still lists. Recover
+  with `jj restore <path>` and tangle again.
+- `<<id>>` resolves across documents, so a root block can gather fragments
+  from the whole docs tree. Appending to one id from several documents
+  concatenates the pieces in document path order, so keep an appended id
+  inside one document.
+- A referenced block is indented to match its `<<ref>>`, blank lines too, so
+  an indented reference emits trailing whitespace that biome rejects. Put a
+  wrapper (`@layer`, a namespace) inside each block rather than around the
+  references.
+- To prove a docs reshuffle changed no code, tangle from a clean file
+  database and diff every output with the `~/~` marker lines stripped.
