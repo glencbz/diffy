@@ -252,6 +252,7 @@ latest head is marked.
 import {
   type SeriesBaseline,
   type SeriesVersion,
+  type VersionMark,
   versionName,
 } from "../model/series";
 
@@ -260,22 +261,19 @@ export function LastReviewed({
   reviewed,
   from,
   to,
-  toMarked,
+  mark,
   wholeLabel,
-  onMark,
   onWhole,
 }: {
   versions: SeriesVersion[];
   reviewed: string | null;
   from: SeriesBaseline;
   to: string;
-  /** Whether the reader has marked the after version reviewed. */
-  toMarked: boolean;
+  /** The after version's mark. */
+  mark: VersionMark;
   /** What reading the newest version whole is called: `the whole pull
    *  request`. */
   wholeLabel: string;
-  /** Null when there is no review document to write to. */
-  onMark: (() => void) | null;
   onWhole: () => void;
 }) {
   const known = versions.find((version) => version.id === reviewed);
@@ -307,20 +305,32 @@ export function LastReviewed({
           lists, so it opens whole.
         </p>
       ) : null}
-      {(toMarked || onMark !== null) && (
+      <MarkButton mark={mark} name={versionName(versions, to)} />
+    </div>
+  );
+}
+
+function MarkButton({ mark, name }: { mark: VersionMark; name: string }) {
+  switch (mark.kind) {
+    case "marked":
+      return (
+        <button type="button" className="last-reviewed__action" disabled>
+          {`Reviewed at ${name}`}
+        </button>
+      );
+    case "unmarked":
+      return (
         <button
           type="button"
           className="last-reviewed__action"
-          onClick={onMark ?? undefined}
-          disabled={toMarked}
+          onClick={mark.onMark}
         >
-          {toMarked
-            ? `Reviewed at ${versionName(versions, to)}`
-            : `Mark reviewed at ${versionName(versions, to)}`}
+          {`Mark reviewed at ${name}`}
         </button>
-      )}
-    </div>
-  );
+      );
+    case "unavailable":
+      return null;
+  }
 }
 ```
 
@@ -993,16 +1003,20 @@ export function SeriesReview({
             reviewed={reviewed}
             from={from}
             to={to}
-            toMarked={marked.some((mark) => mark.version === to)}
-            wholeLabel={`the ${screen.wholeLabel}`}
-            onMark={
-              review.status === "ready"
-                ? () => {
-                    review.actions.markReviewed(series, to);
-                    onGo({ ...place, to });
-                  }
-                : null
+            mark={
+              marked.some((mark) => mark.version === to)
+                ? { kind: "marked" }
+                : review.status === "ready"
+                  ? {
+                      kind: "unmarked",
+                      onMark: () => {
+                        review.actions.markReviewed(series, to);
+                        onGo({ ...place, to });
+                      },
+                    }
+                  : { kind: "unavailable" }
             }
+            wholeLabel={`the ${screen.wholeLabel}`}
             onWhole={() =>
               onGo({ from: { kind: "base" }, to: newest, spot: null })
             }

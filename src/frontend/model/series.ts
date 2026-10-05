@@ -68,6 +68,15 @@ export function localHistory(review: LocalReview): SeriesHistory {
   };
 }
 
+/** Where the version a comparison ends on stands on being marked reviewed.
+ *  A version already marked shows so whether or not a mark could be
+ *  written; one not yet marked offers the mark only with a review document
+ *  to record it in. */
+export type VersionMark =
+  | { kind: "marked" }
+  | { kind: "unmarked"; onMark: () => void }
+  | { kind: "unavailable" };
+
 /** `v3`, or the id cut short when the history does not list it. */
 export function versionName(versions: SeriesVersion[], id: string): string {
   const version = versions.find((candidate) => candidate.id === id);

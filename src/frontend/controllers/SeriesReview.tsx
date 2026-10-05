@@ -343,16 +343,20 @@ export function SeriesReview({
             reviewed={reviewed}
             from={from}
             to={to}
-            toMarked={marked.some((mark) => mark.version === to)}
-            wholeLabel={`the ${screen.wholeLabel}`}
-            onMark={
-              review.status === "ready"
-                ? () => {
-                    review.actions.markReviewed(series, to);
-                    onGo({ ...place, to });
-                  }
-                : null
+            mark={
+              marked.some((mark) => mark.version === to)
+                ? { kind: "marked" }
+                : review.status === "ready"
+                  ? {
+                      kind: "unmarked",
+                      onMark: () => {
+                        review.actions.markReviewed(series, to);
+                        onGo({ ...place, to });
+                      },
+                    }
+                  : { kind: "unavailable" }
             }
+            wholeLabel={`the ${screen.wholeLabel}`}
             onWhole={() =>
               onGo({ from: { kind: "base" }, to: newest, spot: null })
             }
