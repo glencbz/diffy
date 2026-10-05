@@ -4,7 +4,7 @@ import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
+import type { Anchor, RowComment } from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -18,8 +18,8 @@ import {
   sidesOf,
   structuralBody,
 } from "./drawnLines";
-import { fileLinks, follow } from "./links";
-import { EmptyCell, PatchLine } from "./PatchLine";
+import { type FileLinks, fileLinks, follow } from "./links";
+import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
 
 /** What a file is drawn for: to be read, or to be reviewed. */
 export type FileRowVariant = PlainDiffFileRow | ReviewFileRow;
@@ -92,8 +92,12 @@ export function FileRow({
   const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const open = opened ?? (isSelected || startsOpen(variant, reason));
-  const parts = partsOf(variant, path, open, setOpened);
-  const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
+  const parts = partsOf(variant, path, links, open, setOpened);
+  const content: FileContent = !open
+    ? { kind: "folded" }
+    : file.binary
+      ? { kind: "binary" }
+      : { kind: "text", lines: drawnLines(body, sides, shown) };
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -118,8 +122,8 @@ export function FileRow({
         key={key}
         line={line}
         side={side}
-        onOpenComposer={parts.onOpenComposer}
-        links={links}
+        action={parts.lineAction}
+        selected={links?.selected?.line ?? null}
       />
     );
   const cell = (line: DrawnLine | null, key: number, side: Side) =>
@@ -162,7 +166,7 @@ export function FileRow({
           </a>
         )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
-        {open && !file.binary && (
+        {content.kind === "text" && (
           <DiffModeSwitch
             mode={mode}
             unavailable={
@@ -176,11 +180,11 @@ export function FileRow({
         {parts.controls}
       </header>
       {parts.aboveBody}
-      {!open ? null : file.binary ? (
+      {content.kind === "folded" ? null : content.kind === "binary" ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : split ? (
         <pre className="diff-file__patch diff-file__patch--split">
-          {splitRows(lines).flatMap((row, index) =>
+          {splitRows(content.lines).flatMap((row, index) =>
             row.kind === "across"
               ? [drawn(row.line, 2 * index)]
               : [
@@ -191,13 +195,20 @@ export function FileRow({
         </pre>
       ) : (
         <pre className="diff-file__patch">
-          {lines.map((line, index) => drawn(line, index))}
+          {content.lines.map((line, index) => drawn(line, index))}
         </pre>
       )}
       {parts.belowBody}
     </section>
   );
 }
+
+/** What a file draws under its header. Only text has lines to draw or a
+ *  view to draw them in. */
+type FileContent =
+  | { kind: "folded" }
+  | { kind: "binary" }
+  | { kind: "text"; lines: DrawnLine[] };
 
 /** Whether a file is open until the reader folds it, when the address does
  *  not name it. */
@@ -214,8 +225,7 @@ function startsOpen(variant: FileRowVariant, reason: string | null): boolean {
 
 /** What a variant adds to the file a plain diff draws. */
 interface VariantParts {
-  /** Opens the composer on a line. A plain diff's lines are static. */
-  onOpenComposer?: (at: LineAnchor) => void;
+  lineAction: LineAction;
   /** Controls at the end of the header. */
   controls: ReactNode;
   aboveBody: ReactNode;
@@ -225,16 +235,26 @@ interface VariantParts {
 function partsOf(
   variant: FileRowVariant,
   path: string,
+  links: FileLinks | undefined,
   open: boolean,
   setOpened: (opened: boolean) => void,
 ): VariantParts {
   switch (variant.kind) {
     case "plain-diff":
-      return { controls: null, aboveBody: null, belowBody: null };
+      return {
+        lineAction:
+          links === undefined ? { kind: "none" } : { kind: "link", links },
+        controls: null,
+        aboveBody: null,
+        belowBody: null,
+      };
     case "review":
       return {
-        onOpenComposer: (at) =>
-          variant.onOpenComposer({ kind: "line", path, ...at }),
+        lineAction: {
+          kind: "comment",
+          onOpenComposer: (at) =>
+            variant.onOpenComposer({ kind: "line", path, ...at }),
+        },
         controls: (
           <>
             {open && (
