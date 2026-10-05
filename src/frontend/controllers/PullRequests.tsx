@@ -1,12 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-pull-requests>>[init]
 import { useState } from "react";
-import { openPull, type PullPlace } from "../model/place";
+import { openPull, type PullChoice, type PullPlace } from "../model/place";
 import type { PullSummary } from "../model/pull";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
-import { PullList } from "../views/PullList";
-import { type PullChoice, PullPanes } from "../views/PullPanes";
+import { PullPanes } from "../views/PullPanes/PullPanes";
 import { PullReview } from "./PullReview";
 
 export function PullRequests({
@@ -36,16 +35,11 @@ export function PullRequests({
       choice={choice}
       onOpen={() => setSheetOver(place?.number ?? null)}
       onDismiss={() => setSheetOver(null)}
-      list={
-        <PullList
-          pulls={pulls.data.pulls}
-          selected={choice.phase === "browsing" ? null : choice.pull.number}
-          onSelect={(number) => {
-            setSheetOver(null);
-            onGo(number === place?.number ? place : openPull(number));
-          }}
-        />
-      }
+      pulls={pulls.data.pulls}
+      onSelect={(number) => {
+        setSheetOver(null);
+        onGo(number === place?.number ? place : openPull(number));
+      }}
       review={
         choice.phase === "browsing" || place === null ? (
           <Message>Select a pull request to review it.</Message>

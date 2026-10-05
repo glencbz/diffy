@@ -32,6 +32,7 @@ rule for a version id: a head oid, or a number.
 //| id: frontend-model-place
 //| file: src/frontend/model/place.ts
 import { GitOid } from "./history";
+import type { PullSummary } from "./pull";
 import type { SeriesBaseline } from "./series";
 
 export type Place =
@@ -65,12 +66,28 @@ export interface CommitSpot {
   file: FileSpot | null;
 }
 
+/** What the pull request screen shows for a place: the list alone, a pull
+ *  request under review, or the list held over one as a sheet. */
+export type PullChoice =
+  | { phase: "browsing" }
+  | { phase: "reviewing"; pull: PullSummary }
+  | { phase: "picking"; pull: PullSummary };
+
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {
   path: string;
   /** An after-side line number, the one the gutter shows. A removed line has
    *  none, so it cannot be linked, as it cannot be commented on. */
   line: number | null;
+}
+
+/** Where the files and lines of a diff link to, for a diff whose place is
+ *  kept in the address. */
+export interface DiffLinks {
+  /** The file or line the address names, when it is in this diff. */
+  selected: FileSpot | null;
+  href: (spot: FileSpot) => string;
+  onFollow: (spot: FileSpot) => void;
 }
 
 const OPENED: SeriesPlace = { from: { kind: "base" }, to: null, spot: null };

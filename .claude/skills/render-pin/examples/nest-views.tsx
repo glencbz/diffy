@@ -1,6 +1,6 @@
 // The pin for PR #90, which nested DiffView and the pull request views and
-// gave PullPanes and PullReviewPanes data in place of their list and header
-// slots. Its `from` pairs name each view's path before and after.
+// gave PullPanes the pulls in place of its list slot. Its `from` pairs name
+// each view's path before and after.
 import type { Pin } from "./pin";
 
 const VIEWS = "src/frontend/views";
@@ -17,10 +17,10 @@ export default async function cases({ side, from, render }: Pin) {
     "PullReviewPanes/PullReviewPanes",
   );
   const { PullList } = await v("PullList", "PullPanes/PullList");
-  const { PullHeader } = await v("PullHeader", "PullReviewPanes/PullHeader");
-  const { PullComparisonPicker } = await v(
-    "PullComparisonPicker",
-    "PullComparisonPicker",
+  const { PullHeader } = await v("PullHeader", "PullHeader");
+  const { SeriesComparisonPicker } = await v(
+    "SeriesComparisonPicker",
+    "SeriesComparisonPicker",
   );
   const { PullStateChip } = await v("PullStateChip", "PullStateChip");
 
@@ -254,9 +254,7 @@ export default async function cases({ side, from, render }: Pin) {
     r(
       `review panes ${JSON.stringify(position)} ${size}`,
       <PullReviewPanes
-        {...(side === "before"
-          ? { header: <PullHeader pull={pull} /> }
-          : { pull })}
+        header={<PullHeader pull={pull} />}
         picker={<i>P</i>}
         commits={<i>C</i>}
         diff={<i>D</i>}
@@ -277,32 +275,28 @@ export default async function cases({ side, from, render }: Pin) {
   r("header", <PullHeader pull={{ ...pull, state: "CLOSED" }} />);
   r("chip", <PullStateChip state="OPEN" />);
   const history = {
-    number: 7,
-    baseRefName: "main",
-    baseRefOid: "0123456789",
+    base: "main",
+    baseLabel: "main @ 0123456",
     truncated: true,
-    states: [
-      { version: 1, head: "aaa", origin: { kind: "opened" } },
-      {
-        version: 2,
-        head: "bbb",
-        origin: { kind: "force-pushed", at: "2026-01-02T00:00:00Z" },
-      },
-      { version: 3, head: "ccc", origin: { kind: "current" } },
+    versions: [
+      { id: "aaa", number: 1, label: "opened" },
+      { id: "bbb", number: 2, label: "force-pushed 2026-01-02" },
+      { id: "ccc", number: 3, label: "current" },
     ],
   };
-  for (const baseline of [{ kind: "base" }, { kind: "version", head: "aaa" }])
+  for (const baseline of [{ kind: "base" }, { kind: "version", id: "aaa" }])
     for (const filesState of [
       { status: "loading" },
       { status: "ready", data: files },
     ])
       r(
         `picker ${baseline.kind} ${filesState.status}`,
-        <PullComparisonPicker
+        <SeriesComparisonPicker
           history={history}
           from={baseline}
           to="ccc"
           files={filesState}
+          wholeLabel="whole pull request"
           onPickFrom={() => {}}
           onPickTo={() => {}}
         />,

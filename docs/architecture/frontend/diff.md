@@ -142,110 +142,31 @@ function rowHeading(row: ReviewedRow): FileNavigatorHeading {
 
 ## Diff view
 
-`DiffView` draws each file from hunks, never raw patch text:
-[`readPatch`](#reading-a-patch) gives every line its kind and numbers, and the
-`diff --git`/`index`/`---`/`+++` lines are not drawn, since the file header
-already names the path. Each line's syntax colours come from its side's
-`sources` entry (a removed line by its old number, others by the new), and
-only when that line reads the same as the patch's; otherwise it is one plain
-token. A patch is always right about its own text.
-
-Around each hunk a row stands for the [hidden lines](#hidden-lines) once the
-after side's length is known; clicking draws them as numbered, commentable
-context, and a hunk header with no jump left goes away. The gutter shows
-after-side numbers, blank for a removed line, a hunk header, or git's
-no-newline note.
-
-Every line is commentable, pinned to a `LineAnchor`: a removed line by its
-before-side number, every other by its after-side one. Threads render under
-the file's `<pre>` rather than in the gutter, which would reflow on every
-keystroke. A file comment draws under the header, and a thread on a commit
-neither side now holds says it is stale.
-
-A file is drawn structurally ([difftastic](../backend/difft.md)) or as the
-`git` patch, both delivered with every file, with a per-file switch whose
-starting value is the [Settings default](settings.md#display). Both views
-are the same drawing over different hunks with the same numbering, so a
-comment names the same line in either; only where changed ranges come from
-differs. A file difftastic has nothing for draws its patch, and the switch
-says why. Gaps opened in one view are kept apart from the other's.
-
-The path in a header folds the file; where it is a link, the chevron and
-status are the fold button. A [noisy file](#collapsed-files) or one already
-marked `Viewed` starts folded, except that a comment (for noise) or the
-address (for either) opens it. All review behaviour hangs off one optional
+`DiffView` draws a summary of the files when there is more than one, then
+[each file](#a-file). All review behaviour hangs off one optional
 `DiffReview`, so a read-only diff offers no comment or `Viewed` control that
-would record nothing.
-
-With more than one file, a [summary tree](file-tree.md) sits above the
-files, and each `<section>` carries an id scoped by row, so a path appearing
-in two rows gets two anchors.
-
-`DiffLinks` turn the header path and after-side gutter numbers into real
-`<a href>`s to [the address](address.md), naming a renamed file by its new
-path, and mark the addressed file or line with a bar. Only the gutter links,
-so selecting a line's text still works. A commentable line is a `<button>`
-and cannot contain a link, so a diff with review memory draws no line links;
-no screen needs both. The marked target scrolls to the middle on mount and on
-`reveal`, not when a click marked it.
+would record nothing. `DiffLinks` turn the header path and after-side gutter
+numbers into real `<a href>`s to [the address](address.md), naming a renamed
+file by its new path, and mark the addressed file or line with a bar.
 
 ```tsx
 //| id: frontend-view-diff
-//| file: src/frontend/views/DiffView.tsx
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+//| file: src/frontend/views/DiffView/DiffView.tsx
+import { useMemo, useState } from "react";
 import {
   afterPathOf,
-  type ChangedFile,
   changedFile,
   fileAnchor,
-  fileTree,
   fileVersionOf,
   shownPathOf,
-} from "../model/changedFiles";
-import { collapseReason } from "../model/collapse";
-import type { FileDiff, StructuralDiff } from "../model/diff";
-import { gapsOf, type HunkLine, type Patch, readPatch } from "../model/patch";
-import type { FileSpot } from "../model/place";
-import {
-  type Anchor,
-  type FileVersion,
-  isViewed,
-  type LineAnchor,
-  type RowComment,
-  type ViewedFile,
-} from "../model/review";
-import type { DiffMode, Display } from "../model/settings";
-import type { SourceFile, SourceLookup, SyntaxToken } from "../model/source";
-import { splitRows } from "../model/split";
-import {
-  changedLines,
-  markable,
-  type PaintedToken,
-  paintWords,
-  type Range,
-} from "../model/words";
-import { FileTree } from "./FileTree";
-
-/** Review memory for the files on screen. A diff that has one lets every
- * file, and every line of it on either side, be commented on; a diff that
- * has none renders read-only. */
-export interface DiffReview {
-  comments: RowComment[];
-  onAddComment: (anchor: Anchor, body: string) => void;
-  onResolveComment: (id: string, resolved: boolean) => void;
-  onDropComment: (id: string) => void;
-  viewed: ViewedFile[];
-  onToggleViewed: (file: FileVersion) => void;
-}
-
-/** Where the files and lines of a diff link to, for a diff whose place is
- *  kept in the address. */
-export interface DiffLinks {
-  /** The file or line the address names, when it is in this diff. */
-  selected: FileSpot | null;
-  href: (spot: FileSpot) => string;
-  onFollow: (spot: FileSpot) => void;
-}
+} from "../../model/changedFiles";
+import type { FileDiff } from "../../model/diff";
+import type { DiffLinks } from "../../model/place";
+import { type Anchor, type DiffReview, isViewed } from "../../model/review";
+import type { Display } from "../../model/settings";
+import type { SourceLookup } from "../../model/source";
+import { FileRow } from "./FileRow/FileRow";
+import { FileSummary } from "./FileSummary";
 
 export function DiffView({
   files,
@@ -294,9 +215,9 @@ export function DiffView({
             key={path}
             anchor={anchor}
             file={file}
-            sides={sidesOf(file, sources)}
+            sources={sources}
             display={display}
-            links={links === undefined ? undefined : fileLinks(links, file)}
+            links={links}
             reveal={reveal}
             review={
               review === undefined
@@ -331,12 +252,26 @@ export function DiffView({
     </div>
   );
 }
+```
+
+### Files changed
+
+With more than one file, a [summary tree](file-tree.md) sits above the
+files, and each `<section>` carries an id scoped by row, so a path appearing
+in two rows gets two anchors.
+
+```tsx
+//| id: frontend-view-diff-file-summary
+//| file: src/frontend/views/DiffView/FileSummary.tsx
+import { useMemo } from "react";
+import { type ChangedFile, fileTree } from "../../model/changedFiles";
+import { FileTree } from "../FileTree";
 
 /** A table of contents for the files below, shown once there is more than
  *  one to summarise. Picking a row scrolls straight to that file's
  *  `<section>`, found by the same anchor id the section itself carries, so
  *  the summary needs no ref threaded down to reach it. */
-function FileSummary({ files }: { files: ChangedFile[] }) {
+export function FileSummary({ files }: { files: ChangedFile[] }) {
   const nodes = useMemo(() => fileTree(files), [files]);
   const totals = files.reduce(
     (sum, file) => ({
@@ -383,9 +318,50 @@ function FileSummary({ files }: { files: ChangedFile[] }) {
 function jumpTo(file: ChangedFile): void {
   document.getElementById(file.anchor)?.scrollIntoView({ block: "start" });
 }
+```
+
+### A file
+
+The path in a header folds the file; where it is a link, the chevron and
+status are the fold button. A [noisy file](#collapsed-files) or one already
+marked `Viewed` starts folded, except that a comment (for noise) or the
+address (for either) opens it. The marked target scrolls to the middle on
+mount and on `reveal`, not when a click marked it.
+
+Threads render under the file's `<pre>` rather than in the gutter, which
+would reflow on every keystroke. A file comment draws under the header.
+
+Around each hunk a row stands for the [hidden lines](#hidden-lines) once the
+after side's length is known; clicking draws them as numbered, commentable
+context. Gaps opened in one view are kept apart from the other's.
+
+```tsx
+//| id: frontend-view-diff-file-row
+//| file: src/frontend/views/DiffView/FileRow/FileRow.tsx
+import { useEffect, useRef, useState } from "react";
+import { shownPathOf } from "../../../model/changedFiles";
+import { collapseReason } from "../../../model/collapse";
+import type { FileDiff } from "../../../model/diff";
+import type { DiffLinks } from "../../../model/place";
+import type { Anchor, RowComment } from "../../../model/review";
+import type { DiffMode, Display } from "../../../model/settings";
+import type { SourceLookup } from "../../../model/source";
+import { splitRows } from "../../../model/split";
+import { CommentComposer, CommentThreads } from "../../Comments";
+import { DiffModeSwitch } from "./DiffModeSwitch";
+import {
+  type DrawnLine,
+  drawnLines,
+  patchBody,
+  type Side,
+  sidesOf,
+  structuralBody,
+} from "./drawnLines";
+import { fileLinks, follow } from "./links";
+import { EmptyCell, PatchLine } from "./PatchLine";
 
 /** `DiffReview` narrowed to one file, with the composer this view owns. */
-interface FileReview {
+export interface FileReview {
   comments: RowComment[];
   composer: Anchor | null;
   onOpenComposer: (anchor: Anchor) => void;
@@ -397,77 +373,26 @@ interface FileReview {
   onToggleViewed: () => void;
 }
 
-/** `DiffLinks` narrowed to one file. */
-interface FileLinks {
-  /** This file's place in the address, when the address names it. */
-  selected: FileSpot | null;
-  href: (line: number | null) => string;
-  onFollow: (line: number | null) => void;
-}
-
-function fileLinks(links: DiffLinks, file: FileDiff): FileLinks {
-  const path = afterPathOf(file);
-  return {
-    selected: links.selected?.path === path ? links.selected : null,
-    href: (line) => links.href({ path, line }),
-    onFollow: (line) => links.onFollow({ path, line }),
-  };
-}
-
-/** A plain click on a link is followed in place. One asking for a new tab
- *  or window is left to the browser, which is what the `href` is for. */
-function follow(event: MouseEvent, onFollow: () => void): void {
-  if (
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  ) {
-    return;
-  }
-  event.preventDefault();
-  onFollow();
-}
-
-/** Each side of one file, whole, where it has loaded. */
-interface FileSides {
-  old: SourceFile | null;
-  new: SourceFile | null;
-}
-
-function sidesOf(file: FileDiff, sources?: SourceLookup): FileSides {
-  const oldPath = "path" in file ? file.path : file.oldPath;
-  const newPath = "path" in file ? file.path : file.newPath;
-  return {
-    old:
-      sources === undefined || file.oldBlob === null
-        ? null
-        : sources(file.oldBlob, oldPath),
-    new:
-      sources === undefined || file.newBlob === null
-        ? null
-        : sources(file.newBlob, newPath),
-  };
-}
-
-function FileRow({
+export function FileRow({
   file,
   anchor,
-  sides,
+  sources,
   display,
   review,
-  links,
+  links: diffLinks,
   reveal,
 }: {
   file: FileDiff;
   anchor: string;
-  sides: FileSides;
+  sources?: SourceLookup;
   display: Display;
   review?: FileReview;
-  links?: FileLinks;
+  links?: DiffLinks;
   reveal?: number;
 }) {
+  const sides = sidesOf(file, sources);
+  const links =
+    diffLinks === undefined ? undefined : fileLinks(diffLinks, file);
   const section = useRef<HTMLElement>(null);
   const isSelected = links?.selected != null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; a click that selects a line must not scroll
@@ -662,6 +587,64 @@ function FileComments({
     </>
   );
 }
+```
+
+The header path and the gutter share one narrowing of `DiffLinks` to the
+file.
+
+```ts
+//| id: frontend-view-diff-file-links
+//| file: src/frontend/views/DiffView/FileRow/links.ts
+import type { MouseEvent } from "react";
+import { afterPathOf } from "../../../model/changedFiles";
+import type { FileDiff } from "../../../model/diff";
+import type { DiffLinks, FileSpot } from "../../../model/place";
+
+/** `DiffLinks` narrowed to one file. */
+export interface FileLinks {
+  /** This file's place in the address, when the address names it. */
+  selected: FileSpot | null;
+  href: (line: number | null) => string;
+  onFollow: (line: number | null) => void;
+}
+
+export function fileLinks(links: DiffLinks, file: FileDiff): FileLinks {
+  const path = afterPathOf(file);
+  return {
+    selected: links.selected?.path === path ? links.selected : null,
+    href: (line) => links.href({ path, line }),
+    onFollow: (line) => links.onFollow({ path, line }),
+  };
+}
+
+/** A plain click on a link is followed in place. One asking for a new tab
+ *  or window is left to the browser, which is what the `href` is for. */
+export function follow(event: MouseEvent, onFollow: () => void): void {
+  if (
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  event.preventDefault();
+  onFollow();
+}
+```
+
+#### Structural or patch
+
+A file is drawn structurally ([difftastic](../backend/difft.md)) or as the
+`git` patch, both delivered with every file, with a per-file switch whose
+starting value is the [Settings default](settings.md#display). A file
+difftastic has nothing for draws its patch, and the switch says why.
+
+```tsx
+//| id: frontend-view-diff-mode-switch
+//| file: src/frontend/views/DiffView/FileRow/DiffModeSwitch.tsx
+import type { DiffMode } from "../../../model/settings";
 
 const DIFF_MODES: { value: DiffMode; caption: string }[] = [
   { value: "structural", caption: "structural" },
@@ -670,7 +653,7 @@ const DIFF_MODES: { value: DiffMode; caption: string }[] = [
 
 /** Which view one file is drawn in. The structural button is off, with the
  *  reason as its title, when difftastic has nothing for the file. */
-function DiffModeSwitch({
+export function DiffModeSwitch({
   mode,
   unavailable,
   onChoose,
@@ -700,6 +683,358 @@ function DiffModeSwitch({
     </fieldset>
   );
 }
+```
+
+#### Drawn lines
+
+A file is drawn from hunks, never raw patch text:
+[`readPatch`](#reading-a-patch) gives every line its kind and numbers, and the
+`diff --git`/`index`/`---`/`+++` lines are not drawn, since the file header
+already names the path. Each line's syntax colours come from its side's
+`sources` entry (a removed line by its old number, others by the new), and
+only when that line reads the same as the patch's; otherwise it is one plain
+token. A patch is always right about its own text.
+
+Both views are the same drawing over different hunks with the same
+numbering, so a comment names the same line in either; only where changed
+ranges come from differs. A hunk header with no jump left goes away.
+
+```ts
+//| id: frontend-view-diff-drawn-lines
+//| file: src/frontend/views/DiffView/FileRow/drawnLines.ts
+import type { FileDiff, StructuralDiff } from "../../../model/diff";
+import {
+  gapsOf,
+  type HunkLine,
+  type Patch,
+  readPatch,
+} from "../../../model/patch";
+import type { LineAnchor } from "../../../model/review";
+import type {
+  SourceFile,
+  SourceLookup,
+  SyntaxToken,
+} from "../../../model/source";
+import {
+  changedLines,
+  markable,
+  type PaintedToken,
+  paintWords,
+  type Range,
+} from "../../../model/words";
+
+/** The column a line is drawn in, when the diff has two. */
+export type Side = "before" | "after";
+
+export type CodeKind = "context" | "added" | "removed";
+
+/** One line as drawn. Hunk headers and notes are text in one
+ *  colour. A line of the file is its tokens and where it sits: a removed line
+ *  on the before side, every other line on the after side. It also carries
+ *  its before-side number where it has one, for the before column of a
+ *  [side-by-side](#side-by-side) diff. A gap stands in for the lines
+ *  `gapsOf` numbered `gap` until it is shown. */
+export type DrawnLine =
+  | { kind: "meta" | "hunk"; text: string }
+  | { kind: "gap"; gap: number; count: number }
+  | {
+      kind: CodeKind;
+      tokens: PaintedToken[];
+      anchor: LineAnchor;
+      beforeLine: number | null;
+    };
+
+/** Each side of one file, whole, where it has loaded. */
+export interface FileSides {
+  old: SourceFile | null;
+  new: SourceFile | null;
+}
+
+export function sidesOf(file: FileDiff, sources?: SourceLookup): FileSides {
+  const oldPath = "path" in file ? file.path : file.oldPath;
+  const newPath = "path" in file ? file.path : file.newPath;
+  return {
+    old:
+      sources === undefined || file.oldBlob === null
+        ? null
+        : sources(file.oldBlob, oldPath),
+    new:
+      sources === undefined || file.newBlob === null
+        ? null
+        : sources(file.newBlob, newPath),
+  };
+}
+
+/** What a file's lines are drawn from: hunks, and each hunk's changed
+ *  ranges by line index. */
+interface Body {
+  patch: Patch;
+  changed: Map<number, Range[]>[];
+}
+
+/** A patch's hunks, without the `diff --git` lines above them, which say
+ *  nothing the file's own header does not. */
+export function patchBody(text: string): Body {
+  const { hunks } = readPatch(text);
+  return {
+    patch: { header: [], hunks },
+    changed: hunks.map((hunk) => changedLines(hunk.lines)),
+  };
+}
+
+/** Difftastic's hunks, with a note in place of them when it found the
+ *  change was only layout. Where it fell back to comparing text, its
+ *  ranges are whole lines, so the words are paired as a patch's are. */
+export function structuralBody(
+  diff: Extract<StructuralDiff, { kind: "structural" }>,
+  wordMarkLimit: number,
+): Body {
+  return {
+    patch: {
+      header:
+        diff.hunks.length === 0
+          ? ["No syntactic change. The line view shows the layout edits."]
+          : [],
+      hunks: diff.hunks,
+    },
+    changed: diff.hunks.map((hunk) =>
+      diff.language.startsWith("Text")
+        ? changedLines(hunk.lines)
+        : new Map(
+            hunk.lines.flatMap((line, index) =>
+              line.kind === "context"
+                ? []
+                : [[index, markable(line.code, line.changes, wordMarkLimit)]],
+            ),
+          ),
+    ),
+  };
+}
+
+export function drawnLines(
+  { patch, changed: changedIn }: Body,
+  sides: FileSides,
+  shown: ReadonlySet<number>,
+): DrawnLine[] {
+  const gaps =
+    sides.new === null || patch.hunks.length === 0
+      ? []
+      : gapsOf(patch, sides.new.lines.length);
+
+  const hidden = (index: number): DrawnLine[] => {
+    const gap = gaps[index];
+    if (gap === undefined || gap.count === 0) return [];
+    if (!shown.has(index))
+      return [{ kind: "gap", gap: index, count: gap.count }];
+    return Array.from({ length: gap.count }, (_, offset) => ({
+      kind: "context" as const,
+      tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
+      anchor: { side: "after" as const, line: gap.start + offset },
+      beforeLine: gap.oldStart === null ? null : gap.oldStart + offset,
+    }));
+  };
+
+  return [
+    ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
+    ...patch.hunks.flatMap((hunk, index) => {
+      const changed = changedIn[index] ?? new Map<number, Range[]>();
+      return [
+        ...hidden(index),
+        ...(shown.has(index)
+          ? []
+          : [{ kind: "hunk" as const, text: hunk.header }]),
+        ...hunk.lines.map((line, at) =>
+          drawnHunkLine(line, sides, changed.get(at) ?? []),
+        ),
+      ];
+    }),
+    ...hidden(patch.hunks.length),
+  ];
+}
+
+function drawnHunkLine(
+  line: HunkLine,
+  sides: FileSides,
+  changed: Range[],
+): DrawnLine {
+  switch (line.kind) {
+    case "context":
+      return {
+        kind: "context",
+        tokens: paintWords(tokensAt(sides.new, line.newLine, line.code), []),
+        anchor: { side: "after", line: line.newLine },
+        beforeLine: line.oldLine ?? null,
+      };
+    case "added":
+      return {
+        kind: "added",
+        tokens: paintWords(
+          tokensAt(sides.new, line.newLine, line.code),
+          changed,
+        ),
+        anchor: { side: "after", line: line.newLine },
+        beforeLine: null,
+      };
+    case "removed":
+      return {
+        kind: "removed",
+        tokens: paintWords(
+          tokensAt(sides.old, line.oldLine, line.code),
+          changed,
+        ),
+        anchor: { side: "before", line: line.oldLine },
+        beforeLine: line.oldLine,
+      };
+    case "note":
+      return { kind: "meta", text: line.text };
+  }
+}
+
+/** The highlighted tokens for line `number` of a side, or the code as one
+ *  plain token when the side has not loaded or does not say the same thing
+ *  the patch does. */
+function tokensAt(
+  side: SourceFile | null,
+  number: number,
+  code: string,
+): SyntaxToken[] {
+  const tokens = side?.lines[number - 1];
+  if (tokens?.map((token) => token.text).join("") === code) return tokens;
+  return [{ text: code, kind: null }];
+}
+```
+
+#### A line
+
+Every line is commentable, pinned to a `LineAnchor`: a removed line by its
+before-side number, every other by its after-side one. The gutter shows
+after-side numbers, blank for a removed line, a hunk header, or git's
+no-newline note.
+
+Only the gutter links, so selecting a line's text still works. A commentable
+line is a `<button>` and cannot contain a link, so a diff with review memory
+draws no line links; no screen needs both.
+
+```tsx
+//| id: frontend-view-diff-patch-line
+//| file: src/frontend/views/DiffView/FileRow/PatchLine.tsx
+import type { LineAnchor } from "../../../model/review";
+import type { PaintedToken } from "../../../model/words";
+import type { CodeKind, DrawnLine, Side } from "./drawnLines";
+import { type FileLinks, follow } from "./links";
+
+/** A `<button>` when the line is a line of the file, a `<div>` otherwise. A
+ *  read-only diff passes no `onOpenComposer`, which makes every line static,
+ *  and a read-only diff with `links` makes the gutter number of every
+ *  after-side line a link to it. In a column a line is numbered by that
+ *  column's side, and opens the composer only in the column of the side it
+ *  is anchored to, so each line is commented on from one place. */
+export function PatchLine({
+  line,
+  side,
+  onOpenComposer,
+  links,
+}: {
+  line: Exclude<DrawnLine, { kind: "gap" }>;
+  side?: Side;
+  onOpenComposer?: (anchor: LineAnchor) => void;
+  links?: FileLinks;
+}) {
+  const anchor =
+    "anchor" in line && (side === undefined || line.anchor.side === side)
+      ? line.anchor
+      : null;
+  const afterLine = anchor?.side === "after" ? anchor.line : null;
+  const number =
+    side === "before" && "beforeLine" in line ? line.beforeLine : afterLine;
+  const linked =
+    afterLine !== null && links !== undefined && onOpenComposer === undefined;
+  const body = (
+    <>
+      {linked ? (
+        <a
+          href={links.href(afterLine)}
+          onClick={(event) => follow(event, () => links.onFollow(afterLine))}
+          className="diff-line__gutter diff-line__anchor"
+        >
+          {afterLine}
+        </a>
+      ) : (
+        <span className="diff-line__gutter">{number ?? ""}</span>
+      )}
+      {"text" in line ? (
+        <span className={`diff-line__text--${line.kind}`}>
+          {line.text === "" ? " " : line.text}
+        </span>
+      ) : (
+        <span>
+          <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+          {line.tokens.map((token, index) => (
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
+              key={index}
+              className={tokenClass(token)}
+            >
+              {token.text}
+            </span>
+          ))}
+        </span>
+      )}
+    </>
+  );
+  const selected =
+    afterLine !== null && links?.selected?.line === afterLine
+      ? " diff-line--selected"
+      : "";
+  const column = side === undefined ? "" : ` diff-line--${side}`;
+  const className = `diff-line diff-line--${line.kind}${column}${selected}`;
+
+  if (anchor === null || onOpenComposer === undefined) {
+    return <div className={className}>{body}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenComposer(anchor)}
+      className={`${className} diff-line--interactive`}
+    >
+      {body}
+    </button>
+  );
+}
+
+/** The other column's half of a row whose line is only on one side. */
+export function EmptyCell({ side }: { side: Side }) {
+  return <div className={`diff-line diff-line--${side} diff-line--empty`} />;
+}
+
+function tokenClass(token: PaintedToken): string | undefined {
+  const classes = [
+    token.kind === null ? null : `syntax--${token.kind}`,
+    token.changed ? "diff-line__changed" : null,
+  ].filter((name) => name !== null);
+  return classes.length === 0 ? undefined : classes.join(" ");
+}
+
+const SIGNS: Record<CodeKind, string> = {
+  context: " ",
+  added: "+",
+  removed: "-",
+};
+```
+
+### Comments
+
+A thread on a commit neither side now holds says it is stale. The composer
+and threads are their own view because commit rows and interdiff rows draw
+them too, for comments on a whole comparison.
+
+```tsx
+//| id: frontend-view-comments
+//| file: src/frontend/views/Comments.tsx
+import { useState } from "react";
+import type { Anchor, LineAnchor, RowComment } from "../model/review";
 
 /** How a comment names its line: the after side's number alone, since that
  *  is the version being approved, and the before side's marked as such. */
@@ -831,266 +1166,10 @@ function CommentThread({
     </div>
   );
 }
-
-/** The column a line is drawn in, when the diff has two. */
-type Side = "before" | "after";
-
-/** A `<button>` when the line is a line of the file, a `<div>` otherwise. A
- *  read-only diff passes no `onOpenComposer`, which makes every line static,
- *  and a read-only diff with `links` makes the gutter number of every
- *  after-side line a link to it. In a column a line is numbered by that
- *  column's side, and opens the composer only in the column of the side it
- *  is anchored to, so each line is commented on from one place. */
-function PatchLine({
-  line,
-  side,
-  onOpenComposer,
-  links,
-}: {
-  line: Exclude<DrawnLine, { kind: "gap" }>;
-  side?: Side;
-  onOpenComposer?: (anchor: LineAnchor) => void;
-  links?: FileLinks;
-}) {
-  const anchor =
-    "anchor" in line && (side === undefined || line.anchor.side === side)
-      ? line.anchor
-      : null;
-  const afterLine = anchor?.side === "after" ? anchor.line : null;
-  const number =
-    side === "before" && "beforeLine" in line ? line.beforeLine : afterLine;
-  const linked =
-    afterLine !== null && links !== undefined && onOpenComposer === undefined;
-  const body = (
-    <>
-      {linked ? (
-        <a
-          href={links.href(afterLine)}
-          onClick={(event) => follow(event, () => links.onFollow(afterLine))}
-          className="diff-line__gutter diff-line__anchor"
-        >
-          {afterLine}
-        </a>
-      ) : (
-        <span className="diff-line__gutter">{number ?? ""}</span>
-      )}
-      {"text" in line ? (
-        <span className={`diff-line__text--${line.kind}`}>
-          {line.text === "" ? " " : line.text}
-        </span>
-      ) : (
-        <span>
-          <span className="diff-line__sign">{SIGNS[line.kind]}</span>
-          {line.tokens.map((token, index) => (
-            <span
-              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
-              key={index}
-              className={tokenClass(token)}
-            >
-              {token.text}
-            </span>
-          ))}
-        </span>
-      )}
-    </>
-  );
-  const selected =
-    afterLine !== null && links?.selected?.line === afterLine
-      ? " diff-line--selected"
-      : "";
-  const column = side === undefined ? "" : ` diff-line--${side}`;
-  const className = `diff-line diff-line--${line.kind}${column}${selected}`;
-
-  if (anchor === null || onOpenComposer === undefined) {
-    return <div className={className}>{body}</div>;
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenComposer(anchor)}
-      className={`${className} diff-line--interactive`}
-    >
-      {body}
-    </button>
-  );
-}
-
-/** The other column's half of a row whose line is only on one side. */
-function EmptyCell({ side }: { side: Side }) {
-  return <div className={`diff-line diff-line--${side} diff-line--empty`} />;
-}
-
-function tokenClass(token: PaintedToken): string | undefined {
-  const classes = [
-    token.kind === null ? null : `syntax--${token.kind}`,
-    token.changed ? "diff-line__changed" : null,
-  ].filter((name) => name !== null);
-  return classes.length === 0 ? undefined : classes.join(" ");
-}
-
-type CodeKind = "context" | "added" | "removed";
-
-const SIGNS: Record<CodeKind, string> = {
-  context: " ",
-  added: "+",
-  removed: "-",
-};
-
-/** One line as drawn. Hunk headers and notes are text in one
- *  colour. A line of the file is its tokens and where it sits: a removed line
- *  on the before side, every other line on the after side. It also carries
- *  its before-side number where it has one, for the before column of a
- *  [side-by-side](#side-by-side) diff. A gap stands in for the lines
- *  `gapsOf` numbered `gap` until it is shown. */
-type DrawnLine =
-  | { kind: "meta" | "hunk"; text: string }
-  | { kind: "gap"; gap: number; count: number }
-  | {
-      kind: CodeKind;
-      tokens: PaintedToken[];
-      anchor: LineAnchor;
-      beforeLine: number | null;
-    };
-
-/** What a file's lines are drawn from: hunks, and each hunk's changed
- *  ranges by line index. */
-interface Body {
-  patch: Patch;
-  changed: Map<number, Range[]>[];
-}
-
-/** A patch's hunks, without the `diff --git` lines above them, which say
- *  nothing the file's own header does not. */
-function patchBody(text: string): Body {
-  const { hunks } = readPatch(text);
-  return {
-    patch: { header: [], hunks },
-    changed: hunks.map((hunk) => changedLines(hunk.lines)),
-  };
-}
-
-/** Difftastic's hunks, with a note in place of them when it found the
- *  change was only layout. Where it fell back to comparing text, its
- *  ranges are whole lines, so the words are paired as a patch's are. */
-function structuralBody(
-  diff: Extract<StructuralDiff, { kind: "structural" }>,
-  wordMarkLimit: number,
-): Body {
-  return {
-    patch: {
-      header:
-        diff.hunks.length === 0
-          ? ["No syntactic change. The line view shows the layout edits."]
-          : [],
-      hunks: diff.hunks,
-    },
-    changed: diff.hunks.map((hunk) =>
-      diff.language.startsWith("Text")
-        ? changedLines(hunk.lines)
-        : new Map(
-            hunk.lines.flatMap((line, index) =>
-              line.kind === "context"
-                ? []
-                : [[index, markable(line.code, line.changes, wordMarkLimit)]],
-            ),
-          ),
-    ),
-  };
-}
-
-function drawnLines(
-  { patch, changed: changedIn }: Body,
-  sides: FileSides,
-  shown: ReadonlySet<number>,
-): DrawnLine[] {
-  const gaps =
-    sides.new === null || patch.hunks.length === 0
-      ? []
-      : gapsOf(patch, sides.new.lines.length);
-
-  const hidden = (index: number): DrawnLine[] => {
-    const gap = gaps[index];
-    if (gap === undefined || gap.count === 0) return [];
-    if (!shown.has(index))
-      return [{ kind: "gap", gap: index, count: gap.count }];
-    return Array.from({ length: gap.count }, (_, offset) => ({
-      kind: "context" as const,
-      tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
-      anchor: { side: "after" as const, line: gap.start + offset },
-      beforeLine: gap.oldStart === null ? null : gap.oldStart + offset,
-    }));
-  };
-
-  return [
-    ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
-    ...patch.hunks.flatMap((hunk, index) => {
-      const changed = changedIn[index] ?? new Map<number, Range[]>();
-      return [
-        ...hidden(index),
-        ...(shown.has(index)
-          ? []
-          : [{ kind: "hunk" as const, text: hunk.header }]),
-        ...hunk.lines.map((line, at) =>
-          drawnHunkLine(line, sides, changed.get(at) ?? []),
-        ),
-      ];
-    }),
-    ...hidden(patch.hunks.length),
-  ];
-}
-
-function drawnHunkLine(
-  line: HunkLine,
-  sides: FileSides,
-  changed: Range[],
-): DrawnLine {
-  switch (line.kind) {
-    case "context":
-      return {
-        kind: "context",
-        tokens: paintWords(tokensAt(sides.new, line.newLine, line.code), []),
-        anchor: { side: "after", line: line.newLine },
-        beforeLine: line.oldLine ?? null,
-      };
-    case "added":
-      return {
-        kind: "added",
-        tokens: paintWords(
-          tokensAt(sides.new, line.newLine, line.code),
-          changed,
-        ),
-        anchor: { side: "after", line: line.newLine },
-        beforeLine: null,
-      };
-    case "removed":
-      return {
-        kind: "removed",
-        tokens: paintWords(
-          tokensAt(sides.old, line.oldLine, line.code),
-          changed,
-        ),
-        anchor: { side: "before", line: line.oldLine },
-        beforeLine: line.oldLine,
-      };
-    case "note":
-      return { kind: "meta", text: line.text };
-  }
-}
-
-/** The highlighted tokens for line `number` of a side, or the code as one
- *  plain token when the side has not loaded or does not say the same thing
- *  the patch does. */
-function tokensAt(
-  side: SourceFile | null,
-  number: number,
-  code: string,
-): SyntaxToken[] {
-  const tokens = side?.lines[number - 1];
-  if (tokens?.map((token) => token.text).join("") === code) return tokens;
-  return [{ text: code, kind: null }];
-}
 ```
+
+### Styling a file
+
 
 Added and removed lines are tinted behind the text and only the sign takes
 the colour, since the text carries [syntax colours](syntax.md#colours);
@@ -2456,9 +2535,10 @@ import { useState } from "react";
 import type { ReviewActions, ReviewedRow } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
+import { CommentComposer, CommentThreads } from "./Comments";
 import { CommitMessage } from "./CommitMessage";
 import { ComparisonHeader } from "./ComparisonHeader";
-import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
+import { DiffView } from "./DiffView/DiffView";
 
 export function InterdiffRows({
   rows,

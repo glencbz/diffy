@@ -241,28 +241,26 @@ the diff.
 
 ```tsx
 //| id: frontend-view-pull-panes
-//| file: src/frontend/views/PullPanes.tsx
-import { type ReactNode, useState } from "react";
-import type { PullSummary } from "../model/pull";
-import { PullStateChip } from "./PullStateChip";
-import { paneSize, Splitter } from "./Splitter";
-
-export type PullChoice =
-  | { phase: "browsing" }
-  | { phase: "reviewing"; pull: PullSummary }
-  | { phase: "picking"; pull: PullSummary };
+//| file: src/frontend/views/PullPanes/PullPanes.tsx
+import type { ReactNode } from "react";
+import type { PullChoice } from "../../model/place";
+import type { PullSummary } from "../../model/pull";
+import { PullStateChip } from "../PullStateChip";
+import { PullList } from "./PullList";
 
 export function PullPanes({
   choice,
   onOpen,
   onDismiss,
-  list,
+  pulls,
+  onSelect,
   review,
 }: {
   choice: PullChoice;
   onOpen: () => void;
   onDismiss: () => void;
-  list: ReactNode;
+  pulls: PullSummary[];
+  onSelect: (number: number) => void;
   review: ReactNode;
 }) {
   return (
@@ -298,7 +296,11 @@ export function PullPanes({
               </button>
             </header>
           )}
-          {list}
+          <PullList
+            pulls={pulls}
+            selected={choice.phase === "browsing" ? null : choice.pull.number}
+            onSelect={onSelect}
+          />
         </div>
         <div className="pane pane--main">{review}</div>
       </div>
@@ -313,6 +315,16 @@ export function PullPanes({
     </>
   );
 }
+```
+
+### Reviewing a pull request
+
+```tsx
+//| id: frontend-view-pull-review-panes
+//| file: src/frontend/views/PullReviewPanes/PullReviewPanes.tsx
+import { type ReactNode, useState } from "react";
+import { paneSize, Splitter } from "../Splitter";
+import { DrawerBar } from "./DrawerBar";
 
 /** Where the reader is in the stack: the row picked, if any, out of how
  *  many, and a line naming it. */
@@ -332,6 +344,8 @@ export function PullReviewPanes({
   size,
   onResize,
 }: {
+  /** The series screen's header, which a pull request and a local review
+   *  each fill in for themselves. */
   header: ReactNode;
   picker: ReactNode;
   commits: ReactNode;
@@ -378,8 +392,26 @@ export function PullReviewPanes({
     </>
   );
 }
+```
 
-function DrawerBar({
+## The commit drawer
+
+The commits sit above the diff, full width, because the paired graph's two
+lanes of subjects would truncate to stubs in a column beside it. They trade
+height instead, set by the [splitter](#resizing-a-pane) under the drawer.
+
+The drawer folds to a bar that keeps where the reader is in the stack and a
+stepper to the previous or next row; the rest of the bar is one fold button,
+so a press on an arrow never also folds. It opens on every visit, since a
+pull request opened with its commit list hidden hides the first thing a new
+reader needs; only its height is kept.
+
+```tsx
+//| id: frontend-view-drawer-bar
+//| file: src/frontend/views/PullReviewPanes/DrawerBar.tsx
+import type { StackPosition } from "./PullReviewPanes";
+
+export function DrawerBar({
   position: { index, count, summary },
   onStep,
   open,
@@ -434,18 +466,6 @@ function commitCount(count: number): string {
   return count === 1 ? "1 commit" : `${count} commits`;
 }
 ```
-
-## The commit drawer
-
-The commits sit above the diff, full width, because the paired graph's two
-lanes of subjects would truncate to stubs in a column beside it. They trade
-height instead, set by the [splitter](#resizing-a-pane) under the drawer.
-
-The drawer folds to a bar that keeps where the reader is in the stack and a
-stepper to the previous or next row; the rest of the bar is one fold button,
-so a press on an arrow never also folds. It opens on every visit, since a
-pull request opened with its commit list hidden hides the first thing a new
-reader needs; only its height is kept.
 
 ```css
 /*| id: design-commit-drawer

@@ -56,6 +56,29 @@ A view is a pure function from props to markup; a test renders it with
 fixture props and mocks nothing. Views take `model/` shapes directly. Add
 view-model types only once the UI stops showing what the API returns.
 
+A view starts as one file named for it, holding the view and any small
+helpers only it uses. Once a part of it earns a heading of its own in the
+feature doc, the view becomes a directory named for it: the view in a file of
+the same name, each such part a file beside it, a helper the parts share a
+file beside them, and a part with parts of its own a directory again. A view more than one directory draws sits at the
+lowest level that holds all of its callers. The main file is not
+`index.tsx`, which would fill editor tabs and stack traces with index files.
+
+Code outside a view's directory imports its main component and nothing else.
+A shape its callers name, such as a props type they build, lives in `model/`;
+a helper they reach for means the component should take the input and work
+it out itself.
+
+A `ReactNode` slot is for what a caller composes from its own state: a
+controller's loading message, or two views wired to the same state. A slot
+only ever filled with one view is that view's data sent the long way round.
+Take the data and draw the view inside, so the view nests and the caller
+imports one thing less.
+
+The feature doc follows the same cut: each part is a block under a heading
+that names it, with the prose for that part directly above the block.
+[Diff view](diff.md#diff-view) is laid out this way.
+
 ### model
 
 `model/` holds the app's types, document schemas and defaults, and the pure

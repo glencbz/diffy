@@ -191,6 +191,18 @@ export type RowReview =
 
 export type RowComment = Comment & { stale: boolean };
 
+/** Review memory for the files on screen. A diff that has one lets every
+ * file, and every line of it on either side, be commented on; a diff that
+ * has none renders read-only. */
+export interface DiffReview {
+  comments: RowComment[];
+  onAddComment: (anchor: Anchor, body: string) => void;
+  onResolveComment: (id: string, resolved: boolean) => void;
+  onDropComment: (id: string) => void;
+  viewed: ViewedFile[];
+  onToggleViewed: (file: FileVersion) => void;
+}
+
 /** What the reader has kept about one comparison: the key it is filed
  *  under, the commit on each side, and everything filed under that key. */
 export interface ComparisonReview {

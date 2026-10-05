@@ -3,9 +3,10 @@ import { useState } from "react";
 import type { ReviewActions, ReviewedRow } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
+import { CommentComposer, CommentThreads } from "./Comments";
 import { CommitMessage } from "./CommitMessage";
 import { ComparisonHeader } from "./ComparisonHeader";
-import { CommentComposer, CommentThreads, DiffView } from "./DiffView";
+import { DiffView } from "./DiffView/DiffView";
 
 export function InterdiffRows({
   rows,
