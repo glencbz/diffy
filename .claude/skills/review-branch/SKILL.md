@@ -85,9 +85,9 @@ jj squash                                        # into the merge
 Typecheck every merge, not only the ones jj marks. Two branches can merge
 cleanly and still not build together. A common case is a test fixture written
 before a field that another branch made required. Fix it in the first merge
-where both branches meet, since that is where the fix gets reused. `jjOpLog >
-lists operations newest first` and the 5-second `pullDiffResponse` timeout
-fail under load on main too.
+where both branches meet, since that is where the fix gets reused. The backend
+tests read this live repo, so before blaming a merge for a red test, run the
+same test on `trunk()` in a workspace of your own.
 
 Once one merge is squashed, jj rebases the ones above it, and some of their
 conflicts go away. Run `jj log -r 'conflicts()'` again before starting the next

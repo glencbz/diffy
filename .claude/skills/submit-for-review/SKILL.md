@@ -123,18 +123,23 @@ gh api "/repos/glencbz/diffy/pulls?state=open&head=glencbz:<bookmark>" \
 ```
 
 Empty output means there is no PR yet. Create one, with a body that carries the
-URLs from step 3:
+URLs from step 3. Write the body to a file nobody else can pick, since other
+sessions share this VM's `/tmp` and a fixed name such as `/tmp/body.md` may
+hold another PR's body by the time you send it:
 
 ```sh
+B=$(mktemp /tmp/pr-body.XXXXXX.md)   # write the body into "$B", then:
 gh api --method POST /repos/glencbz/diffy/pulls \
-  -f title="<commit subject>" -f head=<bookmark> -f base=main -F body=@body.md
+  -f title="<commit subject>" -f head=<bookmark> -f base=main -F body=@"$B"
 ```
+
+Chain the write and the send with `&&`, so a failed edit never sends.
 
 A number means the push has already updated that PR. Leave it alone unless its
 preview section is stale, in which case rewrite the body:
 
 ```sh
-gh api --method PATCH /repos/glencbz/diffy/pulls/<number> -F body=@body.md
+gh api --method PATCH /repos/glencbz/diffy/pulls/<number> -F body=@"$B"
 ```
 
 End the body with the two URLs exactly as `just serve` printed them, under a
