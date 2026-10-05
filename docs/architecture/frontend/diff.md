@@ -219,10 +219,11 @@ export function DiffView({
             display={display}
             links={links}
             reveal={reveal}
-            review={
+            variant={
               review === undefined
-                ? undefined
+                ? { kind: "plain-diff" }
                 : {
+                    kind: "review",
                     comments: review.comments.filter(
                       (comment) =>
                         comment.kind !== "comparison" && comment.path === path,
@@ -331,6 +332,13 @@ mount and on `reveal`, not when a click marked it.
 Threads render under the file's `<pre>` rather than in the gutter, which
 would reflow on every keystroke. A file comment draws under the header.
 
+A plain diff and a reviewed one differ only where `startsOpen` and
+`partsOf` switch on the variant. Links to the address are not part of it,
+because a pull request's stack links plain and reviewed diffs alike. One
+component per variant around a shared frame would put the fold state in the
+frame and the Viewed box that sets it outside, passing the setter between
+them as props.
+
 Around each hunk a row stands for the [hidden lines](#hidden-lines) once the
 after side's length is known; clicking draws them as numbered, commentable
 context. Gaps opened in one view are kept apart from the other's.
@@ -338,12 +346,12 @@ context. Gaps opened in one view are kept apart from the other's.
 ```tsx
 //| id: frontend-view-diff-file-row
 //| file: src/frontend/views/DiffView/FileRow/FileRow.tsx
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, RowComment } from "../../../model/review";
+import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -360,8 +368,18 @@ import {
 import { fileLinks, follow } from "./links";
 import { EmptyCell, PatchLine } from "./PatchLine";
 
-/** `DiffReview` narrowed to one file, with the composer this view owns. */
-export interface FileReview {
+/** What a file is drawn for: to be read, or to be reviewed. */
+export type FileRowVariant = PlainDiffFileRow | ReviewFileRow;
+
+/** A diff to read. Nothing in it records anything. */
+export interface PlainDiffFileRow {
+  kind: "plain-diff";
+}
+
+/** A diff under review: `DiffReview` narrowed to one file, with the
+ *  composer this view owns. */
+export interface ReviewFileRow {
+  kind: "review";
   comments: RowComment[];
   composer: Anchor | null;
   onOpenComposer: (anchor: Anchor) => void;
@@ -378,7 +396,7 @@ export function FileRow({
   anchor,
   sources,
   display,
-  review,
+  variant,
   links: diffLinks,
   reveal,
 }: {
@@ -386,7 +404,7 @@ export function FileRow({
   anchor: string;
   sources?: SourceLookup;
   display: Display;
-  review?: FileReview;
+  variant: FileRowVariant;
   links?: DiffLinks;
   reveal?: number;
 }) {
@@ -420,11 +438,8 @@ export function FileRow({
   const reason = collapseReason(file);
   const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
-  const viewed = review?.viewed ?? false;
-  const open =
-    opened ??
-    (isSelected ||
-      (!viewed && (reason === null || (review?.comments.length ?? 0) > 0)));
+  const open = opened ?? (isSelected || startsOpen(variant, reason));
+  const parts = partsOf(variant, path, open, setOpened);
   const lines = open && !file.binary ? drawnLines(body, sides, shown) : [];
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
@@ -450,11 +465,7 @@ export function FileRow({
         key={key}
         line={line}
         side={side}
-        onOpenComposer={
-          review === undefined
-            ? undefined
-            : (at) => review.onOpenComposer({ kind: "line", path, ...at })
-        }
+        onOpenComposer={parts.onOpenComposer}
         links={links}
       />
     );
@@ -509,33 +520,9 @@ export function FileRow({
             onChoose={setChosen}
           />
         )}
-        {open && review !== undefined && (
-          <button
-            type="button"
-            className="diff-file__comment"
-            aria-label="comment on file"
-            onClick={() => review.onOpenComposer({ kind: "file", path })}
-          >
-            comment
-          </button>
-        )}
-        {review !== undefined && (
-          <label className="diff-file__viewed">
-            <input
-              type="checkbox"
-              checked={viewed}
-              onChange={() => {
-                review.onToggleViewed();
-                setOpened(viewed);
-              }}
-            />
-            Viewed
-          </label>
-        )}
+        {parts.controls}
       </header>
-      {open && review !== undefined && (
-        <FileComments review={review} kind="file" />
-      )}
+      {parts.aboveBody}
       {!open ? null : file.binary ? (
         <p className="diff-file__binary">Binary file, no textual diff.</p>
       ) : split ? (
@@ -554,11 +541,76 @@ export function FileRow({
           {lines.map((line, index) => drawn(line, index))}
         </pre>
       )}
-      {open && review !== undefined && (
-        <FileComments review={review} kind="line" />
-      )}
+      {parts.belowBody}
     </section>
   );
+}
+
+/** Whether a file is open until the reader folds it, when the address does
+ *  not name it. */
+function startsOpen(variant: FileRowVariant, reason: string | null): boolean {
+  switch (variant.kind) {
+    case "plain-diff":
+      return reason === null;
+    case "review":
+      return (
+        !variant.viewed && (reason === null || variant.comments.length > 0)
+      );
+  }
+}
+
+/** What a variant adds to the file a plain diff draws. */
+interface VariantParts {
+  /** Opens the composer on a line. A plain diff's lines are static. */
+  onOpenComposer?: (at: LineAnchor) => void;
+  /** Controls at the end of the header. */
+  controls: ReactNode;
+  aboveBody: ReactNode;
+  belowBody: ReactNode;
+}
+
+function partsOf(
+  variant: FileRowVariant,
+  path: string,
+  open: boolean,
+  setOpened: (opened: boolean) => void,
+): VariantParts {
+  switch (variant.kind) {
+    case "plain-diff":
+      return { controls: null, aboveBody: null, belowBody: null };
+    case "review":
+      return {
+        onOpenComposer: (at) =>
+          variant.onOpenComposer({ kind: "line", path, ...at }),
+        controls: (
+          <>
+            {open && (
+              <button
+                type="button"
+                className="diff-file__comment"
+                aria-label="comment on file"
+                onClick={() => variant.onOpenComposer({ kind: "file", path })}
+              >
+                comment
+              </button>
+            )}
+            <label className="diff-file__viewed">
+              <input
+                type="checkbox"
+                checked={variant.viewed}
+                onChange={() => {
+                  variant.onToggleViewed();
+                  setOpened(variant.viewed);
+                }}
+              />
+              Viewed
+            </label>
+          </>
+        ),
+        aboveBody: open && <FileComments review={variant} kind="file" />,
+        belowBody: open && <FileComments review={variant} kind="line" />,
+      };
+  }
 }
 
 /** A file's composer and threads for one kind of anchor: the whole file's
@@ -567,7 +619,7 @@ function FileComments({
   review,
   kind,
 }: {
-  review: FileReview;
+  review: ReviewFileRow;
   kind: "file" | "line";
 }) {
   return (
