@@ -36,7 +36,7 @@ export function PullReviewPanes({
   return (
     <>
       {header}
-      {picker}
+      <div className="pull-toolbar">{picker}</div>
       <div className="panes panes--drawer">
         <DrawerBar
           position={position}

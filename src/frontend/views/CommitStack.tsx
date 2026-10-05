@@ -60,8 +60,10 @@ export interface CommitStackProps {
   /** Rows whose whole message is showing. */
   expanded: ReadonlySet<string>;
   onExpand: (key: string) => void;
-  /** The row the graph pane last picked. */
+  /** The row the graph pane last picked, or the reader last scrolled to. */
   current: string | null;
+  /** The reader has scrolled a row other than `current` to the top. */
+  onInView: (key: string) => void;
   /** Changes each time the current row should be brought into view. */
   reveal: number;
   /** Where each row's files and lines link to. */
@@ -107,6 +109,10 @@ const KIND_TONE: Record<Exclude<StackRowKind, "plain">, ChipTone> = {
   unchanged: "resolved",
 };
 
+/** How far below the top of the pane a row's top has to pass before the row
+ *  is the one being read, in pixels. */
+const READING_LINE = 60;
+
 export function CommitStack({
   rows,
   sources,
@@ -115,6 +121,7 @@ export function CommitStack({
   expanded,
   onExpand,
   current,
+  onInView,
   reveal,
   links,
   since,
@@ -122,8 +129,58 @@ export function CommitStack({
   actions,
   display,
 }: CommitStackProps): ReactElement {
+  const stack = useRef<HTMLDivElement>(null);
+  const revealedAt = useRef<number | null>(null);
+  const latest = useRef({ rows, current, onInView });
+  latest.current = { rows, current, onInView };
+
+  useEffect(() => {
+    const pane = stack.current?.closest(".pane--diff");
+    if (!(pane instanceof HTMLElement)) return;
+
+    let frame: number | null = null;
+    const recompute = () => {
+      frame = null;
+      // A pick's own scroll is not the reader's; read it and a pick near the
+      // end would be overruled at once by the last row.
+      if (pane.scrollTop === revealedAt.current) return;
+      revealedAt.current = null;
+      const { rows, current, onInView } = latest.current;
+      const paneTop = pane.getBoundingClientRect().top;
+      const atBottom =
+        pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
+      let index = 0;
+      [...(stack.current?.children ?? [])].forEach((section, position) => {
+        const top = section.getBoundingClientRect().top - paneTop;
+        // At the bottom the last row that has started counts, since a short
+        // last commit never reaches the line.
+        if (top <= READING_LINE || (atBottom && top < pane.clientHeight)) {
+          index = position;
+        }
+      });
+      const key = rows[index]?.key;
+      if (key !== undefined && key !== current) onInView(key);
+    };
+
+    const onScroll = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(recompute);
+    };
+
+    pane.addEventListener("scroll", onScroll);
+    return () => {
+      pane.removeEventListener("scroll", onScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  const onRevealed = () => {
+    const pane = stack.current?.closest(".pane--diff");
+    if (pane instanceof HTMLElement) revealedAt.current = pane.scrollTop;
+  };
+
   return (
-    <div className="commit-stack">
+    <div ref={stack} className="commit-stack">
       {rows.map((row) => (
         <StackSection
           key={row.key}
@@ -135,6 +192,7 @@ export function CommitStack({
           onExpand={() => onExpand(row.key)}
           isCurrent={current === row.key}
           reveal={reveal}
+          onRevealed={onRevealed}
           links={links(row)}
           since={since}
           review={reviewOf(row)}
@@ -155,6 +213,7 @@ function StackSection({
   onExpand,
   isCurrent,
   reveal,
+  onRevealed,
   links,
   since,
   review,
@@ -169,6 +228,7 @@ function StackSection({
   onExpand: () => void;
   isCurrent: boolean;
   reveal: number;
+  onRevealed: () => void;
   links: DiffLinks;
   since: string;
   review: ComparisonReview;
@@ -185,6 +245,7 @@ function StackSection({
   useEffect(() => {
     if (isCurrent && !diffScrolls) {
       section.current?.scrollIntoView({ block: "start" });
+      onRevealed();
     }
   }, [reveal]);
 
@@ -202,14 +263,7 @@ function StackSection({
   }, []);
 
   return (
-    <section
-      ref={section}
-      className={
-        isCurrent
-          ? "commit-stack__row commit-stack__row--current"
-          : "commit-stack__row"
-      }
-    >
+    <section ref={section} className="commit-stack__row">
       <StackSpine row={row} since={since} />
       {isQuiet(row.kind) && !isOpen ? (
         <QuietLine kind={row.kind} onOpen={onToggle} />

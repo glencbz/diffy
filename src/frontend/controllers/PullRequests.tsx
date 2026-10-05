@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { openPull, type PullChoice, type PullPlace } from "../model/place";
 import type { PullSummary } from "../model/pull";
+import type { Visit } from "../state/place";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
@@ -15,7 +16,7 @@ export function PullRequests({
 }: {
   place: PullPlace | null;
   review: ReviewHandle;
-  onGo: (place: PullPlace | null) => void;
+  onGo: (place: PullPlace | null, visit?: Visit) => void;
 }) {
   const pulls = usePulls();
   const [sheetOver, setSheetOver] = useState<number | null>(null);
