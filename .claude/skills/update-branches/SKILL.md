@@ -6,7 +6,8 @@ description: >
   clean up dead branches and workspaces. Fetches origin, sweeps landed and
   dead bookmarks, workspaces and preview servers, rebases every remaining WIP
   bookmark onto the new trunk() in one rebase, rebuilds the review chain,
-  resolves what conflicts, and pushes every open PR's branch.
+  resolves what conflicts, pushes every open PR's branch, and restarts the
+  previews the rebase left behind.
 ---
 
 # Updating every branch
@@ -17,26 +18,27 @@ all up in one pass:
 
 1. Fetches `origin`. `main` moves with it.
 2. Runs the `clean-stale-work` sweep, which drops landed and dead bookmarks,
-   workspaces and preview servers, and holds anything that exists nowhere
-   else.
+   every workspace nothing uses, and previews nobody links to. It holds
+   anything that exists nowhere else.
 3. Rebases every local bookmark with work not on `trunk()` onto it. The set is
    the same one the review chain merges.
 4. Runs `review.sh sync`.
 5. Pushes the branch of every open PR that moved and has no conflict, and
    holds back any branch that has one.
-6. Lists the WIP changes and review merges that still need a hand.
+6. Restarts every preview the sweep kept whose workspace the rebase moved,
+   on the same ports, so the URLs in PR bodies serve the new code.
+7. Lists the WIP changes and review merges that still need a hand.
 
 ```sh
-.claude/skills/update-branches/update.sh           # fetch, then dry run
-.claude/skills/update-branches/update.sh --apply   # do it
-.claude/skills/update-branches/test.sh             # fixture test, touches nothing
+.claude/skills/update-branches/update.sh    # do it
+.claude/skills/update-branches/test.sh      # fixture test, touches nothing
 ```
 
-Read the dry run first. It prints the sweep's plan and every branch root that
-would move, and pushes nothing. Before `--apply`, call `ListAgents` too, for
-the reason the `clean-stale-work` skill gives: a paused session leaves no
-process for the sweep to find. Rerunning is safe. Once everything is current
-and pushed, a run fetches and reports, and changes nothing.
+Run it straight away. There is no dry run, and no need to check first with
+other sessions: the sweep never removes work that exists nowhere else, and
+every preview it stops for a rebase it starts again. Rerunning is safe. Once
+everything is current and pushed, a run fetches and reports, and changes
+nothing.
 
 Run `trunk()`'s copy of the script, never one in a workspace the sweep may
 drop: bash reads a script as it runs, and the sweep deletes that directory
@@ -76,18 +78,18 @@ branch adds still names whatever main has since moved or renamed, and only
 `tsc` finds those.
 
 Other sessions whose `@` sat on a rebased branch now have a stale working copy,
-and their next jj command says so. That is theirs to settle. Never run
-`jj workspace update-stale` in someone else's workspace.
+and their next jj command says so. That is theirs to settle. The run settles
+it only in a workspace that serves a preview and that no live session is in,
+after checking that its files hold nothing jj has not seen. Never run
+`jj workspace update-stale` in a workspace by hand.
 
 ## Pushing
 
 Each rebased branch with an open PR differs from its remote, and the run
-pushes it once it has no conflict. A push leaves the PR's preview serving the
-old code, so refresh it as step 3 of the `submit-for-review` skill says, and
-check the PR body's `## Preview` URLs. A preview served from another
-session's workspace cannot be refreshed there, since that workspace is stale
-and is not yours to update. Serve the branch from a scratch workspace and
-rewrite the URLs in the body.
+pushes it once it has no conflict. It then restarts each preview whose code
+moved, so the PR body's `## Preview` URLs keep working. The `### previews`
+section lists any it could not restart: one a live session owns, which that
+session refreshes, and one whose files hold edits jj never saw.
 
 The run pushes only bookmarks that already head an open PR. A new branch
 still goes up through `submit-for-review`, which opens its PR.

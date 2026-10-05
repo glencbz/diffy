@@ -2,16 +2,32 @@
 # Sweep diffy's local leftovers: jj workspaces, git worktrees, bookmarks, and
 # the preview servers they run. Reads GitHub for the open PR list and never
 # writes to it. Dry run by default; --apply executes. Safe to rerun.
+#
+#   sweep.sh                         print the plan
+#   sweep.sh --apply                 sweep, then refresh the previews it kept
+#   sweep.sh --apply --no-previews   sweep only (update.sh refreshes after its rebase)
+#   sweep.sh --previews              refresh the previews only
 set -uo pipefail
 shopt -s nullglob
 
-APPLY=0
-[ "${1:-}" = "--apply" ] && APPLY=1
+APPLY=0 SWEEP=1 PREVIEWS=0
+for arg in "$@"; do
+  case "$arg" in
+    --apply) APPLY=1 PREVIEWS=1 ;;
+    --no-previews) PREVIEWS=0 ;;
+    --previews) APPLY=1 SWEEP=0 PREVIEWS=1 ;;
+  esac
+done
 
 # Works from any workspace: the default workspace is the repo everything hangs off.
 REPO=$(jj workspace list --ignore-working-copy -T 'if(name == "default", self.root())')
 [ -d "$REPO/.jj" ] || { echo "sweep: cannot find the default workspace" >&2; exit 1; }
 SERVE_STATE=${DIFFY_SERVE_STATE:-/tmp/diffy-serve}
+# Non-ignored files of each untracked directory, saved before it is deleted.
+ARCHIVE=${SWEEP_ARCHIVE:-$HOME/.cache/diffy-sweep}
+# A session's Claude process keeps its cwd in the main checkout, so a workspace
+# it is busy in shows no process. Recent writes are the only sign it is in use.
+FRESH_MINUTES=${SWEEP_FRESH_MINUTES:-5}
 J=(jj -R "$REPO" --ignore-working-copy)
 
 run() { if [ "$APPLY" = 1 ]; then echo "  + $*"; eval "$@"; else echo "  would: $*"; fi; }
@@ -30,7 +46,7 @@ pids_under() {
 session_under() {
   local p
   for p in $(pids_under "$1"); do
-    case "$(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null)" in
+    case "$(tr '\0' ' ' 2>/dev/null <"/proc/$p/cmdline")" in
       *claude/versions/* | claude\ *) echo "$p"; return ;;
     esac
   done
@@ -52,6 +68,38 @@ stop_serve() {
   run "rm -rf '$state'"
 }
 
+# A file written in the directory within FRESH_MINUTES, if any.
+fresh() {
+  find "$1" \( -name node_modules -o -name .venv -o -name .git \) -prune -o \
+    -type f -mmin "-$FRESH_MINUTES" -print -quit 2>/dev/null | grep -q .
+}
+
+# The app port a preview server still serves from the directory, if any.
+serving() {
+  local dir=$1 state="$SERVE_STATE/$(basename "$1")" f pid
+  for f in "$state"/*.pid; do
+    pid=$(cat "$f")
+    case "$(readlink "/proc/$pid/cwd" 2>/dev/null)" in
+      "$dir" | "$dir"/*) echo ":$(sed -n 's/^app=//p' "$state/ports" 2>/dev/null)"; return ;;
+    esac
+  done
+  return 1
+}
+
+# Why the preview a directory serves on the port is still wanted, if it is:
+# an open PR links it, or someone started it or wrote there recently.
+preview_wanted() {
+  local dir=$1 port=${2#:} f pid
+  case " $LINKED " in *" $port "*) echo "an open PR links it"; return ;; esac
+  for f in "$SERVE_STATE/$(basename "$dir")"/*.pid; do
+    pid=$(cat "$f")
+    [ "$(ps -o etimes= -p "$pid" 2>/dev/null || echo 999999)" -lt $((FRESH_MINUTES * 60)) ] &&
+      { echo "started in the last $FRESH_MINUTES minutes"; return; }
+  done
+  fresh "$dir" && { echo "written to in the last $FRESH_MINUTES minutes"; return; }
+  return 1
+}
+
 # Edits on disk that jj never snapshotted, in a workspace whose @ was rewritten
 # from elsewhere. Diffs the files against the tree jj last checked out there.
 stale_edits() {
@@ -64,7 +112,7 @@ stale_edits() {
   GIT_INDEX_FILE=$idx git --git-dir="$REPO/.git" --work-tree="$root" update-index -q --refresh >/dev/null
   { GIT_INDEX_FILE=$idx git --git-dir="$REPO/.git" --work-tree="$root" diff-files --name-only
     GIT_INDEX_FILE=$idx git --git-dir="$REPO/.git" --work-tree="$root" ls-files --others --exclude-standard --exclude=/.jj/; } |
-    head -3 | tr '\n' ' '
+    grep -v '^\.jjconflict-' | head -3 | tr '\n' ' '
   rm -f "$idx"
 }
 
@@ -76,17 +124,47 @@ kill_under() {
 
 revs() { "${J[@]}" log --no-graph -r "$1" -T "$2" 2>/dev/null; }
 
+# A preview server outlives the code it serves once a rebase rewrites its
+# workspace's @. Each one that no live session owns is stopped, moved onto the
+# rewritten @, and served again on the ports its PR body links to.
+refresh_previews() {
+  local ws root ports pid edits
+  echo
+  echo "### previews"
+  while IFS=$'\t' read -r ws root; do
+    { [ "$ws" = review ] || [ ! -d "$root" ]; } && continue
+    ports=$(serving "$root") || continue
+    if pid=$(session_under "$root") && [ -n "$pid" ]; then
+      say keep preview "$ws" "$ports, live Claude session pid $pid refreshes its own"; continue
+    fi
+    if jj -R "$root" log -r @ --no-graph -T '' >/dev/null 2>&1; then
+      say keep preview "$ws" "$ports, already serves its @"; continue
+    fi
+    edits=$(stale_edits "$ws" "$root")
+    if [ -n "$edits" ]; then
+      say hold preview "$ws" "$ports, stale with edits jj never saw: $edits"; continue
+    fi
+    say restart preview "$ws" "$ports, its @ was rewritten"
+    run "jj -R '$root' workspace update-stale >/dev/null 2>&1"
+    run "(cd '$root' && GH_HOST=github.int.exe.xyz just serve >/dev/null)"
+  done < <("${J[@]}" workspace list -T 'name ++ "\t" ++ self.root() ++ "\n"')
+}
+
+if [ "$SWEEP" = 0 ]; then refresh_previews; exit 0; fi
+
 echo "### state"
 echo "restore point: $("${J[@]}" op log --no-graph -n1 -T 'id.short()')  (jj op restore <id> undoes everything after it, other sessions' work included)"
 # --ignore-working-copy skips the automatic import, so branches git made go unseen.
 "${J[@]}" git import --quiet
 "${J[@]}" --config git.abandon-unreachable-commits=false git fetch --remote origin --quiet 2>&1 | sed 's/^/  /'
-OPEN=$(GH_HOST=github.int.exe.xyz gh api '/repos/glencbz/diffy/pulls?state=open&per_page=100' --jq '.[].head.ref' | tr '\n' ' ') ||
+PULLS=$(GH_HOST=github.int.exe.xyz gh api '/repos/glencbz/diffy/pulls?state=open&per_page=100') ||
   { echo "sweep: cannot read open PRs; refusing to classify without them" >&2; exit 1; }
+OPEN=$(jq -r '.[].head.ref' <<<"$PULLS" | tr '\n' ' ')
+# Ports the open PRs' preview URLs point at.
+LINKED=$(jq -r '.[].body // ""' <<<"$PULLS" | grep -o 'exe\.xyz:[0-9]*' | cut -d: -f2 | sort -u | tr '\n' ' ')
 echo "open PR heads: $OPEN"
+echo "linked preview ports: $LINKED"
 
-OPEN_REVS="none()"
-for b in $OPEN; do OPEN_REVS="$OPEN_REVS | present(bookmarks(exact:\"$b\")) | present(remote_bookmarks(exact:\"$b\", remote=exact:\"origin\"))"; done
 PUBLISHED="trunk() | remote_bookmarks(remote=exact:\"origin\")"
 HELD_REVS="none()"
 KEEP_BRANCHES="main $OPEN"
@@ -116,9 +194,13 @@ while IFS=$'\t' read -r ws root; do
       HELD_REVS="$HELD_REVS | \"$ws\"@"; continue
     fi
   fi
-  on_pr=$(revs "::\"$ws\"@ & (::($OPEN_REVS) ~ ::trunk())" 'change_id.short() ++ " "' | head -c 60)
-  if [ -n "$on_pr" ]; then
-    say hold workspace "$ws" "builds on an open PR ($on_pr)"
+  # A preview still in use is refreshed after the sweep rather than killed.
+  if ports=$(serving "$root") && why=$(preview_wanted "$root" "$ports"); then
+    say keep workspace "$ws" "serves $ports, $why"
+    HELD_REVS="$HELD_REVS | \"$ws\"@"; continue
+  fi
+  if fresh "$root"; then
+    say hold workspace "$ws" "written to in the last $FRESH_MINUTES minutes"
     HELD_REVS="$HELD_REVS | \"$ws\"@"; continue
   fi
   unique=$(revs "(::\"$ws\"@ ~ ::($PUBLISHED)) ~ empty()" 'change_id.short() ++ " "')
@@ -126,7 +208,7 @@ while IFS=$'\t' read -r ws root; do
     say hold workspace "$ws" "unpublished changes: $unique"
     HELD_REVS="$HELD_REVS | \"$ws\"@"; continue
   fi
-  say drop workspace "$ws" "nothing unpublished, no open PR"
+  say drop workspace "$ws" "nothing unpublished${ports:+, preview on $ports unused}"
   stop_serve "$root"
   kill_under "$root"
   run "${J[*]} workspace forget '$ws'"
@@ -166,7 +248,15 @@ for d in "$REPO"/.claude/worktrees/*/; do
   d=${d%/}
   grep -qxF "$d" <<<"$tracked" && continue
   [ "$APPLY" = 1 ] && [ ! -d "$d" ] && continue
-  say hold directory "$(basename "$d")" "$(du -sh "$d" 2>/dev/null | cut -f1), in neither jj nor git: look inside, then rm -rf"
+  name=$(basename "$d")
+  if pid=$(session_under "$d") && [ -n "$pid" ]; then say hold directory "$name" "live Claude session, pid $pid"; continue; fi
+  # Nothing could restart a server here once the directory is gone.
+  if ports=$(serving "$d") && why=$(preview_wanted "$d" "$ports"); then say hold directory "$name" "serves $ports, $why"; continue; fi
+  if fresh "$d"; then say hold directory "$name" "written to in the last $FRESH_MINUTES minutes"; continue; fi
+  say drop directory "$name" "in neither jj nor git${ports:+, preview on $ports unused}; files kept in $ARCHIVE/$name.tgz"
+  run "mkdir -p '$ARCHIVE' && GIT_INDEX_FILE=\$(mktemp -u) git --git-dir='$REPO/.git' --work-tree='$d' ls-files --others --exclude-standard --exclude=/.jj/ | tar -czf '$ARCHIVE/$name.tgz' -C '$d' -T -"
+  kill_under "$d"
+  run "rm -rf '$d'"
 done
 for s in "$SERVE_STATE"/*/; do
   s=$(basename "$s")
@@ -200,4 +290,5 @@ echo "### commits nothing points at (left in place; read, then jj abandon if dea
 revs "heads(all()) ~ ::(trunk() | bookmarks() | remote_bookmarks() | working_copies())" \
   'change_id.short() ++ "  " ++ committer.timestamp().ago() ++ "  " ++ description.first_line() ++ "\n"' | sed 's/^/  /'
 
+[ "$PREVIEWS" = 1 ] && refresh_previews
 [ "$APPLY" = 1 ] || printf '\ndry run. Re-run with --apply to execute.\n'
