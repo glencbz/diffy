@@ -66,10 +66,11 @@ export function DiffView({
             display={display}
             links={links}
             reveal={reveal}
-            review={
+            variant={
               review === undefined
-                ? undefined
+                ? { kind: "plain-diff" }
                 : {
+                    kind: "review",
                     comments: review.comments.filter(
                       (comment) =>
                         comment.kind !== "comparison" && comment.path === path,
