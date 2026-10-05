@@ -395,22 +395,47 @@ export function CommitGraph({
           </>
         );
 
-        return onSelect === undefined ? (
+        return (
           <div key={commit.commitId} className={className}>
+            {onSelect !== undefined && (
+              <Tick
+                label="✓"
+                name={commit.commitId.slice(0, 8)}
+                ticked={chosen.has(commit.commitId)}
+                onTick={() => toggle(commit.commitId, onSelect)}
+              />
+            )}
             {content}
           </div>
-        ) : (
-          <button
-            type="button"
-            key={commit.commitId}
-            onClick={() => toggle(commit.commitId, onSelect)}
-            className={`${className} commit-graph__row--interactive`}
-          >
-            {content}
-          </button>
         );
       })}
     </div>
+  );
+}
+
+/** The one control in a row: a cell down its left edge that ticks the
+ *  commit in or out. */
+function Tick({
+  label,
+  name,
+  ticked,
+  onTick,
+}: {
+  label: string;
+  name: string;
+  ticked: boolean;
+  onTick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="commit-graph__tick"
+      aria-pressed={ticked}
+      aria-label={name}
+      onClick={onTick}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -475,24 +500,42 @@ Lanes cycle through `--graph-lane-N` as `color`, and edges and nodes draw in
   .commit-graph__row {
     display: flex;
     align-items: center;
-    width: 100%;
     gap: var(--space-3);
     min-height: calc(40 / 12 * 1em);
     padding: 0 var(--space-4) 0 0;
-    border: none;
     white-space: nowrap;
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    background: transparent;
   }
 
   .commit-graph__row--selected {
     background: var(--surface-selected);
   }
 
-  .commit-graph__row--interactive {
+  .commit-graph__tick {
+    display: flex;
+    flex: none;
+    align-items: center;
+    align-self: stretch;
+    justify-content: center;
+    width: 2em;
+    padding: 0;
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
     cursor: pointer;
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .commit-graph__tick:hover {
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+
+  .commit-graph__tick[aria-pressed="true"] {
+    font-weight: bold;
+    color: var(--text-inverse);
+    background: var(--accent);
   }
 
   /* An <svg> with no height claims 150px; contain: size lets the label alone
@@ -546,6 +589,25 @@ Lanes cycle through `--graph-lane-N` as `color`, and edges and nodes draw in
 
   .commit-graph__lane--6 {
     color: var(--graph-lane-6);
+  }
+}
+```
+
+The tick is the only control in a row, so the label stays text a reader can
+select and copy, and a row is a plain `<div>` whether or not it picks. The
+tick fills the row's height, so the whole strip down the left edge is a
+target rather than a glyph. A pressed tick takes the accent, which reads
+against the selected row's blue.
+
+```css
+/*| id: design-commit-graph
+@layer components-narrow {
+  /* The app's 44px touch target. */
+  @media (max-width: 1000px) {
+    .commit-graph__tick {
+      width: 44px;
+      min-height: 44px;
+    }
   }
 }
 ```

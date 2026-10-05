@@ -145,22 +145,47 @@ export function CommitGraph({
           </>
         );
 
-        return onSelect === undefined ? (
+        return (
           <div key={commit.commitId} className={className}>
+            {onSelect !== undefined && (
+              <Tick
+                label="✓"
+                name={commit.commitId.slice(0, 8)}
+                ticked={chosen.has(commit.commitId)}
+                onTick={() => toggle(commit.commitId, onSelect)}
+              />
+            )}
             {content}
           </div>
-        ) : (
-          <button
-            type="button"
-            key={commit.commitId}
-            onClick={() => toggle(commit.commitId, onSelect)}
-            className={`${className} commit-graph__row--interactive`}
-          >
-            {content}
-          </button>
         );
       })}
     </div>
+  );
+}
+
+/** The one control in a row: a cell down its left edge that ticks the
+ *  commit in or out. */
+function Tick({
+  label,
+  name,
+  ticked,
+  onTick,
+}: {
+  label: string;
+  name: string;
+  ticked: boolean;
+  onTick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="commit-graph__tick"
+      aria-pressed={ticked}
+      aria-label={name}
+      onClick={onTick}
+    >
+      {label}
+    </button>
   );
 }
 
