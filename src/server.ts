@@ -1,6 +1,8 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[init]
 
 import * as z from "zod";
+import { mcpRoute } from "./backend/agent/mcp";
+import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
   BlobId,
   GitError,
@@ -476,6 +478,11 @@ export function routes(store: ReviewStore) {
     "/api/local/commits": handleLocalCommits,
     "/api/local/diff": handleLocalDiff,
     "/api/local/size": handleLocalSize,
+    "/mcp": mcpRoute(
+      reviewTools(store),
+      INSTRUCTIONS,
+      (req) => process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin,
+    ),
   };
 }
 // ~/~ end

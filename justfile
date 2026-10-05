@@ -67,7 +67,8 @@ serve:
       exit 1
     fi
   done
-  just _spawn "{{serve_state}}/app" env NODE_ENV=production just run "$app"
+  just _spawn "{{serve_state}}/app" env NODE_ENV=production \
+    DIFFY_PUBLIC_URL="https://$(hostname).exe.xyz:$app" just run "$app"
   just _spawn "{{serve_state}}/docs" just docs "$docs"
   # Print the URLs only once both ports answer.
   for name in app docs; do
