@@ -1144,7 +1144,8 @@ const SIGNS: Record<CodeKind, string> = {
 
 ### Comments
 
-A thread on a commit neither side now holds says it is stale. The composer
+A thread on a commit neither side now holds says it is stale. A thread
+names its author, and one an agent wrote stands out from the reader's own. The composer
 and threads are their own view because commit rows and interdiff rows draw
 them too, for comments on a whole comparison.
 
@@ -1170,6 +1171,12 @@ function composerLabel(anchor: Anchor): string {
     case "comparison":
       return "whole comparison";
   }
+}
+
+/** Who wrote a comment. The browser writes as the reader, so the reader's
+ *  own comments read as theirs and anyone else's by name. */
+function authorLabel(author: string): string {
+  return author === "reader" ? "you" : author;
 }
 
 /** What a thread is about, named so it reads on its own. */
@@ -1264,7 +1271,16 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
+          <span
+            className={
+              comment.author === "reader"
+                ? undefined
+                : "comment-thread__author--other"
+            }
+          >
+            {authorLabel(comment.author)}
+          </span>{" "}
+          · {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
         </span>
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
           {comment.resolved ? "reopen" : "resolve"}

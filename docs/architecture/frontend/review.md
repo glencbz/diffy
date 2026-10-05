@@ -2056,6 +2056,11 @@ comparison's tone chip and a comment thread's accent.
     color: var(--text-faint);
   }
 
+  .comment-thread__author--other {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
   .comment-thread__stale {
     color: var(--review-stale);
   }
