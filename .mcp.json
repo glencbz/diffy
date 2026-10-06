@@ -13,6 +13,10 @@
         ".claude/verify-artifacts"
       ],
       "env": {}
+    },
+    "diffy": {
+      "type": "http",
+      "url": "http://localhost:4000/mcp"
     }
   }
 }

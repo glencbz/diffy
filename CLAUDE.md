@@ -78,6 +78,18 @@ more, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
   including when nobody asked for a review. It is the only way a PR here gets
   its preview servers and the URLs that go in its body.
 
+## Reviews in diffy
+
+- The review branch server on port 4000 (see the `review-branch` skill) serves
+  diffy's MCP tools to every session as the `diffy` server in `.mcp.json`.
+- When a piece of work is done, `register_review` it under its bookmark and
+  give Glen the link the tool returns, alongside the PR.
+- Before changing work Glen has reviewed, `read_comments` on it. Answer with
+  `add_comment` and `resolve_comment` what the change addresses.
+- If the `diffy` tools are missing, :4000 is down. Run
+  `.claude/skills/review-branch/review.sh start`, then ask Glen to reconnect
+  with `/mcp`.
+
 ## Commit messages
 
 - Prefix commit subjects with the affected subarea (for example, `skills:`), not Conventional Commit types such as `feat:`, `fix:`, or `chore:`.
