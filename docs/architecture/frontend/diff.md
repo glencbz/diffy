@@ -2670,15 +2670,22 @@ describe("splitRows", () => {
 files says which nothing it is: two commits making the same change is what
 someone checking a rebase wants to know, and an empty commit is something
 else. A comment on the whole comparison sits between the header and the
-files. Under the header is the after (else before) commit's
+files. All a review document adds to a row, from the bar's buttons to the
+files' comments, comes out of `partsOf`, so a row checks for the document
+once. Under the header is the after (else before) commit's
 [`CommitMessage`](commit-message.md); a changed message already shows as the
 `JJ-COMMIT-DESCRIPTION` file.
 
 ```tsx
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
-import { useState } from "react";
-import type { ReviewActions, ReviewedRow } from "../model/review";
+import { type ReactNode, useState } from "react";
+import type {
+  DiffReview,
+  ReviewActions,
+  ReviewBarVariant,
+  ReviewedRow,
+} from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommentComposer, CommentThreads } from "./Comments";
@@ -2715,81 +2722,97 @@ export function InterdiffRows({
 
   return (
     <div>
-      {rows.map((row) => (
-        <section
-          key={rowKey(row)}
-          id={rowAnchor(row)}
-          className="interdiff-row"
-        >
-          <ComparisonHeader
-            row={row}
-            plain={plain}
-            bar={
-              review === null
-                ? { kind: "read-only" }
-                : {
-                    kind: "writable",
-                    onMarkSeen: () => review.markSeen(row),
-                    onComment: () => setComposing(rowKey(row)),
-                  }
-            }
-          />
-          <CommitMessage
-            description={(row.to ?? row.from)?.description ?? ""}
-            className="interdiff-message"
-            isExpanded={expanded.has(rowKey(row))}
-            onExpand={() => toggleExpanded(rowKey(row))}
-          />
-          {review !== null && composing === rowKey(row) && (
-            <CommentComposer
-              anchor={{ kind: "comparison" }}
-              onCancel={() => setComposing(null)}
-              onSubmit={(anchor, body) => {
-                review.addComment(row, anchor, body);
-                setComposing(null);
-              }}
+      {rows.map((row) => {
+        const parts = partsOf(review, row, composing, setComposing);
+        return (
+          <section
+            key={rowKey(row)}
+            id={rowAnchor(row)}
+            className="interdiff-row"
+          >
+            <ComparisonHeader row={row} plain={plain} bar={parts.bar} />
+            <CommitMessage
+              description={(row.to ?? row.from)?.description ?? ""}
+              className="interdiff-message"
+              isExpanded={expanded.has(rowKey(row))}
+              onExpand={() => toggleExpanded(rowKey(row))}
             />
-          )}
-          {review !== null && (
-            <CommentThreads
-              comments={row.comments.filter(
-                (comment) => comment.kind === "comparison",
-              )}
-              onResolveComment={review.resolveComment}
-              onDropComment={review.dropComment}
-            />
-          )}
-          {row.files.length === 0 ? (
-            <p className="interdiff-empty">
-              {row.from !== null && row.to !== null
-                ? "Both commits make the same change."
-                : "No changes in this commit."}
-            </p>
-          ) : (
-            <DiffView
-              files={row.files}
-              sources={sources}
-              scope={rowKey(row)}
-              display={display}
-              review={
-                review === null
-                  ? undefined
-                  : {
-                      comments: row.comments,
-                      onAddComment: (anchor, body) =>
-                        review.addComment(row, anchor, body),
-                      onResolveComment: review.resolveComment,
-                      onDropComment: review.dropComment,
-                      viewed: row.viewed,
-                      onToggleViewed: (file) => review.toggleViewed(row, file),
-                    }
-              }
-            />
-          )}
-        </section>
-      ))}
+            {parts.comments}
+            {row.files.length === 0 ? (
+              <p className="interdiff-empty">
+                {row.from !== null && row.to !== null
+                  ? "Both commits make the same change."
+                  : "No changes in this commit."}
+              </p>
+            ) : (
+              <DiffView
+                files={row.files}
+                sources={sources}
+                scope={rowKey(row)}
+                display={display}
+                review={parts.diff}
+              />
+            )}
+          </section>
+        );
+      })}
     </div>
   );
+}
+
+/** What a review document adds to a row that a row without one leaves out. */
+interface RowParts {
+  bar: ReviewBarVariant;
+  /** The composer and threads on the whole comparison, under the message. */
+  comments: ReactNode;
+  diff: DiffReview | undefined;
+}
+
+function partsOf(
+  review: ReviewActions | null,
+  row: ReviewedRow,
+  composing: string | null,
+  setComposing: (key: string | null) => void,
+): RowParts {
+  if (review === null) {
+    return { bar: { kind: "read-only" }, comments: null, diff: undefined };
+  }
+  return {
+    bar: {
+      kind: "writable",
+      onMarkSeen: () => review.markSeen(row),
+      onComment: () => setComposing(rowKey(row)),
+    },
+    comments: (
+      <>
+        {composing === rowKey(row) && (
+          <CommentComposer
+            anchor={{ kind: "comparison" }}
+            onCancel={() => setComposing(null)}
+            onSubmit={(anchor, body) => {
+              review.addComment(row, anchor, body);
+              setComposing(null);
+            }}
+          />
+        )}
+        <CommentThreads
+          comments={row.comments.filter(
+            (comment) => comment.kind === "comparison",
+          )}
+          onResolveComment={review.resolveComment}
+          onDropComment={review.dropComment}
+        />
+      </>
+    ),
+    diff: {
+      comments: row.comments,
+      onAddComment: (anchor, body) => review.addComment(row, anchor, body),
+      onResolveComment: review.resolveComment,
+      onDropComment: review.dropComment,
+      viewed: row.viewed,
+      onToggleViewed: (file) => review.toggleViewed(row, file),
+    },
+  };
 }
 
 /** Keyed on commit ids: a reorder can put one change id on two rows.
