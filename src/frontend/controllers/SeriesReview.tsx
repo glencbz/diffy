@@ -29,7 +29,10 @@ import { useSeriesCommits, useSeriesSize } from "../state/series";
 import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
+  type ChangeSize,
   CommitStack,
+  changeSize,
+  countLines,
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
@@ -58,12 +61,14 @@ function commitMap(commits: GitCommit[]): Map<string, GitCommit> {
 /** The file `jj interdiff` writes a changed commit message into. */
 const DESCRIPTION_FILE = "JJ-COMMIT-DESCRIPTION";
 
+function isMessage(file: FileDiff): boolean {
+  return "path" in file && file.path === DESCRIPTION_FILE;
+}
+
 function pairedKind(files: AsyncState<FileDiff[]>): StackRowKind {
   // Nothing is known about a pair until its comparison lands, and a
   // comparison that failed says nothing either.
   if (files.status !== "ready") return "plain";
-  const isMessage = (file: FileDiff) =>
-    "path" in file && file.path === DESCRIPTION_FILE;
   if (!files.data.every(isMessage)) {
     return "amended";
   }
@@ -134,6 +139,28 @@ export function baseStackRows(after: GitCommit[], diffs: RowDiffs): StackRow[] {
       files: diffs.get(key) ?? LOADING,
     };
   });
+}
+
+/** What the rows of a two-version comparison add up to, waiting on every
+ *  row. A file counts once however many rows touch it, a changed message is
+ *  no file, and a dropped commit's lines count as removed, since its row
+ *  shows what it used to add. */
+export function rowsSize(rows: StackRow[]): AsyncState<ChangeSize> {
+  const paths = new Set<string>();
+  let added = 0;
+  let removed = 0;
+  for (const row of rows) {
+    if (row.files.status !== "ready") return row.files;
+    const files = row.files.data.filter((file) => !isMessage(file));
+    for (const file of files) {
+      paths.add("path" in file ? file.path : file.newPath);
+    }
+    const lines = countLines(files);
+    const dropped = row.kind === "dropped";
+    added += dropped ? lines.removed : lines.added;
+    removed += dropped ? lines.added : lines.removed;
+  }
+  return { status: "ready", data: { files: paths.size, added, removed } };
 }
 
 /** The commit a click on the single-lane graph picked, read off the
@@ -211,7 +238,9 @@ export function SeriesReview({
   const afterCommits =
     afterState.status === "ready" ? afterState.data : NO_COMMITS;
 
-  const size = useSeriesSize(versionAsk(source, to));
+  const wholeSize = useSeriesSize(
+    from.kind === "base" ? versionAsk(source, to) : null,
+  );
   const pairingHeads =
     beforeId === null ? null : { series, before: beforeId, after: to };
   const pairing = usePairing(
@@ -265,6 +294,15 @@ export function SeriesReview({
       : afterState.status === "error"
         ? afterState.message
         : null;
+
+  const size: AsyncState<ChangeSize> =
+    from.kind === "base"
+      ? wholeSize.status === "ready"
+        ? { status: "ready", data: changeSize(wholeSize.data) }
+        : wholeSize
+      : commitsLoading || commitsError !== null
+        ? { status: "loading" }
+        : rowsSize(rows);
 
   const pick = (commitId: string) => {
     const commit =
@@ -333,7 +371,7 @@ export function SeriesReview({
             history={history}
             from={from}
             to={to}
-            files={size}
+            size={size}
             wholeLabel={screen.wholeLabel}
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}

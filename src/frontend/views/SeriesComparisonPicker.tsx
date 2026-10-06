@@ -1,19 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-series-comparison-picker>>[init]
 import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
 import {
   type SeriesBaseline,
   type SeriesHistory,
   type SeriesVersion,
   versionName,
 } from "../model/series";
-import { ChangeCount } from "./CommitStack";
+import { ChangeCount, type ChangeSize } from "./CommitStack";
 
 export function SeriesComparisonPicker({
   history,
   from,
   to,
-  files,
+  size,
   wholeLabel,
   onPickFrom,
   onPickTo,
@@ -21,8 +20,8 @@ export function SeriesComparisonPicker({
   history: SeriesHistory;
   from: SeriesBaseline;
   to: string;
-  /** Everything the `to` version changes against the base. */
-  files: AsyncState<FileDiff[]>;
+  /** The size of the comparison on screen, whichever ends it has. */
+  size: AsyncState<ChangeSize>;
   /** What the whole of one version is called: `whole pull request`. */
   wholeLabel: string;
   onPickFrom: (from: SeriesBaseline) => void;
@@ -63,10 +62,10 @@ export function SeriesComparisonPicker({
           ))}
         </select>
       </label>
-      {files.status === "ready" && (
+      {size.status === "ready" && (
         <span className="pull-compare__size">
           <span className="pull-compare__label">{wholeLabel}</span>
-          <ChangeCount files={files.data} />
+          <ChangeCount size={size.data} />
         </span>
       )}
       {truncated ? (
