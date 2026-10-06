@@ -10,7 +10,8 @@ export type LineAction =
   | { kind: "none" }
   /** The gutter number of an after-side line links to it. */
   | { kind: "link"; links: FileLinks }
-  /** The line is a `<button>` that opens the composer on it. */
+  /** The gutter is a `<button>` that opens the composer on the line, and
+   *  so is a click on the rest of the row. */
   | { kind: "comment"; onOpenComposer: (anchor: LineAnchor) => void };
 
 /** One line of a patch. In a column a line is numbered by that column's
@@ -97,14 +98,27 @@ export function PatchLine({
           {text}
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => onOpenComposer(anchor)}
+        // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the gutter button is the keyboard path
+        <div
+          onClick={() => {
+            if (window.getSelection()?.isCollapsed === false) return;
+            onOpenComposer(anchor);
+          }}
           className={`${className} diff-line--interactive`}
         >
-          {gutter}
+          <button
+            type="button"
+            aria-label={`comment on ${anchor.side} line ${anchor.line}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenComposer(anchor);
+            }}
+            className="diff-line__gutter diff-line__comment"
+          >
+            {number ?? ""}
+          </button>
           {text}
-        </button>
+        </div>
       );
     }
   }

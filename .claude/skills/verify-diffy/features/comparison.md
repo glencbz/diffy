@@ -109,7 +109,7 @@ Preconditions:
   line shows `hi` and `hello, `/`there ` in the stronger word tint.
 - **Side by side.** In Settings pick `Side by side`, then tick
   `fixture: edit the long file and the script`. `long.txt` draws
-  `2 -long line 2` in a `.diff-line--before` button beside `2 +long line two`
+  `2 -long line 2` in a `.diff-line--before` row beside `2 +long line two`
   in a `.diff-line--after` one. Resizing to 412 wide keeps
   `.diff-file__patch--split` in two columns.
 

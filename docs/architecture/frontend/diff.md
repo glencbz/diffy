@@ -983,9 +983,12 @@ before-side number, every other by its after-side one. The gutter shows
 after-side numbers, blank for a removed line, a hunk header, or git's
 no-newline note.
 
-Only the gutter links, so selecting a line's text still works. A commentable
-line is a `<button>` and cannot contain a link, so a line either links or
-opens the composer, never both. `LineAction` names the three things a line
+Only the gutter is a control, so a line's text can be selected and copied.
+A row-wide `<button>` would make the whole line open the composer, but
+browsers will not select text inside one. A commentable line's gutter is
+therefore the button, and a click anywhere else on the row opens the composer
+too, unless it ended a text selection. A line either links or opens the
+composer, never both. `LineAction` names the three things a line
 can do, so a reviewed diff's lines comment and a linked one's gutters link
 without a pair of optional props whose fourth combination draws nothing new.
 Marking the addressed line is apart from the action: a pull request's stack
@@ -1005,7 +1008,8 @@ export type LineAction =
   | { kind: "none" }
   /** The gutter number of an after-side line links to it. */
   | { kind: "link"; links: FileLinks }
-  /** The line is a `<button>` that opens the composer on it. */
+  /** The gutter is a `<button>` that opens the composer on the line, and
+   *  so is a click on the rest of the row. */
   | { kind: "comment"; onOpenComposer: (anchor: LineAnchor) => void };
 
 /** One line of a patch. In a column a line is numbered by that column's
@@ -1092,14 +1096,27 @@ export function PatchLine({
           {text}
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => onOpenComposer(anchor)}
+        // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the gutter button is the keyboard path
+        <div
+          onClick={() => {
+            if (window.getSelection()?.isCollapsed === false) return;
+            onOpenComposer(anchor);
+          }}
           className={`${className} diff-line--interactive`}
         >
-          {gutter}
+          <button
+            type="button"
+            aria-label={`comment on ${anchor.side} line ${anchor.line}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenComposer(anchor);
+            }}
+            className="diff-line__gutter diff-line__comment"
+          >
+            {number ?? ""}
+          </button>
           {text}
-        </button>
+        </div>
       );
     }
   }
@@ -1504,6 +1521,18 @@ a long file keeps its name and view switch on screen.
 
   .diff-line--interactive {
     cursor: pointer;
+  }
+
+  .diff-line__comment {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .diff-line__comment:hover {
+    color: var(--accent);
   }
 
   .diff-line--before {
