@@ -1122,8 +1122,10 @@ in this repository, so nothing is fetched. Each answer is checked against the
 jj call it should have made, since a file count would pass with the two
 diffs swapped. `divergedPull` finds a trunk merge whose base side holds a
 commit the merge base lacks, the only shape where diffing from the merge base
-and from the base tip differ. It asks a revset rather than diffing, since
-diffing the review chain's merges runs past the test timeout.
+and from the base tip differ. It asks a revset rather than diffing, and the
+test tells the two ends apart by the paths `jj diff --name-only` lists: a
+branch cut from an old main spans hundreds of files from its base tip, and
+reading those through difftastic runs past the test timeout.
 
 ```ts
 //| id: backend-server-test
@@ -1373,8 +1375,11 @@ describe("pullDiffResponse", () => {
     expect(answer.files).toEqual(
       await jjDiffBetween({ from: mergeBase, to: head }),
     );
-    expect(answer.files).not.toEqual(
-      await jjDiffBetween({ from: base, to: head }),
+    const fromBase = await $`jj diff --name-only --from ${base} --to ${head}`
+      .quiet()
+      .text();
+    expect(paths(answer.files).sort()).not.toEqual(
+      fromBase.split("\n").filter(Boolean).sort(),
     );
   });
 

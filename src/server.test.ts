@@ -701,8 +701,11 @@ describe("pullDiffResponse", () => {
     expect(answer.files).toEqual(
       await jjDiffBetween({ from: mergeBase, to: head }),
     );
-    expect(answer.files).not.toEqual(
-      await jjDiffBetween({ from: base, to: head }),
+    const fromBase = await $`jj diff --name-only --from ${base} --to ${head}`
+      .quiet()
+      .text();
+    expect(paths(answer.files).sort()).not.toEqual(
+      fromBase.split("\n").filter(Boolean).sort(),
     );
   });
 
