@@ -97,6 +97,7 @@ export function DiffView({
                     onEditComment: review.onEditComment,
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
+                    onReplyToComment: review.onReplyToComment,
                     viewed: isViewed(review.viewed, fileVersionOf(file)),
                     onToggleViewed: () =>
                       review.onToggleViewed(fileVersionOf(file)),

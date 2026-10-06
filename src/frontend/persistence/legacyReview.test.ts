@@ -66,7 +66,13 @@ describe("legacyReview", () => {
     // act
     // assert
     expect(legacyReview("now")?.comments).toEqual([
-      { ...comment, kind: "line", side: "after", author: "reader" },
+      {
+        ...comment,
+        kind: "line",
+        side: "after",
+        author: "reader",
+        replies: [],
+      },
     ]);
   });
 

@@ -352,6 +352,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
             resolved: false,
             createdAt: new Date().toISOString(),
             author: AGENT,
+            replies: [],
             ...anchor,
           },
         });

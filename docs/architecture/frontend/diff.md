@@ -258,6 +258,7 @@ export function DiffView({
                     onEditComment: review.onEditComment,
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
+                    onReplyToComment: review.onReplyToComment,
                     viewed: isViewed(review.viewed, fileVersionOf(file)),
                     onToggleViewed: () =>
                       review.onToggleViewed(fileVersionOf(file)),
@@ -441,6 +442,7 @@ export interface ReviewFileRow {
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  onReplyToComment: (id: string, body: string) => void;
   viewed: boolean;
   onToggleViewed: () => void;
   /** Null for a file with no after side, or a diff with nothing to compare. */
@@ -806,6 +808,7 @@ function FileComments({
         patch={patch}
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
+        onReplyToComment={review.onReplyToComment}
       />
     </>
   );
@@ -1492,7 +1495,9 @@ const SIGNS: Record<CodeKind, string> = {
 A thread written against a commit other than the one shown says what became
 of it, and a line thread is labelled where its line is drawn now, as
 [`drawnAt`](review.md#review-state) finds it in the file's patch. A thread
-names its author, and one an agent wrote stands out from the reader's own. The composer
+names its author, and one an agent wrote stands out from the reader's own.
+Its [replies](review.md#review-state) follow it oldest first, each with its
+author, and the reader answers from the thread itself. The composer
 and threads are their own view because commit rows and interdiff rows draw
 them too, for comments on a whole comparison.
 
@@ -1618,6 +1623,7 @@ export function CommentThreads({
   patch = "",
   onResolveComment,
   onDropComment,
+  onReplyToComment,
 }: {
   comments: RowComment[];
   /** The patch of the file line comments are on, to find their lines in. */
@@ -1625,6 +1631,7 @@ export function CommentThreads({
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  onReplyToComment: (id: string, body: string) => void;
 }) {
   if (comments.length === 0) return null;
   return (
@@ -1637,6 +1644,7 @@ export function CommentThreads({
           at={drawnAt(comment, patch)}
           onResolve={(resolved) => onResolveComment(comment.id, resolved)}
           onDrop={() => onDropComment(comment.id)}
+          onReply={(body) => onReplyToComment(comment.id, body)}
         />
       ))}
     </div>
@@ -1649,14 +1657,17 @@ function CommentThread({
   at,
   onResolve,
   onDrop,
+  onReply,
 }: {
   comment: RowComment;
   onEdit: (body: string) => void;
   at: LineAnchor | null;
   onResolve: (resolved: boolean) => void;
   onDrop: () => void;
+  onReply: (body: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [replying, setReplying] = useState(false);
 
   if (editing) {
     return (
@@ -1684,16 +1695,7 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          <span
-            className={
-              comment.author === "reader"
-                ? undefined
-                : "comment-thread__author--other"
-            }
-          >
-            {authorLabel(comment.author)}
-          </span>{" "}
-          · {threadLabel(comment, at)} ·{" "}
+          <Author author={comment.author} /> · {threadLabel(comment, at)} ·{" "}
           {comment.resolved ? "resolved" : "open"}
         </span>
         {comment.author === "reader" && (
@@ -1710,6 +1712,33 @@ function CommentThread({
       </div>
       <div>{comment.body}</div>
       {drift !== null && <div className="comment-thread__stale">{drift}</div>}
+      {comment.replies.map((reply) => (
+        <div key={reply.id} className="comment-thread__reply">
+          <div className="comment-thread__meta">
+            <Author author={reply.author} />
+          </div>
+          <div>{reply.body}</div>
+        </div>
+      ))}
+      {replying ? (
+        <Composer
+          label="reply"
+          submitLabel="reply"
+          onCancel={() => setReplying(false)}
+          onSubmit={(body) => {
+            onReply(body);
+            setReplying(false);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="comment-thread__reply-button"
+          onClick={() => setReplying(true)}
+        >
+          reply
+        </button>
+      )}
     </div>
   );
 }
@@ -1733,6 +1762,18 @@ function driftNote(comment: RowComment, at: LineAnchor | null): string | null {
   return at.line === comment.line
     ? `${written}. That line is unchanged since.`
     : `${written}, at ${was}. That line is unchanged since and is now line ${at.line}.`;
+}
+
+function Author({ author }: { author: string }) {
+  return (
+    <span
+      className={
+        author === "reader" ? undefined : "comment-thread__author--other"
+      }
+    >
+      {authorLabel(author)}
+    </span>
+  );
 }
 ```
 
@@ -3790,6 +3831,7 @@ function partsOf(
           onEditComment={review.editComment}
           onResolveComment={review.resolveComment}
           onDropComment={review.dropComment}
+          onReplyToComment={review.replyToComment}
         />
       </>
     ),
@@ -3799,6 +3841,7 @@ function partsOf(
       onEditComment: review.editComment,
       onResolveComment: review.resolveComment,
       onDropComment: review.dropComment,
+      onReplyToComment: review.replyToComment,
       viewed: row.viewed,
       onToggleViewed: (file) => review.toggleViewed(row, file),
       compare: compareOffer(row, beforePaths, review.compare),

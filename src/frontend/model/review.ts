@@ -39,6 +39,16 @@ export const Anchor = z.union([
 ]);
 export type Anchor = z.infer<typeof Anchor>;
 
+/** An answer on a comment's thread. It has no anchor, commit or resolution
+ *  of its own: it is about whatever its comment is about. */
+export const Reply = z.object({
+  id: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  author: z.string(),
+});
+export type Reply = z.infer<typeof Reply>;
+
 export const Comment = z.intersection(
   z.object({
     id: z.string(),
@@ -50,6 +60,8 @@ export const Comment = z.intersection(
     /** Who wrote it. A comment kept before comments had authors was the
      *  reader's, since nothing else could write one. */
     author: z.string().default("reader"),
+    /** Oldest first. A comment kept before threads had none. */
+    replies: z.array(Reply).default([]),
   }),
   Anchor,
 );
@@ -272,6 +284,7 @@ export interface DiffReview {
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  onReplyToComment: (id: string, body: string) => void;
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -511,6 +524,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("delete-comment"), id: z.string() }),
   z.object({
+    kind: z.literal("add-reply"),
+    commentId: z.string(),
+    reply: Reply,
+  }),
+  z.object({
     kind: z.literal("mark-reviewed"),
     series: z.string(),
     version: z.string(),
@@ -617,6 +635,16 @@ export function applyCommand(
         ...document,
         comments: document.comments.filter(
           (comment) => comment.id !== command.id,
+        ),
+      };
+    case "add-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id !== command.commentId ||
+          comment.replies.some((reply) => reply.id === command.reply.id)
+            ? comment
+            : { ...comment, replies: [...comment.replies, command.reply] },
         ),
       };
     case "mark-reviewed":
@@ -836,6 +864,7 @@ export interface ReviewActions {
   editComment: (id: string, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
+  replyToComment: (id: string, body: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   /** Reads `newPath` against `oldPath`, or against itself again for null. */
   compare: (
@@ -914,6 +943,7 @@ export function commentOn(
       reviewKey: row.reviewKey,
       commitId: commitId ?? "",
       resolved: false,
+      replies: [],
     },
   };
 }

@@ -46,6 +46,14 @@ it would need a diff from its commit to the row's, which the row does not
 fetch; storing the line's text and searching for it would find the wrong one
 of two equal lines.
 
+**Threads.** A comment carries its replies, so the reader and an agent can
+answer each other on one thread. Resolving, staleness and the open count stay
+with the comment, and deleting it takes its replies along. A reply could
+instead be a comment of its own naming the one it answers, but then every
+count, filter and stale check would have to skip replies, and a reply would
+carry an anchor and a resolution that mean nothing. `add-reply` to a comment
+that is gone does nothing, as a retry would.
+
 **Viewed files** are filed under the row's key and named by path and both
 blobs, so an amend that leaves the file alone keeps it viewed and one that
 touches it does not. A stale mark is left in place; a rewrite that restores
@@ -126,6 +134,16 @@ export const Anchor = z.union([
 ]);
 export type Anchor = z.infer<typeof Anchor>;
 
+/** An answer on a comment's thread. It has no anchor, commit or resolution
+ *  of its own: it is about whatever its comment is about. */
+export const Reply = z.object({
+  id: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  author: z.string(),
+});
+export type Reply = z.infer<typeof Reply>;
+
 export const Comment = z.intersection(
   z.object({
     id: z.string(),
@@ -137,6 +155,8 @@ export const Comment = z.intersection(
     /** Who wrote it. A comment kept before comments had authors was the
      *  reader's, since nothing else could write one. */
     author: z.string().default("reader"),
+    /** Oldest first. A comment kept before threads had none. */
+    replies: z.array(Reply).default([]),
   }),
   Anchor,
 );
@@ -359,6 +379,7 @@ export interface DiffReview {
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  onReplyToComment: (id: string, body: string) => void;
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -598,6 +619,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("delete-comment"), id: z.string() }),
   z.object({
+    kind: z.literal("add-reply"),
+    commentId: z.string(),
+    reply: Reply,
+  }),
+  z.object({
     kind: z.literal("mark-reviewed"),
     series: z.string(),
     version: z.string(),
@@ -704,6 +730,16 @@ export function applyCommand(
         ...document,
         comments: document.comments.filter(
           (comment) => comment.id !== command.id,
+        ),
+      };
+    case "add-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id !== command.commentId ||
+          comment.replies.some((reply) => reply.id === command.reply.id)
+            ? comment
+            : { ...comment, replies: [...comment.replies, command.reply] },
         ),
       };
     case "mark-reviewed":
@@ -923,6 +959,7 @@ export interface ReviewActions {
   editComment: (id: string, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
+  replyToComment: (id: string, body: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   /** Reads `newPath` against `oldPath`, or against itself again for null. */
   compare: (
@@ -1001,6 +1038,7 @@ export function commentOn(
       reviewKey: row.reviewKey,
       commitId: commitId ?? "",
       resolved: false,
+      replies: [],
     },
   };
 }
@@ -1253,6 +1291,7 @@ describe("reviewRows", () => {
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
           author: "reader",
+          replies: [],
         },
       ],
     };
@@ -1315,6 +1354,7 @@ describe("reviewRows", () => {
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
           author: "reader",
+          replies: [],
         },
       ],
     };
@@ -1341,6 +1381,7 @@ describe("reviewRows", () => {
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
           author: "reader",
+          replies: [],
         },
       ],
     };
@@ -1494,6 +1535,31 @@ describe("ReviewDocument", () => {
     expect(document.comments[0]?.author).toBe("reader");
   });
 
+  test("reads a comment kept before threads as one with no replies", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "comparison",
+          commitId: "a2",
+          body: "written before threads",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]?.replies).toEqual([]);
+  });
+
   test("reads file and comparison comments back as themselves", () => {
     // arrange
     const written = {
@@ -1503,6 +1569,14 @@ describe("ReviewDocument", () => {
       resolved: false,
       createdAt: "2026-09-14T09:00:00.000Z",
       author: "agent",
+      replies: [
+        {
+          id: "r1",
+          body: "",
+          createdAt: "2026-09-14T10:00:00.000Z",
+          author: "reader",
+        },
+      ],
     };
     const stored = {
       marks: [],
@@ -1588,6 +1662,7 @@ function lineComment(
     resolved: false,
     createdAt: "2026-10-06T09:00:00.000Z",
     author: "reader",
+    replies: [],
   };
 }
 
@@ -1866,6 +1941,43 @@ describe("changes to the document", () => {
     );
   });
 
+  test("threads a reply under its comment, and ignores one whose comment is gone", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const one = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t1",
+        author: "reader",
+      }),
+    );
+    const reply = {
+      id: "r1",
+      body: "because",
+      createdAt: "t2",
+      author: "claude",
+    };
+
+    // act
+    const answered = applied(one, {
+      kind: "add-reply",
+      commentId: "c1",
+      reply,
+    });
+    const orphan = applied(one, {
+      kind: "add-reply",
+      commentId: "gone",
+      reply,
+    });
+
+    // assert
+    expect(answered.comments).toHaveLength(1);
+    expect(answered.comments[0]?.replies).toEqual([reply]);
+    expect(orphan).toEqual(one);
+  });
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -1882,6 +1994,11 @@ describe("changes to the document", () => {
       }),
       { kind: "edit-comment", id: "c1", body: "fine" },
       { kind: "resolve-comment", id: "c1", resolved: true },
+      {
+        kind: "add-reply",
+        commentId: "c1",
+        reply: { id: "r1", body: "ok", createdAt: "t", author: "claude" },
+      },
     ];
 
     // act
@@ -2334,6 +2451,16 @@ comparison's tone chip and a comment thread's accent.
   .comment-thread__stale {
     color: var(--review-stale);
   }
+
+  .comment-thread__reply {
+    margin-top: var(--space-3);
+    padding-left: var(--space-4);
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .comment-thread__reply-button {
+    margin-top: var(--space-2);
+  }
 }
 ```
 ## The review bar
@@ -2698,6 +2825,17 @@ export function useReview(): ReviewHandle {
       resolveComment: (id, resolved) =>
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),
+      replyToComment: (id, body) =>
+        send({
+          kind: "add-reply",
+          commentId: id,
+          reply: {
+            id: crypto.randomUUID(),
+            body,
+            createdAt: now(),
+            author: "reader",
+          },
+        }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       compare: (row, newPath, oldPath) =>
         write(row, {
@@ -2959,7 +3097,13 @@ describe("legacyReview", () => {
     // act
     // assert
     expect(legacyReview("now")?.comments).toEqual([
-      { ...comment, kind: "line", side: "after", author: "reader" },
+      {
+        ...comment,
+        kind: "line",
+        side: "after",
+        author: "reader",
+        replies: [],
+      },
     ]);
   });
 

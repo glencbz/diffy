@@ -1095,6 +1095,16 @@
   .comment-thread__stale {
     color: var(--review-stale);
   }
+
+  .comment-thread__reply {
+    margin-top: var(--space-3);
+    padding-left: var(--space-4);
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .comment-thread__reply-button {
+    margin-top: var(--space-2);
+  }
 }
 /* ~/~ end */
 /* ~/~ begin <<docs/architecture/frontend/review.md#design-review-state>>[1] */
