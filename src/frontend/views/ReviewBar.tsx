@@ -5,6 +5,7 @@ import type { FileDiff } from "../model/diff";
 import {
   type ComparisonReview,
   isViewed,
+  type ReviewBarVariant,
   type RowReview,
 } from "../model/review";
 
@@ -14,15 +15,12 @@ export function ReviewBar({
   review,
   files,
   commentLabel,
-  onMarkSeen,
-  onComment,
+  variant,
 }: {
   review: ComparisonReview;
   files: FileDiff[];
   commentLabel: string;
-  /** Null when there is no review document to write to. */
-  onMarkSeen: (() => void) | null;
-  onComment: (() => void) | null;
+  variant: ReviewBarVariant;
 }) {
   const openComments = review.comments.filter(
     (comment) => !comment.resolved,
@@ -40,23 +38,23 @@ export function ReviewBar({
           {viewed} / {files.length} files viewed
         </span>
       )}
-      {onMarkSeen !== null && (
-        <button
-          type="button"
-          onClick={onMarkSeen}
-          className="review-bar__mark-seen"
-        >
-          {review.review.state === "reviewed" ? "mark unseen" : "mark seen"}
-        </button>
-      )}
-      {onComment !== null && (
-        <button
-          type="button"
-          onClick={onComment}
-          className="review-bar__comment"
-        >
-          {commentLabel}
-        </button>
+      {variant.kind === "writable" && (
+        <>
+          <button
+            type="button"
+            onClick={variant.onMarkSeen}
+            className="review-bar__mark-seen"
+          >
+            {review.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+          </button>
+          <button
+            type="button"
+            onClick={variant.onComment}
+            className="review-bar__comment"
+          >
+            {commentLabel}
+          </button>
+        </>
       )}
     </div>
   );

@@ -1,21 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comparison-header>>[init]
 import type { LogEntry } from "../model/history";
-import type { ReviewedRow } from "../model/review";
+import type { ReviewBarVariant, ReviewedRow } from "../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { ReviewBar } from "./ReviewBar";
 
 export function ComparisonHeader({
   row,
   plain,
-  onMarkSeen,
-  onComment,
+  bar,
 }: {
   row: ReviewedRow;
   /** A commit's own diff, which names the one commit and no sides. */
   plain: boolean;
-  /** Null when there is no review document to write to. */
-  onMarkSeen: (() => void) | null;
-  onComment: (() => void) | null;
+  bar: ReviewBarVariant;
 }) {
   return (
     <header className="comparison-header">
@@ -31,8 +28,7 @@ export function ComparisonHeader({
         review={row}
         files={row.files}
         commentLabel="comment on comparison"
-        onMarkSeen={onMarkSeen}
-        onComment={onComment}
+        variant={bar}
       />
     </header>
   );

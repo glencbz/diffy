@@ -278,6 +278,12 @@ export interface DiffReview {
   onToggleViewed: (file: FileVersion) => void;
 }
 
+/** Whether a review bar offers the two things a reader can do about a whole
+ *  comparison. Without a review document there is nowhere to record either. */
+export type ReviewBarVariant =
+  | { kind: "read-only" }
+  | { kind: "writable"; onMarkSeen: () => void; onComment: () => void };
+
 /** What the reader has kept about one comparison: the key it is filed
  *  under, the commit on each side, and everything filed under that key. */
 export interface ComparisonReview {
@@ -2071,7 +2077,8 @@ comparison's tone chip and a comment thread's accent.
 The review bar says in one line whether a row was looked at, whether it
 moved since, how many comments are open, and how many files are viewed. The
 `mark seen` button reads its label off the row's state. Without a review
-document the bar keeps the chips and drops the buttons.
+document the bar keeps the chips and drops the buttons, which come and go
+together, so a `ReviewBarVariant` either carries both handlers or neither.
 
 ```tsx
 //| id: frontend-view-review-bar
@@ -2082,6 +2089,7 @@ import type { FileDiff } from "../model/diff";
 import {
   type ComparisonReview,
   isViewed,
+  type ReviewBarVariant,
   type RowReview,
 } from "../model/review";
 
@@ -2091,15 +2099,12 @@ export function ReviewBar({
   review,
   files,
   commentLabel,
-  onMarkSeen,
-  onComment,
+  variant,
 }: {
   review: ComparisonReview;
   files: FileDiff[];
   commentLabel: string;
-  /** Null when there is no review document to write to. */
-  onMarkSeen: (() => void) | null;
-  onComment: (() => void) | null;
+  variant: ReviewBarVariant;
 }) {
   const openComments = review.comments.filter(
     (comment) => !comment.resolved,
@@ -2117,23 +2122,23 @@ export function ReviewBar({
           {viewed} / {files.length} files viewed
         </span>
       )}
-      {onMarkSeen !== null && (
-        <button
-          type="button"
-          onClick={onMarkSeen}
-          className="review-bar__mark-seen"
-        >
-          {review.review.state === "reviewed" ? "mark unseen" : "mark seen"}
-        </button>
-      )}
-      {onComment !== null && (
-        <button
-          type="button"
-          onClick={onComment}
-          className="review-bar__comment"
-        >
-          {commentLabel}
-        </button>
+      {variant.kind === "writable" && (
+        <>
+          <button
+            type="button"
+            onClick={variant.onMarkSeen}
+            className="review-bar__mark-seen"
+          >
+            {review.review.state === "reviewed" ? "mark unseen" : "mark seen"}
+          </button>
+          <button
+            type="button"
+            onClick={variant.onComment}
+            className="review-bar__comment"
+          >
+            {commentLabel}
+          </button>
+        </>
       )}
     </div>
   );

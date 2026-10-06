@@ -209,6 +209,12 @@ export interface DiffReview {
   onToggleViewed: (file: FileVersion) => void;
 }
 
+/** Whether a review bar offers the two things a reader can do about a whole
+ *  comparison. Without a review document there is nowhere to record either. */
+export type ReviewBarVariant =
+  | { kind: "read-only" }
+  | { kind: "writable"; onMarkSeen: () => void; onComment: () => void };
+
 /** What the reader has kept about one comparison: the key it is filed
  *  under, the commit on each side, and everything filed under that key. */
 export interface ComparisonReview {

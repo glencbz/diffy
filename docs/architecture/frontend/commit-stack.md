@@ -310,8 +310,15 @@ function StackSection({
             review={review}
             files={row.files.status === "ready" ? row.files.data : []}
             commentLabel="comment on this commit"
-            onMarkSeen={actions && (() => actions.markSeen(review))}
-            onComment={actions && (() => setComposing(true))}
+            variant={
+              actions === null
+                ? { kind: "read-only" }
+                : {
+                    kind: "writable",
+                    onMarkSeen: () => actions.markSeen(review),
+                    onComment: () => setComposing(true),
+                  }
+            }
           />
           {actions !== null && composing && (
             <CommentComposer
