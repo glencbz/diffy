@@ -1,22 +1,24 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-view-local-review-list>>[init]
 import type { ReactNode } from "react";
-import type { LocalReview, LocalVersion } from "../model/review";
+import type {
+  LocalReview,
+  LocalReviewListVariant,
+  LocalVersion,
+} from "../model/review";
 
 export function LocalReviewList({
   reviews,
   forgotten,
   selected,
   onSelect,
-  onForget,
-  onRestore,
+  variant,
   commits,
 }: {
   reviews: LocalReview[];
   forgotten: LocalReview[];
   selected: string | null;
   onSelect: (name: string) => void;
-  onForget: ((name: string) => void) | null;
-  onRestore: ((name: string) => void) | null;
+  variant: LocalReviewListVariant;
   /** The graph of one version's commits. */
   commits: (version: LocalVersion) => ReactNode;
 }) {
@@ -49,11 +51,11 @@ export function LocalReviewList({
                   <span className="pull-list__base">{newest.revset}</span>
                 )}
               </button>
-              {onForget !== null && (
+              {variant.kind === "writable" && (
                 <button
                   type="button"
                   aria-label={`forget the local review ${review.name}`}
-                  onClick={() => onForget(review.name)}
+                  onClick={() => variant.onForget(review.name)}
                   className="local-review__action local-review__action--danger"
                 >
                   delete
@@ -88,11 +90,11 @@ export function LocalReviewList({
                     {review.versions.at(-1)?.revset}
                   </span>
                 </span>
-                {onRestore !== null && (
+                {variant.kind === "writable" && (
                   <button
                     type="button"
                     aria-label={`restore the local review ${review.name}`}
-                    onClick={() => onRestore(review.name)}
+                    onClick={() => variant.onRestore(review.name)}
                     className="local-review__action"
                   >
                     restore

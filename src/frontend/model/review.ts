@@ -170,6 +170,17 @@ export function localReview(
   return document.localReviews.find((review) => review.name === name);
 }
 
+/** Whether the local review list offers delete and restore. They come
+ *  together, so a deleted review can always be brought back, and neither
+ *  comes without a review document to record it in. */
+export type LocalReviewListVariant =
+  | { kind: "read-only" }
+  | {
+      kind: "writable";
+      onForget: (name: string) => void;
+      onRestore: (name: string) => void;
+    };
+
 /** The versions of one series the reader marked reviewed. */
 export function reviewedIn(
   document: ReviewDocument,

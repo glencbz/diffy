@@ -133,16 +133,17 @@ export function LocalReviews({
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
           }
-          onForget={
+          variant={
             review.status === "ready"
-              ? (name) => {
-                  review.actions.forgetReview(name);
-                  if (name === place?.name) onGo(null);
+              ? {
+                  kind: "writable",
+                  onForget: (name) => {
+                    review.actions.forgetReview(name);
+                    if (name === place?.name) onGo(null);
+                  },
+                  onRestore: review.actions.restoreReview,
                 }
-              : null
-          }
-          onRestore={
-            review.status === "ready" ? review.actions.restoreReview : null
+              : { kind: "read-only" }
           }
           commits={(version) => (
             <CommitLog
@@ -225,29 +226,32 @@ since loading commits is a controller's job and the list is a view. The
 graph picks nothing, so a click anywhere on the entry opens the review.
 `delete` sits beside the name. Forgotten reviews wait under the list with
 `restore` in its place. Both buttons are left out while the review document
-cannot be written.
+cannot be written, and a `LocalReviewListVariant` offers both or neither, so
+no list can delete a review it cannot restore.
 
 ```tsx
 //| id: frontend-view-local-review-list
 //| file: src/frontend/views/LocalReviewList.tsx
 import type { ReactNode } from "react";
-import type { LocalReview, LocalVersion } from "../model/review";
+import type {
+  LocalReview,
+  LocalReviewListVariant,
+  LocalVersion,
+} from "../model/review";
 
 export function LocalReviewList({
   reviews,
   forgotten,
   selected,
   onSelect,
-  onForget,
-  onRestore,
+  variant,
   commits,
 }: {
   reviews: LocalReview[];
   forgotten: LocalReview[];
   selected: string | null;
   onSelect: (name: string) => void;
-  onForget: ((name: string) => void) | null;
-  onRestore: ((name: string) => void) | null;
+  variant: LocalReviewListVariant;
   /** The graph of one version's commits. */
   commits: (version: LocalVersion) => ReactNode;
 }) {
@@ -280,11 +284,11 @@ export function LocalReviewList({
                   <span className="pull-list__base">{newest.revset}</span>
                 )}
               </button>
-              {onForget !== null && (
+              {variant.kind === "writable" && (
                 <button
                   type="button"
                   aria-label={`forget the local review ${review.name}`}
-                  onClick={() => onForget(review.name)}
+                  onClick={() => variant.onForget(review.name)}
                   className="local-review__action local-review__action--danger"
                 >
                   delete
@@ -319,11 +323,11 @@ export function LocalReviewList({
                     {review.versions.at(-1)?.revset}
                   </span>
                 </span>
-                {onRestore !== null && (
+                {variant.kind === "writable" && (
                   <button
                     type="button"
                     aria-label={`restore the local review ${review.name}`}
-                    onClick={() => onRestore(review.name)}
+                    onClick={() => variant.onRestore(review.name)}
                     className="local-review__action"
                   >
                     restore
