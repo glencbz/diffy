@@ -16,7 +16,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer or resolve what they wrote, amend the changes, and register_review again.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, and register_review again.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);
@@ -260,7 +260,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
     tool({
       name: "read_comments",
       description:
-        "Read the comments on the newest version of a local review, as JSON. Each names its change, where it sits, who wrote it, and whether it is resolved or stale.",
+        "Read the comment threads on the newest version of a local review, as JSON. Each names its change, where it sits, who wrote it, whether it is resolved or stale, and its replies, oldest first.",
       input: z.object({
         name: Name,
         unresolvedOnly: z.boolean().default(true),
@@ -290,6 +290,11 @@ export function reviewTools(store: ReviewStore): Tool[] {
               body: comment.body,
               resolved: comment.resolved,
               stale: !version.commits.includes(comment.commitId),
+              replies: comment.replies.map(({ id, author, body }) => ({
+                id,
+                author,
+                body,
+              })),
             },
           ];
         });
@@ -357,6 +362,35 @@ export function reviewTools(store: ReviewStore): Tool[] {
           },
         });
         return id;
+      },
+    }),
+    tool({
+      name: "reply_to_comment",
+      description:
+        "Answer a comment on its thread, and answer with the reply's id. The thread stays open until it is resolved.",
+      input: z.object({
+        id: z
+          .string()
+          .min(1)
+          .describe("the id of the comment that starts the thread"),
+        body: z.string().min(1),
+      }),
+      call: async ({ id, body }) => {
+        if (!store.read().document.comments.some((each) => each.id === id)) {
+          throw new ToolError(`no comment has id ${id}`);
+        }
+        const reply = crypto.randomUUID();
+        store.apply({
+          kind: "add-reply",
+          commentId: id,
+          reply: {
+            id: reply,
+            body,
+            createdAt: new Date().toISOString(),
+            author: AGENT,
+          },
+        });
+        return reply;
       },
     }),
     tool({
