@@ -56,6 +56,30 @@ export function CommentComposer({
   onCancel: () => void;
   onSubmit: (anchor: Anchor, body: string) => void;
 }) {
+  return (
+    <Composer
+      label={composerLabel(anchor)}
+      initialBody={initialBody}
+      submitLabel={initialBody === "" ? "comment" : "save"}
+      onCancel={onCancel}
+      onSubmit={(body) => onSubmit(anchor, body)}
+    />
+  );
+}
+
+function Composer({
+  label,
+  initialBody = "",
+  submitLabel,
+  onCancel,
+  onSubmit,
+}: {
+  label: string;
+  initialBody?: string;
+  submitLabel: string;
+  onCancel: () => void;
+  onSubmit: (body: string) => void;
+}) {
   const [body, setBody] = useState(initialBody);
 
   return (
@@ -64,10 +88,10 @@ export function CommentComposer({
       onSubmit={(event) => {
         event.preventDefault();
         if (body.trim() === "") return;
-        onSubmit(anchor, body);
+        onSubmit(body);
       }}
     >
-      <div className="comment-composer__line">{composerLabel(anchor)}</div>
+      <div className="comment-composer__line">{label}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -75,7 +99,7 @@ export function CommentComposer({
         className="comment-composer__input"
       />
       <div className="comment-composer__actions">
-        <button type="submit">{initialBody === "" ? "comment" : "save"}</button>
+        <button type="submit">{submitLabel}</button>
         <button type="button" onClick={onCancel}>
           cancel
         </button>
