@@ -20,6 +20,12 @@ function composerLabel(anchor: Anchor): string {
   }
 }
 
+/** Who wrote a comment. The browser writes as the reader, so the reader's
+ *  own comments read as theirs and anyone else's by name. */
+function authorLabel(author: string): string {
+  return author === "reader" ? "you" : author;
+}
+
 /** What a thread is about, named so it reads on its own. */
 function threadLabel(comment: Anchor): string {
   switch (comment.kind) {
@@ -112,7 +118,16 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
+          <span
+            className={
+              comment.author === "reader"
+                ? undefined
+                : "comment-thread__author--other"
+            }
+          >
+            {authorLabel(comment.author)}
+          </span>{" "}
+          · {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
         </span>
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
           {comment.resolved ? "reopen" : "resolve"}
