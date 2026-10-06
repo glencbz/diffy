@@ -72,6 +72,18 @@ describe("registrationDefaults", () => {
     // assert
     expect(defaults.revset).toBe("trunk()");
   });
+
+  test("reads a new name as the bookmark of that name", async () => {
+    // arrange
+    // act
+    const defaults = await registrationDefaults(EMPTY_REVIEW, {
+      name: "my-branch",
+    });
+
+    // assert
+    expect(defaults.name).toBe("my-branch");
+    expect(defaults.revset).toBe('trunk().."my-branch"');
+  });
 });
 
 describe("reading a version", () => {

@@ -145,7 +145,9 @@ browser, since a phone and a desktop want different ones.
 
 ## Reviewing with an agent
 
-Both directions of the loop run through the same review document.
+Both directions of the loop run through the same review document, which an
+agent reaches through [MCP tools](architecture/backend/agents.md) on the
+server the reader's browser uses.
 
 From the reader to the agent, feedback is comments anchored to a line, a
 file, or a whole change, as they are now. The agent reads the open ones,
@@ -171,8 +173,6 @@ reader run several agents at once and see which of them needs them.
 
 ## Open questions
 
-- How an agent reaches the review document: a CLI, an HTTP API next to the
-  one the frontend uses, or an MCP server.
 - When a local review leaves the list: when the reader closes it, or on
   its own once its revset is empty at the current operation because the
   series landed.

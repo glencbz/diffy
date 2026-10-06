@@ -23,6 +23,8 @@ for every jj-backed route.
 //| file: src/server.ts
 
 import * as z from "zod";
+import { mcpRoute } from "./backend/agent/mcp";
+import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
   BlobId,
   GitError,
@@ -567,6 +569,7 @@ export function handleLocalSize(req: Request): Promise<Response> {
 
 Every non-API path serves the page, since the frontend keeps the reader's
 place in [the path](../frontend/address.md). An unknown API path is a 404.
+`/mcp` is where [agents](agents.md) reach the review document.
 
 ```ts
 //| id: backend-server
@@ -591,6 +594,11 @@ export function routes(store: ReviewStore) {
     "/api/local/commits": handleLocalCommits,
     "/api/local/diff": handleLocalDiff,
     "/api/local/size": handleLocalSize,
+    "/mcp": mcpRoute(
+      reviewTools(store),
+      INSTRUCTIONS,
+      (req) => process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin,
+    ),
   };
 }
 ```

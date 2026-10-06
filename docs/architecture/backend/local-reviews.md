@@ -11,7 +11,10 @@ reads what a version names for the series review screen.
 
 `registrationDefaults` fills in what the caller left out. A name the review
 document already has defaults its revset to that review's last version, so a
-series that was split or renamed stays one review. A default the repository
+series that was split or renamed stays one review. A new name defaults to
+the bookmark of that name. Only a registration with no name falls back to the
+bookmark below the working copy, because the working copy is the server's,
+and a caller in another workspace has a different one. A default the repository
 cannot supply is null, and registering without it fails saying what to give,
 which is how an agent that makes no bookmarks learns to pass
 `trunk()..<change id>`.
@@ -93,7 +96,7 @@ export async function registrationDefaults(
     asked.revset ??
     last?.revset ??
     // Quoted, since a bookmark name can hold what a bare symbol cannot.
-    (bookmark === null ? null : `trunk()..${JSON.stringify(bookmark)}`);
+    (name === null ? null : `trunk()..${JSON.stringify(name)}`);
   return { name, revset, operation };
 }
 
@@ -246,6 +249,18 @@ describe("registrationDefaults", () => {
 
     // assert
     expect(defaults.revset).toBe("trunk()");
+  });
+
+  test("reads a new name as the bookmark of that name", async () => {
+    // arrange
+    // act
+    const defaults = await registrationDefaults(EMPTY_REVIEW, {
+      name: "my-branch",
+    });
+
+    // assert
+    expect(defaults.name).toBe("my-branch");
+    expect(defaults.revset).toBe('trunk().."my-branch"');
   });
 });
 

@@ -60,7 +60,7 @@ export async function registrationDefaults(
     asked.revset ??
     last?.revset ??
     // Quoted, since a bookmark name can hold what a bare symbol cannot.
-    (bookmark === null ? null : `trunk()..${JSON.stringify(bookmark)}`);
+    (name === null ? null : `trunk()..${JSON.stringify(name)}`);
   return { name, revset, operation };
 }
 
