@@ -9,7 +9,13 @@ sees every commit and opens only the ones that matter.
 ```ts
 //| id: frontend-view-commit-stack
 //| file: src/frontend/views/CommitStack.tsx
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
@@ -18,6 +24,7 @@ import type {
   ComparisonReview,
   DiffReview,
   ReviewActions,
+  ReviewBarVariant,
 } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
@@ -35,7 +42,9 @@ and a one-line caption, with a control to reopen it. A reworded row shows
 the old message against the new, from the `JJ-COMMIT-DESCRIPTION` file
 `jj interdiff` emits. Each row carries the [review bar](review.md#the-review-bar)
 and takes comments and viewed marks like a comparison does, reading
-`reviewOf(row)`; without a review document its diff is read-only.
+`reviewOf(row)`; without a review document its diff is read-only. As in
+[interdiff rows](diff.md#interdiff-rows), `partsOf` is the one place a row
+checks for the document.
 
 The current row carries no highlight: its spine, stuck to the top of the
 pane, already says which commit is on screen, and a tint over a whole commit
@@ -267,6 +276,7 @@ function StackSection({
 }) {
   const section = useRef<HTMLElement>(null);
   const [composing, setComposing] = useState(false);
+  const parts = partsOf(actions, review, composing, setComposing);
   // Picking a commit in the graph scrolls its row to the top; picking it
   // again scrolls back, which is why this keys on `reveal`, a count of
   // requests. A linked file or line scrolls itself, so the row stays put.
@@ -310,35 +320,9 @@ function StackSection({
             review={review}
             files={row.files.status === "ready" ? row.files.data : []}
             commentLabel="comment on this commit"
-            variant={
-              actions === null
-                ? { kind: "read-only" }
-                : {
-                    kind: "writable",
-                    onMarkSeen: () => actions.markSeen(review),
-                    onComment: () => setComposing(true),
-                  }
-            }
+            variant={parts.bar}
           />
-          {actions !== null && composing && (
-            <CommentComposer
-              anchor={{ kind: "comparison" }}
-              onCancel={() => setComposing(false)}
-              onSubmit={(anchor, body) => {
-                actions.addComment(review, anchor, body);
-                setComposing(false);
-              }}
-            />
-          )}
-          {actions !== null && (
-            <CommentThreads
-              comments={review.comments.filter(
-                (comment) => comment.kind === "comparison",
-              )}
-              onResolveComment={actions.resolveComment}
-              onDropComment={actions.dropComment}
-            />
-          )}
+          {parts.comments}
           <StackContents
             row={row}
             sources={sources}
@@ -347,25 +331,67 @@ function StackSection({
             links={links}
             reveal={reveal}
             display={display}
-            review={
-              actions === null
-                ? undefined
-                : {
-                    comments: review.comments,
-                    onAddComment: (anchor, body) =>
-                      actions.addComment(review, anchor, body),
-                    onResolveComment: actions.resolveComment,
-                    onDropComment: actions.dropComment,
-                    viewed: review.viewed,
-                    onToggleViewed: (file) =>
-                      actions.toggleViewed(review, file),
-                  }
-            }
+            review={parts.diff}
           />
         </>
       )}
     </section>
   );
+}
+
+/** What a review document adds to a row that a row without one leaves out. */
+interface RowParts {
+  bar: ReviewBarVariant;
+  /** The composer and threads on the whole commit, under the bar. */
+  comments: ReactNode;
+  diff: DiffReview | undefined;
+}
+
+function partsOf(
+  actions: ReviewActions | null,
+  review: ComparisonReview,
+  composing: boolean,
+  setComposing: (composing: boolean) => void,
+): RowParts {
+  if (actions === null) {
+    return { bar: { kind: "read-only" }, comments: null, diff: undefined };
+  }
+  return {
+    bar: {
+      kind: "writable",
+      onMarkSeen: () => actions.markSeen(review),
+      onComment: () => setComposing(true),
+    },
+    comments: (
+      <>
+        {composing && (
+          <CommentComposer
+            anchor={{ kind: "comparison" }}
+            onCancel={() => setComposing(false)}
+            onSubmit={(anchor, body) => {
+              actions.addComment(review, anchor, body);
+              setComposing(false);
+            }}
+          />
+        )}
+        <CommentThreads
+          comments={review.comments.filter(
+            (comment) => comment.kind === "comparison",
+          )}
+          onResolveComment={actions.resolveComment}
+          onDropComment={actions.dropComment}
+        />
+      </>
+    ),
+    diff: {
+      comments: review.comments,
+      onAddComment: (anchor, body) => actions.addComment(review, anchor, body),
+      onResolveComment: actions.resolveComment,
+      onDropComment: actions.dropComment,
+      viewed: review.viewed,
+      onToggleViewed: (file) => actions.toggleViewed(review, file),
+    },
+  };
 }
 
 function StackSpine({ row, since }: { row: StackRow; since: string }) {
