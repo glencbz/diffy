@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-patch-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { gapsOf, readPatch } from "./patch";
+import { followLine, gapsOf, readPatch } from "./patch";
 
 describe("readPatch", () => {
   test("numbers each line on the sides it is on", () => {
@@ -88,6 +88,41 @@ describe("readPatch", () => {
       "Binary files differ",
     ]);
     expect(hunks).toEqual([]);
+  });
+});
+
+describe("followLine", () => {
+  const patch = readPatch(
+    [
+      "@@ -2,0 +3,2 @@",
+      "+one",
+      "+two",
+      "@@ -8,3 +10,2 @@",
+      " keep",
+      "-gone",
+      " keep",
+      "",
+    ].join("\n"),
+  );
+
+  test("leaves a line above every hunk where it was", () => {
+    expect(followLine(patch, 2)).toEqual({ side: "after", line: 2 });
+  });
+
+  test("shifts a line below an insertion by what it inserts", () => {
+    expect(followLine(patch, 3)).toEqual({ side: "after", line: 5 });
+  });
+
+  test("reads a context line's new number off its hunk", () => {
+    expect(followLine(patch, 10)).toEqual({ side: "after", line: 11 });
+  });
+
+  test("keeps a removed line on the before side", () => {
+    expect(followLine(patch, 9)).toEqual({ side: "before", line: 9 });
+  });
+
+  test("shifts a line below every hunk by what all of them add and remove", () => {
+    expect(followLine(patch, 20)).toEqual({ side: "after", line: 21 });
   });
 });
 // ~/~ end

@@ -2,6 +2,7 @@
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import type { InterdiffRow } from "./diff";
+import { followLine, readPatch } from "./patch";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -219,7 +220,48 @@ export type RowReview =
       seenTo: string | null;
     };
 
-export type RowComment = Comment & { stale: boolean };
+/** A comment as one comparison reads it. `stale` says it was written
+ *  against a commit other than the one the comparison shows. `numberedOn`
+ *  says which side the comparison draws the tree a line comment counts its
+ *  line in, or null when it draws neither, as it does for a comment from
+ *  two versions back. */
+export type RowComment = Comment & { stale: boolean; numberedOn: Side | null };
+
+/** Which side of a comparison draws the tree a line comment's number counts
+ *  lines of. An after-side anchor counts lines of its commit's tree, and a
+ *  before-side one of its parent's, which only a comparison of that commit
+ *  alone draws. Each side of a comparison of two commits draws that
+ *  commit's tree. */
+function numberedOn(
+  comment: Comment,
+  fromCommitId: string | null,
+  toCommitId: string | null,
+): Side | null {
+  if (comment.kind !== "line") return null;
+  const shown = toCommitId ?? fromCommitId;
+  if (comment.side === "before") {
+    const alone = fromCommitId === null || toCommitId === null;
+    return alone && comment.commitId === shown ? "before" : null;
+  }
+  if (comment.commitId === shown) return "after";
+  return comment.commitId === fromCommitId ? "before" : null;
+}
+
+/** Where a line comment's line is drawn in its file's `patch`, or null where
+ *  the comparison draws neither tree its number counts lines of. A line
+ *  counted on the before side lands where the patch keeps it, or stays on
+ *  the before side where the patch removes it. */
+export function drawnAt(comment: RowComment, patch: string): LineAnchor | null {
+  if (comment.kind !== "line") return null;
+  switch (comment.numberedOn) {
+    case null:
+      return null;
+    case "after":
+      return { side: "after", line: comment.line };
+    case "before":
+      return followLine(readPatch(patch), comment.line);
+  }
+}
 
 /** Review memory for the files on screen. A diff that has one lets every
  * file, and every line of it on either side, be commented on; a diff that
@@ -346,8 +388,8 @@ export function reviewComparison(
     .filter((comment) => comment.reviewKey === key)
     .map((comment) => ({
       ...comment,
-      stale:
-        comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
+      stale: comment.commitId !== (toCommitId ?? fromCommitId),
+      numberedOn: numberedOn(comment, fromCommitId, toCommitId),
     }))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
@@ -852,14 +894,23 @@ export function commentOn(
   row: ComparisonReview,
   comment: Anchor & Pick<Comment, "id" | "body" | "createdAt" | "author">,
 ): ReviewCommand {
-  const commitId =
-    comment.kind === "line" && comment.side === "before"
-      ? (row.fromCommitId ?? row.toCommitId)
-      : (row.toCommitId ?? row.fromCommitId);
+  // The before side of a comparison of two commits is the `from` commit's
+  // own tree, which is what an after-side anchor on that commit names. A
+  // before-side anchor is left meaning the parent's tree, as it does on a
+  // commit's own diff.
+  const onFrom =
+    comment.kind === "line" &&
+    comment.side === "before" &&
+    row.fromCommitId !== null &&
+    row.toCommitId !== null;
+  const commitId = onFrom
+    ? row.fromCommitId
+    : (row.toCommitId ?? row.fromCommitId);
   return {
     kind: "add-comment",
     comment: {
       ...comment,
+      ...(onFrom && { side: "after" as const }),
       reviewKey: row.reviewKey,
       commitId: commitId ?? "",
       resolved: false,

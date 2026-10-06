@@ -398,7 +398,12 @@ import { collapseReason } from "../../../model/collapse";
 import type { FileCompare } from "../../../model/compared";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
+import {
+  type Anchor,
+  drawnAt,
+  type LineAnchor,
+  type RowComment,
+} from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -497,7 +502,7 @@ export function FileRow({
     : file.binary
       ? { kind: "binary" }
       : { kind: "text", lines: drawnLines(body, sides, shown) };
-  const parts = partsOf(variant, path, links, content, setOpened);
+  const parts = partsOf(variant, path, file.patch, links, content, setOpened);
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -655,6 +660,7 @@ interface VariantParts {
 function partsOf(
   variant: FileRowVariant,
   path: string,
+  patch: string,
   links: FileLinks | undefined,
   content: FileContent,
   setOpened: (opened: boolean) => void,
@@ -680,7 +686,7 @@ function partsOf(
           : [],
       );
       const placed = (comment: RowComment) => {
-        const at = drawnAt(comment);
+        const at = drawnAt(comment, patch);
         return at !== null && drawn.has(lineKey(at));
       };
       const composer =
@@ -732,13 +738,14 @@ function partsOf(
             comments={variant.comments.filter(
               (comment) => comment.kind === "file",
             )}
+            patch={patch}
           />
         ),
         underLine: (anchor) => {
           const key = lineKey(anchor);
           const composing = composer !== null && lineKey(composer) === key;
           const comments = variant.comments.filter((comment) => {
-            const at = drawnAt(comment);
+            const at = drawnAt(comment, patch);
             return at !== null && lineKey(at) === key;
           });
           if (!composing && comments.length === 0) return null;
@@ -748,6 +755,7 @@ function partsOf(
                 review={variant}
                 composer={composing}
                 comments={comments}
+                patch={patch}
               />
             </div>
           );
@@ -759,19 +767,12 @@ function partsOf(
             comments={variant.comments.filter(
               (comment) => comment.kind === "line" && !placed(comment),
             )}
+            patch={patch}
           />
         ),
       };
     }
   }
-}
-
-/** Where a line comment draws, or null where its number may count lines of
- *  a tree this diff does not show, as a stale comment's does. */
-function drawnAt(comment: RowComment): LineAnchor | null {
-  return comment.kind === "line" && !comment.stale
-    ? { side: comment.side, line: comment.line }
-    : null;
 }
 
 function lineKey({ side, line }: LineAnchor): string {
@@ -783,10 +784,12 @@ function FileComments({
   review,
   composer,
   comments,
+  patch,
 }: {
   review: ReviewFileRow;
   composer: boolean;
   comments: RowComment[];
+  patch: string;
 }) {
   return (
     <>
@@ -800,6 +803,7 @@ function FileComments({
       <CommentThreads
         comments={comments}
         onEditComment={review.onEditComment}
+        patch={patch}
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
       />
@@ -1485,7 +1489,9 @@ const SIGNS: Record<CodeKind, string> = {
 
 ### Comments
 
-A thread on a commit neither side now holds says it is stale. A thread
+A thread written against a commit other than the one shown says what became
+of it, and a line thread is labelled where its line is drawn now, as
+[`drawnAt`](review.md#review-state) finds it in the file's patch. A thread
 names its author, and one an agent wrote stands out from the reader's own. The composer
 and threads are their own view because commit rows and interdiff rows draw
 them too, for comments on a whole comparison.
@@ -1498,7 +1504,12 @@ never wrote, and an agent reading the thread back would take them as its own.
 //| id: frontend-view-comments
 //| file: src/frontend/views/Comments.tsx
 import { useState } from "react";
-import type { Anchor, LineAnchor, RowComment } from "../model/review";
+import {
+  type Anchor,
+  drawnAt,
+  type LineAnchor,
+  type RowComment,
+} from "../model/review";
 
 /** How a comment names its line: the after side's number alone, since that
  *  is the version being approved, and the before side's marked as such. */
@@ -1524,11 +1535,12 @@ function authorLabel(author: string): string {
   return author === "reader" ? "you" : author;
 }
 
-/** What a thread is about, named so it reads on its own. */
-function threadLabel(comment: Anchor): string {
+/** What a thread is about, named so it reads on its own: a line comment by
+ *  where its line is drawn now, where the comparison draws it. */
+function threadLabel(comment: Anchor, at: LineAnchor | null): string {
   switch (comment.kind) {
     case "line":
-      return `${comment.path}:${lineLabel(comment)}`;
+      return `${comment.path}:${lineLabel(at ?? comment)}`;
     case "file":
       return comment.path;
     case "comparison":
@@ -1579,10 +1591,13 @@ export function CommentComposer({
 export function CommentThreads({
   comments,
   onEditComment,
+  patch = "",
   onResolveComment,
   onDropComment,
 }: {
   comments: RowComment[];
+  /** The patch of the file line comments are on, to find their lines in. */
+  patch?: string;
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
@@ -1595,6 +1610,7 @@ export function CommentThreads({
           key={comment.id}
           comment={comment}
           onEdit={(body) => onEditComment(comment.id, body)}
+          at={drawnAt(comment, patch)}
           onResolve={(resolved) => onResolveComment(comment.id, resolved)}
           onDrop={() => onDropComment(comment.id)}
         />
@@ -1606,11 +1622,13 @@ export function CommentThreads({
 function CommentThread({
   comment,
   onEdit,
+  at,
   onResolve,
   onDrop,
 }: {
   comment: RowComment;
   onEdit: (body: string) => void;
+  at: LineAnchor | null;
   onResolve: (resolved: boolean) => void;
   onDrop: () => void;
 }) {
@@ -1629,6 +1647,8 @@ function CommentThread({
       />
     );
   }
+
+  const drift = driftNote(comment, at);
 
   return (
     <div
@@ -1649,7 +1669,8 @@ function CommentThread({
           >
             {authorLabel(comment.author)}
           </span>{" "}
-          · {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
+          · {threadLabel(comment, at)} ·{" "}
+          {comment.resolved ? "resolved" : "open"}
         </span>
         {comment.author === "reader" && (
           <button type="button" onClick={() => setEditing(true)}>
@@ -1664,15 +1685,30 @@ function CommentThread({
         </button>
       </div>
       <div>{comment.body}</div>
-      {comment.stale && (
-        <div className="comment-thread__stale">
-          written against {comment.commitId.slice(0, 8)}.{" "}
-          {comment.kind === "line" ? "That line" : "That commit"} has since been
-          rewritten.
-        </div>
-      )}
+      {drift !== null && <div className="comment-thread__stale">{drift}</div>}
     </div>
   );
+}
+
+/** What became of what a comment was written against, or null when it is
+ *  what the comparison shows. */
+function driftNote(comment: RowComment, at: LineAnchor | null): string | null {
+  const written = `written against ${comment.commitId.slice(0, 8)}`;
+  if (comment.kind !== "line") {
+    return comment.stale
+      ? `${written}. That commit has since been rewritten.`
+      : null;
+  }
+  const was = `line ${lineLabel(comment)}`;
+  if (at === null) {
+    return `${written}, at ${was}, which this comparison does not draw.`;
+  }
+  if (!comment.stale) return null;
+  if (at.side === "before")
+    return `${written}. That line has since been rewritten.`;
+  return at.line === comment.line
+    ? `${written}. That line is unchanged since.`
+    : `${written}, at ${was}. That line is unchanged since and is now line ${at.line}.`;
 }
 ```
 
@@ -2833,6 +2869,30 @@ export function readPatch(patch: string): Patch {
 
   return { header, hunks };
 }
+
+/** Where line `line` of a patch's before side is drawn: on the after side
+ *  where the patch keeps it, shifted by the lines added and removed above
+ *  it, or on the before side where the patch removes it. */
+export function followLine(
+  patch: Patch,
+  line: number,
+): { side: "before" | "after"; line: number } {
+  let shift = 0;
+  for (const hunk of patch.hunks) {
+    if (hunk.oldStart !== undefined && hunk.oldStart > line) break;
+    for (const hunkLine of hunk.lines) {
+      if (!("oldLine" in hunkLine) || hunkLine.oldLine !== line) continue;
+      return hunkLine.kind === "removed"
+        ? { side: "before", line }
+        : { side: "after", line: hunkLine.newLine };
+    }
+    for (const hunkLine of hunk.lines) {
+      if (hunkLine.kind === "added") shift += 1;
+      if (hunkLine.kind === "removed") shift -= 1;
+    }
+  }
+  return { side: "after", line: line + shift };
+}
 ```
 
 ### Test
@@ -2841,7 +2901,7 @@ export function readPatch(patch: string): Patch {
 //| id: frontend-model-patch-test
 //| file: src/frontend/model/patch.test.ts
 import { describe, expect, test } from "bun:test";
-import { gapsOf, readPatch } from "./patch";
+import { followLine, gapsOf, readPatch } from "./patch";
 
 describe("readPatch", () => {
   test("numbers each line on the sides it is on", () => {
@@ -2929,6 +2989,41 @@ describe("readPatch", () => {
       "Binary files differ",
     ]);
     expect(hunks).toEqual([]);
+  });
+});
+
+describe("followLine", () => {
+  const patch = readPatch(
+    [
+      "@@ -2,0 +3,2 @@",
+      "+one",
+      "+two",
+      "@@ -8,3 +10,2 @@",
+      " keep",
+      "-gone",
+      " keep",
+      "",
+    ].join("\n"),
+  );
+
+  test("leaves a line above every hunk where it was", () => {
+    expect(followLine(patch, 2)).toEqual({ side: "after", line: 2 });
+  });
+
+  test("shifts a line below an insertion by what it inserts", () => {
+    expect(followLine(patch, 3)).toEqual({ side: "after", line: 5 });
+  });
+
+  test("reads a context line's new number off its hunk", () => {
+    expect(followLine(patch, 10)).toEqual({ side: "after", line: 11 });
+  });
+
+  test("keeps a removed line on the before side", () => {
+    expect(followLine(patch, 9)).toEqual({ side: "before", line: 9 });
+  });
+
+  test("shifts a line below every hunk by what all of them add and remove", () => {
+    expect(followLine(patch, 20)).toEqual({ side: "after", line: 21 });
   });
 });
 ```
