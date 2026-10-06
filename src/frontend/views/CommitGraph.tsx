@@ -4,7 +4,7 @@ import { CommitLabel } from "./CommitLabel";
 
 // A node and a half. One node per row, so a lane only separates parallel
 // edges, and gutter width comes out of the label's.
-const LANE_WIDTH = 12;
+export const LANE_WIDTH = 12;
 const LANE_CLASS_COUNT = 7;
 
 // Lane zero stays grey, so a linear history is unchanged; branches get colour.
@@ -99,6 +99,19 @@ export function layoutGraph(commits: LogEntry[]): GraphLayout {
   return { rows, laneCount };
 }
 
+// A kept log is the same array every time it is drawn, so its layout is kept
+// with it rather than redone on every tick and every remount.
+const layouts = new WeakMap<LogEntry[], GraphLayout>();
+
+function layoutOf(commits: LogEntry[]): GraphLayout {
+  let layout = layouts.get(commits);
+  if (layout === undefined) {
+    layout = layoutGraph(commits);
+    layouts.set(commits, layout);
+  }
+  return layout;
+}
+
 export function CommitGraph({
   commits: newestFirst,
   selected,
@@ -126,7 +139,7 @@ export function CommitGraph({
     );
   }
 
-  const layout = layoutGraph(newestFirst);
+  const layout = layoutOf(newestFirst);
   const commits = oldestFirst ? [...newestFirst].reverse() : newestFirst;
   const rows = oldestFirst ? [...layout.rows].reverse() : layout.rows;
   const gutterWidth = layout.laneCount * LANE_WIDTH;
@@ -145,26 +158,52 @@ export function CommitGraph({
           </>
         );
 
-        return onSelect === undefined ? (
+        return (
           <div key={commit.commitId} className={className}>
+            {onSelect !== undefined && (
+              <Tick
+                label="✓"
+                name={commit.commitId.slice(0, 8)}
+                ticked={chosen.has(commit.commitId)}
+                onTick={() => toggle(commit.commitId, onSelect)}
+              />
+            )}
             {content}
           </div>
-        ) : (
-          <button
-            type="button"
-            key={commit.commitId}
-            onClick={() => toggle(commit.commitId, onSelect)}
-            className={`${className} commit-graph__row--interactive`}
-          >
-            {content}
-          </button>
         );
       })}
     </div>
   );
 }
 
-function RowGraphic({
+/** The one control in a row: a cell down its left edge that ticks the
+ *  commit in or out. The combined graph draws two, one per side. */
+export function Tick({
+  label,
+  name,
+  ticked,
+  onTick,
+}: {
+  label: string;
+  name: string;
+  ticked: boolean;
+  onTick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="commit-graph__tick"
+      aria-pressed={ticked}
+      aria-label={name}
+      onClick={onTick}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** One row's slice of the gutter, which the combined graph draws too. */
+export function RowGraphic({
   row,
   width,
   flipped,

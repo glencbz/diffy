@@ -7,17 +7,19 @@ window with no room for columns.
 
 The local screen shows one commit graph and the diff; `interdiff` opens the
 before graph as a third column on the left, each picker captioned with its
-side. The lone graph and the after graph are the same side, so ticks carry
-over, but their widths are kept under separate keys.
+side. An interdiff can instead sit in [one graph](combined-graph.md), a
+single column holding both pickers above it, beside the same diff. The lone
+graph and the after graph are the same side, so ticks carry over, but every
+graph column keeps its width under a key of its own.
 
 Under 1000px a tab list shows one pane at a time instead of stacking, since
-stacked pickers fill a phone before the diff starts. In an interdiff the two
-graphs then occupy the same rectangle, so flipping between `before` and
+stacked pickers fill a phone before the diff starts. In a two-graph interdiff
+the graphs then occupy the same rectangle, so flipping between `before` and
 `after` shows the change in place; that is why the tabs sit above `.panes`,
 where nothing between them moves during a flip. Picking a commit does not
 switch tabs, which would cost the reader that flip. Each tab shows how many
 commits its side has picked, since an off-screen pane's state is otherwise
-invisible.
+invisible; the one-graph column's tab counts both sides.
 
 ```tsx
 //| id: frontend-view-review-panes
@@ -26,20 +28,33 @@ import type { ReactNode } from "react";
 import type { PaneKey, PaneSizes } from "../model/paneSizes";
 import { paneSize, Splitter } from "./Splitter";
 
-export type Pane = "before" | "after" | "diff";
+export type Pane = "before" | "after" | "combined" | "diff";
 
-/** What each pane is called. Without an interdiff the after side is the
- *  only graph, and "after" would name a comparison nobody asked for. */
-function caption(pane: Pane, interdiff: boolean): string {
-  if (pane === "after" && !interdiff) return "commits";
+/** Which columns the screen draws: the lone graph, an interdiff on two
+ *  graphs, or an interdiff on one. */
+export type PaneLayout = "log" | "split" | "combined";
+
+const PANES: Record<PaneLayout, Pane[]> = {
+  log: ["after", "diff"],
+  split: ["before", "after", "diff"],
+  combined: ["combined", "diff"],
+};
+
+/** What each pane is called. A graph with no second graph beside it holds
+ *  "commits"; "after" alone would name a comparison nobody asked for. */
+function caption(pane: Pane, layout: PaneLayout): string {
+  if (pane === "combined" || (pane === "after" && layout === "log")) {
+    return "commits";
+  }
   return pane;
 }
 
 export function ReviewPanes({
   before,
   after,
+  combined,
   diff,
-  interdiff,
+  layout,
   showing,
   onShow,
   selected,
@@ -48,35 +63,37 @@ export function ReviewPanes({
 }: {
   before: ReactNode;
   after: ReactNode;
+  /** The one-graph interdiff's column, drawn only in that layout. */
+  combined: ReactNode;
   diff: ReactNode;
-  /** Whether the before side is open beside the after side. */
-  interdiff: boolean;
+  layout: PaneLayout;
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
   sizes: PaneSizes;
   onResize: (pane: PaneKey, size: number | null) => void;
 }) {
-  const panes: Pane[] = interdiff
-    ? ["before", "after", "diff"]
-    : ["after", "diff"];
-  const current = panes.includes(showing) ? showing : "after";
-  const afterKey: PaneKey = interdiff ? "local-after" : "local-log";
+  const panes = PANES[layout];
+  // A pane the layout lacks falls back to the graph beside the diff.
+  const current = panes.includes(showing)
+    ? showing
+    : (panes[panes.length - 2] as Pane);
+  const afterKey: PaneKey = layout === "log" ? "local-log" : "local-after";
 
   return (
     <>
       <PaneTabs
         panes={panes}
-        interdiff={interdiff}
+        layout={layout}
         showing={current}
         onShow={onShow}
         selected={selected}
       />
       <div className="panes panes--review">
-        {interdiff && (
+        {layout === "split" && (
           <PickerColumn
             pane="before"
-            caption={caption("before", interdiff)}
+            caption={caption("before", layout)}
             showing={current}
             sizeKey="local-before"
             size={sizes["local-before"] ?? null}
@@ -85,16 +102,29 @@ export function ReviewPanes({
             {before}
           </PickerColumn>
         )}
-        <PickerColumn
-          pane="after"
-          caption={caption("after", interdiff)}
-          showing={current}
-          sizeKey={afterKey}
-          size={sizes[afterKey] ?? null}
-          onResize={(size) => onResize(afterKey, size)}
-        >
-          {after}
-        </PickerColumn>
+        {layout === "combined" ? (
+          <PickerColumn
+            pane="combined"
+            caption={caption("combined", layout)}
+            showing={current}
+            sizeKey="local-combined"
+            size={sizes["local-combined"] ?? null}
+            onResize={(size) => onResize("local-combined", size)}
+          >
+            {combined}
+          </PickerColumn>
+        ) : (
+          <PickerColumn
+            pane="after"
+            caption={caption("after", layout)}
+            showing={current}
+            sizeKey={afterKey}
+            size={sizes[afterKey] ?? null}
+            onResize={(size) => onResize(afterKey, size)}
+          >
+            {after}
+          </PickerColumn>
+        )}
         <div className={paneClass("pane pane--diff", current === "diff")}>
           {diff}
         </div>
@@ -105,13 +135,13 @@ export function ReviewPanes({
 
 function PaneTabs({
   panes,
-  interdiff,
+  layout,
   showing,
   onShow,
   selected,
 }: {
   panes: Pane[];
-  interdiff: boolean;
+  layout: PaneLayout;
   showing: Pane;
   onShow: (pane: Pane) => void;
   selected: Record<"before" | "after", number>;
@@ -128,9 +158,13 @@ function PaneTabs({
           }
           aria-current={pane === showing}
         >
-          <span className="pane-tab__caption">{caption(pane, interdiff)}</span>
+          <span className="pane-tab__caption">{caption(pane, layout)}</span>
           {pane !== "diff" && (
-            <span className="pane-tab__picked">{picked(selected[pane])}</span>
+            <span className="pane-tab__picked">
+              {pane === "combined"
+                ? `before: ${picked(selected.before)}, after: ${picked(selected.after)}`
+                : picked(selected[pane])}
+            </span>
           )}
         </button>
       ))}
@@ -152,7 +186,7 @@ function PickerColumn({
   onResize,
   children,
 }: {
-  pane: "before" | "after";
+  pane: "before" | "after" | "combined";
   caption: string;
   showing: Pane;
   sizeKey: PaneKey;
@@ -160,7 +194,11 @@ function PickerColumn({
   onResize: (size: number | null) => void;
   children: ReactNode;
 }) {
-  const width = sizeKey === "local-log" ? "pane--log" : "pane--picker";
+  // A column beside another graph is narrow; a graph on its own is wide.
+  const width =
+    sizeKey === "local-before" || sizeKey === "local-after"
+      ? "pane--picker"
+      : "pane--log";
   const sized = size === null ? `pane ${width}` : `pane ${width} pane--sized`;
   return (
     <>
@@ -951,6 +989,7 @@ export type PaneKey =
   | "local-before"
   | "local-after"
   | "local-log"
+  | "local-combined"
   | "pull-commits";
 export type Axis = "x" | "y";
 
@@ -959,6 +998,7 @@ export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-before": { axis: "x", min: 160 },
   "local-after": { axis: "x", min: 160 },
   "local-log": { axis: "x", min: 160 },
+  "local-combined": { axis: "x", min: 160 },
   "pull-commits": { axis: "y", min: 48 },
 };
 
@@ -969,6 +1009,7 @@ export const PaneSizes = z.object({
   "local-before": z.number().optional(),
   "local-after": z.number().optional(),
   "local-log": z.number().optional(),
+  "local-combined": z.number().optional(),
   "pull-commits": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;

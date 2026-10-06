@@ -219,10 +219,18 @@ export function useLocalHistoryContext(): LocalHistoryHandle {
 
 ## The screen
 
-The screen holds whether the interdiff is open and which pane a narrow window
-shows. Both are arrangement, not place, so they stay out of the address and
-reset when the screen reopens. Closing the interdiff keeps the before side's
-ticks in the history but stops sending them to the diff.
+The screen holds whether the interdiff is open, whether it is drawn on two
+graphs or [one](combined-graph.md), and which pane a narrow window shows. All
+three are arrangement, not place, so they stay out of the address and reset
+when the screen reopens. Closing the interdiff keeps the before side's ticks
+in the history but stops sending them to the diff.
+
+The two arrangements answer different questions. Two graphs keep each
+operation's log exactly as jj draws it, which is what a reader needs to see
+the shape of either history. One graph lines up each change with itself
+across the operations, so what was rewritten, added or dropped reads off one
+row instead of a hunt between columns. Both send the diff the same ticks, so
+switching arrangement never changes the comparison.
 
 It also holds whether the strip that
 [registers a local review](local-reviews.md#registering-from-the-graph) is
@@ -234,6 +242,7 @@ after graph out of line with the before one.
 //| id: frontend-screen-local-history
 //| file: src/frontend/screens/LocalHistoryScreen.tsx
 import { type ReactNode, useState } from "react";
+import { CombinedLog } from "../controllers/CombinedLog";
 import { CommitLog } from "../controllers/CommitLog";
 import { DiffPane } from "../controllers/DiffPane";
 import { RegisterReview } from "../controllers/RegisterReview";
@@ -243,6 +252,7 @@ import { openLocal, type Place, tabPlace } from "../model/place";
 import { useLocalHistoryContext } from "../state/localHistory";
 import { usePaneSizes } from "../state/paneSizes";
 import { useReviewContext } from "../state/review";
+import { GraphsToggle } from "../views/GraphsToggle";
 import { InterdiffToggle } from "../views/InterdiffToggle";
 import { Message } from "../views/Message";
 import { ModeTabs } from "../views/ModeTabs";
@@ -252,15 +262,29 @@ import { type Pane, ReviewPanes } from "../views/ReviewPanes";
 import { ReviewStrip } from "../views/ReviewStrip";
 import { ReviewToggle } from "../views/ReviewToggle";
 
+type LocalSideName = "before" | "after";
+
 export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
   const [pane, setPane] = useState<Pane>("after");
   const [interdiff, setInterdiff] = useState(false);
+  const [oneGraph, setOneGraph] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [sizes, resize] = usePaneSizes();
   const { history, pickOperation, selectCommits } = useLocalHistoryContext();
   const review = useReviewContext();
   const before = history.status === "ready" ? history.before : null;
   const after = history.status === "ready" ? history.after : null;
+
+  // The before side's row carries the interdiff's own controls.
+  const beforeControls = (
+    <>
+      <GraphsToggle
+        oneGraph={oneGraph}
+        onToggle={() => setOneGraph(!oneGraph)}
+      />
+      <InterdiffToggle open onToggle={() => setInterdiff(false)} />
+    </>
+  );
 
   return (
     <div className="app">
@@ -282,9 +306,7 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
             side="before"
             onPick={(operation) => pickOperation("before", operation)}
             onSelect={(commits) => selectCommits("before", commits)}
-            toggle={
-              <InterdiffToggle open onToggle={() => setInterdiff(false)} />
-            }
+            toggle={beforeControls}
           />
         }
         after={
@@ -328,6 +350,14 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
             }
           />
         }
+        combined={
+          <CombinedPicker
+            history={history}
+            onPick={pickOperation}
+            onSelect={selectCommits}
+            toggle={beforeControls}
+          />
+        }
         diff={
           <DiffPane
             comparison={{
@@ -337,7 +367,7 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
             review={review}
           />
         }
-        interdiff={interdiff}
+        layout={!interdiff ? "log" : oneGraph ? "combined" : "split"}
         showing={pane}
         onShow={setPane}
         selected={{
@@ -351,10 +381,8 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
   );
 }
 
-/** One local history side: its operation picker, its commit log, and, on
- *  the picker's row, the buttons that act on the side and, for the after
- *  side, the alert that a newer operation has arrived. `strip` sits between
- *  the row and the log. */
+/** One local history side: its operation picker and its commit log, with
+ *  `strip` between them when one is passed. */
 function SidePicker({
   history,
   side,
@@ -364,7 +392,7 @@ function SidePicker({
   strip,
 }: {
   history: LocalHistory;
-  side: "before" | "after";
+  side: LocalSideName;
   onPick: (operationId: string | null) => void;
   onSelect: (commitIds: string[]) => void;
   toggle: ReactNode;
@@ -377,30 +405,108 @@ function SidePicker({
     return <Message tone="error">{history.message}</Message>;
   }
 
+  return (
+    <>
+      <SideOperation
+        history={history}
+        side={side}
+        label="operation"
+        onPick={onPick}
+        toggle={toggle}
+      />
+      {strip}
+      <CommitLog
+        source={{ kind: "jj", operation: history[side].pick.at }}
+        selected={history[side].commits}
+        onSelect={onSelect}
+      />
+    </>
+  );
+}
+
+/** The one-graph interdiff: both sides' operation pickers, each labelled
+ *  with its side, over the graph that combines their logs. */
+function CombinedPicker({
+  history,
+  onPick,
+  onSelect,
+  toggle,
+}: {
+  history: LocalHistory;
+  onPick: (side: LocalSideName, operationId: string | null) => void;
+  onSelect: (side: LocalSideName, commitIds: string[]) => void;
+  toggle: ReactNode;
+}) {
+  if (history.status === "loading") {
+    return <Message>Loading operations...</Message>;
+  }
+  if (history.status === "error") {
+    return <Message tone="error">{history.message}</Message>;
+  }
+
+  return (
+    <>
+      <SideOperation
+        history={history}
+        side="before"
+        label="before"
+        onPick={(operation) => onPick("before", operation)}
+        toggle={toggle}
+      />
+      <SideOperation
+        history={history}
+        side="after"
+        label="after"
+        onPick={(operation) => onPick("after", operation)}
+        toggle={null}
+      />
+      <CombinedLog
+        operations={{
+          before: history.before.pick.at,
+          after: history.after.pick.at,
+        }}
+        selected={{
+          before: history.before.commits,
+          after: history.after.commits,
+        }}
+        onSelect={onSelect}
+      />
+    </>
+  );
+}
+
+/** A side's picker row: the operation, then the controls passed in and, for
+ *  the after side, the alert that a newer operation has arrived. */
+function SideOperation({
+  history,
+  side,
+  label,
+  onPick,
+  toggle,
+}: {
+  history: Extract<LocalHistory, { status: "ready" }>;
+  side: LocalSideName;
+  label: string;
+  onPick: (operationId: string | null) => void;
+  toggle: ReactNode;
+}) {
   const local = history[side];
   const head = history.operations[0]?.id ?? local.pick.at;
   const newer =
     side === "after" ? newerOperation(local, history.operations) : null;
 
   return (
-    <>
-      <OperationPicker
-        operations={history.operations}
-        selected={pickerValue(local.pick, head)}
-        onSelect={onPick}
-      >
-        {newer !== null && (
-          <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
-        )}
-        {toggle}
-      </OperationPicker>
-      {strip}
-      <CommitLog
-        source={{ kind: "jj", operation: local.pick.at }}
-        selected={local.commits}
-        onSelect={onSelect}
-      />
-    </>
+    <OperationPicker
+      operations={history.operations}
+      selected={pickerValue(local.pick, head)}
+      onSelect={onPick}
+      label={label}
+    >
+      {newer !== null && (
+        <NewerOperation operation={newer} onUpdate={() => onPick(null)} />
+      )}
+      {toggle}
+    </OperationPicker>
   );
 }
 ```
@@ -408,7 +514,7 @@ function SidePicker({
 ## Operation picker
 
 The picker row also holds the [newer operation](#newer-operation) notice and
-the interdiff toggle as `children`, so nothing comes and goes between picker
+the interdiff's toggles as `children`, so nothing comes and goes between picker
 and graph to push one side's graph out of line with the other.
 
 The picker is a listbox drawn by the app rather than a native `<select>`. A
@@ -440,11 +546,15 @@ export function OperationPicker({
   operations,
   selected,
   onSelect,
+  label = "operation",
   children,
 }: {
   operations: OpLogEntry[];
   selected: string | null;
   onSelect: (operationId: string | null) => void;
+  /** Names the field; a column holding both sides' pickers names each
+   *  after its side. */
+  label?: string;
   /** Controls that sit on the picker's row after the field. */
   children?: ReactNode;
 }) {
@@ -496,7 +606,7 @@ export function OperationPicker({
     <div className="operation-picker">
       <div className="operation-picker__field">
         <span className="operation-picker__label" id={`${id}-label`}>
-          operation
+          {label}
         </span>
         <button
           type="button"
@@ -859,6 +969,39 @@ export function InterdiffToggle({
   .interdiff-toggle:hover {
     color: var(--text);
   }
+}
+```
+
+## Graphs toggle
+
+`one graph` beside `close` redraws an open interdiff on one graph, and the
+same button there reads `two graphs`. It lives on the before row, with the
+other control that only an interdiff has.
+
+```tsx
+//| id: frontend-view-graphs-toggle
+//| file: src/frontend/views/GraphsToggle.tsx
+export function GraphsToggle({
+  oneGraph,
+  onToggle,
+}: {
+  oneGraph: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="interdiff-toggle"
+      onClick={onToggle}
+      aria-label={
+        oneGraph
+          ? "show the interdiff on two graphs"
+          : "show the interdiff on one graph"
+      }
+    >
+      {oneGraph ? "two graphs" : "one graph"}
+    </button>
+  );
 }
 ```
 

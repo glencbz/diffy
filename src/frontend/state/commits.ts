@@ -41,19 +41,45 @@ export async function commitsFrom(source: Source): Promise<LogEntry[]> {
   return commits.map((commit) => asLogEntry(commit, null));
 }
 
+/** Logs already read, by source JSON, oldest read first. */
+const kept = new Map<string, LogEntry[]>();
+const KEPT_LOGS = 32;
+
+/** A source pinned to an operation, a head, or a commit list names a log
+ *  that cannot change; only the live jj log can. */
+function keepable(source: Source): boolean {
+  return source.kind !== "jj" || source.operation !== null;
+}
+
+function keep(key: string, data: LogEntry[]) {
+  kept.delete(key);
+  kept.set(key, data);
+  for (const oldest of kept.keys()) {
+    if (kept.size <= KEPT_LOGS) break;
+    kept.delete(oldest);
+  }
+}
+
+function keptState(key: string): AsyncState<LogEntry[]> {
+  const data = kept.get(key);
+  return data === undefined ? { status: "loading" } : { status: "ready", data };
+}
+
 export function useCommits(source: Source): AsyncState<LogEntry[]> {
-  const [state, setState] = useState<AsyncState<LogEntry[]>>({
-    status: "loading",
-  });
   // A source is a fresh object every render; depend on its JSON and read the
   // source back out of it, so the dependency list cannot drift from the body.
   const key = JSON.stringify(source);
+  const [state, setState] = useState(() => keptState(key));
 
   useEffect(() => {
+    const source = JSON.parse(key) as Source;
+    const now = keptState(key);
+    setState(now);
+    if (now.status === "ready") return;
     let live = true;
-    setState({ status: "loading" });
-    commitsFrom(JSON.parse(key) as Source)
+    commitsFrom(source)
       .then((data) => {
+        if (keepable(source)) keep(key, data);
         if (live) setState({ status: "ready", data });
       })
       .catch((err: unknown) => {

@@ -13,11 +13,15 @@ export function OperationPicker({
   operations,
   selected,
   onSelect,
+  label = "operation",
   children,
 }: {
   operations: OpLogEntry[];
   selected: string | null;
   onSelect: (operationId: string | null) => void;
+  /** Names the field; a column holding both sides' pickers names each
+   *  after its side. */
+  label?: string;
   /** Controls that sit on the picker's row after the field. */
   children?: ReactNode;
 }) {
@@ -69,7 +73,7 @@ export function OperationPicker({
     <div className="operation-picker">
       <div className="operation-picker__field">
         <span className="operation-picker__label" id={`${id}-label`}>
-          operation
+          {label}
         </span>
         <button
           type="button"
