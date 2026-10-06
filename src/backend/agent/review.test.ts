@@ -65,6 +65,7 @@ describe("the protocol", () => {
     expect(list.result.tools.map((each) => each.name)).toEqual([
       "register_review",
       "list_reviews",
+      "review_status",
       "read_comments",
       "add_comment",
       "resolve_comment",
@@ -126,7 +127,10 @@ describe("the review tools", () => {
     const read = await call("read_comments", { name: "t" });
 
     // assert
-    expect(registered.text.split("\n")[0]).toBe("https://vm:4000/reviews/t");
+    expect(registered.text.split("\n").slice(0, 2)).toEqual([
+      "https://vm:4000/reviews/t",
+      "v1:",
+    ]);
     expect(added.isError).toBe(false);
     expect(JSON.parse(read.text)).toEqual([
       expect.objectContaining({
@@ -161,6 +165,56 @@ describe("the review tools", () => {
     // assert
     expect(JSON.parse(open.text)).toEqual([]);
     expect(JSON.parse(all.text)).toHaveLength(1);
+  });
+
+  test("hands the turn over when the reader marks the newest version", async () => {
+    // arrange
+    const [tip] = await jjLog({ revset: TIP });
+    if (tip === undefined) throw new Error("no history");
+    // v1 is written at an operation of its own, since the tool registering
+    // v2 reads the live repo and a test cannot make a new operation in it.
+    store.apply({
+      kind: "register",
+      name: "t",
+      version: {
+        operation: "earlier",
+        revset: TIP,
+        commits: [tip.commitId],
+        registeredAt: "2026-10-05T00:00:00Z",
+      },
+    });
+    const waiting = await call("review_status", { name: "t" });
+    store.apply({
+      kind: "mark-reviewed",
+      series: "local:t",
+      version: "1",
+      at: "2026-10-06T00:00:00Z",
+    });
+
+    // act
+    const reviewed = await call("review_status", { name: "t" });
+    const again = await call("register_review", { name: "t" });
+    const second = await call("register_review", {
+      name: "t",
+      revset: `${TIP} | ${TIP}-`,
+    });
+    const listed = await call("list_reviews", {});
+
+    // assert
+    expect(JSON.parse(waiting.text)).toMatchObject({ turn: "reader" });
+    expect(JSON.parse(reviewed.text)).toMatchObject({
+      turn: "agent",
+      reviewed: [{ version: "v1" }],
+      changes: [{ change: tip.changeId.slice(0, 8), sinceReviewed: "same" }],
+    });
+    expect(again.text).toContain("v1 already has these commits");
+    expect(second.text.split("\n")[1]).toBe("v2, against v1:");
+    expect(second.text).toContain(
+      `${tip.changeId.slice(0, 8)} ${tip.commitId.slice(0, 8)} same`,
+    );
+    expect(listed.text).toContain(
+      "the reader's turn: v2 waits for review, v1 reviewed",
+    );
   });
 
   test("tells the agent what it got wrong as a failed call", async () => {
