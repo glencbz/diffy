@@ -2090,6 +2090,18 @@
     cursor: pointer;
   }
 
+  .diff-line__comment {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .diff-line__comment:hover {
+    color: var(--accent);
+  }
+
   .diff-line--before {
     border-right: 1px solid var(--border-subtle);
   }

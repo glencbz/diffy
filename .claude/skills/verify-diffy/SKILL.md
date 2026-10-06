@@ -117,7 +117,7 @@ Stable handles in this UI:
 | A diff file header | a fold `button` named `added sidecar.txt`, `[expanded]` when open |
 | A file's diff view | `group "Diff view"` holding `button "structural"` and `button "lines"` |
 | A context gap | `button` named `⋯ show N unchanged lines` |
-| A commentable line | `.diff-line--interactive`, a `button` named `<afterLine> <text>`, or `-<text>` for a removal |
+| A commentable line | `.diff-line--interactive`, a row whose gutter is a `button` named `comment on after line <n>` (`comment on before line <n>` for a removal); clicking the row's text opens the composer unless it ended a selection |
 | Viewed | `checkbox "Viewed"` in each file header |
 | File summary | `region "Files changed"`, rows named `<status letter> <path> <counts>` |
 | File navigator | `button "Previous file"`, `"Show changed files"`, `"Next file"`; `dialog "Changed files"` |
