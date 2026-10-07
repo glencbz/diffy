@@ -2212,6 +2212,30 @@
     background: var(--surface-sunken);
   }
 
+  /* Sticks to the left edge so a patch scrolled sideways keeps its threads
+     in view; keeps the line breaks a comment was written with. */
+  .diff-file__line-comments {
+    position: sticky;
+    left: 0;
+    grid-column: 1 / -1;
+    margin: var(--space-2) 0;
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .diff-file__line-comments button {
+    overflow-wrap: normal;
+  }
+
+  /* Both sides of a side-by-side row read as one block of threads. */
+  .diff-file__line-comments + .diff-file__line-comments {
+    margin-top: calc(-1 * var(--space-2));
+    border-top: none;
+  }
+
   .comment-composer__line {
     margin-bottom: var(--space-2);
     color: var(--text-faint);
