@@ -92,12 +92,19 @@ the same commits reads too.
 A local review's row is filed by `localRowKey`, under its change id the way
 `reviewKey` files one.
 
+**Guides** are what an author, usually an agent, wrote to help a reader
+through one version of a series; [the guide](guide.md#the-guide) says what
+they hold. `write-guide` replaces the guide to the same version whole, so an agent
+rewrites a guide rather than patching it, and `purge-forgotten` drops a purged
+review's guides with its other series state.
+
 ```ts
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import type { InterdiffRow } from "./diff";
+import { Guide, withGuide } from "./guide";
 import { followLine, readPatch } from "./patch";
 
 const Comparison = z.object({
@@ -248,6 +255,7 @@ export const ReviewDocument = z.object({
   pairings: z.array(KeptPairing).default([]),
   compared: z.array(ComparedFile).default([]),
   localReviews: z.array(LocalReview).default([]),
+  guides: z.array(Guide).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -260,6 +268,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   pairings: [],
   compared: [],
   localReviews: [],
+  guides: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -271,7 +280,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.keys.length === 0 &&
     document.pairings.length === 0 &&
     document.compared.length === 0 &&
-    document.localReviews.length === 0
+    document.localReviews.length === 0 &&
+    document.guides.length === 0
   );
 }
 
@@ -698,6 +708,7 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("restore-review"), name: z.string() }),
   z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
+  z.object({ kind: z.literal("write-guide"), guide: Guide }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -901,8 +912,11 @@ export function applyCommand(
           (version) => !purged.has(version.series),
         ),
         pairings: document.pairings.filter((kept) => !purged.has(kept.series)),
+        guides: document.guides.filter((guide) => !purged.has(guide.series)),
       };
     }
+    case "write-guide":
+      return { ...document, guides: withGuide(document.guides, command.guide) };
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -952,6 +966,16 @@ export function applyCommand(
               reviews,
             ),
           document.localReviews,
+        ),
+        guides: command.document.guides.reduce(
+          (guides, guide) =>
+            guides.some(
+              (kept) =>
+                kept.series === guide.series && kept.version === guide.version,
+            )
+              ? guides
+              : withGuide(guides, guide),
+          document.guides,
         ),
       };
   }
