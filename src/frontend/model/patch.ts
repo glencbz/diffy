@@ -84,6 +84,30 @@ export function readPatch(patch: string): Patch {
 
   return { header, hunks };
 }
+
+/** Where line `line` of a patch's before side is drawn: on the after side
+ *  where the patch keeps it, shifted by the lines added and removed above
+ *  it, or on the before side where the patch removes it. */
+export function followLine(
+  patch: Patch,
+  line: number,
+): { side: "before" | "after"; line: number } {
+  let shift = 0;
+  for (const hunk of patch.hunks) {
+    if (hunk.oldStart !== undefined && hunk.oldStart > line) break;
+    for (const hunkLine of hunk.lines) {
+      if (!("oldLine" in hunkLine) || hunkLine.oldLine !== line) continue;
+      return hunkLine.kind === "removed"
+        ? { side: "before", line }
+        : { side: "after", line: hunkLine.newLine };
+    }
+    for (const hunkLine of hunk.lines) {
+      if (hunkLine.kind === "added") shift += 1;
+      if (hunkLine.kind === "removed") shift -= 1;
+    }
+  }
+  return { side: "after", line: line + shift };
+}
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-patch>>[1]
 

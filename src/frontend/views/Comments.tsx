@@ -1,6 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comments>>[init]
 import { useState } from "react";
-import type { Anchor, LineAnchor, RowComment } from "../model/review";
+import {
+  type Anchor,
+  drawnAt,
+  type LineAnchor,
+  type RowComment,
+} from "../model/review";
 
 /** How a comment names its line: the after side's number alone, since that
  *  is the version being approved, and the before side's marked as such. */
@@ -26,11 +31,12 @@ function authorLabel(author: string): string {
   return author === "reader" ? "you" : author;
 }
 
-/** What a thread is about, named so it reads on its own. */
-function threadLabel(comment: Anchor): string {
+/** What a thread is about, named so it reads on its own: a line comment by
+ *  where its line is drawn now, where the comparison draws it. */
+function threadLabel(comment: Anchor, at: LineAnchor | null): string {
   switch (comment.kind) {
     case "line":
-      return `${comment.path}:${lineLabel(comment)}`;
+      return `${comment.path}:${lineLabel(at ?? comment)}`;
     case "file":
       return comment.path;
     case "comparison":
@@ -81,10 +87,13 @@ export function CommentComposer({
 export function CommentThreads({
   comments,
   onEditComment,
+  patch = "",
   onResolveComment,
   onDropComment,
 }: {
   comments: RowComment[];
+  /** The patch of the file line comments are on, to find their lines in. */
+  patch?: string;
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
@@ -97,6 +106,7 @@ export function CommentThreads({
           key={comment.id}
           comment={comment}
           onEdit={(body) => onEditComment(comment.id, body)}
+          at={drawnAt(comment, patch)}
           onResolve={(resolved) => onResolveComment(comment.id, resolved)}
           onDrop={() => onDropComment(comment.id)}
         />
@@ -108,11 +118,13 @@ export function CommentThreads({
 function CommentThread({
   comment,
   onEdit,
+  at,
   onResolve,
   onDrop,
 }: {
   comment: RowComment;
   onEdit: (body: string) => void;
+  at: LineAnchor | null;
   onResolve: (resolved: boolean) => void;
   onDrop: () => void;
 }) {
@@ -131,6 +143,8 @@ function CommentThread({
       />
     );
   }
+
+  const drift = driftNote(comment, at);
 
   return (
     <div
@@ -151,7 +165,8 @@ function CommentThread({
           >
             {authorLabel(comment.author)}
           </span>{" "}
-          · {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
+          · {threadLabel(comment, at)} ·{" "}
+          {comment.resolved ? "resolved" : "open"}
         </span>
         {comment.author === "reader" && (
           <button type="button" onClick={() => setEditing(true)}>
@@ -166,14 +181,29 @@ function CommentThread({
         </button>
       </div>
       <div>{comment.body}</div>
-      {comment.stale && (
-        <div className="comment-thread__stale">
-          written against {comment.commitId.slice(0, 8)}.{" "}
-          {comment.kind === "line" ? "That line" : "That commit"} has since been
-          rewritten.
-        </div>
-      )}
+      {drift !== null && <div className="comment-thread__stale">{drift}</div>}
     </div>
   );
+}
+
+/** What became of what a comment was written against, or null when it is
+ *  what the comparison shows. */
+function driftNote(comment: RowComment, at: LineAnchor | null): string | null {
+  const written = `written against ${comment.commitId.slice(0, 8)}`;
+  if (comment.kind !== "line") {
+    return comment.stale
+      ? `${written}. That commit has since been rewritten.`
+      : null;
+  }
+  const was = `line ${lineLabel(comment)}`;
+  if (at === null) {
+    return `${written}, at ${was}, which this comparison does not draw.`;
+  }
+  if (!comment.stale) return null;
+  if (at.side === "before")
+    return `${written}. That line has since been rewritten.`;
+  return at.line === comment.line
+    ? `${written}. That line is unchanged since.`
+    : `${written}, at ${was}. That line is unchanged since and is now line ${at.line}.`;
 }
 // ~/~ end

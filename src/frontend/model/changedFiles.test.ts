@@ -54,6 +54,7 @@ function comment(path: string, resolved: boolean): RowComment {
     createdAt: "2024-01-01T00:00:00Z",
     author: "reader",
     stale: false,
+    numberedOn: null,
   };
 }
 
@@ -183,6 +184,7 @@ describe("fileTree", () => {
       createdAt: "2024-01-01T00:00:00Z",
       author: "reader",
       stale: false,
+      numberedOn: null,
     };
 
     // act

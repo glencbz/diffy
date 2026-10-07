@@ -24,9 +24,27 @@ leave only a reorder's two halves unrelated, as they must be.
 **Comments** are anchored to a line on one side, a file, or the whole
 comparison. The anchor's fields sit on the comment itself so line comments
 stored before the other anchors existed still parse. A comment is stale when
-neither of the row's current commits is the one it was written against, the
-same rule for every anchor; a per-file rule would need a second id meaning
-something slightly different.
+it was written against any commit but the one the row shows, the same rule
+for every anchor. A comment on the row's `from` commit is about the version
+the row compares against, so counting it current would label it with a line
+the newer commit may have moved.
+
+A line anchor counts lines of one tree: an after-side anchor its commit's,
+a before-side one its parent's, the meaning the agent's `comment` tool gives
+it too. `commentOn` keeps to that, so a line on the before side of an
+interdiff is written as an after-side line of the `from` commit.
+
+`numberedOn` says which side of a row, if either, draws the anchor's tree,
+and `drawnAt` follows a line from the before side through the file's patch:
+to where the newer commit keeps it, or to the removed line where it rewrote
+it. The interdiff rebases `from` onto `to`'s parent, so a parent that changed
+lines above the anchor shifts it by that much unseen.
+
+A comment two versions
+back is on neither side and is listed at the line it was written on. Following
+it would need a diff from its commit to the row's, which the row does not
+fetch; storing the line's text and searching for it would find the wrong one
+of two equal lines.
 
 **Viewed files** are filed under the row's key and named by path and both
 blobs, so an amend that leaves the file alone keeps it viewed and one that
@@ -71,6 +89,7 @@ A local review's row is filed by `localRowKey`, under its change id the way
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import type { InterdiffRow } from "./diff";
+import { followLine, readPatch } from "./patch";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -288,7 +307,48 @@ export type RowReview =
       seenTo: string | null;
     };
 
-export type RowComment = Comment & { stale: boolean };
+/** A comment as one comparison reads it. `stale` says it was written
+ *  against a commit other than the one the comparison shows. `numberedOn`
+ *  says which side the comparison draws the tree a line comment counts its
+ *  line in, or null when it draws neither, as it does for a comment from
+ *  two versions back. */
+export type RowComment = Comment & { stale: boolean; numberedOn: Side | null };
+
+/** Which side of a comparison draws the tree a line comment's number counts
+ *  lines of. An after-side anchor counts lines of its commit's tree, and a
+ *  before-side one of its parent's, which only a comparison of that commit
+ *  alone draws. Each side of a comparison of two commits draws that
+ *  commit's tree. */
+function numberedOn(
+  comment: Comment,
+  fromCommitId: string | null,
+  toCommitId: string | null,
+): Side | null {
+  if (comment.kind !== "line") return null;
+  const shown = toCommitId ?? fromCommitId;
+  if (comment.side === "before") {
+    const alone = fromCommitId === null || toCommitId === null;
+    return alone && comment.commitId === shown ? "before" : null;
+  }
+  if (comment.commitId === shown) return "after";
+  return comment.commitId === fromCommitId ? "before" : null;
+}
+
+/** Where a line comment's line is drawn in its file's `patch`, or null where
+ *  the comparison draws neither tree its number counts lines of. A line
+ *  counted on the before side lands where the patch keeps it, or stays on
+ *  the before side where the patch removes it. */
+export function drawnAt(comment: RowComment, patch: string): LineAnchor | null {
+  if (comment.kind !== "line") return null;
+  switch (comment.numberedOn) {
+    case null:
+      return null;
+    case "after":
+      return { side: "after", line: comment.line };
+    case "before":
+      return followLine(readPatch(patch), comment.line);
+  }
+}
 
 /** Review memory for the files on screen. A diff that has one lets every
  * file, and every line of it on either side, be commented on; a diff that
@@ -415,8 +475,8 @@ export function reviewComparison(
     .filter((comment) => comment.reviewKey === key)
     .map((comment) => ({
       ...comment,
-      stale:
-        comment.commitId !== fromCommitId && comment.commitId !== toCommitId,
+      stale: comment.commitId !== (toCommitId ?? fromCommitId),
+      numberedOn: numberedOn(comment, fromCommitId, toCommitId),
     }))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
@@ -921,14 +981,23 @@ export function commentOn(
   row: ComparisonReview,
   comment: Anchor & Pick<Comment, "id" | "body" | "createdAt" | "author">,
 ): ReviewCommand {
-  const commitId =
-    comment.kind === "line" && comment.side === "before"
-      ? (row.fromCommitId ?? row.toCommitId)
-      : (row.toCommitId ?? row.fromCommitId);
+  // The before side of a comparison of two commits is the `from` commit's
+  // own tree, which is what an after-side anchor on that commit names. A
+  // before-side anchor is left meaning the parent's tree, as it does on a
+  // commit's own diff.
+  const onFrom =
+    comment.kind === "line" &&
+    comment.side === "before" &&
+    row.fromCommitId !== null &&
+    row.toCommitId !== null;
+  const commitId = onFrom
+    ? row.fromCommitId
+    : (row.toCommitId ?? row.fromCommitId);
   return {
     kind: "add-comment",
     comment: {
       ...comment,
+      ...(onFrom && { side: "after" as const }),
       reviewKey: row.reviewKey,
       commitId: commitId ?? "",
       resolved: false,
@@ -956,7 +1025,9 @@ import type { InterdiffRow } from "./diff";
 import type { LogEntry } from "./history";
 import {
   applyCommand,
+  type Comment,
   commentOn,
+  drawnAt,
   EMPTY_REVIEW,
   type FileVersion,
   isViewed,
@@ -1193,33 +1264,39 @@ describe("reviewRows", () => {
     expect(reviewed?.comments[0]?.stale).toBe(true);
   });
 
-  test("keeps a before-side comment fresh while its commit is the row's before side", () => {
+  test("flags a line comment stale but follows it while its commit is the row's before side", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: ReviewDocument = {
-      ...EMPTY_REVIEW,
-      comments: [
-        {
-          id: "c1",
-          reviewKey: "change:a",
-          kind: "line",
-          path: "f.ts",
-          side: "before",
-          line: 3,
-          commitId: "a1",
-          body: "removed too soon",
-          resolved: false,
-          createdAt: "2026-09-14T09:00:00.000Z",
-          author: "reader",
-        },
-      ],
-    };
+    const document = withComments(lineComment("a1", "after", 6));
 
     // act
     const [reviewed] = reviewRows([row], document);
 
     // assert
-    expect(reviewed?.comments[0]?.stale).toBe(false);
+    expect(reviewed?.comments[0]).toMatchObject({
+      stale: true,
+      numberedOn: "before",
+    });
+  });
+
+  test("numbers a before-side comment on the parent's tree, which only its own commit's diff draws", () => {
+    // arrange
+    const document = withComments(lineComment("a2", "before", 3));
+    const alone = { from: null, to: logEntry("a", "a2"), files: [] };
+
+    // act
+    const [interdiff] = reviewRows([pairRow("a", "a1", "a2")], document);
+    const [own] = reviewRows([alone], document);
+
+    // assert
+    expect(interdiff?.comments[0]).toMatchObject({
+      stale: false,
+      numberedOn: null,
+    });
+    expect(own?.comments[0]).toMatchObject({
+      stale: false,
+      numberedOn: "before",
+    });
   });
 
   test("keeps a file comment fresh while its commit is the row's after side", () => {
@@ -1494,6 +1571,30 @@ describe("reviewKey", () => {
 
 const empty = EMPTY_REVIEW;
 
+function lineComment(
+  commitId: string,
+  side: "before" | "after",
+  line: number,
+): Comment {
+  return {
+    id: `c-${commitId}-${side}-${line}`,
+    reviewKey: "change:a",
+    kind: "line",
+    path: "math.js",
+    side,
+    line,
+    commitId,
+    body: "divides by zero",
+    resolved: false,
+    createdAt: "2026-10-06T09:00:00.000Z",
+    author: "reader",
+  };
+}
+
+function withComments(...comments: Comment[]): ReviewDocument {
+  return { ...EMPTY_REVIEW, comments };
+}
+
 function reviewedRow(row: InterdiffRow, document: ReviewDocument): ReviewedRow {
   const [reviewed] = reviewRows([row], document);
   if (reviewed === undefined) throw new Error("no row");
@@ -1630,7 +1731,7 @@ describe("changes to the document", () => {
     expect(reviewedRow(amended, document).review.state).toBe("reviewed");
   });
 
-  test("pins a comment to the commit on the side it was left on", () => {
+  test("pins a comment to the commit whose tree the side it was left on draws", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
     const at = {
@@ -1650,9 +1751,13 @@ describe("changes to the document", () => {
     );
 
     // assert
-    expect(document.comments.map((comment) => comment.commitId)).toEqual([
-      "a1",
-      "a2",
+    expect(
+      document.comments.map((comment) =>
+        comment.kind === "line" ? [comment.commitId, comment.side] : null,
+      ),
+    ).toEqual([
+      ["a1", "after"],
+      ["a2", "after"],
     ]);
   });
 
@@ -1940,7 +2045,7 @@ describe("pullRowKey", () => {
 
     // assert
     expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
-    expect(next.comments[0]?.stale).toBe(false);
+    expect(next.comments[0]?.stale).toBe(true);
   });
 });
 describe("kept pairings", () => {
@@ -2123,6 +2228,52 @@ describe("localRowKey", () => {
       reviewKey: "rev:a1",
       keeps: null,
     });
+  });
+});
+
+describe("drawnAt", () => {
+  // `return a / b;` is line 6 of v1 and line 7 of v2, where a guard is
+  // inserted above it and line 5 is rewritten.
+  const interdiff = [
+    "@@ -4,3 +4,4 @@",
+    " function divide(a, b) {",
+    "-  // b is never 0",
+    "+  // b can be 0",
+    "+  if (b === 0) throw new RangeError();",
+    "   return a / b;",
+    "",
+  ].join("\n");
+
+  function drawn(comment: Comment) {
+    const [row] = reviewRows([pairRow("a", "a1", "a2")], withComments(comment));
+    const [read] = row?.comments ?? [];
+    if (read === undefined) throw new Error("the comment is not on the row");
+    return drawnAt(read, interdiff);
+  }
+
+  test("follows a line the newer commit keeps to where it now is", () => {
+    expect(drawn(lineComment("a1", "after", 6))).toEqual({
+      side: "after",
+      line: 7,
+    });
+  });
+
+  test("leaves a line the newer commit rewrites on the before side", () => {
+    expect(drawn(lineComment("a1", "after", 5))).toEqual({
+      side: "before",
+      line: 5,
+    });
+  });
+
+  test("draws a comment on the shown commit where it was written", () => {
+    expect(drawn(lineComment("a2", "after", 6))).toEqual({
+      side: "after",
+      line: 6,
+    });
+  });
+
+  test("draws nowhere a comment from a commit the row does not show", () => {
+    expect(drawn(lineComment("a0", "after", 6))).toBeNull();
   });
 });
 ```

@@ -5,7 +5,12 @@ import { collapseReason } from "../../../model/collapse";
 import type { FileCompare } from "../../../model/compared";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
+import {
+  type Anchor,
+  drawnAt,
+  type LineAnchor,
+  type RowComment,
+} from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -104,7 +109,7 @@ export function FileRow({
     : file.binary
       ? { kind: "binary" }
       : { kind: "text", lines: drawnLines(body, sides, shown) };
-  const parts = partsOf(variant, path, links, content, setOpened);
+  const parts = partsOf(variant, path, file.patch, links, content, setOpened);
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -262,6 +267,7 @@ interface VariantParts {
 function partsOf(
   variant: FileRowVariant,
   path: string,
+  patch: string,
   links: FileLinks | undefined,
   content: FileContent,
   setOpened: (opened: boolean) => void,
@@ -287,7 +293,7 @@ function partsOf(
           : [],
       );
       const placed = (comment: RowComment) => {
-        const at = drawnAt(comment);
+        const at = drawnAt(comment, patch);
         return at !== null && drawn.has(lineKey(at));
       };
       const composer =
@@ -339,13 +345,14 @@ function partsOf(
             comments={variant.comments.filter(
               (comment) => comment.kind === "file",
             )}
+            patch={patch}
           />
         ),
         underLine: (anchor) => {
           const key = lineKey(anchor);
           const composing = composer !== null && lineKey(composer) === key;
           const comments = variant.comments.filter((comment) => {
-            const at = drawnAt(comment);
+            const at = drawnAt(comment, patch);
             return at !== null && lineKey(at) === key;
           });
           if (!composing && comments.length === 0) return null;
@@ -355,6 +362,7 @@ function partsOf(
                 review={variant}
                 composer={composing}
                 comments={comments}
+                patch={patch}
               />
             </div>
           );
@@ -366,19 +374,12 @@ function partsOf(
             comments={variant.comments.filter(
               (comment) => comment.kind === "line" && !placed(comment),
             )}
+            patch={patch}
           />
         ),
       };
     }
   }
-}
-
-/** Where a line comment draws, or null where its number may count lines of
- *  a tree this diff does not show, as a stale comment's does. */
-function drawnAt(comment: RowComment): LineAnchor | null {
-  return comment.kind === "line" && !comment.stale
-    ? { side: comment.side, line: comment.line }
-    : null;
 }
 
 function lineKey({ side, line }: LineAnchor): string {
@@ -390,10 +391,12 @@ function FileComments({
   review,
   composer,
   comments,
+  patch,
 }: {
   review: ReviewFileRow;
   composer: boolean;
   comments: RowComment[];
+  patch: string;
 }) {
   return (
     <>
@@ -407,6 +410,7 @@ function FileComments({
       <CommentThreads
         comments={comments}
         onEditComment={review.onEditComment}
+        patch={patch}
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
       />

@@ -5,7 +5,9 @@ import type { InterdiffRow } from "./diff";
 import type { LogEntry } from "./history";
 import {
   applyCommand,
+  type Comment,
   commentOn,
+  drawnAt,
   EMPTY_REVIEW,
   type FileVersion,
   isViewed,
@@ -242,33 +244,39 @@ describe("reviewRows", () => {
     expect(reviewed?.comments[0]?.stale).toBe(true);
   });
 
-  test("keeps a before-side comment fresh while its commit is the row's before side", () => {
+  test("flags a line comment stale but follows it while its commit is the row's before side", () => {
     // arrange
     const row = pairRow("a", "a1", "a2");
-    const document: ReviewDocument = {
-      ...EMPTY_REVIEW,
-      comments: [
-        {
-          id: "c1",
-          reviewKey: "change:a",
-          kind: "line",
-          path: "f.ts",
-          side: "before",
-          line: 3,
-          commitId: "a1",
-          body: "removed too soon",
-          resolved: false,
-          createdAt: "2026-09-14T09:00:00.000Z",
-          author: "reader",
-        },
-      ],
-    };
+    const document = withComments(lineComment("a1", "after", 6));
 
     // act
     const [reviewed] = reviewRows([row], document);
 
     // assert
-    expect(reviewed?.comments[0]?.stale).toBe(false);
+    expect(reviewed?.comments[0]).toMatchObject({
+      stale: true,
+      numberedOn: "before",
+    });
+  });
+
+  test("numbers a before-side comment on the parent's tree, which only its own commit's diff draws", () => {
+    // arrange
+    const document = withComments(lineComment("a2", "before", 3));
+    const alone = { from: null, to: logEntry("a", "a2"), files: [] };
+
+    // act
+    const [interdiff] = reviewRows([pairRow("a", "a1", "a2")], document);
+    const [own] = reviewRows([alone], document);
+
+    // assert
+    expect(interdiff?.comments[0]).toMatchObject({
+      stale: false,
+      numberedOn: null,
+    });
+    expect(own?.comments[0]).toMatchObject({
+      stale: false,
+      numberedOn: "before",
+    });
   });
 
   test("keeps a file comment fresh while its commit is the row's after side", () => {
@@ -543,6 +551,30 @@ describe("reviewKey", () => {
 
 const empty = EMPTY_REVIEW;
 
+function lineComment(
+  commitId: string,
+  side: "before" | "after",
+  line: number,
+): Comment {
+  return {
+    id: `c-${commitId}-${side}-${line}`,
+    reviewKey: "change:a",
+    kind: "line",
+    path: "math.js",
+    side,
+    line,
+    commitId,
+    body: "divides by zero",
+    resolved: false,
+    createdAt: "2026-10-06T09:00:00.000Z",
+    author: "reader",
+  };
+}
+
+function withComments(...comments: Comment[]): ReviewDocument {
+  return { ...EMPTY_REVIEW, comments };
+}
+
 function reviewedRow(row: InterdiffRow, document: ReviewDocument): ReviewedRow {
   const [reviewed] = reviewRows([row], document);
   if (reviewed === undefined) throw new Error("no row");
@@ -679,7 +711,7 @@ describe("changes to the document", () => {
     expect(reviewedRow(amended, document).review.state).toBe("reviewed");
   });
 
-  test("pins a comment to the commit on the side it was left on", () => {
+  test("pins a comment to the commit whose tree the side it was left on draws", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
     const at = {
@@ -699,9 +731,13 @@ describe("changes to the document", () => {
     );
 
     // assert
-    expect(document.comments.map((comment) => comment.commitId)).toEqual([
-      "a1",
-      "a2",
+    expect(
+      document.comments.map((comment) =>
+        comment.kind === "line" ? [comment.commitId, comment.side] : null,
+      ),
+    ).toEqual([
+      ["a1", "after"],
+      ["a2", "after"],
     ]);
   });
 
@@ -989,7 +1025,7 @@ describe("pullRowKey", () => {
 
     // assert
     expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
-    expect(next.comments[0]?.stale).toBe(false);
+    expect(next.comments[0]?.stale).toBe(true);
   });
 });
 describe("kept pairings", () => {
@@ -1172,6 +1208,52 @@ describe("localRowKey", () => {
       reviewKey: "rev:a1",
       keeps: null,
     });
+  });
+});
+
+describe("drawnAt", () => {
+  // `return a / b;` is line 6 of v1 and line 7 of v2, where a guard is
+  // inserted above it and line 5 is rewritten.
+  const interdiff = [
+    "@@ -4,3 +4,4 @@",
+    " function divide(a, b) {",
+    "-  // b is never 0",
+    "+  // b can be 0",
+    "+  if (b === 0) throw new RangeError();",
+    "   return a / b;",
+    "",
+  ].join("\n");
+
+  function drawn(comment: Comment) {
+    const [row] = reviewRows([pairRow("a", "a1", "a2")], withComments(comment));
+    const [read] = row?.comments ?? [];
+    if (read === undefined) throw new Error("the comment is not on the row");
+    return drawnAt(read, interdiff);
+  }
+
+  test("follows a line the newer commit keeps to where it now is", () => {
+    expect(drawn(lineComment("a1", "after", 6))).toEqual({
+      side: "after",
+      line: 7,
+    });
+  });
+
+  test("leaves a line the newer commit rewrites on the before side", () => {
+    expect(drawn(lineComment("a1", "after", 5))).toEqual({
+      side: "before",
+      line: 5,
+    });
+  });
+
+  test("draws a comment on the shown commit where it was written", () => {
+    expect(drawn(lineComment("a2", "after", 6))).toEqual({
+      side: "after",
+      line: 6,
+    });
+  });
+
+  test("draws nowhere a comment from a commit the row does not show", () => {
+    expect(drawn(lineComment("a0", "after", 6))).toBeNull();
   });
 });
 // ~/~ end
