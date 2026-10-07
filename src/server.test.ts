@@ -8,6 +8,8 @@ import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
+  handleCompare,
+  handleComparePaths,
   handleDiff,
   handleGithubPullCommits,
   handleGithubPullHistory,
@@ -158,6 +160,58 @@ describe("handleSource", () => {
     // arrange
     // act
     const res = await source({ blob: "HEAD", path: "a.ts" });
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("the compare routes", () => {
+  const get = (
+    handler: (req: Request) => Promise<Response>,
+    params: Record<string, string>,
+  ) => handler(new Request(`http://test/?${new URLSearchParams(params)}`));
+
+  test("answers one file diffed against another path", async () => {
+    // arrange
+    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+
+    // act
+    const res = await get(handleCompare, {
+      toCommit,
+      oldPath: "package.json",
+      newPath: "tsconfig.json",
+    });
+    const body = (await res.json()) as { file: { status: string } };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.file.status).toBe("renamed");
+  });
+
+  test("lists the before side's paths", async () => {
+    // arrange
+    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+
+    // act
+    const res = await get(handleComparePaths, { toCommit });
+    const body = (await res.json()) as { paths: string[] };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.paths).toContain("package.json");
+  });
+
+  test("reports a path the side does not hold as 400", async () => {
+    // arrange
+    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+
+    // act
+    const res = await get(handleCompare, {
+      toCommit,
+      oldPath: "no/such/file",
+      newPath: "package.json",
+    });
 
     // assert
     expect(res.status).toBe(400);
