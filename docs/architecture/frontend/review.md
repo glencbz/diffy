@@ -283,6 +283,7 @@ export type RowComment = Comment & { stale: boolean };
 export interface DiffReview {
   comments: RowComment[];
   onAddComment: (anchor: Anchor, body: string) => void;
+  onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: ViewedFile[];
@@ -499,6 +500,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("add-comment"), comment: Comment }),
   z.object({
+    kind: z.literal("edit-comment"),
+    id: z.string(),
+    body: z.string(),
+  }),
+  z.object({
     kind: z.literal("resolve-comment"),
     id: z.string(),
     resolved: z.boolean(),
@@ -581,6 +587,15 @@ export function applyCommand(
       )
         ? document
         : { ...document, comments: [...document.comments, command.comment] };
+    case "edit-comment":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.id
+            ? { ...comment, body: command.body }
+            : comment,
+        ),
+      };
     case "resolve-comment":
       return {
         ...document,
@@ -793,6 +808,7 @@ function added<T>(
 export interface ReviewActions {
   markSeen: (row: ComparisonReview) => void;
   addComment: (row: ComparisonReview, anchor: Anchor, body: string) => void;
+  editComment: (id: string, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
@@ -1660,6 +1676,33 @@ describe("changes to the document", () => {
     expect(dropped.comments.map((comment) => comment.id)).toEqual(["c2"]);
   });
 
+  test("rewrites one comment's body and leaves the rest of it", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const written = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+    );
+
+    // act
+    const edited = applied(written, {
+      kind: "edit-comment",
+      id: "c1",
+      body: "looks good",
+    });
+
+    // assert
+    expect(edited.comments).toEqual(
+      written.comments.map((comment) => ({ ...comment, body: "looks good" })),
+    );
+  });
+
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -1674,6 +1717,7 @@ describe("changes to the document", () => {
         createdAt: "t",
         author: "reader",
       }),
+      { kind: "edit-comment", id: "c1", body: "fine" },
       { kind: "resolve-comment", id: "c1", resolved: true },
     ];
 
@@ -2441,6 +2485,7 @@ export function useReview(): ReviewHandle {
             author: "reader",
           }),
         ),
+      editComment: (id, body) => send({ kind: "edit-comment", id, body }),
       resolveComment: (id, resolved) =>
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),

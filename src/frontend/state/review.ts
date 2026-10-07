@@ -137,6 +137,7 @@ export function useReview(): ReviewHandle {
             author: "reader",
           }),
         ),
+      editComment: (id, body) => send({ kind: "edit-comment", id, body }),
       resolveComment: (id, resolved) =>
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),

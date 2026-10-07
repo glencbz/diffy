@@ -214,6 +214,7 @@ export type RowComment = Comment & { stale: boolean };
 export interface DiffReview {
   comments: RowComment[];
   onAddComment: (anchor: Anchor, body: string) => void;
+  onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: ViewedFile[];
@@ -430,6 +431,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("add-comment"), comment: Comment }),
   z.object({
+    kind: z.literal("edit-comment"),
+    id: z.string(),
+    body: z.string(),
+  }),
+  z.object({
     kind: z.literal("resolve-comment"),
     id: z.string(),
     resolved: z.boolean(),
@@ -512,6 +518,15 @@ export function applyCommand(
       )
         ? document
         : { ...document, comments: [...document.comments, command.comment] };
+    case "edit-comment":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.id
+            ? { ...comment, body: command.body }
+            : comment,
+        ),
+      };
     case "resolve-comment":
       return {
         ...document,
@@ -724,6 +739,7 @@ function added<T>(
 export interface ReviewActions {
   markSeen: (row: ComparisonReview) => void;
   addComment: (row: ComparisonReview, anchor: Anchor, body: string) => void;
+  editComment: (id: string, body: string) => void;
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;

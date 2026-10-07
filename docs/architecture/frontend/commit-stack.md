@@ -378,6 +378,7 @@ function partsOf(
           comments={review.comments.filter(
             (comment) => comment.kind === "comparison",
           )}
+          onEditComment={actions.editComment}
           onResolveComment={actions.resolveComment}
           onDropComment={actions.dropComment}
         />
@@ -386,6 +387,7 @@ function partsOf(
     diff: {
       comments: review.comments,
       onAddComment: (anchor, body) => actions.addComment(review, anchor, body),
+      onEditComment: actions.editComment,
       onResolveComment: actions.resolveComment,
       onDropComment: actions.dropComment,
       viewed: review.viewed,
