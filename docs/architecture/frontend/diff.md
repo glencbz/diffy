@@ -329,8 +329,13 @@ marked `Viewed` starts folded, except that a comment (for noise) or the
 address (for either) opens it. The marked target scrolls to the middle on
 mount and on `reveal`, not when a click marked it.
 
-Threads render under the file's `<pre>` rather than in the gutter, which
-would reflow on every keystroke. A file comment draws under the header.
+A line's threads and composer draw inside the patch, right under the line
+they name, as on GitHub and GitLab, so a comment reads beside its code. In
+the side-by-side layout they span both columns under the row. A thread whose
+line is not drawn, because a [hidden-lines](#hidden-lines) row covers it or
+it was written against another commit, falls back to the list under the
+file's `<pre>`, so no comment goes missing. A file comment draws under the
+header.
 
 A plain diff and a reviewed one differ only where `startsOpen` and
 `partsOf` switch on the variant. Links to the address are not part of it,
@@ -346,12 +351,12 @@ context. Gaps opened in one view are kept apart from the other's.
 ```tsx
 //| id: frontend-view-diff-file-row
 //| file: src/frontend/views/DiffView/FileRow/FileRow.tsx
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
-import type { Anchor, RowComment } from "../../../model/review";
+import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -439,12 +444,12 @@ export function FileRow({
   const path = shownPathOf(file);
   const [opened, setOpened] = useState<boolean | null>(null);
   const open = opened ?? (isSelected || startsOpen(variant, reason));
-  const parts = partsOf(variant, path, links, open, setOpened);
   const content: FileContent = !open
     ? { kind: "folded" }
     : file.binary
       ? { kind: "binary" }
       : { kind: "text", lines: drawnLines(body, sides, shown) };
+  const parts = partsOf(variant, path, links, content, setOpened);
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -479,6 +484,10 @@ export function FileRow({
     ) : (
       drawn(line, key, side)
     );
+  const under = (line: DrawnLine | null, key: string) =>
+    line !== null && "anchor" in line ? (
+      <Fragment key={key}>{parts.underLine(line.anchor)}</Fragment>
+    ) : null;
 
   return (
     <section id={anchor} ref={section} className="diff-file">
@@ -537,12 +546,19 @@ export function FileRow({
               : [
                   cell(row.before, 2 * index, "before"),
                   cell(row.after, 2 * index + 1, "after"),
+                  under(row.before, `before-${index}`),
+                  row.after === row.before
+                    ? null
+                    : under(row.after, `after-${index}`),
                 ],
           )}
         </pre>
       ) : (
         <pre className="diff-file__patch">
-          {content.lines.map((line, index) => drawn(line, index))}
+          {content.lines.flatMap((line, index) => [
+            drawn(line, index),
+            under(line, `under-${index}`),
+          ])}
         </pre>
       )}
       {parts.belowBody}
@@ -576,6 +592,8 @@ interface VariantParts {
   /** Controls at the end of the header. */
   controls: ReactNode;
   aboveBody: ReactNode;
+  /** What draws under one line of the patch. */
+  underLine: (anchor: LineAnchor) => ReactNode;
   belowBody: ReactNode;
 }
 
@@ -583,9 +601,10 @@ function partsOf(
   variant: FileRowVariant,
   path: string,
   links: FileLinks | undefined,
-  open: boolean,
+  content: FileContent,
   setOpened: (opened: boolean) => void,
 ): VariantParts {
+  const open = content.kind !== "folded";
   switch (variant.kind) {
     case "plain-diff":
       return {
@@ -593,9 +612,23 @@ function partsOf(
           links === undefined ? { kind: "none" } : { kind: "link", links },
         controls: null,
         aboveBody: null,
+        underLine: () => null,
         belowBody: null,
       };
-    case "review":
+    case "review": {
+      const drawn = new Set(
+        content.kind === "text"
+          ? content.lines.flatMap((line) =>
+              "anchor" in line ? [lineKey(line.anchor)] : [],
+            )
+          : [],
+      );
+      const placed = (comment: RowComment) => {
+        const at = drawnAt(comment);
+        return at !== null && drawn.has(lineKey(at));
+      };
+      const composer =
+        variant.composer?.kind === "line" ? variant.composer : null;
       return {
         lineAction: {
           kind: "comment",
@@ -627,24 +660,72 @@ function partsOf(
             </label>
           </>
         ),
-        aboveBody: open && <FileComments review={variant} kind="file" />,
-        belowBody: open && <FileComments review={variant} kind="line" />,
+        aboveBody: open && (
+          <FileComments
+            review={variant}
+            composer={variant.composer?.kind === "file"}
+            comments={variant.comments.filter(
+              (comment) => comment.kind === "file",
+            )}
+          />
+        ),
+        underLine: (anchor) => {
+          const key = lineKey(anchor);
+          const composing = composer !== null && lineKey(composer) === key;
+          const comments = variant.comments.filter((comment) => {
+            const at = drawnAt(comment);
+            return at !== null && lineKey(at) === key;
+          });
+          if (!composing && comments.length === 0) return null;
+          return (
+            <div className="diff-file__line-comments">
+              <FileComments
+                review={variant}
+                composer={composing}
+                comments={comments}
+              />
+            </div>
+          );
+        },
+        belowBody: open && (
+          <FileComments
+            review={variant}
+            composer={composer !== null && !drawn.has(lineKey(composer))}
+            comments={variant.comments.filter(
+              (comment) => comment.kind === "line" && !placed(comment),
+            )}
+          />
+        ),
       };
+    }
   }
 }
 
-/** A file's composer and threads for one kind of anchor: the whole file's
- *  under its header, its lines' under its patch. */
+/** Where a line comment draws, or null where its number may count lines of
+ *  a tree this diff does not show, as a stale comment's does. */
+function drawnAt(comment: RowComment): LineAnchor | null {
+  return comment.kind === "line" && !comment.stale
+    ? { side: comment.side, line: comment.line }
+    : null;
+}
+
+function lineKey({ side, line }: LineAnchor): string {
+  return `${side}:${line}`;
+}
+
+/** The composer, when it is open here, and threads. */
 function FileComments({
   review,
-  kind,
+  composer,
+  comments,
 }: {
   review: ReviewFileRow;
-  kind: "file" | "line";
+  composer: boolean;
+  comments: RowComment[];
 }) {
   return (
     <>
-      {review.composer?.kind === kind && (
+      {composer && review.composer !== null && (
         <CommentComposer
           anchor={review.composer}
           onCancel={review.onCancelComposer}
@@ -652,7 +733,7 @@ function FileComments({
         />
       )}
       <CommentThreads
-        comments={review.comments.filter((comment) => comment.kind === kind)}
+        comments={comments}
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
       />
@@ -1654,6 +1735,30 @@ a long file keeps its name and view switch on screen.
     padding: var(--space-4);
     border-top: 1px solid var(--border);
     background: var(--surface-sunken);
+  }
+
+  /* Sticks to the left edge so a patch scrolled sideways keeps its threads
+     in view; keeps the line breaks a comment was written with. */
+  .diff-file__line-comments {
+    position: sticky;
+    left: 0;
+    grid-column: 1 / -1;
+    margin: var(--space-2) 0;
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .diff-file__line-comments button {
+    overflow-wrap: normal;
+  }
+
+  /* Both sides of a side-by-side row read as one block of threads. */
+  .diff-file__line-comments + .diff-file__line-comments {
+    margin-top: calc(-1 * var(--space-2));
+    border-top: none;
   }
 
   .comment-composer__line {
