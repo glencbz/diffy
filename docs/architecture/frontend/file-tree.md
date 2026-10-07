@@ -430,6 +430,7 @@ const STATUS_LETTER: Record<FileDiff["status"], string> = {
   modified: "M",
   renamed: "R",
   copied: "C",
+  compared: "~",
 };
 
 export function FileTree({
@@ -687,7 +688,8 @@ repeat once per level.
   }
 
   .file-tree__status--renamed,
-  .file-tree__status--copied {
+  .file-tree__status--copied,
+  .file-tree__status--compared {
     color: var(--status-renamed);
   }
 

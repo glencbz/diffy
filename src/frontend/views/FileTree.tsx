@@ -9,6 +9,7 @@ const STATUS_LETTER: Record<FileDiff["status"], string> = {
   modified: "M",
   renamed: "R",
   copied: "C",
+  compared: "~",
 };
 
 export function FileTree({

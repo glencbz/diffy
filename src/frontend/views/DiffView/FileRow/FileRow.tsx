@@ -2,6 +2,7 @@
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
+import type { FileCompare } from "../../../model/compared";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
 import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
@@ -9,6 +10,7 @@ import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
 import { CommentComposer, CommentThreads } from "../../Comments";
+import { CompareWith } from "./CompareWith";
 import { DiffModeSwitch } from "./DiffModeSwitch";
 import {
   type DrawnLine,
@@ -43,6 +45,10 @@ export interface ReviewFileRow {
   onDropComment: (id: string) => void;
   viewed: boolean;
   onToggleViewed: () => void;
+  /** Null for a file with no after side, or a diff with nothing to compare. */
+  compare: FileCompare | null;
+  /** The after-side files the reader compared this one with. */
+  comparedWith: string[];
 }
 
 export function FileRow({
@@ -156,7 +162,11 @@ export function FileRow({
           <span className="diff-file__chevron" aria-hidden="true">
             {open ? "▾" : "▸"}
           </span>
-          <span className="diff-file__status">{file.status}</span>
+          <span
+            className={`diff-file__status diff-file__status--${file.status}`}
+          >
+            {file.status}
+          </span>
           {links === undefined && (
             <span className="diff-file__path">{shownPathOf(file)}</span>
           )}
@@ -171,6 +181,7 @@ export function FileRow({
           </a>
         )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
+        {parts.note}
         {content.kind === "text" && (
           <DiffModeSwitch
             mode={mode}
@@ -238,6 +249,8 @@ function startsOpen(variant: FileRowVariant, reason: string | null): boolean {
 /** What a variant adds to the file a plain diff draws. */
 interface VariantParts {
   lineAction: LineAction;
+  /** What the header says after the path. */
+  note: ReactNode;
   /** Controls at the end of the header. */
   controls: ReactNode;
   aboveBody: ReactNode;
@@ -259,6 +272,7 @@ function partsOf(
       return {
         lineAction:
           links === undefined ? { kind: "none" } : { kind: "link", links },
+        note: null,
         controls: null,
         aboveBody: null,
         underLine: () => null,
@@ -284,8 +298,17 @@ function partsOf(
           onOpenComposer: (at) =>
             variant.onOpenComposer({ kind: "line", path, ...at }),
         },
+        note: variant.comparedWith.length > 0 && (
+          <span className="diff-file__reason">
+            compared with {variant.comparedWith.join(", ")}
+          </span>
+        ),
         controls: (
           <>
+            {variant.compare !== null &&
+              (open || variant.compare.against !== null) && (
+                <CompareWith compare={variant.compare} />
+              )}
             {open && (
               <button
                 type="button"

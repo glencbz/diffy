@@ -1,7 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-controller-diff-pane>>[init]
 
 import { changedFilesOf } from "../model/changedFiles";
+import { compareAsks, withCompared } from "../model/compared";
 import { type ReviewedRow, reviewRows } from "../model/review";
+import { useBeforePaths, useCompared } from "../state/compared";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
 import { useSettingsContext } from "../state/settings";
@@ -23,9 +25,15 @@ export function DiffPane({
 }) {
   const answer = useComparison(comparison);
   const { display } = useSettingsContext().settings;
-  const sources = useSources(
-    answer?.status === "ready" ? answer.data.flatMap((row) => row.files) : [],
-  );
+  const reviewed =
+    answer?.status === "ready" ? reviewRows(answer.data, review.document) : [];
+  const compared = useCompared(reviewed.flatMap(compareAsks));
+  const beforePaths = useBeforePaths();
+  const rows = reviewed.map((row) => ({
+    ...row,
+    files: withCompared(row.files, compareAsks(row), compared),
+  }));
+  const sources = useSources(rows.flatMap((row) => row.files));
 
   if (answer === null) {
     return <Message>Select commits to see their diff.</Message>;
@@ -35,7 +43,6 @@ export function DiffPane({
     return <Message tone="error">{answer.message}</Message>;
   }
 
-  const rows = reviewRows(answer.data, review.document);
   const groups: FileNavigatorGroup[] = rows.map((row) => ({
     heading: rows.length > 1 ? rowHeading(row) : null,
     files: changedFilesOf(row.files, rowKey(row), row.comments),
@@ -50,6 +57,7 @@ export function DiffPane({
         plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
+        beforePaths={beforePaths}
         display={display}
       />
     </>

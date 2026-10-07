@@ -69,6 +69,7 @@ A local review's row is filed by `localRowKey`, under its change id the way
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
 import * as z from "zod";
+import type { AsyncState } from "./asyncState";
 import type { InterdiffRow } from "./diff";
 
 const Comparison = z.object({
@@ -165,6 +166,15 @@ export const KeptPairing = z.object({
 });
 export type KeptPairing = z.infer<typeof KeptPairing>;
 
+/** An after-side file of a comparison the reader reads against a
+ *  before-side file of their choosing. */
+export const ComparedFile = z.object({
+  reviewKey: z.string(),
+  oldPath: z.string(),
+  newPath: z.string(),
+});
+export type ComparedFile = z.infer<typeof ComparedFile>;
+
 /** One version of a local review: a revset, the operation it was read at,
  *  and the commits it named then, oldest first. */
 export const LocalVersion = z.object({
@@ -196,6 +206,7 @@ export const ReviewDocument = z.object({
   reviewed: z.array(ReviewedVersion).default([]),
   keys: z.array(KeptKey).default([]),
   pairings: z.array(KeptPairing).default([]),
+  compared: z.array(ComparedFile).default([]),
   localReviews: z.array(LocalReview).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
@@ -207,6 +218,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   reviewed: [],
   keys: [],
   pairings: [],
+  compared: [],
   localReviews: [],
 };
 
@@ -218,6 +230,7 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.reviewed.length === 0 &&
     document.keys.length === 0 &&
     document.pairings.length === 0 &&
+    document.compared.length === 0 &&
     document.localReviews.length === 0
   );
 }
@@ -288,6 +301,18 @@ export interface DiffReview {
   onDropComment: (id: string) => void;
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
+  /** Null for a diff with no after side to compare from. */
+  compare: CompareOffer | null;
+}
+
+/** What a diff's files can be [compared with](diff.md#comparing-two-files-by-hand). */
+export interface CompareOffer {
+  compared: ComparedFile[];
+  /** The before side's whole tree, or null until it is asked for. */
+  beforePaths: AsyncState<string[]> | null;
+  onWantBeforePaths: () => void;
+  /** Null puts the file's own diff back. */
+  onCompare: (newPath: string, oldPath: string | null) => void;
 }
 
 /** Whether a review bar offers the two things a reader can do about a whole
@@ -309,6 +334,7 @@ export interface ComparisonReview {
   review: RowReview;
   comments: RowComment[];
   viewed: ViewedFile[];
+  compared: ComparedFile[];
 }
 
 export type ReviewedRow = InterdiffRow & ComparisonReview;
@@ -406,6 +432,7 @@ export function reviewComparison(
     ),
     comments,
     viewed: document.viewed.filter((mark) => mark.reviewKey === key),
+    compared: document.compared.filter((file) => file.reviewKey === key),
   };
 }
 
@@ -520,6 +547,13 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     kind: z.literal("set-key"),
     commitId: z.string(),
     reviewKey: z.string(),
+  }),
+  z.object({
+    kind: z.literal("set-compared"),
+    reviewKey: z.string(),
+    newPath: z.string(),
+    /** Null puts the file's own diff back. */
+    oldPath: z.string().nullable(),
   }),
   z.object({
     kind: z.literal("set-pairing"),
@@ -648,6 +682,19 @@ export function applyCommand(
             : [...pairings, { series, before, after, slots }],
       };
     }
+    case "set-compared": {
+      const { reviewKey, newPath, oldPath } = command;
+      const compared = document.compared.filter(
+        (file) => file.reviewKey !== reviewKey || file.newPath !== newPath,
+      );
+      return {
+        ...document,
+        compared:
+          oldPath === null
+            ? compared
+            : [...compared, { reviewKey, oldPath, newPath }],
+      };
+    }
     case "register":
       return {
         ...document,
@@ -716,6 +763,11 @@ export function applyCommand(
           document.pairings,
           command.document.pairings,
           samePairing,
+        ),
+        compared: added(
+          document.compared,
+          command.document.compared,
+          (a, b) => a.reviewKey === b.reviewKey && a.newPath === b.newPath,
         ),
         localReviews: command.document.localReviews.reduce(
           (reviews, review) =>
@@ -812,6 +864,12 @@ export interface ReviewActions {
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
+  /** Reads `newPath` against `oldPath`, or against itself again for null. */
+  compare: (
+    row: ComparisonReview,
+    newPath: string,
+    oldPath: string | null,
+  ) => void;
   markReviewed: (series: string, version: string) => void;
   keepPairing: (
     series: string,
@@ -2490,6 +2548,13 @@ export function useReview(): ReviewHandle {
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
+      compare: (row, newPath, oldPath) =>
+        write(row, {
+          kind: "set-compared",
+          reviewKey: row.reviewKey,
+          newPath,
+          oldPath,
+        }),
       markReviewed: (series, version) =>
         send({ kind: "mark-reviewed", series, version, at: now() }),
       keepPairing: (series, before, after, slots) =>

@@ -74,7 +74,9 @@ this series". With more than one file it renders a
 //| file: src/frontend/controllers/DiffPane.tsx
 
 import { changedFilesOf } from "../model/changedFiles";
+import { compareAsks, withCompared } from "../model/compared";
 import { type ReviewedRow, reviewRows } from "../model/review";
+import { useBeforePaths, useCompared } from "../state/compared";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
 import { useSettingsContext } from "../state/settings";
@@ -96,9 +98,15 @@ export function DiffPane({
 }) {
   const answer = useComparison(comparison);
   const { display } = useSettingsContext().settings;
-  const sources = useSources(
-    answer?.status === "ready" ? answer.data.flatMap((row) => row.files) : [],
-  );
+  const reviewed =
+    answer?.status === "ready" ? reviewRows(answer.data, review.document) : [];
+  const compared = useCompared(reviewed.flatMap(compareAsks));
+  const beforePaths = useBeforePaths();
+  const rows = reviewed.map((row) => ({
+    ...row,
+    files: withCompared(row.files, compareAsks(row), compared),
+  }));
+  const sources = useSources(rows.flatMap((row) => row.files));
 
   if (answer === null) {
     return <Message>Select commits to see their diff.</Message>;
@@ -108,7 +116,6 @@ export function DiffPane({
     return <Message tone="error">{answer.message}</Message>;
   }
 
-  const rows = reviewRows(answer.data, review.document);
   const groups: FileNavigatorGroup[] = rows.map((row) => ({
     heading: rows.length > 1 ? rowHeading(row) : null,
     files: changedFilesOf(row.files, rowKey(row), row.comments),
@@ -123,6 +130,7 @@ export function DiffPane({
         plain={comparison.from.length === 0}
         sources={sources}
         review={review.status === "ready" ? review.actions : null}
+        beforePaths={beforePaths}
         display={display}
       />
     </>
@@ -160,9 +168,15 @@ import {
   fileVersionOf,
   shownPathOf,
 } from "../../model/changedFiles";
+import { beforePathsOf, type FileCompare } from "../../model/compared";
 import type { FileDiff } from "../../model/diff";
 import type { DiffLinks } from "../../model/place";
-import { type Anchor, type DiffReview, isViewed } from "../../model/review";
+import {
+  type Anchor,
+  type CompareOffer,
+  type DiffReview,
+  isViewed,
+} from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
 import { FileRow } from "./FileRow/FileRow";
@@ -203,6 +217,7 @@ export function DiffView({
       ),
     [files, review?.comments, scope],
   );
+  const inRow = beforePathsOf(files);
 
   return (
     <div className="diff-view">
@@ -246,6 +261,13 @@ export function DiffView({
                     viewed: isViewed(review.viewed, fileVersionOf(file)),
                     onToggleViewed: () =>
                       review.onToggleViewed(fileVersionOf(file)),
+                    compare: compareOf(review.compare, file, inRow),
+                    comparedWith:
+                      "path" in file
+                        ? (review.compare?.compared ?? [])
+                            .filter((pair) => pair.oldPath === file.path)
+                            .map((pair) => pair.newPath)
+                        : [],
                   }
             }
           />
@@ -253,6 +275,24 @@ export function DiffView({
       })}
     </div>
   );
+}
+
+/** What one file can be compared with: anything on the before side but its
+ *  own path, which its own diff already reads against. */
+function compareOf(
+  offer: CompareOffer | null,
+  file: FileDiff,
+  inRow: string[],
+): FileCompare | null {
+  if (offer === null || file.status === "deleted") return null;
+  const newPath = afterPathOf(file);
+  return {
+    against: file.status === "compared" ? file.oldPath : null,
+    inRow: inRow.filter((path) => path !== newPath),
+    beforePaths: offer.beforePaths,
+    onWantBeforePaths: offer.onWantBeforePaths,
+    onCompare: (oldPath) => offer.onCompare(newPath, oldPath),
+  };
 }
 ```
 
@@ -355,6 +395,7 @@ context. Gaps opened in one view are kept apart from the other's.
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { shownPathOf } from "../../../model/changedFiles";
 import { collapseReason } from "../../../model/collapse";
+import type { FileCompare } from "../../../model/compared";
 import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks } from "../../../model/place";
 import type { Anchor, LineAnchor, RowComment } from "../../../model/review";
@@ -362,6 +403,7 @@ import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
 import { CommentComposer, CommentThreads } from "../../Comments";
+import { CompareWith } from "./CompareWith";
 import { DiffModeSwitch } from "./DiffModeSwitch";
 import {
   type DrawnLine,
@@ -396,6 +438,10 @@ export interface ReviewFileRow {
   onDropComment: (id: string) => void;
   viewed: boolean;
   onToggleViewed: () => void;
+  /** Null for a file with no after side, or a diff with nothing to compare. */
+  compare: FileCompare | null;
+  /** The after-side files the reader compared this one with. */
+  comparedWith: string[];
 }
 
 export function FileRow({
@@ -509,7 +555,11 @@ export function FileRow({
           <span className="diff-file__chevron" aria-hidden="true">
             {open ? "▾" : "▸"}
           </span>
-          <span className="diff-file__status">{file.status}</span>
+          <span
+            className={`diff-file__status diff-file__status--${file.status}`}
+          >
+            {file.status}
+          </span>
           {links === undefined && (
             <span className="diff-file__path">{shownPathOf(file)}</span>
           )}
@@ -524,6 +574,7 @@ export function FileRow({
           </a>
         )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
+        {parts.note}
         {content.kind === "text" && (
           <DiffModeSwitch
             mode={mode}
@@ -591,6 +642,8 @@ function startsOpen(variant: FileRowVariant, reason: string | null): boolean {
 /** What a variant adds to the file a plain diff draws. */
 interface VariantParts {
   lineAction: LineAction;
+  /** What the header says after the path. */
+  note: ReactNode;
   /** Controls at the end of the header. */
   controls: ReactNode;
   aboveBody: ReactNode;
@@ -612,6 +665,7 @@ function partsOf(
       return {
         lineAction:
           links === undefined ? { kind: "none" } : { kind: "link", links },
+        note: null,
         controls: null,
         aboveBody: null,
         underLine: () => null,
@@ -637,8 +691,17 @@ function partsOf(
           onOpenComposer: (at) =>
             variant.onOpenComposer({ kind: "line", path, ...at }),
         },
+        note: variant.comparedWith.length > 0 && (
+          <span className="diff-file__reason">
+            compared with {variant.comparedWith.join(", ")}
+          </span>
+        ),
         controls: (
           <>
+            {variant.compare !== null &&
+              (open || variant.compare.against !== null) && (
+                <CompareWith compare={variant.compare} />
+              )}
             {open && (
               <button
                 type="button"
@@ -837,6 +900,200 @@ export function DiffModeSwitch({
         );
       })}
     </fieldset>
+  );
+}
+```
+
+#### Comparing with another file
+
+A reviewed file with an after side offers `compare with...`, which
+[reads it against](#comparing-two-files-by-hand) a before-side file of the
+reader's choosing. The list offers the before-side paths the row's own files
+name first, since a split's original or a missed rename's old name is almost
+always one of them, then every other path of the before tree, read only once
+the list opens. A compared file offers `×` in place of the button, which puts
+its own diff back.
+
+The list caps what it draws and asks for a narrower filter past that: a
+whole tree is thousands of rows, and the reader finds a file by typing its
+name, not by scrolling.
+
+```tsx
+//| id: frontend-view-diff-compare-with
+//| file: src/frontend/views/DiffView/FileRow/CompareWith.tsx
+import { useState } from "react";
+import type { AsyncState } from "../../../model/asyncState";
+import type { FileCompare } from "../../../model/compared";
+
+/** Rows of the before tree drawn at once. */
+const SHOWN = 50;
+
+function matches(path: string, filter: string): boolean {
+  return path.toLowerCase().includes(filter.toLowerCase());
+}
+
+export function CompareWith({ compare }: { compare: FileCompare }) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+
+  if (compare.against !== null) {
+    return (
+      <button
+        type="button"
+        className="diff-file__uncompare"
+        aria-label={`stop comparing with ${compare.against}`}
+        title="stop comparing"
+        onClick={() => compare.onCompare(null)}
+      >
+        ×
+      </button>
+    );
+  }
+
+  const close = () => {
+    setOpen(false);
+    setFilter("");
+  };
+  const pick = (path: string) => {
+    compare.onCompare(path);
+    close();
+  };
+  const inRow = compare.inRow.filter((path) => matches(path, filter));
+  const listed = new Set(compare.inRow);
+  const tree =
+    compare.beforePaths?.status === "ready"
+      ? compare.beforePaths.data.filter(
+          (path) => !listed.has(path) && matches(path, filter),
+        )
+      : [];
+  const first = inRow[0] ?? tree[0];
+
+  return (
+    <span className="compare-with">
+      <button
+        type="button"
+        className="diff-file__compare"
+        aria-expanded={open}
+        onClick={() => {
+          if (open) return close();
+          setOpen(true);
+          compare.onWantBeforePaths();
+        }}
+      >
+        compare with...
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            className="compare-with__scrim"
+            aria-label="Close the file list"
+            onClick={close}
+          />
+          <div
+            className="compare-with__sheet"
+            role="dialog"
+            aria-label="Compare with a before-side file"
+          >
+            <div className="compare-with__head">
+              <input
+                type="text"
+                className="compare-with__filter"
+                placeholder="Filter before-side files..."
+                aria-label="Filter before-side files"
+                // biome-ignore lint/a11y/noAutofocus: the list opens to be typed into
+                autoFocus
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") close();
+                  if (event.key === "Enter" && first !== undefined) {
+                    pick(first);
+                  }
+                }}
+              />
+            </div>
+            <div className="compare-with__body">
+              {inRow.length > 0 && (
+                <PathGroup
+                  label="in this comparison"
+                  paths={inRow}
+                  onPick={pick}
+                />
+              )}
+              <TreeGroup
+                state={compare.beforePaths}
+                paths={tree}
+                onPick={pick}
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+function TreeGroup({
+  state,
+  paths,
+  onPick,
+}: {
+  state: AsyncState<string[]> | null;
+  paths: string[];
+  onPick: (path: string) => void;
+}) {
+  const label = "anywhere in the before tree";
+  if (state === null || state.status === "loading") {
+    return <p className="compare-with__note">Reading the before tree...</p>;
+  }
+  if (state.status === "error") {
+    return <p className="compare-with__note">{state.message}</p>;
+  }
+  if (paths.length === 0) return null;
+  return (
+    <>
+      <PathGroup label={label} paths={paths.slice(0, SHOWN)} onPick={onPick} />
+      {paths.length > SHOWN && (
+        <p className="compare-with__note">
+          {paths.length - SHOWN} more; narrow the filter to see them
+        </p>
+      )}
+    </>
+  );
+}
+
+function PathGroup({
+  label,
+  paths,
+  onPick,
+}: {
+  label: string;
+  paths: string[];
+  onPick: (path: string) => void;
+}) {
+  return (
+    <>
+      <div className="compare-with__label">{label}</div>
+      <ul className="compare-with__list">
+        {paths.map((path) => {
+          const cut = path.lastIndexOf("/") + 1;
+          return (
+            <li key={path}>
+              <button
+                type="button"
+                className="compare-with__option"
+                title={path}
+                onClick={() => onPick(path)}
+              >
+                <span className="compare-with__name">{path.slice(cut)}</span>
+                <span className="compare-with__dir">{path.slice(0, cut)}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 ```
@@ -1578,6 +1835,131 @@ a long file keeps its name and view switch on screen.
     margin-left: var(--space-3);
   }
 
+  .diff-file__compare,
+  .diff-file__uncompare {
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .compare-with,
+  .diff-file__uncompare {
+    flex: none;
+    margin-left: auto;
+  }
+
+  .diff-file__modes + .compare-with,
+  .diff-file__modes + .diff-file__uncompare,
+  .compare-with + .diff-file__comment,
+  .diff-file__uncompare + .diff-file__comment {
+    margin-left: var(--space-3);
+  }
+
+  .diff-file__status--compared {
+    color: var(--status-renamed);
+  }
+
+  /* A sticky header is a stacking context, so the open list would sit under
+     the next file's header without lifting its own. */
+  .diff-file__header:has(.compare-with__sheet) {
+    z-index: 3;
+  }
+
+  .compare-with__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  /* Hangs from the sticky header, not the button, which wraps to the left
+     edge on a phone and would push a right-aligned list off the screen. */
+  .compare-with__sheet {
+    position: absolute;
+    z-index: 4;
+    top: calc(100% + var(--space-2));
+    right: var(--space-4);
+    width: min(420px, calc(100vw - 2 * var(--space-5)));
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    font-weight: normal;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .compare-with__head {
+    flex: none;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .compare-with__filter {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .compare-with__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2) 0 var(--space-4);
+  }
+
+  .compare-with__label,
+  .compare-with__note {
+    margin: 0;
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--text-faint);
+  }
+
+  .compare-with__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .compare-with__option {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .compare-with__option:hover,
+  .compare-with__option:focus-visible {
+    background: var(--surface-sunken);
+  }
+
+  .compare-with__dir {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-faint);
+  }
+
   .diff-file__status {
     margin-right: var(--space-4);
     color: var(--text-muted);
@@ -1617,7 +1999,9 @@ a long file keeps its name and view switch on screen.
   }
 
   .diff-file__modes + .diff-file__viewed,
-  .diff-file__comment + .diff-file__viewed {
+  .diff-file__comment + .diff-file__viewed,
+  .compare-with + .diff-file__viewed,
+  .diff-file__uncompare + .diff-file__viewed {
     margin-left: var(--space-4);
   }
 
@@ -2016,6 +2400,340 @@ describe("collapseReason", () => {
     expect(collapseReason(modified("src/app.ts", SMALL))).toBeNull();
   });
 });
+```
+
+## Comparing two files by hand
+
+jj pairs a row's files by path, so a rename it did not detect reads as one
+file deleted and another added, and a file split in two reads as one file
+shrinking and another appearing. A reader can read any after-side file of a
+row against any before-side file instead. The choice is kept in the
+[review document](review.md#review-state) under the row's key, by path, so
+it survives a reload and follows the change through an amend, the way a
+comment does.
+
+A compared pair takes the place of the after-side file's own diff and keeps
+everything else as it is: the deleted or shrunk original stays in the list,
+naming where it went. Showing the pair beside the file's own diff would make
+an added file appear twice with every line added the second time. The
+compared diff is a rename to every reader downstream, filed under
+`old → new`, so its comments and `Viewed` mark need nothing new; they stay
+with the pair, and putting the file's own diff back leaves them unshown,
+as it would a rename's.
+
+The swap happens in the controller, before anything counts or draws a file,
+so the files summary, the [navigator](file-tree.md#stepping-through-files),
+and the sources that expand hidden lines all see the pair. A file whose
+compared diff has not arrived, or could not be made (its old path is gone
+after a rewrite), shows its own diff in the meantime.
+
+```ts
+//| id: frontend-model-compared
+//| file: src/frontend/model/compared.ts
+import type { AsyncState } from "./asyncState";
+import { afterPathOf } from "./changedFiles";
+import type { FileDiff } from "./diff";
+import type { CompareOffer, ComparisonReview, ReviewActions } from "./review";
+
+/** One file of a row read against another, as the server is asked for it:
+ *  `oldPath` on the before side, `newPath` on the after side. */
+export interface CompareAsk {
+  fromCommit: string | null;
+  toCommit: string;
+  oldPath: string;
+  newPath: string;
+}
+
+export function compareKey(ask: CompareAsk): string {
+  return JSON.stringify([
+    ask.fromCommit,
+    ask.toCommit,
+    ask.oldPath,
+    ask.newPath,
+  ]);
+}
+
+/** A compared diff, or null while nobody has asked for it. */
+export type ComparedLookup = (ask: CompareAsk) => AsyncState<FileDiff> | null;
+
+/** Every path a row's before side holds, asked for when the reader first
+ *  looks for one. */
+export interface BeforePaths {
+  get: (
+    fromCommit: string | null,
+    toCommit: string,
+  ) => AsyncState<string[]> | null;
+  want: (fromCommit: string | null, toCommit: string) => void;
+}
+
+/** What a row's compared files ask the server. A row with no after side
+ *  has nothing to compare. */
+export function compareAsks(row: ComparisonReview): CompareAsk[] {
+  const { fromCommitId, toCommitId } = row;
+  if (toCommitId === null) return [];
+  return row.compared.map(({ oldPath, newPath }) => ({
+    fromCommit: fromCommitId,
+    toCommit: toCommitId,
+    oldPath,
+    newPath,
+  }));
+}
+
+/** What a row offers its files to compare with. A row with no after side
+ *  has nothing to compare. */
+export function compareOffer(
+  row: ComparisonReview,
+  beforePaths: BeforePaths,
+  compare: ReviewActions["compare"],
+): CompareOffer | null {
+  const { fromCommitId, toCommitId } = row;
+  if (toCommitId === null) return null;
+  return {
+    compared: row.compared,
+    beforePaths: beforePaths.get(fromCommitId, toCommitId),
+    onWantBeforePaths: () => beforePaths.want(fromCommitId, toCommitId),
+    onCompare: (newPath, oldPath) => compare(row, newPath, oldPath),
+  };
+}
+
+/** `files` with each file the reader compared swapped for its compared
+ *  diff, once that has arrived. */
+export function withCompared(
+  files: FileDiff[],
+  asks: CompareAsk[],
+  lookup: ComparedLookup,
+): FileDiff[] {
+  return files.map((file) => {
+    if (file.status === "deleted") return file;
+    const ask = asks.find((each) => each.newPath === afterPathOf(file));
+    const answer = ask === undefined ? null : lookup(ask);
+    return answer?.status === "ready" ? answer.data : file;
+  });
+}
+
+/** What a file can be compared with, and what it is compared with now. */
+export interface FileCompare {
+  /** The before-side path the file is read against, or null for its own
+   *  diff. */
+  against: string | null;
+  /** The before-side paths the row's own files name. */
+  inRow: string[];
+  /** The whole before tree, or null until it is asked for. */
+  beforePaths: AsyncState<string[]> | null;
+  onWantBeforePaths: () => void;
+  /** Null puts the file's own diff back. */
+  onCompare: (oldPath: string | null) => void;
+}
+
+/** The before-side paths a row's own files name, which the picker offers
+ *  first. */
+export function beforePathsOf(files: FileDiff[]): string[] {
+  return files.flatMap((file) => {
+    if (file.status === "added") return [];
+    return ["path" in file ? file.path : file.oldPath];
+  });
+}
+```
+
+### Test
+
+```ts
+//| id: frontend-model-compared-test
+//| file: src/frontend/model/compared.test.ts
+import { describe, expect, test } from "bun:test";
+import { type CompareAsk, compareAsks, withCompared } from "./compared";
+import type { FileDiff } from "./diff";
+import { EMPTY_REVIEW, reviewComparison } from "./review";
+
+const fields = {
+  binary: false,
+  patch: "",
+  structural: { kind: "unavailable", reason: "test" },
+} as const;
+
+const deleted: FileDiff = {
+  status: "deleted",
+  path: "a.ts",
+  oldBlob: "1",
+  newBlob: null,
+  ...fields,
+};
+const added: FileDiff = {
+  status: "added",
+  path: "b.ts",
+  oldBlob: null,
+  newBlob: "2",
+  ...fields,
+};
+const pair: FileDiff = {
+  status: "compared",
+  oldPath: "a.ts",
+  newPath: "b.ts",
+  oldBlob: "1",
+  newBlob: "2",
+  ...fields,
+};
+const ask: CompareAsk = {
+  fromCommit: null,
+  toCommit: "c",
+  oldPath: "a.ts",
+  newPath: "b.ts",
+};
+
+describe("withCompared", () => {
+  test("swaps a compared file for its pair once it arrives", () => {
+    // arrange
+    const lookup = () => ({ status: "ready", data: pair }) as const;
+
+    // act
+    const files = withCompared([deleted, added], [ask], lookup);
+
+    // assert
+    expect(files).toEqual([deleted, pair]);
+  });
+
+  test("keeps the file's own diff while the pair is on its way", () => {
+    // arrange
+    const lookup = () => ({ status: "loading" }) as const;
+
+    // act
+    const files = withCompared([deleted, added], [ask], lookup);
+
+    // assert
+    expect(files).toEqual([deleted, added]);
+  });
+
+  test("never swaps a deleted file, which has no after side", () => {
+    // arrange
+    const lookup = () => ({ status: "ready", data: pair }) as const;
+    const onDeleted = { ...ask, newPath: "a.ts" };
+
+    // act
+    const files = withCompared([deleted], [onDeleted], lookup);
+
+    // assert
+    expect(files).toEqual([deleted]);
+  });
+});
+
+describe("compareAsks", () => {
+  test("asks nothing of a row with no after side", () => {
+    // arrange
+    const document = {
+      ...EMPTY_REVIEW,
+      compared: [{ reviewKey: "k", oldPath: "a.ts", newPath: "b.ts" }],
+    };
+
+    // act
+    const asks = compareAsks(reviewComparison(document, "k", "x", null, null));
+
+    // assert
+    expect(asks).toEqual([]);
+  });
+
+  test("asks for each pair under the row's key, between its commits", () => {
+    // arrange
+    const document = {
+      ...EMPTY_REVIEW,
+      compared: [
+        { reviewKey: "k", oldPath: "a.ts", newPath: "b.ts" },
+        { reviewKey: "other", oldPath: "c.ts", newPath: "d.ts" },
+      ],
+    };
+
+    // act
+    const asks = compareAsks(reviewComparison(document, "k", "x", "y", null));
+
+    // assert
+    expect(asks).toEqual([
+      { fromCommit: "x", toCommit: "y", oldPath: "a.ts", newPath: "b.ts" },
+    ]);
+  });
+});
+```
+
+`useCompared` fetches each pair once, the way
+[`useSources`](syntax.md) fetches each side, and `useBeforePaths` fetches a
+row's tree only when the reader opens the picker on it: listing a whole tree
+for every row on screen would cost a git process each for a list that is
+usually never looked at.
+
+```ts
+//| id: frontend-state-compared
+//| file: src/frontend/state/compared.ts
+import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchBeforePaths, fetchCompared } from "../api";
+import type { AsyncState } from "../model/asyncState";
+import {
+  type BeforePaths,
+  type CompareAsk,
+  type ComparedLookup,
+  compareKey,
+} from "../model/compared";
+import type { FileDiff } from "../model/diff";
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function useCompared(asks: CompareAsk[]): ComparedLookup {
+  const [loaded, setLoaded] = useState<
+    ReadonlyMap<string, AsyncState<FileDiff>>
+  >(() => new Map());
+  const asked = useRef(new Set<string>());
+  const wanted = JSON.stringify(asks);
+
+  useEffect(() => {
+    for (const ask of JSON.parse(wanted) as CompareAsk[]) {
+      const key = compareKey(ask);
+      if (asked.current.has(key)) continue;
+      asked.current.add(key);
+
+      const put = (state: AsyncState<FileDiff>) =>
+        setLoaded((now) => new Map(now).set(key, state));
+      put({ status: "loading" });
+      fetchCompared(ask).then(
+        (file) => put({ status: "ready", data: file }),
+        (error: unknown) => put({ status: "error", message: messageOf(error) }),
+      );
+    }
+  }, [wanted]);
+
+  return useCallback((ask) => loaded.get(compareKey(ask)) ?? null, [loaded]);
+}
+
+function keyOf(fromCommit: string | null, toCommit: string): string {
+  return `${fromCommit ?? ""}:${toCommit}`;
+}
+
+export function useBeforePaths(): BeforePaths {
+  const [loaded, setLoaded] = useState<
+    ReadonlyMap<string, AsyncState<string[]>>
+  >(() => new Map());
+  const asked = useRef(new Set<string>());
+
+  const want = useCallback((fromCommit: string | null, toCommit: string) => {
+    const key = keyOf(fromCommit, toCommit);
+    if (asked.current.has(key)) return;
+    asked.current.add(key);
+
+    const put = (state: AsyncState<string[]>) =>
+      setLoaded((now) => new Map(now).set(key, state));
+    put({ status: "loading" });
+    fetchBeforePaths(fromCommit, toCommit).then(
+      (paths) => put({ status: "ready", data: paths }),
+      (error: unknown) => put({ status: "error", message: messageOf(error) }),
+    );
+  }, []);
+
+  const get = useCallback(
+    (fromCommit: string | null, toCommit: string) =>
+      loaded.get(keyOf(fromCommit, toCommit)) ?? null,
+    [loaded],
+  );
+
+  return { get, want };
+}
 ```
 
 ## Reading a patch
@@ -2821,6 +3539,7 @@ once. Under the header is the after (else before) commit's
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
 import { type ReactNode, useState } from "react";
+import { type BeforePaths, compareOffer } from "../model/compared";
 import type {
   DiffReview,
   ReviewActions,
@@ -2839,12 +3558,14 @@ export function InterdiffRows({
   plain,
   sources,
   review,
+  beforePaths,
   display,
 }: {
   rows: ReviewedRow[];
   /** Whether these are commits' own diffs rather than an interdiff. */
   plain: boolean;
   sources: SourceLookup;
+  beforePaths: BeforePaths;
   /** Null while there is no review document to change, which draws each
    *  row with nothing on it that would write one. */
   review: ReviewActions | null;
@@ -2864,7 +3585,13 @@ export function InterdiffRows({
   return (
     <div>
       {rows.map((row) => {
-        const parts = partsOf(review, row, composing, setComposing);
+        const parts = partsOf(
+          review,
+          beforePaths,
+          row,
+          composing,
+          setComposing,
+        );
         return (
           <section
             key={rowKey(row)}
@@ -2911,6 +3638,7 @@ interface RowParts {
 
 function partsOf(
   review: ReviewActions | null,
+  beforePaths: BeforePaths,
   row: ReviewedRow,
   composing: string | null,
   setComposing: (key: string | null) => void,
@@ -2954,6 +3682,7 @@ function partsOf(
       onDropComment: review.dropComment,
       viewed: row.viewed,
       onToggleViewed: (file) => review.toggleViewed(row, file),
+      compare: compareOffer(row, beforePaths, review.compare),
     },
   };
 }

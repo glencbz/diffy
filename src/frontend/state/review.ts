@@ -142,6 +142,13 @@ export function useReview(): ReviewHandle {
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
+      compare: (row, newPath, oldPath) =>
+        write(row, {
+          kind: "set-compared",
+          reviewKey: row.reviewKey,
+          newPath,
+          oldPath,
+        }),
       markReviewed: (series, version) =>
         send({ kind: "mark-reviewed", series, version, at: now() }),
       keepPairing: (series, before, after, slots) =>

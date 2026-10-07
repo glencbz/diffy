@@ -1624,7 +1624,8 @@
   }
 
   .file-tree__status--renamed,
-  .file-tree__status--copied {
+  .file-tree__status--copied,
+  .file-tree__status--compared {
     color: var(--status-renamed);
   }
 
@@ -2017,6 +2018,131 @@
     margin-left: var(--space-3);
   }
 
+  .diff-file__compare,
+  .diff-file__uncompare {
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    background: transparent;
+    font: inherit;
+    font-weight: normal;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .compare-with,
+  .diff-file__uncompare {
+    flex: none;
+    margin-left: auto;
+  }
+
+  .diff-file__modes + .compare-with,
+  .diff-file__modes + .diff-file__uncompare,
+  .compare-with + .diff-file__comment,
+  .diff-file__uncompare + .diff-file__comment {
+    margin-left: var(--space-3);
+  }
+
+  .diff-file__status--compared {
+    color: var(--status-renamed);
+  }
+
+  /* A sticky header is a stacking context, so the open list would sit under
+     the next file's header without lifting its own. */
+  .diff-file__header:has(.compare-with__sheet) {
+    z-index: 3;
+  }
+
+  .compare-with__scrim {
+    position: fixed;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  /* Hangs from the sticky header, not the button, which wraps to the left
+     edge on a phone and would push a right-aligned list off the screen. */
+  .compare-with__sheet {
+    position: absolute;
+    z-index: 4;
+    top: calc(100% + var(--space-2));
+    right: var(--space-4);
+    width: min(420px, calc(100vw - 2 * var(--space-5)));
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    font-weight: normal;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .compare-with__head {
+    flex: none;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .compare-with__filter {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .compare-with__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2) 0 var(--space-4);
+  }
+
+  .compare-with__label,
+  .compare-with__note {
+    margin: 0;
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--text-faint);
+  }
+
+  .compare-with__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .compare-with__option {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .compare-with__option:hover,
+  .compare-with__option:focus-visible {
+    background: var(--surface-sunken);
+  }
+
+  .compare-with__dir {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-faint);
+  }
+
   .diff-file__status {
     margin-right: var(--space-4);
     color: var(--text-muted);
@@ -2056,7 +2182,9 @@
   }
 
   .diff-file__modes + .diff-file__viewed,
-  .diff-file__comment + .diff-file__viewed {
+  .diff-file__comment + .diff-file__viewed,
+  .compare-with + .diff-file__viewed,
+  .diff-file__uncompare + .diff-file__viewed {
     margin-left: var(--space-4);
   }
 

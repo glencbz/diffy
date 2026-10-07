@@ -7,9 +7,15 @@ import {
   fileVersionOf,
   shownPathOf,
 } from "../../model/changedFiles";
+import { beforePathsOf, type FileCompare } from "../../model/compared";
 import type { FileDiff } from "../../model/diff";
 import type { DiffLinks } from "../../model/place";
-import { type Anchor, type DiffReview, isViewed } from "../../model/review";
+import {
+  type Anchor,
+  type CompareOffer,
+  type DiffReview,
+  isViewed,
+} from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
 import { FileRow } from "./FileRow/FileRow";
@@ -50,6 +56,7 @@ export function DiffView({
       ),
     [files, review?.comments, scope],
   );
+  const inRow = beforePathsOf(files);
 
   return (
     <div className="diff-view">
@@ -93,6 +100,13 @@ export function DiffView({
                     viewed: isViewed(review.viewed, fileVersionOf(file)),
                     onToggleViewed: () =>
                       review.onToggleViewed(fileVersionOf(file)),
+                    compare: compareOf(review.compare, file, inRow),
+                    comparedWith:
+                      "path" in file
+                        ? (review.compare?.compared ?? [])
+                            .filter((pair) => pair.oldPath === file.path)
+                            .map((pair) => pair.newPath)
+                        : [],
                   }
             }
           />
@@ -100,5 +114,23 @@ export function DiffView({
       })}
     </div>
   );
+}
+
+/** What one file can be compared with: anything on the before side but its
+ *  own path, which its own diff already reads against. */
+function compareOf(
+  offer: CompareOffer | null,
+  file: FileDiff,
+  inRow: string[],
+): FileCompare | null {
+  if (offer === null || file.status === "deleted") return null;
+  const newPath = afterPathOf(file);
+  return {
+    against: file.status === "compared" ? file.oldPath : null,
+    inRow: inRow.filter((path) => path !== newPath),
+    beforePaths: offer.beforePaths,
+    onWantBeforePaths: offer.onWantBeforePaths,
+    onCompare: (oldPath) => offer.onCompare(newPath, oldPath),
+  };
 }
 // ~/~ end

@@ -97,7 +97,12 @@ type FileDiffFields = {
 export type FileDiff = FileDiffFields &
   (
     | { status: "added" | "deleted" | "modified"; path: string }
-    | { status: "renamed" | "copied"; oldPath: string; newPath: string }
+    | {
+        /** `compared` is a pair the reader chose; the server never sends it. */
+        status: "renamed" | "copied" | "compared";
+        oldPath: string;
+        newPath: string;
+      }
   );
 
 export type InterdiffRow = {
@@ -113,6 +118,7 @@ export type InterdiffResponse = { rows: InterdiffRow[] };
 //| id: frontend-api
 //| file: src/frontend/api.ts
 import * as z from "zod";
+import type { CompareAsk } from "./model/compared";
 import type { FileDiff, InterdiffResponse } from "./model/diff";
 import {
   type GitCommit,
@@ -583,6 +589,49 @@ export async function fetchSource(
   return sourceFile.parse(
     await getJson(`/api/source?${params}`, "GET /api/source"),
   );
+}
+```
+
+## Comparing two files by hand
+
+The server answers a [compared pair](../backend/compare.md) as a rename, and
+`fetchCompared` relabels it, because only the reader's choice makes it one.
+The schema stays the server's, so a response claiming to be `compared` would
+fail to parse.
+
+```ts
+//| id: frontend-api
+
+/** `ask.newPath` on the row's after side, read against `ask.oldPath` on its
+ *  before side. */
+export async function fetchCompared(ask: CompareAsk): Promise<FileDiff> {
+  const params = new URLSearchParams({
+    toCommit: ask.toCommit,
+    oldPath: ask.oldPath,
+    newPath: ask.newPath,
+  });
+  if (ask.fromCommit !== null) params.set("fromCommit", ask.fromCommit);
+  const { file } = z
+    .object({ file: fileDiff })
+    .parse(await getJson(`/api/compare?${params}`, "GET /api/compare"));
+  if ("path" in file) {
+    throw new Error(`GET /api/compare answered a ${file.status} file`);
+  }
+  return { ...file, status: "compared" };
+}
+
+/** Every path on a row's before side. */
+export async function fetchBeforePaths(
+  fromCommit: string | null,
+  toCommit: string,
+): Promise<string[]> {
+  const params = new URLSearchParams({ toCommit });
+  if (fromCommit !== null) params.set("fromCommit", fromCommit);
+  return z
+    .object({ paths: z.array(z.string()) })
+    .parse(
+      await getJson(`/api/compare/paths?${params}`, "GET /api/compare/paths"),
+    ).paths;
 }
 ```
 
