@@ -23,6 +23,7 @@ for every jj-backed route.
 //| file: src/server.ts
 
 import * as z from "zod";
+import { guideTools } from "./backend/agent/guide";
 import { mcpRoute } from "./backend/agent/mcp";
 import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
@@ -661,7 +662,7 @@ export function routes(store: ReviewStore) {
     "/api/local/diff": handleLocalDiff,
     "/api/local/size": handleLocalSize,
     "/mcp": mcpRoute(
-      reviewTools(store),
+      [...reviewTools(store), ...guideTools(store)],
       INSTRUCTIONS,
       (req) => process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin,
     ),
