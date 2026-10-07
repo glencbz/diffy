@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/tour.md#src/frontend/model/tour.test.ts>>[init]
+// ~/~ begin <<docs/architecture/frontend/tour.md#frontend-model-tour-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { FileDiff } from "./diff";
 import type { Guide } from "./guide";
@@ -141,6 +141,21 @@ describe("buildTour", () => {
     expect(fileOrder(second).map((card) => card.kind)).toEqual([
       "message",
       "file",
+    ]);
+  });
+
+  test("links an idea using a name to the idea that introduced it", () => {
+    // arrange
+    // act
+    const tour = buildTour([commit("c1", STORE), commit("c2", SERVER)], GUIDE);
+
+    // assert
+    expect(tour.names.map((name) => [name.name, name.usedAt.length])).toEqual([
+      ["applyCommand", 1],
+    ]);
+    expect(tour.links).toEqual([
+      { from: "serve", to: "apply", kind: "guide", say: "the same function" },
+      { from: "c2:server.ts", to: "apply", kind: "name", say: "applyCommand" },
     ]);
   });
 

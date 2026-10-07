@@ -1,14 +1,26 @@
 // ~/~ begin <<docs/architecture/frontend/tour.md#frontend-view-tour-card>>[init]
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { SourceLookup, SyntaxToken } from "../../model/source";
 import type {
   FileRow,
+  Introduced,
   Span,
   TourCard,
   TourCommit,
   TourFile,
   TourIdea,
 } from "../../model/tour";
+
+/** The names a commit's code links to the commit that introduced them. */
+export interface NameLinks {
+  /** Matches any of them as a whole word, or null when there are none. */
+  pattern: RegExp | null;
+  byName: Map<string, Introduced>;
+  commitNumber: (commitId: string) => number;
+  preview: (
+    name: Introduced,
+  ) => { commit: TourCommit; file: TourFile; row: number } | null;
+}
 
 /** Rows drawn around what a card is about, so it reads in context. */
 const AROUND = 3;
@@ -52,12 +64,16 @@ export function CodeRow({
   file,
   index,
   source,
+  names,
+  onName,
   className = "",
   onClick,
 }: {
   file: TourFile;
   index: number;
   source: SourceLookup;
+  names: NameLinks | null;
+  onName: ((name: Introduced) => void) | null;
   className?: string;
   onClick?: () => void;
 }) {
@@ -77,18 +93,110 @@ export function CodeRow({
       <span className="tour-row__sign">{sign}</span>
       <code className="tour-row__code">
         {rowTokens(file, row, source).map((token, at) => (
-          <span
+          <Token
             // biome-ignore lint/suspicious/noArrayIndexKey: tokens of one line never move
             key={at}
-            className={
-              token.kind === null ? undefined : `syntax--${token.kind}`
-            }
-          >
-            {token.text}
-          </span>
+            token={token}
+            names={row.kind === "removed" ? null : names}
+            onName={onName}
+          />
         ))}
       </code>
     </div>
+  );
+}
+
+function Token({
+  token,
+  names,
+  onName,
+}: {
+  token: SyntaxToken;
+  names: NameLinks | null;
+  onName: ((name: Introduced) => void) | null;
+}) {
+  const className = token.kind === null ? undefined : `syntax--${token.kind}`;
+  if (names?.pattern == null || onName === null) {
+    return <span className={className}>{token.text}</span>;
+  }
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const match of token.text.matchAll(names.pattern)) {
+    const name = names.byName.get(match[0]);
+    if (name === undefined || match.index === undefined) continue;
+    parts.push(token.text.slice(at, match.index));
+    parts.push(
+      <NameLink key={match.index} name={name} names={names} onName={onName} />,
+    );
+    at = match.index + match[0].length;
+  }
+  if (parts.length === 0)
+    return <span className={className}>{token.text}</span>;
+  parts.push(token.text.slice(at));
+  return <span className={className}>{parts}</span>;
+}
+
+function NameLink({
+  name,
+  names,
+  onName,
+}: {
+  name: Introduced;
+  names: NameLinks;
+  onName: (name: Introduced) => void;
+}) {
+  const [peek, setPeek] = useState<DOMRect | null>(null);
+  const preview = peek === null ? null : names.preview(name);
+  const number = names.commitNumber(name.at.commitId);
+  return (
+    <button
+      type="button"
+      className="tour-name"
+      onMouseEnter={(event) =>
+        setPeek(event.currentTarget.getBoundingClientRect())
+      }
+      onMouseLeave={() => setPeek(null)}
+      onFocus={(event) => setPeek(event.currentTarget.getBoundingClientRect())}
+      onBlur={() => setPeek(null)}
+      onClick={() => onName(name)}
+    >
+      {name.name}
+      <sup className="tour-name__commit">{number}</sup>
+      {peek !== null && preview !== null && (
+        <span
+          className="tour-pop"
+          style={{
+            left: Math.min(peek.left, window.innerWidth - 480),
+            top:
+              peek.bottom + 6 + 220 > window.innerHeight
+                ? peek.top - 226
+                : peek.bottom + 6,
+          }}
+        >
+          <span className="tour-pop__head">
+            <span className="tour-pill">{number}</span> introduced in{" "}
+            {preview.file.path}
+          </span>
+          {preview.file.rows
+            .slice(Math.max(0, preview.row - 2), preview.row + 6)
+            .map((row, at) => {
+              const index = Math.max(0, preview.row - 2) + at;
+              return (
+                <span
+                  key={index}
+                  className={`tour-row tour-row--${row.kind} ${index === preview.row ? "tour-row--aim" : ""}`}
+                >
+                  <span className="tour-row__no">{row.new ?? row.old}</span>
+                  <code className="tour-row__code">{row.code ?? ""}</code>
+                </span>
+              );
+            })}
+          <span className="tour-pop__foot">
+            used in {name.usedAt.length} places
+          </span>
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -150,6 +258,8 @@ export function CardView({
   opened,
   onOpen,
   source,
+  names,
+  onName,
 }: {
   card: TourCard;
   commit: TourCommit;
@@ -160,6 +270,8 @@ export function CardView({
   opened: Span[];
   onOpen: (span: Span) => void;
   source: SourceLookup;
+  names: NameLinks;
+  onName: (name: Introduced) => void;
 }) {
   const className = `tour-card ${current ? "tour-card--current" : ""}`;
   const label = idea !== undefined && (
@@ -214,6 +326,8 @@ export function CardView({
           file={file}
           index={index}
           source={source}
+          names={names}
+          onName={onName}
           className={own(index) ? "tour-row--own" : ""}
         />,
       );

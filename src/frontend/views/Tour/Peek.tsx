@@ -64,6 +64,8 @@ export function Peek({
             file={file}
             index={index}
             source={source}
+            names={null}
+            onName={null}
             className={
               inCard(index) ? "tour-row--in-card" : "tour-row--pullable"
             }

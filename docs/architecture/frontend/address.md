@@ -25,8 +25,9 @@ Both kinds read what follows the series through one `readSeries`, handed the
 rule for a version id: a head oid, or a number.
 
 A [tour](tour.md) of either kind reads under `/tour`, as
-`/tour/pulls/41/commits/77d2…`. A tour reads only the newest version, so it
-has no heads to name.
+`/tour/pulls/41/commits/77d2…?idea=store&with=apply`. A tour reads only the
+newest version, so it has no heads to name, and what its map narrowed to is a
+setting on the view like the heads are, so it goes in the query.
 
 ## The place
 
@@ -66,11 +67,17 @@ export interface LocalPlace extends SeriesPlace {
   name: string;
 }
 
-/** Where the reader is in a [tour](tour.md): the commit they read. `null`
- *  is the oldest commit. */
+/** Where the reader is in a [tour](tour.md): the commit they read, and what
+ *  its map narrowed the commit to. `null` is the oldest commit. */
 export interface TourSpot {
   commit: GitOid | null;
+  focus: TourFocus | null;
 }
+
+/** One idea, or an idea read beside one it relies on. */
+export type TourFocus =
+  | { kind: "idea"; id: string }
+  | { kind: "link"; from: string; to: string };
 
 export interface LocalTourPlace extends TourSpot {
   name: string;
@@ -164,14 +171,14 @@ export function readPlace(address: Address): Place {
       const name = series === undefined ? null : decoded(series);
       return {
         tab: "local-tour",
-        review: name === null ? null : { name, ...readTour(after) },
+        review: name === null ? null : { name, ...readTour(after, address) },
       };
     }
     if (kind === "pulls") {
       const number = positive(series);
       return {
         tab: "pull-tour",
-        pull: number === null ? null : { number, ...readTour(after) },
+        pull: number === null ? null : { number, ...readTour(after, address) },
       };
     }
   }
@@ -179,8 +186,22 @@ export function readPlace(address: Address): Place {
 }
 
 /** A place in a tour, from what follows the series in the address. */
-function readTour([commits, commitSegment]: string[]): TourSpot {
-  return { commit: commits === "commits" ? oid(commitSegment) : null };
+function readTour(
+  [commits, commitSegment]: string[],
+  { search }: Address,
+): TourSpot {
+  const params = new URLSearchParams(search);
+  const idea = params.get("idea");
+  const withIdea = params.get("with");
+  return {
+    commit: commits === "commits" ? oid(commitSegment) : null,
+    focus:
+      idea === null
+        ? null
+        : withIdea === null
+          ? { kind: "idea", id: idea }
+          : { kind: "link", from: idea, to: withIdea },
+  };
 }
 
 /** A place in one series, from what follows the series in the address.
@@ -257,9 +278,17 @@ export function writePlace(place: Place): string {
   return writeSeries(["reviews", place.review.name], place.review);
 }
 
-function writeTour(segments: string[], { commit }: TourSpot): string {
+function writeTour(segments: string[], { commit, focus }: TourSpot): string {
   if (commit !== null) segments.push("commits", commit);
-  return `/${segments.map(encodeURIComponent).join("/")}`;
+  const params = new URLSearchParams();
+  if (focus?.kind === "idea") params.set("idea", focus.id);
+  if (focus?.kind === "link") {
+    params.set("idea", focus.from);
+    params.set("with", focus.to);
+  }
+  const search = params.toString();
+  const path = segments.map(encodeURIComponent).join("/");
+  return `/${path}${search === "" ? "" : `?${search}`}`;
 }
 
 function writeSeries(
@@ -524,6 +553,7 @@ describe("writePlace", () => {
       review: {
         name: "stack/one",
         commit: oid("c"),
+        focus: { kind: "idea", id: "the store" },
       },
     },
     {
@@ -531,6 +561,7 @@ describe("writePlace", () => {
       pull: {
         number: 7,
         commit: null,
+        focus: { kind: "link", from: "a", to: "b" },
       },
     },
   ];

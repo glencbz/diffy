@@ -3230,15 +3230,15 @@
   .tour {
     display: grid;
     flex: 1;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
-    grid-template-areas: "head" "cards";
+    grid-template-areas: "head head" "map cards";
     min-height: 0;
   }
 
   .tour--drawer {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
-    grid-template-areas: "head head" "cards drawer";
+    grid-template-columns: 300px minmax(0, 1fr) minmax(0, 0.8fr);
+    grid-template-areas: "head head head" "map cards drawer";
   }
 
   .tour__head {
@@ -3343,6 +3343,20 @@
     border: none;
   }
 
+  .tour__map,
+  .tour__cards,
+  .tour__drawer {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .tour__map {
+    grid-area: map;
+    padding: var(--space-3) var(--space-2);
+    background: var(--surface-sunken);
+    border-right: 1px solid var(--border);
+  }
+
   .tour__cards {
     grid-area: cards;
     padding: var(--space-4) var(--space-6) 40vh;
@@ -3387,6 +3401,58 @@
     max-width: 70ch;
     margin: 0 0 var(--space-3);
     line-height: 1.5;
+  }
+
+  .tour-links {
+    display: flex;
+    gap: var(--space-3);
+    margin: var(--space-2) 0;
+    font-size: var(--text-size-small);
+  }
+
+  .tour-links ul {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  .tour-links li {
+    margin-bottom: var(--space-1);
+  }
+
+  .tour-links__label {
+    flex: none;
+    width: 9em;
+    color: var(--text-muted);
+  }
+
+  .tour-wiki {
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .tour-wiki::before {
+    color: var(--text-ghost);
+    content: "[[";
+  }
+
+  .tour-wiki::after {
+    color: var(--text-ghost);
+    content: "]]";
+  }
+
+  .tour-wiki__say {
+    color: var(--text-muted);
+  }
+
+  .tour-backlinks {
+    padding: var(--space-2) var(--space-3);
+    margin-top: var(--space-2);
+    border-top: 1px dashed var(--border);
   }
 
   .tour-card {
@@ -3483,6 +3549,20 @@
     box-shadow: inset 3px 0 var(--accent);
   }
 
+  .tour-row--aim {
+    outline: 1px solid var(--accent);
+  }
+
+  .tour-flash {
+    animation: tour-flash 1.2s ease-out;
+  }
+
+  @keyframes tour-flash {
+    from {
+      background: var(--review-changed-surface);
+    }
+  }
+
   .tour-fold {
     display: flex;
     gap: var(--space-3);
@@ -3503,6 +3583,53 @@
     border-radius: 3px;
   }
 
+  .tour-name {
+    padding: 0;
+    font: inherit;
+    color: var(--syntax-link);
+    text-decoration: underline dotted;
+    white-space: pre;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .tour-name__commit {
+    margin-left: 1px;
+    font-size: 0.7em;
+    color: var(--commit-header-edge);
+  }
+
+  .tour-pop {
+    position: fixed;
+    z-index: 10;
+    display: block;
+    width: 460px;
+    max-width: 90vw;
+    overflow: hidden;
+    color: var(--text);
+    text-decoration: none;
+    white-space: normal;
+    cursor: default;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 20%);
+  }
+
+  .tour-pop__head,
+  .tour-pop__foot {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-muted);
+    background: var(--surface-raised);
+  }
+
+  .tour-pop .tour-row__code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .tour-message {
     padding: var(--space-2) var(--space-3);
     margin: 0;
@@ -3517,6 +3644,24 @@
     margin: var(--space-2) 0 0;
     font-family: inherit;
     white-space: pre-wrap;
+  }
+
+  .tour-narrowed {
+    position: sticky;
+    top: calc(-1 * var(--space-4));
+    z-index: 1;
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-3);
+    margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-6)) var(--space-4);
+    background: var(--review-changed-surface);
+    border-bottom: 1px solid var(--review-changed-border);
+  }
+
+  .tour-narrowed__say {
+    color: var(--text-muted);
   }
 
   .tour__end {
@@ -3587,13 +3732,158 @@
     background: var(--commit-header-edge);
     border-radius: 999px;
   }
+
+  .idea-map {
+    position: relative;
+    display: flex;
+  }
+
+  .idea-map__arcs {
+    flex: none;
+    overflow: visible;
+  }
+
+  .idea-map__list {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  .idea-map__commit,
+  .idea-map__idea {
+    position: absolute;
+    right: 0;
+    left: 0;
+  }
+
+  .idea-map__commit-button,
+  .idea-map__idea-button {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    width: 100%;
+    padding: 0 var(--space-2);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-radius: 3px;
+  }
+
+  .idea-map__commit-button {
+    height: 28px;
+    overflow: hidden;
+    font-weight: bold;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .idea-map__commit-button--current {
+    color: var(--accent);
+  }
+
+  .idea-map__idea-button {
+    height: 24px;
+  }
+
+  .idea-map__idea-button:hover,
+  .idea-map__commit-button:hover {
+    background: var(--surface-raised);
+  }
+
+  .idea-map__title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .idea-map__size {
+    flex: none;
+    height: 6px;
+    background: var(--text-ghost);
+    border-radius: 3px;
+  }
+
+  .idea-map__idea-button--rest {
+    font-style: italic;
+    color: var(--text-faint);
+  }
+
+  .idea-map__idea-button--current {
+    font-weight: bold;
+    background: var(--surface-selected);
+  }
+
+  .idea-map__idea-button--near {
+    color: var(--accent);
+  }
+
+  .idea-map__idea-button--far {
+    opacity: 0.45;
+  }
+
+  .idea-map__idea-button[aria-pressed="true"] {
+    outline: 1px solid var(--accent);
+  }
+
+  .idea-map__arc {
+    cursor: pointer;
+  }
+
+  .idea-map__hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 8;
+  }
+
+  .idea-map__line {
+    fill: none;
+    stroke: var(--text-ghost);
+    stroke-width: 1.5;
+  }
+
+  .idea-map__arc circle {
+    fill: var(--text-ghost);
+  }
+
+  .idea-map__arc--guide .idea-map__line {
+    stroke: var(--commit-header-edge);
+    stroke-width: 2;
+  }
+
+  .idea-map__arc--name .idea-map__line {
+    stroke-dasharray: 3 3;
+  }
+
+  .idea-map__arc--far {
+    opacity: 0.2;
+  }
+
+  .idea-map__arc--near .idea-map__line,
+  .idea-map__arc:hover .idea-map__line {
+    stroke: var(--accent);
+    stroke-width: 2.5;
+  }
+
+  .idea-map__arc--chosen .idea-map__line {
+    stroke: var(--danger);
+    stroke-width: 3;
+  }
 }
 
 @layer components-narrow {
   @media (max-width: 1100px) {
+    .tour,
     .tour--drawer {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: "head" "cards";
+      grid-template-columns: 240px minmax(0, 1fr);
+      grid-template-areas: "head head" "map cards";
     }
 
     .tour--drawer .tour__drawer,
@@ -3602,13 +3892,48 @@
     }
   }
 
+  /* A phone reads one column: the map folds above the cards, and a pair's
+     setup reads above its payoff. */
   @media (max-width: 760px) {
+    .tour,
+    .tour--drawer {
+      display: flex;
+      flex-direction: column;
+      overflow: auto;
+    }
+
+    .tour__map {
+      flex: none;
+      max-height: 35vh;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+
     .tour__cards {
+      flex: none;
       padding: var(--space-3) var(--space-2) 40vh;
+      overflow: visible;
+    }
+
+    .tour--pair .tour__drawer {
+      display: block;
+      flex: none;
+      order: 2;
+      overflow: visible;
+      border-left: none;
+    }
+
+    .tour--pair .tour__cards {
+      order: 3;
     }
 
     .tour__tools {
       margin-left: 0;
+    }
+
+    .tour-narrowed {
+      top: 0;
+      margin-inline: calc(-1 * var(--space-2));
     }
   }
 }

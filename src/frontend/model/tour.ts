@@ -283,22 +283,174 @@ export function fileOrder(commit: TourCommit): TourCard[] {
   });
 }
 
+/** The idea of `commit` whose cards are about `row` of `path`. */
+export function ideaAt(
+  commit: TourCommit,
+  path: string,
+  row: number,
+): TourIdea | undefined {
+  return commit.ideas.find((idea) =>
+    idea.cards.some(
+      (card) =>
+        card.kind === "file" &&
+        card.path === path &&
+        card.spans.some(([first, last]) => first <= row && row <= last),
+    ),
+  );
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/tour.md#frontend-model-tour>>[1]
+/** Where in a commit a line is. */
+export interface Site {
+  commitId: string;
+  path: string;
+  row: number;
+}
+
+/** A name one commit adds a definition of, and where later commits use it. */
+export interface Introduced {
+  name: string;
+  at: Site;
+  usedAt: Site[];
+}
+
+// A definition in most languages diffy reads: a keyword, then the name.
+const DEFINITION =
+  /\b(?:function|const|let|var|class|type|interface|enum|def|fn|struct|trait|func)\s+([A-Za-z_]\w*)/g;
+
+const PROSE = /\.(md|markdown|rst|txt|adoc)$/;
+
+const TEST_FILE = /(^|[./_-])(test|spec)s?([./_-]|$)/;
+
+/** A name worth linking: long enough and cased enough not to be a word. */
+function linkable(name: string): boolean {
+  return name.length >= 6 && /[A-Z]/.test(name) && /[a-z]/.test(name);
+}
+
+function definitions(code: string): string[] {
+  return [...code.matchAll(DEFINITION)].flatMap((match) =>
+    match[1] !== undefined && linkable(match[1]) ? [match[1]] : [],
+  );
+}
+
+/** The names each commit defines that a later commit's added lines use,
+ *  earliest definition first. A name a commit removes a definition of too
+ *  was moved rather than introduced, and test files define nothing. */
+export function introducedNames(commits: TourCommit[]): Introduced[] {
+  const found = new Map<string, Introduced>();
+  commits.forEach((commit, index) => {
+    // Code before prose, so a name a literate document quotes is found where
+    // the code defines it.
+    const files = [...commit.files].sort(
+      (a, b) => Number(PROSE.test(a.path)) - Number(PROSE.test(b.path)),
+    );
+    for (const file of files) {
+      if (TEST_FILE.test(file.path)) continue;
+      const removed = new Set(
+        file.rows.flatMap((row) =>
+          row.kind === "removed" ? definitions(row.code ?? "") : [],
+        ),
+      );
+      file.rows.forEach((row, at) => {
+        if (row.kind !== "added") return;
+        for (const name of definitions(row.code ?? "")) {
+          if (found.has(name) || removed.has(name)) continue;
+          found.set(name, {
+            name,
+            at: { commitId: commit.commitId, path: file.path, row: at },
+            usedAt: usesIn(commits.slice(index + 1), name),
+          });
+        }
+      });
+    }
+  });
+  return [...found.values()].filter((each) => each.usedAt.length > 0);
+}
+
+function usesIn(commits: TourCommit[], name: string): Site[] {
+  const word = new RegExp(`\\b${name}\\b`);
+  return commits.flatMap((commit) =>
+    commit.files.flatMap((file) =>
+      file.rows.flatMap((row, at) =>
+        row.kind === "added" && word.test(row.code ?? "")
+          ? [{ commitId: commit.commitId, path: file.path, row: at }]
+          : [],
+      ),
+    ),
+  );
+}
+
+/** One idea relying on another, from the guide or from a name. */
+export interface TourLink {
+  from: string;
+  to: string;
+  kind: "guide" | "name";
+  /** What the guide says, or the names that make the link. */
+  say: string;
+}
+
+/** The guide's links between ideas the tour has, and a link from each idea
+ *  using a name to the idea that introduced it, one per pair of ideas. */
+export function tourLinks(
+  commits: TourCommit[],
+  guide: Guide | undefined,
+  names: Introduced[],
+): TourLink[] {
+  const ideas = new Set(
+    commits.flatMap((commit) => commit.ideas.map((idea) => idea.id)),
+  );
+  const links: TourLink[] = (guide?.links ?? [])
+    .filter((link) => ideas.has(link.from) && ideas.has(link.to))
+    .map((link) => ({ ...link, kind: "guide" }));
+  const byId = new Map(commits.map((commit) => [commit.commitId, commit]));
+  const at = (site: Site) => {
+    const commit = byId.get(site.commitId);
+    return commit === undefined
+      ? undefined
+      : ideaAt(commit, site.path, site.row);
+  };
+  const named = new Map<string, TourLink>();
+  for (const each of names) {
+    const to = at(each.at);
+    if (to === undefined) continue;
+    for (const site of each.usedAt) {
+      const from = at(site);
+      if (from === undefined) continue;
+      const key = `${from.id}\n${to.id}`;
+      const kept = named.get(key);
+      if (kept === undefined) {
+        named.set(key, {
+          from: from.id,
+          to: to.id,
+          kind: "name",
+          say: each.name,
+        });
+      } else if (!kept.say.split(", ").includes(each.name)) {
+        kept.say = `${kept.say}, ${each.name}`;
+      }
+    }
+  }
+  return [...links, ...named.values()];
+}
+
 export interface Tour {
   commits: TourCommit[];
+  links: TourLink[];
+  names: Introduced[];
 }
 
 export function buildTour(
   inputs: CommitInput[],
   guide: Guide | undefined,
 ): Tour {
-  return {
-    commits: inputs.map((input, index) =>
-      tourCommit(
-        input,
-        index + 1,
-        (guide?.ideas ?? []).filter((idea) => idea.commitId === input.commitId),
-      ),
+  const commits = inputs.map((input, index) =>
+    tourCommit(
+      input,
+      index + 1,
+      (guide?.ideas ?? []).filter((idea) => idea.commitId === input.commitId),
     ),
-  };
+  );
+  const names = introducedNames(commits);
+  return { commits, links: tourLinks(commits, guide, names), names };
 }
 // ~/~ end

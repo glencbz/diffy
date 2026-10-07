@@ -161,6 +161,7 @@ describe("writePlace", () => {
       review: {
         name: "stack/one",
         commit: oid("c"),
+        focus: { kind: "idea", id: "the store" },
       },
     },
     {
@@ -168,6 +169,7 @@ describe("writePlace", () => {
       pull: {
         number: 7,
         commit: null,
+        focus: { kind: "link", from: "a", to: "b" },
       },
     },
   ];

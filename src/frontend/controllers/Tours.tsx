@@ -3,7 +3,12 @@ import { type ReactNode, useMemo } from "react";
 import type { FileDiff } from "../model/diff";
 import { guideTo } from "../model/guide";
 import { GitOid } from "../model/history";
-import type { LocalTourPlace, PullTourPlace, TourSpot } from "../model/place";
+import type {
+  LocalTourPlace,
+  PullTourPlace,
+  TourFocus,
+  TourSpot,
+} from "../model/place";
 import { localSeries, pullSeries } from "../model/review";
 import { rowAsk, type SeriesSource, versionAsk } from "../model/series";
 import { buildTour, pathOf, tourFile } from "../model/tour";
@@ -53,7 +58,7 @@ export function LocalTours({
           ),
         }))}
         empty="Nothing is registered for review yet."
-        onSelect={(name) => onGo({ name, commit: null })}
+        onSelect={(name) => onGo({ name, commit: null, focus: null })}
       />
     );
   }
@@ -110,7 +115,9 @@ export function PullTours({
           ),
         }))}
         empty="This repository has no pull requests."
-        onSelect={(key) => onGo({ number: Number(key), commit: null })}
+        onSelect={(key) =>
+          onGo({ number: Number(key), commit: null, focus: null })
+        }
       />
     );
   }
@@ -213,6 +220,16 @@ function filesOf(diffs: RowDiffs, id: string | null | undefined): FileDiff[] {
   return found?.status === "ready" ? found.data : NO_FILES;
 }
 
+/** The commit an idea of the guide, or a file the guide left out, is in. */
+function commitOfIdea(
+  guide: ReturnType<typeof guideTo>,
+  id: string,
+): string | undefined {
+  return (
+    guide?.ideas.find((idea) => idea.id === id)?.commitId ?? id.split(":")[0]
+  );
+}
+
 /** The newest version of one series, read as a tour. */
 function TourOf({
   source,
@@ -245,7 +262,17 @@ function TourOf({
 
   const list = commits.status === "ready" ? commits.data : [];
   const commitId = spot.commit ?? list[0]?.commitId ?? null;
-  const wanted = useMemo(() => filesOf(diffs, commitId), [diffs, commitId]);
+  const pairedId =
+    spot.focus?.kind === "link"
+      ? commitOfIdea(guide, spot.focus.to)
+      : undefined;
+  const wanted = useMemo(
+    () => [
+      ...filesOf(diffs, commitId),
+      ...(pairedId === commitId ? [] : filesOf(diffs, pairedId)),
+    ],
+    [diffs, commitId, pairedId],
+  );
   const lookup = useSources(wanted);
 
   const loaded = list.map((commit) =>
@@ -290,7 +317,10 @@ function TourOf({
     <Tour
       tour={tour}
       commitId={commitId}
-      onGo={(commit: string) => onGo({ commit: GitOid.parse(commit) })}
+      focus={spot.focus}
+      onGo={(commit: string, focus: TourFocus | null) =>
+        onGo({ commit: GitOid.parse(commit), focus })
+      }
       source={lookup}
       header={header}
       guidedBy={
