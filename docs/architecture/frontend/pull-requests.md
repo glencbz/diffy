@@ -610,13 +610,19 @@ export function useRowDiffs(ask: RowAsk, slots: Slot[]): RowDiffs {
 }
 ```
 
-## Whole pull request
+## The comparison's size
 
-The whole pull request's size cannot be summed from rows (a file two commits
-touch would count twice), so for a pull request
-[`useSeriesSize`](series.md#reading-a-series) asks for the after head against
-the merge base, what the pull request would land. It follows the after end
-alone, whatever the before end is.
+The size beside the picker measures the comparison on screen. Against the
+base it is one diff, [`useSeriesSize`](series.md#reading-a-series): for a pull
+request, the after head against the merge base, what the pull request would
+land. Rows would miscount it, since a line two commits rewrite counts in both.
+
+Between two versions `rowsSize` totals the rows instead, the interdiff of each
+pair, so the number matches the stack under it. The after version against its
+base would answer "how big is the whole thing", not what changed since the
+before end. A tree diff from one head to the other would count every upstream
+commit a rebase brought in, and `jj interdiff` between the two heads compares
+only the top commit of each.
 
 ## Series review controller
 
@@ -689,7 +695,10 @@ import { useSeriesCommits, useSeriesSize } from "../state/series";
 import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
+  type ChangeSize,
   CommitStack,
+  changeSize,
+  countLines,
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
@@ -718,12 +727,14 @@ function commitMap(commits: GitCommit[]): Map<string, GitCommit> {
 /** The file `jj interdiff` writes a changed commit message into. */
 const DESCRIPTION_FILE = "JJ-COMMIT-DESCRIPTION";
 
+function isMessage(file: FileDiff): boolean {
+  return "path" in file && file.path === DESCRIPTION_FILE;
+}
+
 function pairedKind(files: AsyncState<FileDiff[]>): StackRowKind {
   // Nothing is known about a pair until its comparison lands, and a
   // comparison that failed says nothing either.
   if (files.status !== "ready") return "plain";
-  const isMessage = (file: FileDiff) =>
-    "path" in file && file.path === DESCRIPTION_FILE;
   if (!files.data.every(isMessage)) {
     return "amended";
   }
@@ -794,6 +805,28 @@ export function baseStackRows(after: GitCommit[], diffs: RowDiffs): StackRow[] {
       files: diffs.get(key) ?? LOADING,
     };
   });
+}
+
+/** What the rows of a two-version comparison add up to, waiting on every
+ *  row. A file counts once however many rows touch it, a changed message is
+ *  no file, and a dropped commit's lines count as removed, since its row
+ *  shows what it used to add. */
+export function rowsSize(rows: StackRow[]): AsyncState<ChangeSize> {
+  const paths = new Set<string>();
+  let added = 0;
+  let removed = 0;
+  for (const row of rows) {
+    if (row.files.status !== "ready") return row.files;
+    const files = row.files.data.filter((file) => !isMessage(file));
+    for (const file of files) {
+      paths.add("path" in file ? file.path : file.newPath);
+    }
+    const lines = countLines(files);
+    const dropped = row.kind === "dropped";
+    added += dropped ? lines.removed : lines.added;
+    removed += dropped ? lines.added : lines.removed;
+  }
+  return { status: "ready", data: { files: paths.size, added, removed } };
 }
 
 /** The commit a click on the single-lane graph picked, read off the
@@ -871,7 +904,9 @@ export function SeriesReview({
   const afterCommits =
     afterState.status === "ready" ? afterState.data : NO_COMMITS;
 
-  const size = useSeriesSize(versionAsk(source, to));
+  const wholeSize = useSeriesSize(
+    from.kind === "base" ? versionAsk(source, to) : null,
+  );
   const pairingHeads =
     beforeId === null ? null : { series, before: beforeId, after: to };
   const pairing = usePairing(
@@ -925,6 +960,15 @@ export function SeriesReview({
       : afterState.status === "error"
         ? afterState.message
         : null;
+
+  const size: AsyncState<ChangeSize> =
+    from.kind === "base"
+      ? wholeSize.status === "ready"
+        ? { status: "ready", data: changeSize(wholeSize.data) }
+        : wholeSize
+      : commitsLoading || commitsError !== null
+        ? { status: "loading" }
+        : rowsSize(rows);
 
   const pick = (commitId: string) => {
     const commit =
@@ -993,7 +1037,7 @@ export function SeriesReview({
             history={history}
             from={from}
             to={to}
-            files={size}
+            size={size}
             wholeLabel={screen.wholeLabel}
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
@@ -1177,7 +1221,8 @@ import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { type GitCommit, GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
-import { baseStackRows, stackRows } from "./SeriesReview";
+import type { StackRow } from "../views/CommitStack";
+import { baseStackRows, rowsSize, stackRows } from "./SeriesReview";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -1368,6 +1413,73 @@ describe("stackRows", () => {
 
     // assert
     expect(rows[0]?.kind).toBe("plain");
+  });
+});
+
+describe("rowsSize", () => {
+  function file(path: string, patch: string): FileDiff {
+    return {
+      status: "modified",
+      path,
+      binary: false,
+      oldBlob: null,
+      newBlob: null,
+      patch,
+      structural: { kind: "unavailable", reason: "not diffed" },
+    };
+  }
+
+  function row(
+    kind: StackRow["kind"],
+    ch: string,
+    files: AsyncState<FileDiff[]>,
+  ): StackRow {
+    return { key: ch, kind, commit: commit(ch, "subject"), was: null, files };
+  }
+
+  test("totals what moved between versions, not the whole after version", () => {
+    // arrange
+    const rows = [
+      row("unchanged", "a", { status: "ready", data: [] }),
+      row("amended", "b", {
+        status: "ready",
+        data: [
+          file("JJ-COMMIT-DESCRIPTION", "@@ -1 +1 @@\n-old\n+new"),
+          file("math.js", "@@ -8,0 +9 @@\n+export const nine = 9;"),
+        ],
+      }),
+      row("added", "c", {
+        status: "ready",
+        data: [file("math.js", "@@ -9,0 +10 @@\n+export const ten = 10;")],
+      }),
+      row("dropped", "d", {
+        status: "ready",
+        data: [file("old.js", "@@ -0,0 +1,2 @@\n+a\n+b")],
+      }),
+    ];
+
+    // act
+    const size = rowsSize(rows);
+
+    // assert
+    expect(size).toEqual({
+      status: "ready",
+      data: { files: 2, added: 2, removed: 2 },
+    });
+  });
+
+  test("waits on every row before it answers", () => {
+    // arrange
+    const rows = [
+      row("unchanged", "a", { status: "ready", data: [] }),
+      row("plain", "b", { status: "loading" }),
+    ];
+
+    // act
+    const size = rowsSize(rows);
+
+    // assert
+    expect(size).toEqual({ status: "loading" });
   });
 });
 
@@ -1596,9 +1708,10 @@ labelled by its [number and label](series.md#describing-a-series).
 `truncated` adds a note that some versions are missing, since a collapsed
 list gives no hint and GitHub does not say where the gap is.
 
-The whole series' size sits beside "to", drawn by `ChangeCount`, as a
-sibling of the `<label>` so it is not read as part of the field's name. It
-shows nothing while loading or on failure; each row reports its own.
+The comparison's [size](#the-comparisons-size) sits beside "to", drawn by
+`ChangeCount`, as a sibling of the `<label>` so it is not read as part of the
+field's name. It shows nothing while loading or on failure; each row reports
+its own.
 
 The caption names which comparison is on screen, a tree diff (base against a
 version) or a diff of diffs (two versions), which the selects alone do not
@@ -1608,20 +1721,19 @@ say.
 //| id: frontend-view-series-comparison-picker
 //| file: src/frontend/views/SeriesComparisonPicker.tsx
 import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
 import {
   type SeriesBaseline,
   type SeriesHistory,
   type SeriesVersion,
   versionName,
 } from "../model/series";
-import { ChangeCount } from "./CommitStack";
+import { ChangeCount, type ChangeSize } from "./CommitStack";
 
 export function SeriesComparisonPicker({
   history,
   from,
   to,
-  files,
+  size,
   wholeLabel,
   onPickFrom,
   onPickTo,
@@ -1629,8 +1741,8 @@ export function SeriesComparisonPicker({
   history: SeriesHistory;
   from: SeriesBaseline;
   to: string;
-  /** Everything the `to` version changes against the base. */
-  files: AsyncState<FileDiff[]>;
+  /** The size of the comparison on screen, whichever ends it has. */
+  size: AsyncState<ChangeSize>;
   /** What the whole of one version is called: `whole pull request`. */
   wholeLabel: string;
   onPickFrom: (from: SeriesBaseline) => void;
@@ -1671,10 +1783,10 @@ export function SeriesComparisonPicker({
           ))}
         </select>
       </label>
-      {files.status === "ready" && (
+      {size.status === "ready" && (
         <span className="pull-compare__size">
           <span className="pull-compare__label">{wholeLabel}</span>
-          <ChangeCount files={files.data} />
+          <ChangeCount size={size.data} />
         </span>
       )}
       {truncated ? (

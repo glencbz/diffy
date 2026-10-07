@@ -4,7 +4,8 @@ import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import { type GitCommit, GitOid } from "../model/history";
 import type { Slot } from "../model/pairing";
-import { baseStackRows, stackRows } from "./SeriesReview";
+import type { StackRow } from "../views/CommitStack";
+import { baseStackRows, rowsSize, stackRows } from "./SeriesReview";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -195,6 +196,73 @@ describe("stackRows", () => {
 
     // assert
     expect(rows[0]?.kind).toBe("plain");
+  });
+});
+
+describe("rowsSize", () => {
+  function file(path: string, patch: string): FileDiff {
+    return {
+      status: "modified",
+      path,
+      binary: false,
+      oldBlob: null,
+      newBlob: null,
+      patch,
+      structural: { kind: "unavailable", reason: "not diffed" },
+    };
+  }
+
+  function row(
+    kind: StackRow["kind"],
+    ch: string,
+    files: AsyncState<FileDiff[]>,
+  ): StackRow {
+    return { key: ch, kind, commit: commit(ch, "subject"), was: null, files };
+  }
+
+  test("totals what moved between versions, not the whole after version", () => {
+    // arrange
+    const rows = [
+      row("unchanged", "a", { status: "ready", data: [] }),
+      row("amended", "b", {
+        status: "ready",
+        data: [
+          file("JJ-COMMIT-DESCRIPTION", "@@ -1 +1 @@\n-old\n+new"),
+          file("math.js", "@@ -8,0 +9 @@\n+export const nine = 9;"),
+        ],
+      }),
+      row("added", "c", {
+        status: "ready",
+        data: [file("math.js", "@@ -9,0 +10 @@\n+export const ten = 10;")],
+      }),
+      row("dropped", "d", {
+        status: "ready",
+        data: [file("old.js", "@@ -0,0 +1,2 @@\n+a\n+b")],
+      }),
+    ];
+
+    // act
+    const size = rowsSize(rows);
+
+    // assert
+    expect(size).toEqual({
+      status: "ready",
+      data: { files: 2, added: 2, removed: 2 },
+    });
+  });
+
+  test("waits on every row before it answers", () => {
+    // arrange
+    const rows = [
+      row("unchanged", "a", { status: "ready", data: [] }),
+      row("plain", "b", { status: "loading" }),
+    ];
+
+    // act
+    const size = rowsSize(rows);
+
+    // assert
+    expect(size).toEqual({ status: "loading" });
   });
 });
 

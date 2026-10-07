@@ -34,7 +34,7 @@ function versionSize(ask: VersionAsk): Promise<FileDiff[]> {
 
 /** What `load` answers for `ask`, kept loaded while `ask` stays the same.
  *  No ask reads as nothing, which is how a comparison against the base asks
- *  for no before side. */
+ *  for no before side, and one between versions for no whole size. */
 function useLoaded<T>(
   ask: VersionAsk | null,
   load: (ask: VersionAsk) => Promise<T>,
@@ -75,7 +75,7 @@ export function useSeriesCommits(
   return useLoaded(ask, versionCommits, NONE);
 }
 
-export function useSeriesSize(ask: VersionAsk): AsyncState<FileDiff[]> {
+export function useSeriesSize(ask: VersionAsk | null): AsyncState<FileDiff[]> {
   return useLoaded(ask, versionSize, NONE);
 }
 // ~/~ end
