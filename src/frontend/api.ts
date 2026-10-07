@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[init]
 import * as z from "zod";
+import type { CompareAsk } from "./model/compared";
 import type { FileDiff, InterdiffResponse } from "./model/diff";
 import {
   type GitCommit,
@@ -350,6 +351,40 @@ export async function fetchSource(
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
 
+/** `ask.newPath` on the row's after side, read against `ask.oldPath` on its
+ *  before side. */
+export async function fetchCompared(ask: CompareAsk): Promise<FileDiff> {
+  const params = new URLSearchParams({
+    toCommit: ask.toCommit,
+    oldPath: ask.oldPath,
+    newPath: ask.newPath,
+  });
+  if (ask.fromCommit !== null) params.set("fromCommit", ask.fromCommit);
+  const { file } = z
+    .object({ file: fileDiff })
+    .parse(await getJson(`/api/compare?${params}`, "GET /api/compare"));
+  if ("path" in file) {
+    throw new Error(`GET /api/compare answered a ${file.status} file`);
+  }
+  return { ...file, status: "compared" };
+}
+
+/** Every path on a row's before side. */
+export async function fetchBeforePaths(
+  fromCommit: string | null,
+  toCommit: string,
+): Promise<string[]> {
+  const params = new URLSearchParams({ toCommit });
+  if (fromCommit !== null) params.set("fromCommit", fromCommit);
+  return z
+    .object({ paths: z.array(z.string()) })
+    .parse(
+      await getJson(`/api/compare/paths?${params}`, "GET /api/compare/paths"),
+    ).paths;
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
+
 /** The commits `ids` name, in that order. */
 export async function fetchLocalCommits(ids: string[]): Promise<GitCommit[]> {
   const params = new URLSearchParams(ids.map((id) => ["id", id]));
@@ -387,7 +422,7 @@ export async function fetchLocalSize(ids: string[]): Promise<FileDiff[]> {
   return filesResponse.parse(body).files;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[6]
 
 /** Register a version of a local review at `operation`, and answer the name
  *  it went under. The review document announces the change to every open

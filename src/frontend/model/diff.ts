@@ -36,7 +36,12 @@ type FileDiffFields = {
 export type FileDiff = FileDiffFields &
   (
     | { status: "added" | "deleted" | "modified"; path: string }
-    | { status: "renamed" | "copied"; oldPath: string; newPath: string }
+    | {
+        /** `compared` is a pair the reader chose; the server never sends it. */
+        status: "renamed" | "copied" | "compared";
+        oldPath: string;
+        newPath: string;
+      }
   );
 
 export type InterdiffRow = {

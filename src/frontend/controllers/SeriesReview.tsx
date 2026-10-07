@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-series-review>>[init]
 import { type ReactNode, useEffect, useState } from "react";
 import type { AsyncState } from "../model/asyncState";
+import { compareAsks, withCompared } from "../model/compared";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
@@ -20,6 +21,7 @@ import {
   versionAsk,
   versionName,
 } from "../model/series";
+import { useBeforePaths, useCompared } from "../state/compared";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals, type Visit } from "../state/place";
@@ -260,17 +262,42 @@ export function SeriesReview({
         },
   );
   const diffs = useRowDiffs(rowAsk(source, from, to), pairing.slots);
-  const sources = useSources(
-    [...open].flatMap((key) => {
-      const files = diffs.get(key);
-      return files?.status === "ready" ? files.data : [];
-    }),
-  );
 
-  const rows =
+  const reviewOf = (row: StackRow): ComparisonReview => {
+    const before = row.kind === "dropped" ? row.commit : row.was;
+    const after = row.kind === "dropped" ? null : row.commit;
+    const { reviewKey, keeps } = screen.keyOf(review.document, before, after);
+    return reviewComparison(
+      review.document,
+      reviewKey,
+      before?.commitId ?? null,
+      after?.commitId ?? null,
+      keeps,
+    );
+  };
+
+  const stacked =
     from.kind === "base"
       ? baseStackRows(afterCommits, diffs)
       : stackRows(pairing.slots, beforeCommits, afterCommits, diffs);
+  const compared = useCompared(
+    stacked.flatMap((row) => compareAsks(reviewOf(row))),
+  );
+  const beforePaths = useBeforePaths();
+  const rows = stacked.map((row): StackRow => {
+    if (row.files.status !== "ready") return row;
+    const files = withCompared(
+      row.files.data,
+      compareAsks(reviewOf(row)),
+      compared,
+    );
+    return { ...row, files: { status: "ready", data: files } };
+  });
+  const sources = useSources(
+    rows.flatMap((row) =>
+      open.has(row.key) && row.files.status === "ready" ? row.files.data : [],
+    ),
+  );
 
   const currentIndex = rows.findIndex(
     (row) => row.commit.commitId === current || row.was?.commitId === current,
@@ -327,19 +354,6 @@ export function SeriesReview({
   const step = (by: -1 | 1) => {
     const next = rows[currentIndex + by];
     if (next !== undefined) pick(next.commit.commitId);
-  };
-
-  const reviewOf = (row: StackRow): ComparisonReview => {
-    const before = row.kind === "dropped" ? row.commit : row.was;
-    const after = row.kind === "dropped" ? null : row.commit;
-    const { reviewKey, keeps } = screen.keyOf(review.document, before, after);
-    return reviewComparison(
-      review.document,
-      reviewKey,
-      before?.commitId ?? null,
-      after?.commitId ?? null,
-      keeps,
-    );
   };
 
   const links = (row: StackRow): DiffLinks => {
@@ -455,6 +469,7 @@ export function SeriesReview({
             links={links}
             reviewOf={reviewOf}
             actions={review.status === "ready" ? review.actions : null}
+            beforePaths={beforePaths}
             display={display}
             since={
               from.kind === "version"

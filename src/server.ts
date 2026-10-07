@@ -4,6 +4,11 @@ import * as z from "zod";
 import { mcpRoute } from "./backend/agent/mcp";
 import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
+  beforePaths,
+  CompareError,
+  compareFiles,
+} from "./backend/commit/compare";
+import {
   BlobId,
   GitError,
   GitOid,
@@ -156,6 +161,54 @@ export async function handleSource(req: Request): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[3]
 
+const CompareParams = z.object({
+  fromCommit: GitOid.nullable(),
+  toCommit: GitOid,
+});
+
+function compareSides(params: URLSearchParams) {
+  const { fromCommit, toCommit } = CompareParams.parse({
+    fromCommit: params.get("fromCommit"),
+    toCommit: params.get("toCommit"),
+  });
+  return { from: fromCommit, to: toCommit };
+}
+
+/** Run a compare handler body; a bad commit or path is the caller's to fix. */
+async function compareJson(build: () => Promise<unknown>): Promise<Response> {
+  try {
+    return Response.json(await build());
+  } catch (error) {
+    if (error instanceof CompareError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof z.ZodError) {
+      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
+    }
+    throw error;
+  }
+}
+
+export function handleCompare(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  return compareJson(async () => {
+    const oldPath = z.string().min(1).parse(params.get("oldPath"));
+    const newPath = z.string().min(1).parse(params.get("newPath"));
+    return {
+      file: await compareFiles(compareSides(params), oldPath, newPath),
+    };
+  });
+}
+
+export function handleComparePaths(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  return compareJson(async () => ({
+    paths: await beforePaths(compareSides(params)),
+  }));
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
+
 /** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
 async function githubJson(build: () => Promise<unknown>): Promise<Response> {
   try {
@@ -177,7 +230,7 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
 
 export function handleGithubRepo(): Promise<Response> {
   return githubJson(async () => {
@@ -186,7 +239,7 @@ export function handleGithubRepo(): Promise<Response> {
   });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
 
 const PullsQuery = z.object({
   state: z.enum(["open", "closed", "merged", "all"]).optional(),
@@ -217,7 +270,7 @@ export function handleGithubPullHistory(req: Request): Promise<Response> {
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
 export function handleGithubPullCommits(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
@@ -245,7 +298,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
   });
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
 
 export function handleGithubPullDiff(req: Request): Promise<Response> {
   return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
@@ -354,7 +407,7 @@ async function pullDiffFiles(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
 
 export function reviewRoute(store: ReviewStore) {
   return {
@@ -374,7 +427,7 @@ export function reviewRoute(store: ReviewStore) {
   };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
 
 export const REVIEW_TOPIC = "review";
 
@@ -393,7 +446,7 @@ export const reviewSocket: Bun.WebSocketHandler<undefined> = {
   message() {},
 };
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[11]
 
 const RegistrationBody = z.object({
   name: z.string().min(1).optional(),
@@ -456,7 +509,7 @@ export function handleLocalSize(req: Request): Promise<Response> {
   return localJson(async () => ({ files: await localSize(ids) }));
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[11]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[12]
 
 export function routes(store: ReviewStore) {
   return {
@@ -467,6 +520,8 @@ export function routes(store: ReviewStore) {
     "/api/diff": handleDiff,
     "/api/interdiff": handleInterdiff,
     "/api/source": handleSource,
+    "/api/compare": handleCompare,
+    "/api/compare/paths": handleComparePaths,
     "/api/github/repo": handleGithubRepo,
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,

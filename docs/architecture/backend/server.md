@@ -26,6 +26,11 @@ import * as z from "zod";
 import { mcpRoute } from "./backend/agent/mcp";
 import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
+  beforePaths,
+  CompareError,
+  compareFiles,
+} from "./backend/commit/compare";
+import {
   BlobId,
   GitError,
   GitOid,
@@ -192,6 +197,65 @@ export async function handleSource(req: Request): Promise<Response> {
   }
 
   return Response.json(await highlightSource(text, path));
+}
+```
+
+### Comparing two files by hand
+
+`/api/compare` diffs one before-side path of a row against one after-side
+path, and `/api/compare/paths` lists what the before side holds to pick from.
+Both name the row by its commits, the way
+[`/api/local/diff`](#local-reviews) does, because the module reads
+[whole trees from git](compare.md); a missing `fromCommit` is a commit's own
+diff.
+
+```ts
+//| id: backend-server
+
+const CompareParams = z.object({
+  fromCommit: GitOid.nullable(),
+  toCommit: GitOid,
+});
+
+function compareSides(params: URLSearchParams) {
+  const { fromCommit, toCommit } = CompareParams.parse({
+    fromCommit: params.get("fromCommit"),
+    toCommit: params.get("toCommit"),
+  });
+  return { from: fromCommit, to: toCommit };
+}
+
+/** Run a compare handler body; a bad commit or path is the caller's to fix. */
+async function compareJson(build: () => Promise<unknown>): Promise<Response> {
+  try {
+    return Response.json(await build());
+  } catch (error) {
+    if (error instanceof CompareError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof z.ZodError) {
+      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
+    }
+    throw error;
+  }
+}
+
+export function handleCompare(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  return compareJson(async () => {
+    const oldPath = z.string().min(1).parse(params.get("oldPath"));
+    const newPath = z.string().min(1).parse(params.get("newPath"));
+    return {
+      file: await compareFiles(compareSides(params), oldPath, newPath),
+    };
+  });
+}
+
+export function handleComparePaths(req: Request): Promise<Response> {
+  const params = new URL(req.url).searchParams;
+  return compareJson(async () => ({
+    paths: await beforePaths(compareSides(params)),
+  }));
 }
 ```
 
@@ -583,6 +647,8 @@ export function routes(store: ReviewStore) {
     "/api/diff": handleDiff,
     "/api/interdiff": handleInterdiff,
     "/api/source": handleSource,
+    "/api/compare": handleCompare,
+    "/api/compare/paths": handleComparePaths,
     "/api/github/repo": handleGithubRepo,
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,
@@ -617,6 +683,8 @@ import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
+  handleCompare,
+  handleComparePaths,
   handleDiff,
   handleGithubPullCommits,
   handleGithubPullHistory,
@@ -767,6 +835,58 @@ describe("handleSource", () => {
     // arrange
     // act
     const res = await source({ blob: "HEAD", path: "a.ts" });
+
+    // assert
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("the compare routes", () => {
+  const get = (
+    handler: (req: Request) => Promise<Response>,
+    params: Record<string, string>,
+  ) => handler(new Request(`http://test/?${new URLSearchParams(params)}`));
+
+  test("answers one file diffed against another path", async () => {
+    // arrange
+    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+
+    // act
+    const res = await get(handleCompare, {
+      toCommit,
+      oldPath: "package.json",
+      newPath: "tsconfig.json",
+    });
+    const body = (await res.json()) as { file: { status: string } };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.file.status).toBe("renamed");
+  });
+
+  test("lists the before side's paths", async () => {
+    // arrange
+    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+
+    // act
+    const res = await get(handleComparePaths, { toCommit });
+    const body = (await res.json()) as { paths: string[] };
+
+    // assert
+    expect(res.status).toBe(200);
+    expect(body.paths).toContain("package.json");
+  });
+
+  test("reports a path the side does not hold as 400", async () => {
+    // arrange
+    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+
+    // act
+    const res = await get(handleCompare, {
+      toCommit,
+      oldPath: "no/such/file",
+      newPath: "package.json",
+    });
 
     // assert
     expect(res.status).toBe(400);

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { AsyncState } from "../model/asyncState";
+import { type BeforePaths, compareOffer } from "../model/compared";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
 import type { DiffLinks } from "../model/place";
@@ -82,6 +83,7 @@ export interface CommitStackProps {
   reviewOf: (row: StackRow) => ComparisonReview;
   /** Null while there is no review document to write to. */
   actions: ReviewActions | null;
+  beforePaths: BeforePaths;
   /** How the reader asked for diffs to be drawn. */
   display: Display;
 }
@@ -134,6 +136,7 @@ export function CommitStack({
   since,
   reviewOf,
   actions,
+  beforePaths,
   display,
 }: CommitStackProps): ReactElement {
   const stack = useRef<HTMLDivElement>(null);
@@ -204,6 +207,7 @@ export function CommitStack({
           since={since}
           review={reviewOf(row)}
           actions={actions}
+          beforePaths={beforePaths}
           display={display}
         />
       ))}
@@ -225,6 +229,7 @@ function StackSection({
   since,
   review,
   actions,
+  beforePaths,
   display,
 }: {
   row: StackRow;
@@ -240,11 +245,12 @@ function StackSection({
   since: string;
   review: ComparisonReview;
   actions: ReviewActions | null;
+  beforePaths: BeforePaths;
   display: Display;
 }) {
   const section = useRef<HTMLElement>(null);
   const [composing, setComposing] = useState(false);
-  const parts = partsOf(actions, review, composing, setComposing);
+  const parts = partsOf(actions, beforePaths, review, composing, setComposing);
   // Picking a commit in the graph scrolls its row to the top; picking it
   // again scrolls back, which is why this keys on `reveal`, a count of
   // requests. A linked file or line scrolls itself, so the row stays put.
@@ -317,6 +323,7 @@ interface RowParts {
 
 function partsOf(
   actions: ReviewActions | null,
+  beforePaths: BeforePaths,
   review: ComparisonReview,
   composing: boolean,
   setComposing: (composing: boolean) => void,
@@ -360,6 +367,7 @@ function partsOf(
       onDropComment: actions.dropComment,
       viewed: review.viewed,
       onToggleViewed: (file) => actions.toggleViewed(review, file),
+      compare: compareOffer(review, beforePaths, actions.compare),
     },
   };
 }

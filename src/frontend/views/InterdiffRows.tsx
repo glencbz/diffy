@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import { type ReactNode, useState } from "react";
+import { type BeforePaths, compareOffer } from "../model/compared";
 import type {
   DiffReview,
   ReviewActions,
@@ -18,12 +19,14 @@ export function InterdiffRows({
   plain,
   sources,
   review,
+  beforePaths,
   display,
 }: {
   rows: ReviewedRow[];
   /** Whether these are commits' own diffs rather than an interdiff. */
   plain: boolean;
   sources: SourceLookup;
+  beforePaths: BeforePaths;
   /** Null while there is no review document to change, which draws each
    *  row with nothing on it that would write one. */
   review: ReviewActions | null;
@@ -43,7 +46,13 @@ export function InterdiffRows({
   return (
     <div>
       {rows.map((row) => {
-        const parts = partsOf(review, row, composing, setComposing);
+        const parts = partsOf(
+          review,
+          beforePaths,
+          row,
+          composing,
+          setComposing,
+        );
         return (
           <section
             key={rowKey(row)}
@@ -90,6 +99,7 @@ interface RowParts {
 
 function partsOf(
   review: ReviewActions | null,
+  beforePaths: BeforePaths,
   row: ReviewedRow,
   composing: string | null,
   setComposing: (key: string | null) => void,
@@ -133,6 +143,7 @@ function partsOf(
       onDropComment: review.dropComment,
       viewed: row.viewed,
       onToggleViewed: (file) => review.toggleViewed(row, file),
+      compare: compareOffer(row, beforePaths, review.compare),
     },
   };
 }
