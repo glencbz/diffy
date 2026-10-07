@@ -7,7 +7,9 @@ export type Place =
   | { tab: "local" }
   | { tab: "settings" }
   | { tab: "pulls"; pull: PullPlace | null }
-  | { tab: "reviews"; review: LocalPlace | null };
+  | { tab: "reviews"; review: LocalPlace | null }
+  | { tab: "local-tour"; review: LocalTourPlace | null }
+  | { tab: "pull-tour"; pull: PullTourPlace | null };
 
 /** Where the reader is in one series: the two versions compared, and what
  *  they picked out of them. */
@@ -26,6 +28,20 @@ export interface PullPlace extends SeriesPlace {
 
 export interface LocalPlace extends SeriesPlace {
   name: string;
+}
+
+/** Where the reader is in a [tour](tour.md): the commit they read. `null`
+ *  is the oldest commit. */
+export interface TourSpot {
+  commit: GitOid | null;
+}
+
+export interface LocalTourPlace extends TourSpot {
+  name: string;
+}
+
+export interface PullTourPlace extends TourSpot {
+  number: number;
 }
 
 /** A commit picked in the graph, and what in its diff is picked. */
@@ -72,6 +88,8 @@ export function openLocal(name: string): LocalPlace {
 export function tabPlace(tab: Place["tab"]): Place {
   if (tab === "pulls") return { tab: "pulls", pull: null };
   if (tab === "reviews") return { tab: "reviews", review: null };
+  if (tab === "local-tour") return { tab: "local-tour", review: null };
+  if (tab === "pull-tour") return { tab: "pull-tour", pull: null };
   return { tab };
 }
 // ~/~ end
@@ -99,7 +117,29 @@ export function readPlace(address: Address): Place {
     });
     return { tab: "reviews", review: { name, ...place } };
   }
+  if (tab === "tour") {
+    const [kind, series, ...after] = rest;
+    if (kind === "reviews") {
+      const name = series === undefined ? null : decoded(series);
+      return {
+        tab: "local-tour",
+        review: name === null ? null : { name, ...readTour(after) },
+      };
+    }
+    if (kind === "pulls") {
+      const number = positive(series);
+      return {
+        tab: "pull-tour",
+        pull: number === null ? null : { number, ...readTour(after) },
+      };
+    }
+  }
   return { tab: "local" };
+}
+
+/** A place in a tour, from what follows the series in the address. */
+function readTour([commits, commitSegment]: string[]): TourSpot {
+  return { commit: commits === "commits" ? oid(commitSegment) : null };
 }
 
 /** A place in one series, from what follows the series in the address.
@@ -164,8 +204,21 @@ export function writePlace(place: Place): string {
     if (place.pull === null) return "/pulls";
     return writeSeries(["pulls", String(place.pull.number)], place.pull);
   }
+  if (place.tab === "local-tour") {
+    if (place.review === null) return "/tour/reviews";
+    return writeTour(["tour", "reviews", place.review.name], place.review);
+  }
+  if (place.tab === "pull-tour") {
+    if (place.pull === null) return "/tour/pulls";
+    return writeTour(["tour", "pulls", String(place.pull.number)], place.pull);
+  }
   if (place.review === null) return "/reviews";
   return writeSeries(["reviews", place.review.name], place.review);
+}
+
+function writeTour(segments: string[], { commit }: TourSpot): string {
+  if (commit !== null) segments.push("commits", commit);
+  return `/${segments.map(encodeURIComponent).join("/")}`;
 }
 
 function writeSeries(

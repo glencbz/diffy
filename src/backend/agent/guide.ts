@@ -41,7 +41,7 @@ export interface GuideTarget {
   version: string;
   /** How the agent is told which version: `v3`. */
   label: string;
-  /** The path the reader reads the series at. */
+  /** The path the reader reads the series' tour at. */
   path: string;
   /** Oldest first. */
   commits: GuideCommit[];
@@ -71,7 +71,7 @@ function liveSources(store: ReviewStore): GuideSources {
         series: localSeries(name),
         version: String(review.versions.length),
         label: `v${review.versions.length}`,
-        path: `/reviews/${encodeURIComponent(name)}`,
+        path: `/tour/reviews/${encodeURIComponent(name)}`,
         commits: version.commits.flatMap((id) => {
           const entry = found.get(id);
           return entry === undefined
@@ -104,7 +104,7 @@ function liveSources(store: ReviewStore): GuideSources {
         series: pullSeries(repo, number),
         version: state.head,
         label: `v${state.version}`,
-        path: `/pulls/${number}`,
+        path: `/tour/pulls/${number}`,
         commits: commits.reverse().map((commit) => ({
           commitId: commit.commitId,
           changeId: null,

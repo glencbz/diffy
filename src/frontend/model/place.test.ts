@@ -154,6 +154,22 @@ describe("writePlace", () => {
         spot: { commit: oid("c"), file: { path: "src/a.ts", line: 9 } },
       },
     },
+    { tab: "local-tour", review: null },
+    { tab: "pull-tour", pull: null },
+    {
+      tab: "local-tour",
+      review: {
+        name: "stack/one",
+        commit: oid("c"),
+      },
+    },
+    {
+      tab: "pull-tour",
+      pull: {
+        number: 7,
+        commit: null,
+      },
+    },
   ];
 
   for (const place of places) {

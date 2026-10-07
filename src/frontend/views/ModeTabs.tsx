@@ -1,10 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/shell.md#frontend-view-mode-tabs>>[init]
-export type Mode = "reviews" | "local" | "pulls" | "settings";
+export type Mode =
+  | "reviews"
+  | "local-tour"
+  | "local"
+  | "pulls"
+  | "pull-tour"
+  | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
   reviews: "Local reviews",
+  "local-tour": "Local tour",
   local: "Operations",
   pulls: "Pull requests",
+  "pull-tour": "Pull tour",
   settings: "Settings",
 };
 

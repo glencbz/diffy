@@ -654,7 +654,7 @@ export interface GuideTarget {
   version: string;
   /** How the agent is told which version: `v3`. */
   label: string;
-  /** The path the reader reads the series at. */
+  /** The path the reader reads the series' tour at. */
   path: string;
   /** Oldest first. */
   commits: GuideCommit[];
@@ -684,7 +684,7 @@ function liveSources(store: ReviewStore): GuideSources {
         series: localSeries(name),
         version: String(review.versions.length),
         label: `v${review.versions.length}`,
-        path: `/reviews/${encodeURIComponent(name)}`,
+        path: `/tour/reviews/${encodeURIComponent(name)}`,
         commits: version.commits.flatMap((id) => {
           const entry = found.get(id);
           return entry === undefined
@@ -717,7 +717,7 @@ function liveSources(store: ReviewStore): GuideSources {
         series: pullSeries(repo, number),
         version: state.head,
         label: `v${state.version}`,
-        path: `/pulls/${number}`,
+        path: `/tour/pulls/${number}`,
         commits: commits.reverse().map((commit) => ({
           commitId: commit.commitId,
           changeId: null,
@@ -1284,7 +1284,7 @@ const PULL: GuideSources = {
     series: `pull:o/r#${number}`,
     version: "h".repeat(40),
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/tour/pulls/${number}`,
     commits: [
       { commitId: "aaaa1111", changeId: null, subject: "first" },
       { commitId: "bbbb2222", changeId: null, subject: "second" },
@@ -1357,7 +1357,7 @@ describe("the guide tools", () => {
     // assert
     expect(written).toEqual({
       text: [
-        "https://vm:4000/pulls/7",
+        "https://vm:4000/tour/pulls/7",
         "the guide to v2: 1 ideas over 1 of 2 commits, 0 links",
         "not on any stop:",
         "  aaaa1111 a.ts: 20-22",
@@ -1475,7 +1475,7 @@ describe("the guide tools", () => {
 
     // assert
     expect(written.text.split("\n").slice(0, 2)).toEqual([
-      "https://vm:4000/reviews/t",
+      "https://vm:4000/tour/reviews/t",
       "the guide to v1: 1 ideas over 1 of 1 commits, 0 links",
     ]);
     expect(JSON.parse(read.text).ideas[0].commit).toBe(

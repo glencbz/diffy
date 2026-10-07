@@ -60,6 +60,7 @@ import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
 import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { TourScreen } from "./screens/TourScreen";
 import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
 import { usePlace } from "./state/place";
 import { ReviewContext, useReview } from "./state/review";
@@ -92,6 +93,9 @@ function screenAt(place: Place, go: (place: Place) => void) {
       return <PullRequestsScreen place={place.pull} onGo={go} />;
     case "settings":
       return <SettingsScreen onGo={go} />;
+    case "local-tour":
+    case "pull-tour":
+      return <TourScreen place={place} onGo={go} />;
   }
 }
 ```
@@ -122,18 +126,27 @@ function screenAt(place: Place, go: (place: Place) => void) {
 
 "Local reviews" comes first, since they hold what is waiting for the reader,
 and the operation screen's tab is "Operations", for what it compares.
+Each [tour](tour.md) sits beside the screen of the series it reads.
 Pressing the open screen's tab does nothing, rather than going to its bare
 [`tabPlace`](address.md#the-place) and losing the reader's place.
 
 ```tsx
 //| id: frontend-view-mode-tabs
 //| file: src/frontend/views/ModeTabs.tsx
-export type Mode = "reviews" | "local" | "pulls" | "settings";
+export type Mode =
+  | "reviews"
+  | "local-tour"
+  | "local"
+  | "pulls"
+  | "pull-tour"
+  | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
   reviews: "Local reviews",
+  "local-tour": "Local tour",
   local: "Operations",
   pulls: "Pull requests",
+  "pull-tour": "Pull tour",
   settings: "Settings",
 };
 
