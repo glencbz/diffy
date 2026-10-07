@@ -28,8 +28,8 @@ own ports.
 just test && just typecheck && just lint
 ```
 
-Shape and describe the commits with the `commit-shape` skill. A reviewer reads
-the messages first.
+Shape the commits with the `commit-shape` skill and write their messages with
+the `commit-msg-style` skill. A reviewer reads the messages first.
 
 ## 2. Rebase onto main, then push
 

@@ -34,8 +34,8 @@ thoughts rather than by shortening sentences.
 ## Subject
 
 `scope: imperative summary`, lowercase after the colon, 20-46 chars. Scope is
-the top-level dir (`web`, `python`, `misc`) or the tool being worked on
-(`usdz_to_sdf`). Lowercase after the colon means sentence case, not
+the subarea the change touches (`views`, `server`, `review`, `skills`,
+`claude`); `jj log` shows the ones in use. Lowercase after the colon means sentence case, not
 de-capitalising things: acronyms, formats and proper nouns keep their case
 (USDZ, PCD, SDF, RoomPlan, React, Blender).
 
@@ -214,6 +214,21 @@ Mechanics:
   we add a bunch of new glue code to put things in the right place:".
 - A secondary piece can be a bare one-sentence paragraph with no elaboration
   at all: "Add some display options for USDZ." Don't pad it out.
+
+## Altitude
+
+The message accounts for every change in the commit, at the altitude of
+objective and rationale. Aim it at a reader who wants to know what this
+commit is for and why it touches what it touches.
+
+Do not narrate code-level mechanics. Name a specific function, parameter, or
+deletion only when that particular detail would surprise the reader or is the
+one thing they need to look at.
+
+Negative: `Change functionX() to accept Y param, delete functionY().`
+
+Positive: `Introduce UI feature X. It needs progress from subsystem A, so
+write the plumbing for that.`
 
 ## What earns a place
 
