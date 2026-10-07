@@ -1492,18 +1492,21 @@ const SIGNS: Record<CodeKind, string> = {
 
 ### Comments
 
+A thread is a conversation: the comment, then its
+[replies](review.md#review-state) oldest first, each under the same byline
+of who wrote it and when. An agent's name stands out from the reader's own.
 A thread written against a commit other than the one shown says what became
 of it, and a line thread is labelled where its line is drawn now, as
-[`drawnAt`](review.md#review-state) finds it in the file's patch. A thread
-names its author, and one an agent wrote stands out from the reader's own.
-Its [replies](review.md#review-state) follow it oldest first, each with its
-author, and the reader answers from the thread itself. The composer
+[`drawnAt`](review.md#review-state) finds it in the file's patch. An open
+thread ends in a reply field, so answering is one tap. A resolved thread
+folds to a line naming where it is and how it began, since the reader has
+finished with it but may still want to see what was agreed. The composer
 and threads are their own view because commit rows and interdiff rows draw
 them too, for comments on a whole comparison.
 
-The reader can edit only their own comments, in the composer that wrote
-them. Rewriting an agent's comment would leave words under its name that it
-never wrote, and an agent reading the thread back would take them as its own.
+The reader can edit only their own comments, in place. Rewriting an
+agent's comment would leave words under its name that it never wrote, and an
+agent reading the thread back would take them as its own.
 
 ```tsx
 //| id: frontend-view-comments
@@ -1513,6 +1516,7 @@ import {
   type Anchor,
   drawnAt,
   type LineAnchor,
+  type Reply,
   type RowComment,
 } from "../model/review";
 
@@ -1540,6 +1544,33 @@ function authorLabel(author: string): string {
   return author === "reader" ? "you" : author;
 }
 
+const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 60 * 60],
+  ["month", 30 * 24 * 60 * 60],
+  ["day", 24 * 60 * 60],
+  ["hour", 60 * 60],
+  ["minute", 60],
+];
+
+/** When a message was written, in the largest unit that has passed. */
+function writtenAgo(createdAt: string, now: number): string {
+  const seconds = (Date.parse(createdAt) - now) / 1000;
+  if (Number.isNaN(seconds)) return "";
+  for (const [unit, size] of UNITS) {
+    if (Math.abs(seconds) >= size) {
+      return RELATIVE.format(Math.trunc(seconds / size), unit);
+    }
+  }
+  return "just now";
+}
+
+function messageCount(thread: RowComment): string {
+  const count = 1 + thread.replies.length;
+  return count === 1 ? "1 message" : `${count} messages`;
+}
+
 /** What a thread is about, named so it reads on its own: a line comment by
  *  where its line is drawn now, where the comparison draws it. */
 function threadLabel(comment: Anchor, at: LineAnchor | null): string {
@@ -1553,29 +1584,27 @@ function threadLabel(comment: Anchor, at: LineAnchor | null): string {
   }
 }
 
-/** Writes a new comment, or rewrites one when given what it says now. */
 export function CommentComposer({
   anchor,
-  initialBody = "",
   onCancel,
   onSubmit,
 }: {
   anchor: Anchor;
-  initialBody?: string;
   onCancel: () => void;
   onSubmit: (anchor: Anchor, body: string) => void;
 }) {
   return (
     <Composer
       label={composerLabel(anchor)}
-      initialBody={initialBody}
-      submitLabel={initialBody === "" ? "comment" : "save"}
+      submitLabel="comment"
       onCancel={onCancel}
       onSubmit={(body) => onSubmit(anchor, body)}
     />
   );
 }
 
+/** Every composer opens because the reader asked to write, so it takes the
+ *  focus. A reply's needs no label: its thread is right above it. */
 function Composer({
   label,
   initialBody = "",
@@ -1583,7 +1612,7 @@ function Composer({
   onCancel,
   onSubmit,
 }: {
-  label: string;
+  label: string | null;
   initialBody?: string;
   submitLabel: string;
   onCancel: () => void;
@@ -1600,8 +1629,10 @@ function Composer({
         onSubmit(body);
       }}
     >
-      <div className="comment-composer__line">{label}</div>
+      {label !== null && <div className="comment-composer__line">{label}</div>}
       <textarea
+        // biome-ignore lint/a11y/noAutofocus: it opens to be typed into
+        autoFocus
         value={body}
         onChange={(event) => setBody(event.target.value)}
         rows={3}
@@ -1666,78 +1697,123 @@ function CommentThread({
   onDrop: () => void;
   onReply: (body: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [replying, setReplying] = useState(false);
+  const [unfolded, setUnfolded] = useState(false);
+  const tone = comment.resolved ? "resolved" : comment.stale ? "stale" : "open";
 
-  if (editing) {
+  if (comment.resolved && !unfolded) {
     return (
-      <CommentComposer
-        anchor={comment}
-        initialBody={comment.body}
-        onCancel={() => setEditing(false)}
-        onSubmit={(_, body) => {
-          onEdit(body);
-          setEditing(false);
-        }}
-      />
+      <div className="comment-thread comment-thread--resolved">
+        <button
+          type="button"
+          className="comment-thread__summary"
+          aria-expanded={false}
+          onClick={() => setUnfolded(true)}
+        >
+          <span aria-hidden="true">▸</span>
+          <span className="review-chip review-chip--resolved">resolved</span>
+          <span>{threadLabel(comment, at)}</span>
+          <span>{messageCount(comment)}</span>
+          <span className="comment-thread__excerpt">{comment.body}</span>
+        </button>
+      </div>
     );
   }
 
   const drift = driftNote(comment, at);
 
   return (
-    <div
-      className={
-        comment.resolved
-          ? "comment-thread comment-thread--resolved"
-          : "comment-thread"
-      }
-    >
-      <div className="comment-thread__meta">
-        <span>
-          <Author author={comment.author} /> · {threadLabel(comment, at)} ·{" "}
-          {comment.resolved ? "resolved" : "open"}
-        </span>
-        {comment.author === "reader" && (
-          <button type="button" onClick={() => setEditing(true)}>
-            edit
+    <div className={`comment-thread comment-thread--${tone}`}>
+      <div className="comment-thread__head">
+        {comment.resolved && (
+          <button
+            type="button"
+            className="comment-thread__action"
+            aria-expanded={true}
+            aria-label="fold thread"
+            onClick={() => setUnfolded(false)}
+          >
+            ▾
           </button>
         )}
+        <span className={`review-chip review-chip--${tone}`}>{tone}</span>
+        <span className="comment-thread__where">
+          {threadLabel(comment, at)}
+        </span>
+        <span>{messageCount(comment)}</span>
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
           {comment.resolved ? "reopen" : "resolve"}
         </button>
-        <button type="button" onClick={onDrop}>
-          delete
-        </button>
       </div>
-      <div>{comment.body}</div>
       {drift !== null && <div className="comment-thread__stale">{drift}</div>}
+      <Message
+        message={comment}
+        onEdit={comment.author === "reader" ? onEdit : null}
+        onDrop={onDrop}
+        dropLabel={comment.replies.length === 0 ? "delete" : "delete thread"}
+      />
       {comment.replies.map((reply) => (
-        <div key={reply.id} className="comment-thread__reply">
-          <div className="comment-thread__meta">
-            <Author author={reply.author} />
-          </div>
-          <div>{reply.body}</div>
-        </div>
+        <Message key={reply.id} message={reply} onEdit={null} onDrop={null} />
       ))}
-      {replying ? (
+      <ReplyField onReply={onReply} />
+    </div>
+  );
+}
+
+/** One message of a thread, with what the reader may do to it. */
+function Message({
+  message,
+  onEdit,
+  onDrop,
+  dropLabel = "delete",
+}: {
+  message: RowComment | Reply;
+  onEdit: ((body: string) => void) | null;
+  onDrop: (() => void) | null;
+  dropLabel?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div className="comment-thread__message">
+      <div className="comment-thread__byline">
+        <Author author={message.author} />
+        <span title={message.createdAt}>
+          {writtenAgo(message.createdAt, Date.now())}
+        </span>
+        <span className="comment-thread__actions">
+          {onEdit !== null && !editing && (
+            <button
+              type="button"
+              className="comment-thread__action"
+              onClick={() => setEditing(true)}
+            >
+              edit
+            </button>
+          )}
+          {onDrop !== null && (
+            <button
+              type="button"
+              className="comment-thread__action"
+              onClick={onDrop}
+            >
+              {dropLabel}
+            </button>
+          )}
+        </span>
+      </div>
+      {editing && onEdit !== null ? (
         <Composer
-          label="reply"
-          submitLabel="reply"
-          onCancel={() => setReplying(false)}
+          label={null}
+          initialBody={message.body}
+          submitLabel="save"
+          onCancel={() => setEditing(false)}
           onSubmit={(body) => {
-            onReply(body);
-            setReplying(false);
+            onEdit(body);
+            setEditing(false);
           }}
         />
       ) : (
-        <button
-          type="button"
-          className="comment-thread__reply-button"
-          onClick={() => setReplying(true)}
-        >
-          reply
-        </button>
+        <div className="comment-thread__body">{message.body}</div>
       )}
     </div>
   );
@@ -1764,11 +1840,39 @@ function driftNote(comment: RowComment, at: LineAnchor | null): string | null {
     : `${written}, at ${was}. That line is unchanged since and is now line ${at.line}.`;
 }
 
+function ReplyField({ onReply }: { onReply: (body: string) => void }) {
+  const [replying, setReplying] = useState(false);
+
+  return replying ? (
+    <Composer
+      label={null}
+      submitLabel="reply"
+      onCancel={() => setReplying(false)}
+      onSubmit={(body) => {
+        onReply(body);
+        setReplying(false);
+      }}
+    />
+  ) : (
+    <div className="comment-thread__foot">
+      <button
+        type="button"
+        className="comment-thread__start-reply"
+        onClick={() => setReplying(true)}
+      >
+        reply...
+      </button>
+    </div>
+  );
+}
+
 function Author({ author }: { author: string }) {
   return (
     <span
       className={
-        author === "reader" ? undefined : "comment-thread__author--other"
+        author === "reader"
+          ? "comment-thread__author"
+          : "comment-thread__author comment-thread__author--other"
       }
     >
       {authorLabel(author)}

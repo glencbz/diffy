@@ -2396,7 +2396,11 @@ describe("drawnAt", () => {
 ```
 
 `--review-open`, `--review-resolved`, and `--review-stale` are shared by a
-comparison's tone chip and a comment thread's accent.
+comparison's tone chip and a comment thread's accent. A thread is a card: its
+head says what the whole conversation is about and holds resolve, and every
+message under it, the comment or a reply, gets the same byline. Replies sit
+at the comment's indent rather than under it, so a long back and forth does
+not creep across a narrow screen.
 
 ```css
 /*| id: design-review-state
@@ -2426,40 +2430,139 @@ comparison's tone chip and a comment thread's accent.
   }
 
   .comment-thread {
-    padding: var(--space-3) var(--space-4);
     margin: var(--space-2) var(--space-4);
+    border: 1px solid var(--border);
     border-left: var(--border-width-accent) solid var(--review-open);
+    border-radius: var(--radius);
+    background: var(--surface);
   }
 
   .comment-thread--resolved {
     border-left-color: var(--review-resolved);
-    opacity: 0.72;
   }
 
-  .comment-thread__meta {
+  .comment-thread--stale {
+    border-left-color: var(--review-stale);
+  }
+
+  .comment-thread__head {
     display: flex;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: baseline;
     gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
     color: var(--text-faint);
+    background: var(--surface-raised);
+  }
+
+  .comment-thread__where {
+    flex: 1;
+    color: var(--text-muted);
+  }
+
+  /* A folded thread's whole line opens it. */
+  .comment-thread__summary {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-4);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--text-faint);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .comment-thread__summary:hover {
+    color: var(--text);
+  }
+
+  .comment-thread__excerpt {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+
+  .comment-thread__stale {
+    padding: var(--space-2) var(--space-4);
+    color: var(--review-stale);
+    background: var(--review-changed-surface);
+  }
+
+  .comment-thread__message {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .comment-thread__message + .comment-thread__message {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .comment-thread__byline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-4);
+    margin-bottom: var(--space-1);
+    color: var(--text-faint);
+  }
+
+  .comment-thread__author {
+    color: var(--text);
+    font-weight: 600;
   }
 
   .comment-thread__author--other {
     color: var(--accent);
-    font-weight: 600;
   }
 
-  .comment-thread__stale {
-    color: var(--review-stale);
+  .comment-thread__actions {
+    display: flex;
+    gap: var(--space-4);
+    margin-left: auto;
   }
 
-  .comment-thread__reply {
-    margin-top: var(--space-3);
-    padding-left: var(--space-4);
-    border-left: 1px solid var(--border-subtle);
+  .comment-thread__action {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
   }
 
-  .comment-thread__reply-button {
-    margin-top: var(--space-2);
+  .comment-thread__action:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+
+  .comment-thread__body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .comment-thread__foot {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* Looks like the field it opens into. */
+  .comment-thread__start-reply {
+    display: block;
+    width: calc(100% - 2 * var(--space-4));
+    margin: var(--space-3) var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    font: inherit;
+    color: var(--text-ghost);
+    text-align: left;
+    cursor: text;
   }
 }
 ```
