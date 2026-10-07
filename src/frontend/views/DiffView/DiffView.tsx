@@ -87,6 +87,7 @@ export function DiffView({
                       review.onAddComment(anchor, body);
                       setComposer(null);
                     },
+                    onEditComment: review.onEditComment,
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
                     viewed: isViewed(review.viewed, fileVersionOf(file)),

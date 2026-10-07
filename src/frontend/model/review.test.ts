@@ -783,6 +783,33 @@ describe("changes to the document", () => {
     expect(dropped.comments.map((comment) => comment.id)).toEqual(["c2"]);
   });
 
+  test("rewrites one comment's body and leaves the rest of it", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const written = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "hm",
+        createdAt: "t",
+        author: "reader",
+      }),
+    );
+
+    // act
+    const edited = applied(written, {
+      kind: "edit-comment",
+      id: "c1",
+      body: "looks good",
+    });
+
+    // assert
+    expect(edited.comments).toEqual(
+      written.comments.map((comment) => ({ ...comment, body: "looks good" })),
+    );
+  });
+
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -797,6 +824,7 @@ describe("changes to the document", () => {
         createdAt: "t",
         author: "reader",
       }),
+      { kind: "edit-comment", id: "c1", body: "fine" },
       { kind: "resolve-comment", id: "c1", resolved: true },
     ];
 

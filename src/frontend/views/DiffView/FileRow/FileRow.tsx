@@ -38,6 +38,7 @@ export interface ReviewFileRow {
   onOpenComposer: (anchor: Anchor) => void;
   onCancelComposer: () => void;
   onSubmitComposer: (anchor: Anchor, body: string) => void;
+  onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: boolean;
@@ -382,6 +383,7 @@ function FileComments({
       )}
       <CommentThreads
         comments={comments}
+        onEditComment={review.onEditComment}
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
       />

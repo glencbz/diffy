@@ -240,6 +240,7 @@ export function DiffView({
                       review.onAddComment(anchor, body);
                       setComposer(null);
                     },
+                    onEditComment: review.onEditComment,
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
                     viewed: isViewed(review.viewed, fileVersionOf(file)),
@@ -390,6 +391,7 @@ export interface ReviewFileRow {
   onOpenComposer: (anchor: Anchor) => void;
   onCancelComposer: () => void;
   onSubmitComposer: (anchor: Anchor, body: string) => void;
+  onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   viewed: boolean;
@@ -734,6 +736,7 @@ function FileComments({
       )}
       <CommentThreads
         comments={comments}
+        onEditComment={review.onEditComment}
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
       />
@@ -1230,6 +1233,10 @@ names its author, and one an agent wrote stands out from the reader's own. The c
 and threads are their own view because commit rows and interdiff rows draw
 them too, for comments on a whole comparison.
 
+The reader can edit only their own comments, in the composer that wrote
+them. Rewriting an agent's comment would leave words under its name that it
+never wrote, and an agent reading the thread back would take them as its own.
+
 ```tsx
 //| id: frontend-view-comments
 //| file: src/frontend/views/Comments.tsx
@@ -1272,16 +1279,19 @@ function threadLabel(comment: Anchor): string {
   }
 }
 
+/** Writes a new comment, or rewrites one when given what it says now. */
 export function CommentComposer({
   anchor,
+  initialBody = "",
   onCancel,
   onSubmit,
 }: {
   anchor: Anchor;
+  initialBody?: string;
   onCancel: () => void;
   onSubmit: (anchor: Anchor, body: string) => void;
 }) {
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(initialBody);
 
   return (
     <form
@@ -1300,7 +1310,7 @@ export function CommentComposer({
         className="comment-composer__input"
       />
       <div className="comment-composer__actions">
-        <button type="submit">comment</button>
+        <button type="submit">{initialBody === "" ? "comment" : "save"}</button>
         <button type="button" onClick={onCancel}>
           cancel
         </button>
@@ -1311,10 +1321,12 @@ export function CommentComposer({
 
 export function CommentThreads({
   comments,
+  onEditComment,
   onResolveComment,
   onDropComment,
 }: {
   comments: RowComment[];
+  onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
 }) {
@@ -1325,6 +1337,7 @@ export function CommentThreads({
         <CommentThread
           key={comment.id}
           comment={comment}
+          onEdit={(body) => onEditComment(comment.id, body)}
           onResolve={(resolved) => onResolveComment(comment.id, resolved)}
           onDrop={() => onDropComment(comment.id)}
         />
@@ -1335,13 +1348,31 @@ export function CommentThreads({
 
 function CommentThread({
   comment,
+  onEdit,
   onResolve,
   onDrop,
 }: {
   comment: RowComment;
+  onEdit: (body: string) => void;
   onResolve: (resolved: boolean) => void;
   onDrop: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <CommentComposer
+        anchor={comment}
+        initialBody={comment.body}
+        onCancel={() => setEditing(false)}
+        onSubmit={(_, body) => {
+          onEdit(body);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className={
@@ -1363,6 +1394,11 @@ function CommentThread({
           </span>{" "}
           · {threadLabel(comment)} · {comment.resolved ? "resolved" : "open"}
         </span>
+        {comment.author === "reader" && (
+          <button type="button" onClick={() => setEditing(true)}>
+            edit
+          </button>
+        )}
         <button type="button" onClick={() => onResolve(!comment.resolved)}>
           {comment.resolved ? "reopen" : "resolve"}
         </button>
@@ -2904,6 +2940,7 @@ function partsOf(
           comments={row.comments.filter(
             (comment) => comment.kind === "comparison",
           )}
+          onEditComment={review.editComment}
           onResolveComment={review.resolveComment}
           onDropComment={review.dropComment}
         />
@@ -2912,6 +2949,7 @@ function partsOf(
     diff: {
       comments: row.comments,
       onAddComment: (anchor, body) => review.addComment(row, anchor, body),
+      onEditComment: review.editComment,
       onResolveComment: review.resolveComment,
       onDropComment: review.dropComment,
       viewed: row.viewed,
