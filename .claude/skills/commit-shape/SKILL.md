@@ -1,14 +1,13 @@
 ---
 name: commit-shape
 description: >
-  Use when authoring, splitting, rewording, or reviewing a commit or a PR's
-  history in this repo: deciding what belongs in one commit, whether a commit
-  should be split, and what its message should say. Triggers on "review this
-  PR's commits", "split this commit", "write the commit message", "is this
-  commit too big", and on every commit you are about to create.
+  Use when splitting or reviewing a commit or a PR's history in this repo:
+  deciding what belongs in one commit and whether a commit should be split.
+  Triggers on "review this PR's commits", "split this commit", "is this commit
+  too big". For the wording of the message itself, use `commit-msg-style`.
 ---
 
-# Commit shape and messages
+# Commit shape
 
 ## One objective per commit
 
@@ -48,24 +47,10 @@ are tangled output. A split must therefore move the doc prose and its code block
 together, and the tangled files must be regenerated so each commit is
 independently buildable, not just the last one.
 
-## Message altitude
+## The message
 
-The message accounts for every change in the commit, at the altitude of
-objective and rationale. Aim it at a reader who wants to know what this commit
-is for and why it touches what it touches.
-
-Do not narrate code-level mechanics. Name a specific function, parameter, or
-deletion only when that particular detail would surprise the reader or is the
-one thing they need to look at.
-
-Negative: `Change functionX() to accept Y param, delete functionY().`
-
-Positive: `Introduce UI feature X. It needs progress from subsystem A, so write
-the plumbing for that.`
-
-Mood, tense, capitalization, subject length, wrapping, and the shape of the
-body are set by the "Commit messages" section of `CLAUDE.md`. Follow that
-section; this skill does not restate it.
+Write and check the message with the `commit-msg-style` skill. This skill
+decides what the commit holds; that one decides how its message reads.
 
 ## Incidental work
 
@@ -86,8 +71,8 @@ First review the message for clarity, then the diff. Use the message to
 understand what should be in the diff, then review the diff like so:
 
 1. **Parse summary.** Read the commit message to tell if it is clear what the
-   diff should look like. Take note of anything non-obvious. Don't focus on the
-   shape of the message, only its content and the clarity of the phrasing.
+   diff should look like. Take note of anything non-obvious. Leave the shape of
+   the message to step 6.
 2. **Enumerate.** List the distinct things the commit does, one line each.
    Distinct means a reviewer would verify it separately.
 3. **Count.** Compare the count against the stated objective. One objective plus
@@ -97,13 +82,8 @@ understand what should be in the diff, then review the diff like so:
 5. **Check coverage.** Does the message account for everything on the list?
    Silent changes are the failure this catches: work in the diff that no line of
    the message would lead a reviewer to expect.
-6. **Check altitude.** Is anything narrated at code level that should be an
-   objective, or vice versa?
-7. **Check the mechanics** against the "Commit messages" section of `CLAUDE.md`:
-   imperative subject, present tense for the code as it stands before the
-   change, no "this commit" or "I changed", subject case and length, body
-   wrapped at 72. These are checkable without judgement, so check them last and
-   do not skip them.
+6. **Check the wording** against `commit-msg-style`: length budget, subject,
+   opening shape, voice, altitude, and what it cuts.
 
 Report findings as: the enumerated list, then a verdict of *keep as one*,
 *reword*, or *split into N* with the proposed commit boundaries and subjects.

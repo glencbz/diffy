@@ -92,23 +92,6 @@ more, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
 
 ## Commit messages
 
-- Prefix commit subjects with the affected subarea (for example, `skills:`), not Conventional Commit types such as `feat:`, `fix:`, or `chore:`.
-- Write the subject in the imperative mood, as an order to the codebase: `make the picker remember its selection`, not `makes`, `made`, or `fixing`. The subject should complete the sentence "if applied, this commit will ___".
-- Do not capitalize the word after the `area:` prefix unless it is a proper term, as in `refs: HEAD is also treated as a ref`. No full stop at the end. Aim for 50 characters and never pass 72.
-- Describe the code as it stands before the change in the present tense: "the log draws every commit in one lane", not "drew" or "used to draw". That code is what the reader has in front of them.
-- Never write "this patch", "this commit", or "I changed X". Give the order and state the problem; the commit is implicit.
-- Wrap commit messages at 72 characters.
-- Say what the change does and why the result is better. Leave how to the diff and the docs. Name alternatives you considered and rejected.
-- Make the message stand on its own. Summarize a linked discussion rather than only pointing at it.
-- Use the commit body for useful context that is not obvious from the diff, including provenance for vendored material.
-- Write commit bodies as prose, plus the one inventory the shape below calls for. Do not invent `Key: value` lines that resemble Git trailers.
-
-### Body shape
-
-Build the body so a reader can stop after any part and still know what they are looking at.
-
-1. The motivation and the objective, both before anything else. What the code does today and why that is a problem, and what someone using the tool gets once this lands. Lead with whichever the change reads better from: a fix usually opens on the problem, a new capability often opens on what it gives.
-2. A bulleted inventory of what the objective takes, one bullet per piece a reviewer would verify separately. Name the file or the identifier that carries each piece, so a bullet is somewhere to look rather than a claim. Keep a bullet to a line or two. Naming the entry point and where it is plumbed through to is enough, and a bullet that explains how something works belongs in the paragraphs below or nowhere. Between them the bullets account for everything in the diff, tests and incidental work included.
-3. One paragraph per decision a reader could not reconstruct from the diff, which usually means an obvious alternative was rejected. Name the alternative and why it loses. A body that stops at the inventory is finished only when the change faced no such choice, so before stopping, say what a reviewer would ask why-not about. If there is an answer, it owes a paragraph however long the inventory above it ran.
-
-Anything already legible in the diff or in `docs/**` stays out. A bullet restating what a function does, or a paragraph narrating a rename, is the diff written twice. Every claim has to be one the change itself supports. An alternative that `docs/**` raises and rejects is not something the code used to do: write it as the option that lost, never as a past state something was migrated away from.
+- Before you write or reword any commit message, load the
+  `commit-msg-style` skill and follow its `style.md`. It is the house style
+  for subjects and bodies; nothing here restates or overrides it.
