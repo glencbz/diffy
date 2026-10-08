@@ -22,6 +22,7 @@ import type { SourceLookup } from "../model/source";
 import { CommentComposer, CommentThreads } from "./Comments";
 import { CommitMessage } from "./CommitMessage";
 import { DiffView } from "./DiffView/DiffView";
+import type { LineDecor } from "./DiffView/FileRow/FileRow";
 import { ReviewBar } from "./ReviewBar";
 
 // ~/~ end
@@ -58,6 +59,22 @@ export interface StackRow {
   files: AsyncState<FileDiff[]>;
 }
 
+/** What a layer over the stack, such as [components](components.md), draws on each
+ *  row. */
+export interface StackLayer {
+  /** Under the commit's message. */
+  message: (row: StackRow) => ReactNode;
+  /** What runs of the message's text draw as, if the layer marks words. */
+  messageWords?: (row: StackRow) => ((text: string) => ReactNode) | undefined;
+  /** Whether the layer wants the whole message shown, as when it sends the
+   *  reader to a line of it below the fold. */
+  messageOpen?: (row: StackRow) => boolean;
+  /** What it draws on each file of the row's diff. */
+  decor: (
+    row: StackRow,
+  ) => ((file: FileDiff) => LineDecor | undefined) | undefined;
+}
+
 export interface CommitStackProps {
   rows: StackRow[];
   /** Each side of each file, for an open row's diff to colour. */
@@ -86,6 +103,7 @@ export interface CommitStackProps {
   beforePaths: BeforePaths;
   /** How the reader asked for diffs to be drawn. */
   display: Display;
+  layer?: StackLayer;
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
@@ -138,6 +156,7 @@ export function CommitStack({
   actions,
   beforePaths,
   display,
+  layer,
 }: CommitStackProps): ReactElement {
   const stack = useRef<HTMLDivElement>(null);
   const revealedAt = useRef<number | null>(null);
@@ -209,6 +228,7 @@ export function CommitStack({
           actions={actions}
           beforePaths={beforePaths}
           display={display}
+          layer={layer}
         />
       ))}
     </div>
@@ -231,6 +251,7 @@ function StackSection({
   actions,
   beforePaths,
   display,
+  layer,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -247,6 +268,7 @@ function StackSection({
   actions: ReviewActions | null;
   beforePaths: BeforePaths;
   display: Display;
+  layer: StackLayer | undefined;
 }) {
   const section = useRef<HTMLElement>(null);
   const [composing, setComposing] = useState(false);
@@ -287,9 +309,11 @@ function StackSection({
           <CommitMessage
             description={row.commit.description}
             className="commit-stack__message"
-            isExpanded={isExpanded}
+            words={layer?.messageWords?.(row)}
+            isExpanded={isExpanded || layer?.messageOpen?.(row) === true}
             onExpand={onExpand}
           />
+          {layer?.message(row)}
           <ReviewBar
             review={review}
             files={row.files.status === "ready" ? row.files.data : []}
@@ -306,6 +330,7 @@ function StackSection({
             reveal={reveal}
             display={display}
             review={parts.diff}
+            decor={layer?.decor(row)}
           />
         </>
       )}
@@ -496,6 +521,7 @@ function StackContents({
   reveal,
   review,
   display,
+  decor,
 }: {
   row: StackRow;
   sources: SourceLookup;
@@ -505,6 +531,7 @@ function StackContents({
   reveal: number;
   review: DiffReview | undefined;
   display: Display;
+  decor: ((file: FileDiff) => LineDecor | undefined) | undefined;
 }) {
   if (row.files.status === "loading") {
     return (
@@ -537,6 +564,7 @@ function StackContents({
           reveal={reveal}
           review={review}
           display={display}
+          decor={decor}
         />
       )}
     </div>
