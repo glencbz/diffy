@@ -259,6 +259,8 @@ export function DiffView({
                     onResolveComment: review.onResolveComment,
                     onDropComment: review.onDropComment,
                     onReplyToComment: review.onReplyToComment,
+                    onEditReply: review.onEditReply,
+                    onDropReply: review.onDropReply,
                     viewed: isViewed(review.viewed, fileVersionOf(file)),
                     onToggleViewed: () =>
                       review.onToggleViewed(fileVersionOf(file)),
@@ -443,6 +445,8 @@ export interface ReviewFileRow {
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onReplyToComment: (id: string, body: string) => void;
+  onEditReply: (commentId: string, replyId: string, body: string) => void;
+  onDropReply: (commentId: string, replyId: string) => void;
   viewed: boolean;
   onToggleViewed: () => void;
   /** Null for a file with no after side, or a diff with nothing to compare. */
@@ -809,6 +813,8 @@ function FileComments({
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
         onReplyToComment={review.onReplyToComment}
+        onEditReply={review.onEditReply}
+        onDropReply={review.onDropReply}
       />
     </>
   );
@@ -1504,9 +1510,11 @@ finished with it but may still want to see what was agreed. The composer
 and threads are their own view because commit rows and interdiff rows draw
 them too, for comments on a whole comparison.
 
-The reader can edit only their own comments, in place. Rewriting an
-agent's comment would leave words under its name that it never wrote, and an
-agent reading the thread back would take them as its own.
+The reader can edit their own comments and replies in place, and delete
+their own replies, but not an agent's. Rewriting an agent's message would
+leave words under its name that it never wrote, and an agent reading the
+thread back would take them as its own. Deleting one would leave a hole in a
+conversation that the agent still remembers having.
 
 ```tsx
 //| id: frontend-view-comments
@@ -1655,6 +1663,8 @@ export function CommentThreads({
   onResolveComment,
   onDropComment,
   onReplyToComment,
+  onEditReply,
+  onDropReply,
 }: {
   comments: RowComment[];
   /** The patch of the file line comments are on, to find their lines in. */
@@ -1663,6 +1673,8 @@ export function CommentThreads({
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onReplyToComment: (id: string, body: string) => void;
+  onEditReply: (commentId: string, replyId: string, body: string) => void;
+  onDropReply: (commentId: string, replyId: string) => void;
 }) {
   if (comments.length === 0) return null;
   return (
@@ -1676,6 +1688,8 @@ export function CommentThreads({
           onResolve={(resolved) => onResolveComment(comment.id, resolved)}
           onDrop={() => onDropComment(comment.id)}
           onReply={(body) => onReplyToComment(comment.id, body)}
+          onEditReply={(reply, body) => onEditReply(comment.id, reply, body)}
+          onDropReply={(reply) => onDropReply(comment.id, reply)}
         />
       ))}
     </div>
@@ -1689,6 +1703,8 @@ function CommentThread({
   onResolve,
   onDrop,
   onReply,
+  onEditReply,
+  onDropReply,
 }: {
   comment: RowComment;
   onEdit: (body: string) => void;
@@ -1696,6 +1712,8 @@ function CommentThread({
   onResolve: (resolved: boolean) => void;
   onDrop: () => void;
   onReply: (body: string) => void;
+  onEditReply: (replyId: string, body: string) => void;
+  onDropReply: (replyId: string) => void;
 }) {
   const [unfolded, setUnfolded] = useState(false);
   const tone = comment.resolved ? "resolved" : comment.stale ? "stale" : "open";
@@ -1751,9 +1769,17 @@ function CommentThread({
         onDrop={onDrop}
         dropLabel={comment.replies.length === 0 ? "delete" : "delete thread"}
       />
-      {comment.replies.map((reply) => (
-        <Message key={reply.id} message={reply} onEdit={null} onDrop={null} />
-      ))}
+      {comment.replies.map((reply) => {
+        const own = reply.author === "reader";
+        return (
+          <Message
+            key={reply.id}
+            message={reply}
+            onEdit={own ? (body) => onEditReply(reply.id, body) : null}
+            onDrop={own ? () => onDropReply(reply.id) : null}
+          />
+        );
+      })}
       <ReplyField onReply={onReply} />
     </div>
   );
@@ -3936,6 +3962,8 @@ function partsOf(
           onResolveComment={review.resolveComment}
           onDropComment={review.dropComment}
           onReplyToComment={review.replyToComment}
+          onEditReply={review.editReply}
+          onDropReply={review.dropReply}
         />
       </>
     ),
@@ -3946,6 +3974,8 @@ function partsOf(
       onResolveComment: review.resolveComment,
       onDropComment: review.dropComment,
       onReplyToComment: review.replyToComment,
+      onEditReply: review.editReply,
+      onDropReply: review.dropReply,
       viewed: row.viewed,
       onToggleViewed: (file) => review.toggleViewed(row, file),
       compare: compareOffer(row, beforePaths, review.compare),

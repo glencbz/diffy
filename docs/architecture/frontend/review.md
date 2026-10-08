@@ -381,6 +381,8 @@ export interface DiffReview {
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onReplyToComment: (id: string, body: string) => void;
+  onEditReply: (commentId: string, replyId: string, body: string) => void;
+  onDropReply: (commentId: string, replyId: string) => void;
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -625,6 +627,17 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     reply: Reply,
   }),
   z.object({
+    kind: z.literal("edit-reply"),
+    commentId: z.string(),
+    replyId: z.string(),
+    body: z.string(),
+  }),
+  z.object({
+    kind: z.literal("delete-reply"),
+    commentId: z.string(),
+    replyId: z.string(),
+  }),
+  z.object({
     kind: z.literal("mark-reviewed"),
     series: z.string(),
     version: z.string(),
@@ -745,6 +758,36 @@ export function applyCommand(
                 replies: [...comment.replies, command.reply],
                 resolved: false,
               },
+        ),
+      };
+    case "edit-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.commentId
+            ? {
+                ...comment,
+                replies: comment.replies.map((reply) =>
+                  reply.id === command.replyId
+                    ? { ...reply, body: command.body }
+                    : reply,
+                ),
+              }
+            : comment,
+        ),
+      };
+    case "delete-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.commentId
+            ? {
+                ...comment,
+                replies: comment.replies.filter(
+                  (reply) => reply.id !== command.replyId,
+                ),
+              }
+            : comment,
         ),
       };
     case "mark-reviewed":
@@ -965,6 +1008,8 @@ export interface ReviewActions {
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   replyToComment: (id: string, body: string) => void;
+  editReply: (commentId: string, replyId: string, body: string) => void;
+  dropReply: (commentId: string, replyId: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   /** Reads `newPath` against `oldPath`, or against itself again for null. */
   compare: (
@@ -1984,6 +2029,47 @@ describe("changes to the document", () => {
     expect(orphan).toEqual(one);
   });
 
+  test("rewrites and drops one reply and leaves the rest of the thread", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const reply = (id: string, body: string) => ({
+      kind: "add-reply" as const,
+      commentId: "c1",
+      reply: { id, body, createdAt: "t", author: "reader" },
+    });
+    const thread = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t",
+        author: "reader",
+      }),
+      reply("r1", "first"),
+      reply("r2", "second"),
+    );
+
+    // act
+    const edited = applied(thread, {
+      kind: "edit-reply",
+      commentId: "c1",
+      replyId: "r1",
+      body: "first, again",
+    });
+    const dropped = applied(edited, {
+      kind: "delete-reply",
+      commentId: "c1",
+      replyId: "r2",
+    });
+
+    // assert
+    expect(dropped.comments[0]?.body).toBe("why?");
+    expect(dropped.comments[0]?.replies.map((each) => each.body)).toEqual([
+      "first, again",
+    ]);
+  });
+
   test("reopens a resolved thread when it gets a reply", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -2031,6 +2117,13 @@ describe("changes to the document", () => {
         commentId: "c1",
         reply: { id: "r1", body: "ok", createdAt: "t", author: "claude" },
       },
+      { kind: "edit-reply", commentId: "c1", replyId: "r1", body: "okay" },
+      {
+        kind: "add-reply",
+        commentId: "c1",
+        reply: { id: "r2", body: "gone", createdAt: "t", author: "reader" },
+      },
+      { kind: "delete-reply", commentId: "c1", replyId: "r2" },
     ];
 
     // act
@@ -2971,6 +3064,10 @@ export function useReview(): ReviewHandle {
             author: "reader",
           },
         }),
+      editReply: (commentId, replyId, body) =>
+        send({ kind: "edit-reply", commentId, replyId, body }),
+      dropReply: (commentId, replyId) =>
+        send({ kind: "delete-reply", commentId, replyId }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       compare: (row, newPath, oldPath) =>
         write(row, {

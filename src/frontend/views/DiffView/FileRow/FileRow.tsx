@@ -49,6 +49,8 @@ export interface ReviewFileRow {
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onReplyToComment: (id: string, body: string) => void;
+  onEditReply: (commentId: string, replyId: string, body: string) => void;
+  onDropReply: (commentId: string, replyId: string) => void;
   viewed: boolean;
   onToggleViewed: () => void;
   /** Null for a file with no after side, or a diff with nothing to compare. */
@@ -415,6 +417,8 @@ function FileComments({
         onResolveComment={review.onResolveComment}
         onDropComment={review.onDropComment}
         onReplyToComment={review.onReplyToComment}
+        onEditReply={review.onEditReply}
+        onDropReply={review.onDropReply}
       />
     </>
   );
