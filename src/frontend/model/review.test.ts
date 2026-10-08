@@ -233,6 +233,7 @@ describe("reviewRows", () => {
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
           author: "reader",
+          replies: [],
         },
       ],
     };
@@ -295,6 +296,7 @@ describe("reviewRows", () => {
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
           author: "reader",
+          replies: [],
         },
       ],
     };
@@ -321,6 +323,7 @@ describe("reviewRows", () => {
           resolved: false,
           createdAt: "2026-09-14T09:00:00.000Z",
           author: "reader",
+          replies: [],
         },
       ],
     };
@@ -474,6 +477,31 @@ describe("ReviewDocument", () => {
     expect(document.comments[0]?.author).toBe("reader");
   });
 
+  test("reads a comment kept before threads as one with no replies", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          kind: "comparison",
+          commitId: "a2",
+          body: "written before threads",
+          resolved: false,
+          createdAt: "2026-09-14T09:00:00.000Z",
+          author: "reader",
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]?.replies).toEqual([]);
+  });
+
   test("reads file and comparison comments back as themselves", () => {
     // arrange
     const written = {
@@ -483,6 +511,14 @@ describe("ReviewDocument", () => {
       resolved: false,
       createdAt: "2026-09-14T09:00:00.000Z",
       author: "agent",
+      replies: [
+        {
+          id: "r1",
+          body: "",
+          createdAt: "2026-09-14T10:00:00.000Z",
+          author: "reader",
+        },
+      ],
     };
     const stored = {
       marks: [],
@@ -568,6 +604,7 @@ function lineComment(
     resolved: false,
     createdAt: "2026-10-06T09:00:00.000Z",
     author: "reader",
+    replies: [],
   };
 }
 
@@ -846,6 +883,43 @@ describe("changes to the document", () => {
     );
   });
 
+  test("threads a reply under its comment, and ignores one whose comment is gone", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const one = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t1",
+        author: "reader",
+      }),
+    );
+    const reply = {
+      id: "r1",
+      body: "because",
+      createdAt: "t2",
+      author: "claude",
+    };
+
+    // act
+    const answered = applied(one, {
+      kind: "add-reply",
+      commentId: "c1",
+      reply,
+    });
+    const orphan = applied(one, {
+      kind: "add-reply",
+      commentId: "gone",
+      reply,
+    });
+
+    // assert
+    expect(answered.comments).toHaveLength(1);
+    expect(answered.comments[0]?.replies).toEqual([reply]);
+    expect(orphan).toEqual(one);
+  });
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -862,6 +936,11 @@ describe("changes to the document", () => {
       }),
       { kind: "edit-comment", id: "c1", body: "fine" },
       { kind: "resolve-comment", id: "c1", resolved: true },
+      {
+        kind: "add-reply",
+        commentId: "c1",
+        reply: { id: "r1", body: "ok", createdAt: "t", author: "claude" },
+      },
     ];
 
     // act

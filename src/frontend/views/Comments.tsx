@@ -56,6 +56,30 @@ export function CommentComposer({
   onCancel: () => void;
   onSubmit: (anchor: Anchor, body: string) => void;
 }) {
+  return (
+    <Composer
+      label={composerLabel(anchor)}
+      initialBody={initialBody}
+      submitLabel={initialBody === "" ? "comment" : "save"}
+      onCancel={onCancel}
+      onSubmit={(body) => onSubmit(anchor, body)}
+    />
+  );
+}
+
+function Composer({
+  label,
+  initialBody = "",
+  submitLabel,
+  onCancel,
+  onSubmit,
+}: {
+  label: string;
+  initialBody?: string;
+  submitLabel: string;
+  onCancel: () => void;
+  onSubmit: (body: string) => void;
+}) {
   const [body, setBody] = useState(initialBody);
 
   return (
@@ -64,10 +88,10 @@ export function CommentComposer({
       onSubmit={(event) => {
         event.preventDefault();
         if (body.trim() === "") return;
-        onSubmit(anchor, body);
+        onSubmit(body);
       }}
     >
-      <div className="comment-composer__line">{composerLabel(anchor)}</div>
+      <div className="comment-composer__line">{label}</div>
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -75,7 +99,7 @@ export function CommentComposer({
         className="comment-composer__input"
       />
       <div className="comment-composer__actions">
-        <button type="submit">{initialBody === "" ? "comment" : "save"}</button>
+        <button type="submit">{submitLabel}</button>
         <button type="button" onClick={onCancel}>
           cancel
         </button>
@@ -90,6 +114,7 @@ export function CommentThreads({
   patch = "",
   onResolveComment,
   onDropComment,
+  onReplyToComment,
 }: {
   comments: RowComment[];
   /** The patch of the file line comments are on, to find their lines in. */
@@ -97,6 +122,7 @@ export function CommentThreads({
   onEditComment: (id: string, body: string) => void;
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
+  onReplyToComment: (id: string, body: string) => void;
 }) {
   if (comments.length === 0) return null;
   return (
@@ -109,6 +135,7 @@ export function CommentThreads({
           at={drawnAt(comment, patch)}
           onResolve={(resolved) => onResolveComment(comment.id, resolved)}
           onDrop={() => onDropComment(comment.id)}
+          onReply={(body) => onReplyToComment(comment.id, body)}
         />
       ))}
     </div>
@@ -121,14 +148,17 @@ function CommentThread({
   at,
   onResolve,
   onDrop,
+  onReply,
 }: {
   comment: RowComment;
   onEdit: (body: string) => void;
   at: LineAnchor | null;
   onResolve: (resolved: boolean) => void;
   onDrop: () => void;
+  onReply: (body: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [replying, setReplying] = useState(false);
 
   if (editing) {
     return (
@@ -156,16 +186,7 @@ function CommentThread({
     >
       <div className="comment-thread__meta">
         <span>
-          <span
-            className={
-              comment.author === "reader"
-                ? undefined
-                : "comment-thread__author--other"
-            }
-          >
-            {authorLabel(comment.author)}
-          </span>{" "}
-          · {threadLabel(comment, at)} ·{" "}
+          <Author author={comment.author} /> · {threadLabel(comment, at)} ·{" "}
           {comment.resolved ? "resolved" : "open"}
         </span>
         {comment.author === "reader" && (
@@ -182,6 +203,33 @@ function CommentThread({
       </div>
       <div>{comment.body}</div>
       {drift !== null && <div className="comment-thread__stale">{drift}</div>}
+      {comment.replies.map((reply) => (
+        <div key={reply.id} className="comment-thread__reply">
+          <div className="comment-thread__meta">
+            <Author author={reply.author} />
+          </div>
+          <div>{reply.body}</div>
+        </div>
+      ))}
+      {replying ? (
+        <Composer
+          label="reply"
+          submitLabel="reply"
+          onCancel={() => setReplying(false)}
+          onSubmit={(body) => {
+            onReply(body);
+            setReplying(false);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="comment-thread__reply-button"
+          onClick={() => setReplying(true)}
+        >
+          reply
+        </button>
+      )}
     </div>
   );
 }
@@ -205,5 +253,17 @@ function driftNote(comment: RowComment, at: LineAnchor | null): string | null {
   return at.line === comment.line
     ? `${written}. That line is unchanged since.`
     : `${written}, at ${was}. That line is unchanged since and is now line ${at.line}.`;
+}
+
+function Author({ author }: { author: string }) {
+  return (
+    <span
+      className={
+        author === "reader" ? undefined : "comment-thread__author--other"
+      }
+    >
+      {authorLabel(author)}
+    </span>
+  );
 }
 // ~/~ end

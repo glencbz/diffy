@@ -191,6 +191,9 @@ the reader is looking at. A comment names its commit by change id, the
 under, so it follows the change across the versions registered after it.
 `read_comments` still marks a comment stale when the commit it was written on
 is not in the newest version, because its line numbers may no longer match.
+It answers with [threads](../frontend/review.md#review-state), so an agent
+answers a comment with `reply_to_comment` on its thread rather than a comment
+beside it, which the reader would have to resolve as well.
 
 A review is the reader's turn until they mark its newest version reviewed,
 and the agent's after; `review_status` and `list_reviews` say which. Open
@@ -229,7 +232,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer or resolve what they wrote, amend the changes, and register_review again.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, and register_review again.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);
@@ -473,7 +476,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
     tool({
       name: "read_comments",
       description:
-        "Read the comments on the newest version of a local review, as JSON. Each names its change, where it sits, who wrote it, and whether it is resolved or stale.",
+        "Read the comment threads on the newest version of a local review, as JSON. Each names its change, where it sits, who wrote it, whether it is resolved or stale, and its replies, oldest first.",
       input: z.object({
         name: Name,
         unresolvedOnly: z.boolean().default(true),
@@ -503,6 +506,11 @@ export function reviewTools(store: ReviewStore): Tool[] {
               body: comment.body,
               resolved: comment.resolved,
               stale: !version.commits.includes(comment.commitId),
+              replies: comment.replies.map(({ id, author, body }) => ({
+                id,
+                author,
+                body,
+              })),
             },
           ];
         });
@@ -565,10 +573,40 @@ export function reviewTools(store: ReviewStore): Tool[] {
             resolved: false,
             createdAt: new Date().toISOString(),
             author: AGENT,
+            replies: [],
             ...anchor,
           },
         });
         return id;
+      },
+    }),
+    tool({
+      name: "reply_to_comment",
+      description:
+        "Answer a comment on its thread, and answer with the reply's id. The thread stays open until it is resolved.",
+      input: z.object({
+        id: z
+          .string()
+          .min(1)
+          .describe("the id of the comment that starts the thread"),
+        body: z.string().min(1),
+      }),
+      call: async ({ id, body }) => {
+        if (!store.read().document.comments.some((each) => each.id === id)) {
+          throw new ToolError(`no comment has id ${id}`);
+        }
+        const reply = crypto.randomUUID();
+        store.apply({
+          kind: "add-reply",
+          commentId: id,
+          reply: {
+            id: reply,
+            body,
+            createdAt: new Date().toISOString(),
+            author: AGENT,
+          },
+        });
+        return reply;
       },
     }),
     tool({
@@ -668,6 +706,7 @@ describe("the protocol", () => {
       "review_status",
       "read_comments",
       "add_comment",
+      "reply_to_comment",
       "resolve_comment",
     ]);
     expect(
@@ -815,6 +854,35 @@ describe("the review tools", () => {
     expect(listed.text).toContain(
       "the reader's turn: v2 waits for review, v1 reviewed",
     );
+  });
+
+  test("threads a reply under the reader's comment", async () => {
+    // arrange
+    const [tip] = await jjLog({ revset: TIP });
+    if (tip === undefined) throw new Error("no history");
+    await call("register_review", { name: "t", revset: TIP });
+    const added = await call("add_comment", {
+      name: "t",
+      change: tip.changeId,
+      body: "why this?",
+    });
+
+    // act
+    const replied = await call("reply_to_comment", {
+      id: added.text,
+      body: "because",
+    });
+    const read = await call("read_comments", { name: "t" });
+    const missing = await call("reply_to_comment", { id: "nope", body: "x" });
+
+    // assert
+    expect(JSON.parse(read.text)).toEqual([
+      expect.objectContaining({
+        id: added.text,
+        replies: [{ id: replied.text, author: "claude", body: "because" }],
+      }),
+    ]);
+    expect(missing).toEqual({ text: "no comment has id nope", isError: true });
   });
 
   test("tells the agent what it got wrong as a failed call", async () => {

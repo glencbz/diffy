@@ -388,6 +388,7 @@ function partsOf(
           onEditComment={actions.editComment}
           onResolveComment={actions.resolveComment}
           onDropComment={actions.dropComment}
+          onReplyToComment={actions.replyToComment}
         />
       </>
     ),
@@ -397,6 +398,7 @@ function partsOf(
       onEditComment: actions.editComment,
       onResolveComment: actions.resolveComment,
       onDropComment: actions.dropComment,
+      onReplyToComment: actions.replyToComment,
       viewed: review.viewed,
       onToggleViewed: (file) => actions.toggleViewed(review, file),
       compare: compareOffer(review, beforePaths, actions.compare),

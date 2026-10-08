@@ -68,6 +68,7 @@ describe("the protocol", () => {
       "review_status",
       "read_comments",
       "add_comment",
+      "reply_to_comment",
       "resolve_comment",
     ]);
     expect(
@@ -215,6 +216,35 @@ describe("the review tools", () => {
     expect(listed.text).toContain(
       "the reader's turn: v2 waits for review, v1 reviewed",
     );
+  });
+
+  test("threads a reply under the reader's comment", async () => {
+    // arrange
+    const [tip] = await jjLog({ revset: TIP });
+    if (tip === undefined) throw new Error("no history");
+    await call("register_review", { name: "t", revset: TIP });
+    const added = await call("add_comment", {
+      name: "t",
+      change: tip.changeId,
+      body: "why this?",
+    });
+
+    // act
+    const replied = await call("reply_to_comment", {
+      id: added.text,
+      body: "because",
+    });
+    const read = await call("read_comments", { name: "t" });
+    const missing = await call("reply_to_comment", { id: "nope", body: "x" });
+
+    // assert
+    expect(JSON.parse(read.text)).toEqual([
+      expect.objectContaining({
+        id: added.text,
+        replies: [{ id: replied.text, author: "claude", body: "because" }],
+      }),
+    ]);
+    expect(missing).toEqual({ text: "no comment has id nope", isError: true });
   });
 
   test("tells the agent what it got wrong as a failed call", async () => {

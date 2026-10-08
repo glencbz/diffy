@@ -141,6 +141,17 @@ export function useReview(): ReviewHandle {
       resolveComment: (id, resolved) =>
         send({ kind: "resolve-comment", id, resolved }),
       dropComment: (id) => send({ kind: "delete-comment", id }),
+      replyToComment: (id, body) =>
+        send({
+          kind: "add-reply",
+          commentId: id,
+          reply: {
+            id: crypto.randomUUID(),
+            body,
+            createdAt: now(),
+            author: "reader",
+          },
+        }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       compare: (row, newPath, oldPath) =>
         write(row, {
