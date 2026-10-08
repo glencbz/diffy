@@ -291,6 +291,29 @@ export function localReview(
   return document.localReviews.find((review) => review.name === name);
 }
 
+export const LOCAL_REVIEW_ORDERS = [
+  "modified-newest",
+  "modified-oldest",
+  "name",
+] as const;
+export type LocalReviewOrder = (typeof LOCAL_REVIEW_ORDERS)[number];
+
+/** A review was last modified when its newest version was registered. */
+export function sortLocalReviews(
+  reviews: LocalReview[],
+  order: LocalReviewOrder,
+): LocalReview[] {
+  const modified = (review: LocalReview) =>
+    review.versions.at(-1)?.registeredAt ?? "";
+  return [...reviews].sort((a, b) =>
+    order === "name"
+      ? a.name.localeCompare(b.name)
+      : order === "modified-newest"
+        ? modified(b).localeCompare(modified(a))
+        : modified(a).localeCompare(modified(b)),
+  );
+}
+
 /** Whether the local review list offers delete and restore. They come
  *  together, so a deleted review can always be brought back, and neither
  *  comes without a review document to record it in. */

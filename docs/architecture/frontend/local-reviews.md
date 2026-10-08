@@ -73,12 +73,15 @@ waits under the list to be restored until the server purges it.
 ```tsx
 //| id: frontend-controller-local-reviews
 //| file: src/frontend/controllers/LocalReviews.tsx
+import { useState } from "react";
 import { type LocalPlace, localHref, openLocal } from "../model/place";
 import {
   type LocalReview,
+  type LocalReviewOrder,
   localReview,
   localRowKey,
   localSeries,
+  sortLocalReviews,
 } from "../model/review";
 import { localHistory } from "../model/series";
 import type { Visit } from "../state/place";
@@ -97,12 +100,17 @@ export function LocalReviews({
   review: ReviewHandle;
   onGo: (place: LocalPlace | null, visit?: Visit) => void;
 }) {
+  const [order, setOrder] = useState<LocalReviewOrder>("modified-newest");
+
   if (review.status === "loading") {
     return <Message>Loading local reviews...</Message>;
   }
 
-  const reviews = review.document.localReviews.filter(
-    (local) => local.forgottenAt === undefined,
+  const reviews = sortLocalReviews(
+    review.document.localReviews.filter(
+      (local) => local.forgottenAt === undefined,
+    ),
+    order,
   );
   const forgotten = review.document.localReviews.filter(
     (local) => local.forgottenAt !== undefined,
@@ -130,6 +138,8 @@ export function LocalReviews({
           reviews={reviews}
           forgotten={forgotten}
           selected={open?.name ?? null}
+          order={order}
+          onOrder={setOrder}
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
           }
@@ -236,13 +246,23 @@ import type { ReactNode } from "react";
 import type {
   LocalReview,
   LocalReviewListVariant,
+  LocalReviewOrder,
   LocalVersion,
 } from "../model/review";
+import { LOCAL_REVIEW_ORDERS } from "../model/review";
+
+const ORDER_LABELS: Record<LocalReviewOrder, string> = {
+  "modified-newest": "Modified, newest first",
+  "modified-oldest": "Modified, oldest first",
+  name: "Name",
+};
 
 export function LocalReviewList({
   reviews,
   forgotten,
   selected,
+  order,
+  onOrder,
   onSelect,
   variant,
   commits,
@@ -250,6 +270,8 @@ export function LocalReviewList({
   reviews: LocalReview[];
   forgotten: LocalReview[];
   selected: string | null;
+  order: LocalReviewOrder;
+  onOrder: (order: LocalReviewOrder) => void;
   onSelect: (name: string) => void;
   variant: LocalReviewListVariant;
   /** The graph of one version's commits. */
@@ -257,6 +279,19 @@ export function LocalReviewList({
 }) {
   return (
     <div>
+      <label className="local-review__order">
+        Sort by{" "}
+        <select
+          value={order}
+          onChange={(event) => onOrder(event.target.value as LocalReviewOrder)}
+        >
+          {LOCAL_REVIEW_ORDERS.map((choice) => (
+            <option key={choice} value={choice}>
+              {ORDER_LABELS[choice]}
+            </option>
+          ))}
+        </select>
+      </label>
       {reviews.map((review) => {
         const newest = review.versions.at(-1);
         return (
@@ -343,6 +378,10 @@ export function LocalReviewList({
 }
 ```
 
+The list is sorted by when each review was last modified, which is when its
+newest version was registered, newest first. A select above the list changes
+that to oldest first or by name; the choice lasts as long as the screen is open.
+
 The entry keeps the list's item styling; the button inside it fills the row
 like the item it replaces, and the graph sits flush beneath it. The entry is
 a `div` where the pull request list's item is a `button`, so it sets the
@@ -388,6 +427,13 @@ nothing.
     flex-direction: column;
     flex: 1;
     min-width: 0;
+  }
+
+  .local-review__order {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .local-review__deleted {
