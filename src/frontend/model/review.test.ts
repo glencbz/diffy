@@ -920,6 +920,74 @@ describe("changes to the document", () => {
     expect(answered.comments[0]?.replies).toEqual([reply]);
     expect(orphan).toEqual(one);
   });
+
+  test("rewrites and drops one reply and leaves the rest of the thread", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const reply = (id: string, body: string) => ({
+      kind: "add-reply" as const,
+      commentId: "c1",
+      reply: { id, body, createdAt: "t", author: "reader" },
+    });
+    const thread = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t",
+        author: "reader",
+      }),
+      reply("r1", "first"),
+      reply("r2", "second"),
+    );
+
+    // act
+    const edited = applied(thread, {
+      kind: "edit-reply",
+      commentId: "c1",
+      replyId: "r1",
+      body: "first, again",
+    });
+    const dropped = applied(edited, {
+      kind: "delete-reply",
+      commentId: "c1",
+      replyId: "r2",
+    });
+
+    // assert
+    expect(dropped.comments[0]?.body).toBe("why?");
+    expect(dropped.comments[0]?.replies.map((each) => each.body)).toEqual([
+      "first, again",
+    ]);
+  });
+
+  test("reopens a resolved thread when it gets a reply", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const resolved = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t1",
+        author: "reader",
+      }),
+      { kind: "resolve-comment", id: "c1", resolved: true },
+    );
+
+    // act
+    const answered = applied(resolved, {
+      kind: "add-reply",
+      commentId: "c1",
+      reply: { id: "r1", body: "not yet", createdAt: "t2", author: "reader" },
+    });
+
+    // assert
+    expect(answered.comments[0]?.resolved).toBe(false);
+  });
+
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -941,6 +1009,13 @@ describe("changes to the document", () => {
         commentId: "c1",
         reply: { id: "r1", body: "ok", createdAt: "t", author: "claude" },
       },
+      { kind: "edit-reply", commentId: "c1", replyId: "r1", body: "okay" },
+      {
+        kind: "add-reply",
+        commentId: "c1",
+        reply: { id: "r2", body: "gone", createdAt: "t", author: "reader" },
+      },
+      { kind: "delete-reply", commentId: "c1", replyId: "r2" },
     ];
 
     // act

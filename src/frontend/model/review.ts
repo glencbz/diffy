@@ -308,6 +308,8 @@ export interface DiffReview {
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onReplyToComment: (id: string, body: string) => void;
+  onEditReply: (commentId: string, replyId: string, body: string) => void;
+  onDropReply: (commentId: string, replyId: string) => void;
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -552,6 +554,17 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     reply: Reply,
   }),
   z.object({
+    kind: z.literal("edit-reply"),
+    commentId: z.string(),
+    replyId: z.string(),
+    body: z.string(),
+  }),
+  z.object({
+    kind: z.literal("delete-reply"),
+    commentId: z.string(),
+    replyId: z.string(),
+  }),
+  z.object({
     kind: z.literal("mark-reviewed"),
     series: z.string(),
     version: z.string(),
@@ -667,7 +680,41 @@ export function applyCommand(
           comment.id !== command.commentId ||
           comment.replies.some((reply) => reply.id === command.reply.id)
             ? comment
-            : { ...comment, replies: [...comment.replies, command.reply] },
+            : {
+                ...comment,
+                replies: [...comment.replies, command.reply],
+                resolved: false,
+              },
+        ),
+      };
+    case "edit-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.commentId
+            ? {
+                ...comment,
+                replies: comment.replies.map((reply) =>
+                  reply.id === command.replyId
+                    ? { ...reply, body: command.body }
+                    : reply,
+                ),
+              }
+            : comment,
+        ),
+      };
+    case "delete-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.commentId
+            ? {
+                ...comment,
+                replies: comment.replies.filter(
+                  (reply) => reply.id !== command.replyId,
+                ),
+              }
+            : comment,
         ),
       };
     case "mark-reviewed":
@@ -888,6 +935,8 @@ export interface ReviewActions {
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   replyToComment: (id: string, body: string) => void;
+  editReply: (commentId: string, replyId: string, body: string) => void;
+  dropReply: (commentId: string, replyId: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   /** Reads `newPath` against `oldPath`, or against itself again for null. */
   compare: (

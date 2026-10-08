@@ -51,8 +51,9 @@ answer each other on one thread. Resolving, staleness and the open count stay
 with the comment, and deleting it takes its replies along. A reply could
 instead be a comment of its own naming the one it answers, but then every
 count, filter and stale check would have to skip replies, and a reply would
-carry an anchor and a resolution that mean nothing. `add-reply` to a comment
-that is gone does nothing, as a retry would.
+carry an anchor and a resolution that mean nothing. A reply reopens a
+resolved thread, since whoever wrote it is saying the conversation is not
+over. `add-reply` to a comment that is gone does nothing, as a retry would.
 
 **Viewed files** are filed under the row's key and named by path and both
 blobs, so an amend that leaves the file alone keeps it viewed and one that
@@ -403,6 +404,8 @@ export interface DiffReview {
   onResolveComment: (id: string, resolved: boolean) => void;
   onDropComment: (id: string) => void;
   onReplyToComment: (id: string, body: string) => void;
+  onEditReply: (commentId: string, replyId: string, body: string) => void;
+  onDropReply: (commentId: string, replyId: string) => void;
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -647,6 +650,17 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     reply: Reply,
   }),
   z.object({
+    kind: z.literal("edit-reply"),
+    commentId: z.string(),
+    replyId: z.string(),
+    body: z.string(),
+  }),
+  z.object({
+    kind: z.literal("delete-reply"),
+    commentId: z.string(),
+    replyId: z.string(),
+  }),
+  z.object({
     kind: z.literal("mark-reviewed"),
     series: z.string(),
     version: z.string(),
@@ -762,7 +776,41 @@ export function applyCommand(
           comment.id !== command.commentId ||
           comment.replies.some((reply) => reply.id === command.reply.id)
             ? comment
-            : { ...comment, replies: [...comment.replies, command.reply] },
+            : {
+                ...comment,
+                replies: [...comment.replies, command.reply],
+                resolved: false,
+              },
+        ),
+      };
+    case "edit-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.commentId
+            ? {
+                ...comment,
+                replies: comment.replies.map((reply) =>
+                  reply.id === command.replyId
+                    ? { ...reply, body: command.body }
+                    : reply,
+                ),
+              }
+            : comment,
+        ),
+      };
+    case "delete-reply":
+      return {
+        ...document,
+        comments: document.comments.map((comment) =>
+          comment.id === command.commentId
+            ? {
+                ...comment,
+                replies: comment.replies.filter(
+                  (reply) => reply.id !== command.replyId,
+                ),
+              }
+            : comment,
         ),
       };
     case "mark-reviewed":
@@ -983,6 +1031,8 @@ export interface ReviewActions {
   resolveComment: (id: string, resolved: boolean) => void;
   dropComment: (id: string) => void;
   replyToComment: (id: string, body: string) => void;
+  editReply: (commentId: string, replyId: string, body: string) => void;
+  dropReply: (commentId: string, replyId: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
   /** Reads `newPath` against `oldPath`, or against itself again for null. */
   compare: (
@@ -2001,6 +2051,74 @@ describe("changes to the document", () => {
     expect(answered.comments[0]?.replies).toEqual([reply]);
     expect(orphan).toEqual(one);
   });
+
+  test("rewrites and drops one reply and leaves the rest of the thread", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const reply = (id: string, body: string) => ({
+      kind: "add-reply" as const,
+      commentId: "c1",
+      reply: { id, body, createdAt: "t", author: "reader" },
+    });
+    const thread = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t",
+        author: "reader",
+      }),
+      reply("r1", "first"),
+      reply("r2", "second"),
+    );
+
+    // act
+    const edited = applied(thread, {
+      kind: "edit-reply",
+      commentId: "c1",
+      replyId: "r1",
+      body: "first, again",
+    });
+    const dropped = applied(edited, {
+      kind: "delete-reply",
+      commentId: "c1",
+      replyId: "r2",
+    });
+
+    // assert
+    expect(dropped.comments[0]?.body).toBe("why?");
+    expect(dropped.comments[0]?.replies.map((each) => each.body)).toEqual([
+      "first, again",
+    ]);
+  });
+
+  test("reopens a resolved thread when it gets a reply", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const resolved = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t1",
+        author: "reader",
+      }),
+      { kind: "resolve-comment", id: "c1", resolved: true },
+    );
+
+    // act
+    const answered = applied(resolved, {
+      kind: "add-reply",
+      commentId: "c1",
+      reply: { id: "r1", body: "not yet", createdAt: "t2", author: "reader" },
+    });
+
+    // assert
+    expect(answered.comments[0]?.resolved).toBe(false);
+  });
+
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
@@ -2022,6 +2140,13 @@ describe("changes to the document", () => {
         commentId: "c1",
         reply: { id: "r1", body: "ok", createdAt: "t", author: "claude" },
       },
+      { kind: "edit-reply", commentId: "c1", replyId: "r1", body: "okay" },
+      {
+        kind: "add-reply",
+        commentId: "c1",
+        reply: { id: "r2", body: "gone", createdAt: "t", author: "reader" },
+      },
+      { kind: "delete-reply", commentId: "c1", replyId: "r2" },
     ];
 
     // act
@@ -2419,7 +2544,11 @@ describe("drawnAt", () => {
 ```
 
 `--review-open`, `--review-resolved`, and `--review-stale` are shared by a
-comparison's tone chip and a comment thread's accent.
+comparison's tone chip and a comment thread's accent. A thread is a card: its
+head says what the whole conversation is about and holds resolve, and every
+message under it, the comment or a reply, gets the same byline. Replies sit
+at the comment's indent rather than under it, so a long back and forth does
+not creep across a narrow screen.
 
 ```css
 /*| id: design-review-state
@@ -2449,40 +2578,139 @@ comparison's tone chip and a comment thread's accent.
   }
 
   .comment-thread {
-    padding: var(--space-3) var(--space-4);
     margin: var(--space-2) var(--space-4);
+    border: 1px solid var(--border);
     border-left: var(--border-width-accent) solid var(--review-open);
+    border-radius: var(--radius);
+    background: var(--surface);
   }
 
   .comment-thread--resolved {
     border-left-color: var(--review-resolved);
-    opacity: 0.72;
   }
 
-  .comment-thread__meta {
+  .comment-thread--stale {
+    border-left-color: var(--review-stale);
+  }
+
+  .comment-thread__head {
     display: flex;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: baseline;
     gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
     color: var(--text-faint);
+    background: var(--surface-raised);
+  }
+
+  .comment-thread__where {
+    flex: 1;
+    color: var(--text-muted);
+  }
+
+  /* A folded thread's whole line opens it. */
+  .comment-thread__summary {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-4);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--text-faint);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .comment-thread__summary:hover {
+    color: var(--text);
+  }
+
+  .comment-thread__excerpt {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+
+  .comment-thread__stale {
+    padding: var(--space-2) var(--space-4);
+    color: var(--review-stale);
+    background: var(--review-changed-surface);
+  }
+
+  .comment-thread__message {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .comment-thread__message + .comment-thread__message {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .comment-thread__byline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-4);
+    margin-bottom: var(--space-1);
+    color: var(--text-faint);
+  }
+
+  .comment-thread__author {
+    color: var(--text);
+    font-weight: 600;
   }
 
   .comment-thread__author--other {
     color: var(--accent);
-    font-weight: 600;
   }
 
-  .comment-thread__stale {
-    color: var(--review-stale);
+  .comment-thread__actions {
+    display: flex;
+    gap: var(--space-4);
+    margin-left: auto;
   }
 
-  .comment-thread__reply {
-    margin-top: var(--space-3);
-    padding-left: var(--space-4);
-    border-left: 1px solid var(--border-subtle);
+  .comment-thread__action {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
   }
 
-  .comment-thread__reply-button {
-    margin-top: var(--space-2);
+  .comment-thread__action:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+
+  .comment-thread__body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .comment-thread__foot {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* Looks like the field it opens into. */
+  .comment-thread__start-reply {
+    display: block;
+    width: calc(100% - 2 * var(--space-4));
+    margin: var(--space-3) var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    font: inherit;
+    color: var(--text-ghost);
+    text-align: left;
+    cursor: text;
   }
 }
 ```
@@ -2859,6 +3087,10 @@ export function useReview(): ReviewHandle {
             author: "reader",
           },
         }),
+      editReply: (commentId, replyId, body) =>
+        send({ kind: "edit-reply", commentId, replyId, body }),
+      dropReply: (commentId, replyId) =>
+        send({ kind: "delete-reply", commentId, replyId }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       compare: (row, newPath, oldPath) =>
         write(row, {

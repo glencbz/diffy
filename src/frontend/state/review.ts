@@ -152,6 +152,10 @@ export function useReview(): ReviewHandle {
             author: "reader",
           },
         }),
+      editReply: (commentId, replyId, body) =>
+        send({ kind: "edit-reply", commentId, replyId, body }),
+      dropReply: (commentId, replyId) =>
+        send({ kind: "delete-reply", commentId, replyId }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
       compare: (row, newPath, oldPath) =>
         write(row, {
