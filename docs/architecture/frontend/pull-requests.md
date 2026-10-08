@@ -430,6 +430,11 @@ elsewhere folds it with nothing to close. Picking the open pull request keeps
 its place; picking another opens it at base against latest, and
 `PullReview` is keyed by number so its own state starts over.
 
+A number the list does not hold, because the list holds only the newest pull
+requests, still opens by its address, without the title and state the list
+would give it. Falling back to the list would break every older link, such as
+the one an agent hands over with a [guide](guide.md).
+
 ```tsx
 //| id: frontend-controller-pull-requests
 //| file: src/frontend/controllers/PullRequests.tsx
@@ -480,8 +485,9 @@ export function PullRequests({
           <Message>Select a pull request to review it.</Message>
         ) : (
           <PullReview
-            key={choice.pull.number}
+            key={choice.number}
             repo={repo}
+            number={choice.number}
             pull={choice.pull}
             place={place}
             review={review}
@@ -499,11 +505,13 @@ function chosen(
   pulls: PullSummary[],
 ): PullChoice {
   if (place === null) return { phase: "browsing" };
-  const pull = pulls.find((candidate) => candidate.number === place.number);
-  // A typed or outdated number falls back to browsing, the one screen a
-  // reader can act on.
-  if (pull === undefined) return { phase: "browsing" };
-  return { phase: sheetOver === pull.number ? "picking" : "reviewing", pull };
+  const { number } = place;
+  const pull = pulls.find((candidate) => candidate.number === number) ?? null;
+  return {
+    phase: sheetOver === number ? "picking" : "reviewing",
+    number,
+    pull,
+  };
 }
 ```
 
@@ -1175,19 +1183,21 @@ import { SeriesReview, type SeriesScreen } from "./SeriesReview";
 
 export function PullReview({
   repo,
+  number,
   pull,
   place,
   review,
   onGo,
 }: {
   repo: string;
-  pull: PullSummary;
+  number: number;
+  /** Null for a pull request older than the list holds. */
+  pull: PullSummary | null;
   place: PullPlace;
   review: ReviewHandle;
   onGo: (place: PullPlace, visit?: Visit) => void;
 }) {
-  const answer = usePullHistory(repo, pull.number);
-  const { number } = pull;
+  const answer = usePullHistory(repo, number);
   const history = useMemo(
     () => (answer.status === "ready" ? pullHistory(answer.data) : null),
     [answer],
@@ -1207,7 +1217,7 @@ export function PullReview({
     source: { kind: "pull", repo, number },
     series: pullSeries(repo, number),
     history,
-    header: <PullHeader pull={pull} />,
+    header: <PullHeader number={number} pull={pull} />,
     wholeLabel: "whole pull request",
     keyOf: (document, before, after) =>
       pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
@@ -1643,10 +1653,25 @@ show. On a phone the title wraps onto its own row.
 import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 
-export function PullHeader({ pull }: { pull: PullSummary }) {
+export function PullHeader({
+  number,
+  pull,
+}: {
+  number: number;
+  /** Null for a pull request older than the list holds. */
+  pull: PullSummary | null;
+}) {
   return (
     <header className="pull-header">
-      <span className="pull-header__meta">#{pull.number}</span>
+      <span className="pull-header__meta">#{number}</span>
+      {pull !== null && <PullSummaryParts pull={pull} />}
+    </header>
+  );
+}
+
+function PullSummaryParts({ pull }: { pull: PullSummary }) {
+  return (
+    <>
       <strong className="pull-header__title">{pull.title}</strong>
       <PullStateChip state={pull.state} />
       <span className="pull-header__meta">base: {pull.baseRefName}</span>
@@ -1659,7 +1684,7 @@ export function PullHeader({ pull }: { pull: PullSummary }) {
       >
         github
       </a>
-    </header>
+    </>
   );
 }
 ```

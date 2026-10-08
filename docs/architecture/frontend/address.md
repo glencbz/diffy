@@ -67,11 +67,16 @@ export interface CommitSpot {
 }
 
 /** What the pull request screen shows for a place: the list alone, a pull
- *  request under review, or the list held over one as a sheet. */
+ *  request under review, or the list held over one as a sheet. A pull
+ *  request older than the list holds is still read by its number, without
+ *  the summary the list would give it. */
 export type PullChoice =
   | { phase: "browsing" }
-  | { phase: "reviewing"; pull: PullSummary }
-  | { phase: "picking"; pull: PullSummary };
+  | {
+      phase: "reviewing" | "picking";
+      number: number;
+      pull: PullSummary | null;
+    };
 
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {

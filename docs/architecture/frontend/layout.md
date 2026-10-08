@@ -305,9 +305,13 @@ export function PullPanes({
     <>
       {choice.phase !== "browsing" && (
         <button type="button" onClick={onOpen} className="pull-bar">
-          <span className="pull-bar__number">#{choice.pull.number}</span>
-          <PullStateChip state={choice.pull.state} />
-          <span className="pull-bar__title">{choice.pull.title}</span>
+          <span className="pull-bar__number">#{choice.number}</span>
+          {choice.pull !== null && (
+            <>
+              <PullStateChip state={choice.pull.state} />
+              <span className="pull-bar__title">{choice.pull.title}</span>
+            </>
+          )}
         </button>
       )}
       <div className={`panes panes--${choice.phase}`}>
@@ -336,7 +340,7 @@ export function PullPanes({
           )}
           <PullList
             pulls={pulls}
-            selected={choice.phase === "browsing" ? null : choice.pull.number}
+            selected={choice.phase === "browsing" ? null : choice.number}
             onSelect={onSelect}
           />
         </div>

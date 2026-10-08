@@ -46,8 +46,9 @@ export function PullRequests({
           <Message>Select a pull request to review it.</Message>
         ) : (
           <PullReview
-            key={choice.pull.number}
+            key={choice.number}
             repo={repo}
+            number={choice.number}
             pull={choice.pull}
             place={place}
             review={review}
@@ -65,10 +66,12 @@ function chosen(
   pulls: PullSummary[],
 ): PullChoice {
   if (place === null) return { phase: "browsing" };
-  const pull = pulls.find((candidate) => candidate.number === place.number);
-  // A typed or outdated number falls back to browsing, the one screen a
-  // reader can act on.
-  if (pull === undefined) return { phase: "browsing" };
-  return { phase: sheetOver === pull.number ? "picking" : "reviewing", pull };
+  const { number } = place;
+  const pull = pulls.find((candidate) => candidate.number === number) ?? null;
+  return {
+    phase: sheetOver === number ? "picking" : "reviewing",
+    number,
+    pull,
+  };
 }
 // ~/~ end

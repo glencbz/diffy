@@ -2,10 +2,25 @@
 import type { PullSummary } from "../model/pull";
 import { PullStateChip } from "./PullStateChip";
 
-export function PullHeader({ pull }: { pull: PullSummary }) {
+export function PullHeader({
+  number,
+  pull,
+}: {
+  number: number;
+  /** Null for a pull request older than the list holds. */
+  pull: PullSummary | null;
+}) {
   return (
     <header className="pull-header">
-      <span className="pull-header__meta">#{pull.number}</span>
+      <span className="pull-header__meta">#{number}</span>
+      {pull !== null && <PullSummaryParts pull={pull} />}
+    </header>
+  );
+}
+
+function PullSummaryParts({ pull }: { pull: PullSummary }) {
+  return (
+    <>
       <strong className="pull-header__title">{pull.title}</strong>
       <PullStateChip state={pull.state} />
       <span className="pull-header__meta">base: {pull.baseRefName}</span>
@@ -18,7 +33,7 @@ export function PullHeader({ pull }: { pull: PullSummary }) {
       >
         github
       </a>
-    </header>
+    </>
   );
 }
 // ~/~ end

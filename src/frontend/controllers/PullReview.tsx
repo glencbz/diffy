@@ -14,19 +14,21 @@ import { SeriesReview, type SeriesScreen } from "./SeriesReview";
 
 export function PullReview({
   repo,
+  number,
   pull,
   place,
   review,
   onGo,
 }: {
   repo: string;
-  pull: PullSummary;
+  number: number;
+  /** Null for a pull request older than the list holds. */
+  pull: PullSummary | null;
   place: PullPlace;
   review: ReviewHandle;
   onGo: (place: PullPlace, visit?: Visit) => void;
 }) {
-  const answer = usePullHistory(repo, pull.number);
-  const { number } = pull;
+  const answer = usePullHistory(repo, number);
   const history = useMemo(
     () => (answer.status === "ready" ? pullHistory(answer.data) : null),
     [answer],
@@ -46,7 +48,7 @@ export function PullReview({
     source: { kind: "pull", repo, number },
     series: pullSeries(repo, number),
     history,
-    header: <PullHeader pull={pull} />,
+    header: <PullHeader number={number} pull={pull} />,
     wholeLabel: "whole pull request",
     keyOf: (document, before, after) =>
       pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
