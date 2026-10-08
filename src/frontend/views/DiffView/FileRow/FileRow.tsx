@@ -20,11 +20,13 @@ import { DiffModeSwitch } from "./DiffModeSwitch";
 import {
   type DrawnLine,
   drawnLines,
+  type OpenedGaps,
   patchBody,
   type Side,
   sidesOf,
   structuralBody,
 } from "./drawnLines";
+import { GapLine } from "./GapLine";
 import { type FileLinks, fileLinks, follow } from "./links";
 import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
 
@@ -91,9 +93,10 @@ export function FileRow({
   const { diffMode: defaultMode, wordMarkLimit } = display;
   const split = display.diffLayout === "split";
   const [chosen, setChosen] = useState<DiffMode | null>(null);
-  const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
-    { structural: new Set(), line: new Set() },
-  );
+  const [openedIn, setOpenedIn] = useState<Record<DiffMode, OpenedGaps>>({
+    structural: new Map(),
+    line: new Map(),
+  });
 
   const structural =
     file.structural.kind === "structural" ? file.structural : null;
@@ -102,36 +105,37 @@ export function FileRow({
     structural !== null && mode === "structural"
       ? structuralBody(structural, wordMarkLimit)
       : patchBody(file.patch);
-  const shown = shownIn[mode];
+  const opened = openedIn[mode];
   const reason = collapseReason(file);
   const path = shownPathOf(file);
-  const [opened, setOpened] = useState<boolean | null>(null);
-  const open = opened ?? (isSelected || startsOpen(variant, reason));
+  const [folded, setOpened] = useState<boolean | null>(null);
+  const open = folded ?? (isSelected || startsOpen(variant, reason));
   const content: FileContent = !open
     ? { kind: "folded" }
     : file.binary
       ? { kind: "binary" }
-      : { kind: "text", lines: drawnLines(body, sides, shown) };
+      : { kind: "text", lines: drawnLines(body, sides, opened) };
   const parts = partsOf(variant, path, file.patch, links, content, setOpened);
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
-      <button
+      <GapLine
         key={key}
-        type="button"
-        className="diff-line diff-line--gap"
-        onClick={() =>
-          setShownIn((all) => ({
-            ...all,
-            [mode]: new Set(all[mode]).add(line.gap),
-          }))
+        count={line.count}
+        edge={line.edge}
+        onOpen={(top, bottom) =>
+          setOpenedIn((all) => {
+            const now = all[mode].get(line.gap) ?? { top: 0, bottom: 0 };
+            return {
+              ...all,
+              [mode]: new Map(all[mode]).set(line.gap, {
+                top: now.top + top,
+                bottom: now.bottom + bottom,
+              }),
+            };
+          })
         }
-      >
-        <span className="diff-line__gutter">⋯</span>
-        <span>
-          show {line.count} unchanged {line.count === 1 ? "line" : "lines"}
-        </span>
-      </button>
+      />
     ) : (
       <PatchLine
         key={key}

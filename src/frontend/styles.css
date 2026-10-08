@@ -2383,6 +2383,22 @@
     cursor: pointer;
   }
 
+  /* A long gap opens a step at a time from its buttons, not as a whole. */
+  .diff-line--steps {
+    gap: var(--space-3);
+    cursor: default;
+  }
+
+  .diff-line__step {
+    padding: 0 var(--space-2);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+  }
+
   .diff-line--added .diff-line__changed {
     background: var(--diff-added-emphasis);
   }

@@ -389,7 +389,7 @@ frame and the Viewed box that sets it outside, passing the setter between
 them as props.
 
 Around each hunk a row stands for the [hidden lines](#hidden-lines) once the
-after side's length is known; clicking draws them as numbered, commentable
+after side's length is known; opening it draws them as numbered, commentable
 context. Gaps opened in one view are kept apart from the other's.
 
 ```tsx
@@ -416,11 +416,13 @@ import { DiffModeSwitch } from "./DiffModeSwitch";
 import {
   type DrawnLine,
   drawnLines,
+  type OpenedGaps,
   patchBody,
   type Side,
   sidesOf,
   structuralBody,
 } from "./drawnLines";
+import { GapLine } from "./GapLine";
 import { type FileLinks, fileLinks, follow } from "./links";
 import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
 
@@ -487,9 +489,10 @@ export function FileRow({
   const { diffMode: defaultMode, wordMarkLimit } = display;
   const split = display.diffLayout === "split";
   const [chosen, setChosen] = useState<DiffMode | null>(null);
-  const [shownIn, setShownIn] = useState<Record<DiffMode, ReadonlySet<number>>>(
-    { structural: new Set(), line: new Set() },
-  );
+  const [openedIn, setOpenedIn] = useState<Record<DiffMode, OpenedGaps>>({
+    structural: new Map(),
+    line: new Map(),
+  });
 
   const structural =
     file.structural.kind === "structural" ? file.structural : null;
@@ -498,36 +501,37 @@ export function FileRow({
     structural !== null && mode === "structural"
       ? structuralBody(structural, wordMarkLimit)
       : patchBody(file.patch);
-  const shown = shownIn[mode];
+  const opened = openedIn[mode];
   const reason = collapseReason(file);
   const path = shownPathOf(file);
-  const [opened, setOpened] = useState<boolean | null>(null);
-  const open = opened ?? (isSelected || startsOpen(variant, reason));
+  const [folded, setOpened] = useState<boolean | null>(null);
+  const open = folded ?? (isSelected || startsOpen(variant, reason));
   const content: FileContent = !open
     ? { kind: "folded" }
     : file.binary
       ? { kind: "binary" }
-      : { kind: "text", lines: drawnLines(body, sides, shown) };
+      : { kind: "text", lines: drawnLines(body, sides, opened) };
   const parts = partsOf(variant, path, file.patch, links, content, setOpened);
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
-      <button
+      <GapLine
         key={key}
-        type="button"
-        className="diff-line diff-line--gap"
-        onClick={() =>
-          setShownIn((all) => ({
-            ...all,
-            [mode]: new Set(all[mode]).add(line.gap),
-          }))
+        count={line.count}
+        edge={line.edge}
+        onOpen={(top, bottom) =>
+          setOpenedIn((all) => {
+            const now = all[mode].get(line.gap) ?? { top: 0, bottom: 0 };
+            return {
+              ...all,
+              [mode]: new Map(all[mode]).set(line.gap, {
+                top: now.top + top,
+                bottom: now.bottom + bottom,
+              }),
+            };
+          })
         }
-      >
-        <span className="diff-line__gutter">⋯</span>
-        <span>
-          show {line.count} unchanged {line.count === 1 ? "line" : "lines"}
-        </span>
-      </button>
+      />
     ) : (
       <PatchLine
         key={key}
@@ -817,6 +821,83 @@ function FileComments({
         onDropReply={review.onDropReply}
       />
     </>
+  );
+}
+```
+
+A short gap opens whole. A long one opens twenty lines at a time from
+whichever end meets a hunk, or whole, since a reader after the function a
+hunk sits in rarely wants the hundreds of lines around it. What stays closed
+between the two ends is still one gap, and the hunk's header goes once the
+gap above it is open all the way.
+
+```tsx
+//| id: frontend-view-diff-gap-line
+//| file: src/frontend/views/DiffView/FileRow/GapLine.tsx
+import type { GapEdge } from "./drawnLines";
+
+/** Lines one press opens from an end of a long gap. */
+const STEP = 20;
+
+/** Unchanged lines a patch leaves out. A short gap opens whole with one
+ *  press; a long one opens a step at a time from whichever end meets a
+ *  hunk, or whole. */
+export function GapLine({
+  count,
+  edge,
+  onOpen,
+}: {
+  count: number;
+  edge: GapEdge;
+  /** Opens this many more lines from the top and from the bottom. */
+  onOpen: (top: number, bottom: number) => void;
+}) {
+  const lines = `${count} unchanged ${count === 1 ? "line" : "lines"}`;
+  if (count <= STEP + 5) {
+    return (
+      <button
+        type="button"
+        className="diff-line diff-line--gap"
+        onClick={() => onOpen(count, 0)}
+      >
+        <span className="diff-line__gutter">⋯</span>
+        <span>show {lines}</span>
+      </button>
+    );
+  }
+  return (
+    <div className="diff-line diff-line--gap diff-line--steps">
+      <span className="diff-line__gutter">⋯</span>
+      <span>
+        {lines}
+        {edge === "top" ? " above" : edge === "bottom" ? " below" : ""}
+      </span>
+      {edge !== "top" && (
+        <button
+          type="button"
+          className="diff-line__step"
+          onClick={() => onOpen(STEP, 0)}
+        >
+          ↓ {STEP}
+        </button>
+      )}
+      {edge !== "bottom" && (
+        <button
+          type="button"
+          className="diff-line__step"
+          onClick={() => onOpen(0, STEP)}
+        >
+          ↑ {STEP}
+        </button>
+      )}
+      <button
+        type="button"
+        className="diff-line__step"
+        onClick={() => onOpen(count, 0)}
+      >
+        all {count}
+      </button>
+    </div>
   );
 }
 ```
@@ -1158,17 +1239,31 @@ export type CodeKind = "context" | "added" | "removed";
  *  colour. A line of the file is its tokens and where it sits: a removed line
  *  on the before side, every other line on the after side. It also carries
  *  its before-side number where it has one, for the before column of a
- *  [side-by-side](#side-by-side) diff. A gap stands in for the lines
- *  `gapsOf` numbered `gap` until it is shown. */
+ *  [side-by-side](#side-by-side) diff. A gap stands in for whatever of the
+ *  lines `gapsOf` numbered `gap` the reader has not opened yet. */
 export type DrawnLine =
   | { kind: "meta" | "hunk"; text: string }
-  | { kind: "gap"; gap: number; count: number }
+  | { kind: "gap"; gap: number; count: number; edge: GapEdge }
   | {
       kind: CodeKind;
       tokens: PaintedToken[];
       anchor: LineAnchor;
       beforeLine: number | null;
     };
+
+/** Whether a gap runs to the top or the bottom of the file, where only one
+ *  of its ends meets a hunk. */
+export type GapEdge = "top" | "bottom" | null;
+
+/** How much of one gap the reader opened, as lines from its top and lines
+ *  from its bottom. */
+export interface Opened {
+  top: number;
+  bottom: number;
+}
+
+/** What the reader opened of each gap, by the gap's number. */
+export type OpenedGaps = ReadonlyMap<number, Opened>;
 
 /** Each side of one file, whole, where it has loaded. */
 export interface FileSides {
@@ -1240,25 +1335,55 @@ export function structuralBody(
 export function drawnLines(
   { patch, changed: changedIn }: Body,
   sides: FileSides,
-  shown: ReadonlySet<number>,
+  opened: OpenedGaps,
 ): DrawnLine[] {
   const gaps =
     sides.new === null || patch.hunks.length === 0
       ? []
       : gapsOf(patch, sides.new.lines.length);
 
-  const hidden = (index: number): DrawnLine[] => {
+  const context = (index: number, from: number, count: number): DrawnLine[] => {
     const gap = gaps[index];
-    if (gap === undefined || gap.count === 0) return [];
-    if (!shown.has(index))
-      return [{ kind: "gap", gap: index, count: gap.count }];
-    return Array.from({ length: gap.count }, (_, offset) => ({
-      kind: "context" as const,
-      tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
-      anchor: { side: "after" as const, line: gap.start + offset },
-      beforeLine: gap.oldStart === null ? null : gap.oldStart + offset,
-    }));
+    if (gap === undefined) return [];
+    return Array.from({ length: count }, (_, at) => {
+      const offset = from + at;
+      return {
+        kind: "context" as const,
+        tokens: paintWords(sides.new?.lines[gap.start + offset - 1] ?? [], []),
+        anchor: { side: "after" as const, line: gap.start + offset },
+        beforeLine: gap.oldStart === null ? null : gap.oldStart + offset,
+      };
+    });
   };
+  // A gap opens from either end, and what is left closed between stays one
+  // gap.
+  const left = (
+    index: number,
+  ): { top: number; bottom: number; rest: number } => {
+    const count = gaps[index]?.count ?? 0;
+    const asked = opened.get(index) ?? { top: 0, bottom: 0 };
+    const top = Math.min(asked.top, count);
+    const bottom = Math.min(asked.bottom, count - top);
+    return { top, bottom, rest: count - top - bottom };
+  };
+  const hidden = (index: number): DrawnLine[] => {
+    const count = gaps[index]?.count ?? 0;
+    if (count === 0) return [];
+    const { top, bottom, rest } = left(index);
+    const edge: GapEdge =
+      index === 0 ? "top" : index === patch.hunks.length ? "bottom" : null;
+    return [
+      ...context(index, 0, top),
+      ...(rest === 0
+        ? []
+        : [{ kind: "gap" as const, gap: index, count: rest, edge }]),
+      ...context(index, count - bottom, bottom),
+    ];
+  };
+  // A hunk's header marks where the file skips lines, so it goes once the
+  // gap above it is open all the way.
+  const skips = (index: number) =>
+    (gaps[index]?.count ?? 0) === 0 || left(index).rest > 0;
 
   return [
     ...patch.header.map((text): DrawnLine => ({ kind: "meta", text })),
@@ -1266,9 +1391,7 @@ export function drawnLines(
       const changed = changedIn[index] ?? new Map<number, Range[]>();
       return [
         ...hidden(index),
-        ...(shown.has(index)
-          ? []
-          : [{ kind: "hunk" as const, text: hunk.header }]),
+        ...(skips(index) ? [{ kind: "hunk" as const, text: hunk.header }] : []),
         ...hunk.lines.map((line, at) =>
           drawnHunkLine(line, sides, changed.get(at) ?? []),
         ),
@@ -2320,6 +2443,22 @@ a long file keeps its name and view switch on screen.
     color: var(--diff-hunk);
     background: var(--surface-sunken);
     cursor: pointer;
+  }
+
+  /* A long gap opens a step at a time from its buttons, not as a whole. */
+  .diff-line--steps {
+    gap: var(--space-3);
+    cursor: default;
+  }
+
+  .diff-line__step {
+    padding: 0 var(--space-2);
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
   }
 
   .diff-line--added .diff-line__changed {
