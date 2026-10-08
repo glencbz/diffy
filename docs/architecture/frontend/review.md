@@ -51,8 +51,9 @@ answer each other on one thread. Resolving, staleness and the open count stay
 with the comment, and deleting it takes its replies along. A reply could
 instead be a comment of its own naming the one it answers, but then every
 count, filter and stale check would have to skip replies, and a reply would
-carry an anchor and a resolution that mean nothing. `add-reply` to a comment
-that is gone does nothing, as a retry would.
+carry an anchor and a resolution that mean nothing. A reply reopens a
+resolved thread, since whoever wrote it is saying the conversation is not
+over. `add-reply` to a comment that is gone does nothing, as a retry would.
 
 **Viewed files** are filed under the row's key and named by path and both
 blobs, so an amend that leaves the file alone keeps it viewed and one that
@@ -739,7 +740,11 @@ export function applyCommand(
           comment.id !== command.commentId ||
           comment.replies.some((reply) => reply.id === command.reply.id)
             ? comment
-            : { ...comment, replies: [...comment.replies, command.reply] },
+            : {
+                ...comment,
+                replies: [...comment.replies, command.reply],
+                resolved: false,
+              },
         ),
       };
     case "mark-reviewed":
@@ -1978,6 +1983,33 @@ describe("changes to the document", () => {
     expect(answered.comments[0]?.replies).toEqual([reply]);
     expect(orphan).toEqual(one);
   });
+
+  test("reopens a resolved thread when it gets a reply", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const resolved = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t1",
+        author: "reader",
+      }),
+      { kind: "resolve-comment", id: "c1", resolved: true },
+    );
+
+    // act
+    const answered = applied(resolved, {
+      kind: "add-reply",
+      commentId: "c1",
+      reply: { id: "r1", body: "not yet", createdAt: "t2", author: "reader" },
+    });
+
+    // assert
+    expect(answered.comments[0]?.resolved).toBe(false);
+  });
+
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);

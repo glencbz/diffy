@@ -644,7 +644,11 @@ export function applyCommand(
           comment.id !== command.commentId ||
           comment.replies.some((reply) => reply.id === command.reply.id)
             ? comment
-            : { ...comment, replies: [...comment.replies, command.reply] },
+            : {
+                ...comment,
+                replies: [...comment.replies, command.reply],
+                resolved: false,
+              },
         ),
       };
     case "mark-reviewed":

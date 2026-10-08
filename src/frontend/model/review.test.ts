@@ -920,6 +920,33 @@ describe("changes to the document", () => {
     expect(answered.comments[0]?.replies).toEqual([reply]);
     expect(orphan).toEqual(one);
   });
+
+  test("reopens a resolved thread when it gets a reply", () => {
+    // arrange
+    const row = reviewedRow(pairRow("a", "a1", "a2"), empty);
+    const resolved = applied(
+      empty,
+      commentOn(row, {
+        id: "c1",
+        kind: "comparison",
+        body: "why?",
+        createdAt: "t1",
+        author: "reader",
+      }),
+      { kind: "resolve-comment", id: "c1", resolved: true },
+    );
+
+    // act
+    const answered = applied(resolved, {
+      kind: "add-reply",
+      commentId: "c1",
+      reply: { id: "r1", body: "not yet", createdAt: "t2", author: "reader" },
+    });
+
+    // assert
+    expect(answered.comments[0]?.resolved).toBe(false);
+  });
+
   test("leaves the document of one application when a command lands twice", () => {
     // arrange
     const row = reviewedRow(pairRow("a", "a1", "a2"), empty);

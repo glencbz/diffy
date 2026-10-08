@@ -367,7 +367,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
     tool({
       name: "reply_to_comment",
       description:
-        "Answer a comment on its thread, and answer with the reply's id. The thread stays open until it is resolved.",
+        "Answer a comment on its thread, and answer with the reply's id. A reply reopens a resolved thread, so resolve after replying.",
       input: z.object({
         id: z
           .string()
