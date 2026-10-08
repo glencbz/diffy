@@ -155,6 +155,9 @@ export function CommitStack({
 }: CommitStackProps): ReactElement {
   const stack = useRef<HTMLDivElement>(null);
   const revealedAt = useRef<number | null>(null);
+  // The row a pick scrolled to, held at the top while the rows above it
+  // load and change height, until the reader scrolls for themselves.
+  const pinned = useRef<HTMLElement | null>(null);
   const latest = useRef({ rows, current, onInView });
   latest.current = { rows, current, onInView };
 
@@ -191,16 +194,36 @@ export function CommitStack({
       frame = requestAnimationFrame(recompute);
     };
 
+    const hold = new ResizeObserver(() => {
+      if (pinned.current === null) return;
+      pinned.current.scrollIntoView({ block: "start" });
+      revealedAt.current = pane.scrollTop;
+    });
+    if (stack.current !== null) hold.observe(stack.current);
+    const release = () => {
+      pinned.current = null;
+    };
+
     pane.addEventListener("scroll", onScroll);
+    window.addEventListener("wheel", release, { passive: true });
+    window.addEventListener("touchstart", release, { passive: true });
+    window.addEventListener("pointerdown", release);
+    window.addEventListener("keydown", release);
     return () => {
+      hold.disconnect();
       pane.removeEventListener("scroll", onScroll);
+      window.removeEventListener("wheel", release);
+      window.removeEventListener("touchstart", release);
+      window.removeEventListener("pointerdown", release);
+      window.removeEventListener("keydown", release);
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, []);
 
-  const onRevealed = () => {
+  const onRevealed = (row: HTMLElement) => {
     const pane = stack.current?.closest(".pane--diff");
     if (pane instanceof HTMLElement) revealedAt.current = pane.scrollTop;
+    pinned.current = row;
   };
 
   return (
@@ -256,7 +279,7 @@ function StackSection({
   onExpand: () => void;
   isCurrent: boolean;
   reveal: number;
-  onRevealed: () => void;
+  onRevealed: (row: HTMLElement) => void;
   links: DiffLinks;
   since: string;
   review: ComparisonReview;
@@ -274,9 +297,9 @@ function StackSection({
   const diffScrolls = links.selected !== null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reveal is the trigger; becoming current by a click in the diff must not scroll
   useEffect(() => {
-    if (isCurrent && !diffScrolls) {
-      section.current?.scrollIntoView({ block: "start" });
-      onRevealed();
+    if (isCurrent && !diffScrolls && section.current !== null) {
+      section.current.scrollIntoView({ block: "start" });
+      onRevealed(section.current);
     }
   }, [reveal]);
 
