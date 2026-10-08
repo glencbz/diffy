@@ -1,10 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-controller-local-reviews>>[init]
+import { useState } from "react";
 import { type LocalPlace, localHref, openLocal } from "../model/place";
 import {
   type LocalReview,
+  type LocalReviewOrder,
   localReview,
   localRowKey,
   localSeries,
+  sortLocalReviews,
 } from "../model/review";
 import { localHistory } from "../model/series";
 import type { Visit } from "../state/place";
@@ -23,12 +26,17 @@ export function LocalReviews({
   review: ReviewHandle;
   onGo: (place: LocalPlace | null, visit?: Visit) => void;
 }) {
+  const [order, setOrder] = useState<LocalReviewOrder>("modified-newest");
+
   if (review.status === "loading") {
     return <Message>Loading local reviews...</Message>;
   }
 
-  const reviews = review.document.localReviews.filter(
-    (local) => local.forgottenAt === undefined,
+  const reviews = sortLocalReviews(
+    review.document.localReviews.filter(
+      (local) => local.forgottenAt === undefined,
+    ),
+    order,
   );
   const forgotten = review.document.localReviews.filter(
     (local) => local.forgottenAt !== undefined,
@@ -56,6 +64,8 @@ export function LocalReviews({
           reviews={reviews}
           forgotten={forgotten}
           selected={open?.name ?? null}
+          order={order}
+          onOrder={setOrder}
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
           }

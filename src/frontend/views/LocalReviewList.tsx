@@ -3,13 +3,23 @@ import type { ReactNode } from "react";
 import type {
   LocalReview,
   LocalReviewListVariant,
+  LocalReviewOrder,
   LocalVersion,
 } from "../model/review";
+import { LOCAL_REVIEW_ORDERS } from "../model/review";
+
+const ORDER_LABELS: Record<LocalReviewOrder, string> = {
+  "modified-newest": "Modified, newest first",
+  "modified-oldest": "Modified, oldest first",
+  name: "Name",
+};
 
 export function LocalReviewList({
   reviews,
   forgotten,
   selected,
+  order,
+  onOrder,
   onSelect,
   variant,
   commits,
@@ -17,6 +27,8 @@ export function LocalReviewList({
   reviews: LocalReview[];
   forgotten: LocalReview[];
   selected: string | null;
+  order: LocalReviewOrder;
+  onOrder: (order: LocalReviewOrder) => void;
   onSelect: (name: string) => void;
   variant: LocalReviewListVariant;
   /** The graph of one version's commits. */
@@ -24,6 +36,19 @@ export function LocalReviewList({
 }) {
   return (
     <div>
+      <label className="local-review__order">
+        Sort by{" "}
+        <select
+          value={order}
+          onChange={(event) => onOrder(event.target.value as LocalReviewOrder)}
+        >
+          {LOCAL_REVIEW_ORDERS.map((choice) => (
+            <option key={choice} value={choice}>
+              {ORDER_LABELS[choice]}
+            </option>
+          ))}
+        </select>
+      </label>
       {reviews.map((review) => {
         const newest = review.versions.at(-1);
         return (
