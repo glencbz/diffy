@@ -15,7 +15,8 @@ its own switch. Layout (one column or [side by side](diff.md#side-by-side))
 applies to every file at once and is per device, since a phone has less room.
 The word mark limit is the share of a line's words that can change before
 [its marks go](diff.md#changed-words), offered in steps a reader can tell
-apart.
+apart. Where a [guide's notes](guide.md#notes) open is set from the guided
+view itself, beside the notes, and kept here so it holds on every series.
 
 ```ts
 //| id: frontend-model-settings
@@ -38,11 +39,15 @@ export const WordMarkLimit = z.union([
 ]);
 export type WordMarkLimit = z.infer<typeof WordMarkLimit>;
 
+export const GuideNotes = z.enum(["inline", "margin"]);
+export type GuideNotes = z.infer<typeof GuideNotes>;
+
 const DEFAULT_DISPLAY = {
   textSize: "standard",
   diffMode: "structural",
   diffLayout: "unified",
   wordMarkLimit: 0.7,
+  guideNotes: "inline",
 } as const;
 
 // Every field added after the first needs a default, or older saved
@@ -52,6 +57,7 @@ export const Display = z.object({
   diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
   diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
   wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
+  guideNotes: GuideNotes.default(DEFAULT_DISPLAY.guideNotes),
 });
 export type Display = z.infer<typeof Display>;
 
@@ -95,6 +101,7 @@ describe("settingsRepository", () => {
         diffMode: "line",
         diffLayout: "split",
         wordMarkLimit: 0.9,
+        guideNotes: "margin",
       },
     };
 
@@ -115,6 +122,7 @@ describe("settingsRepository", () => {
         diffMode: "structural",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        guideNotes: "inline",
       },
     });
   });
@@ -134,6 +142,7 @@ describe("settingsRepository", () => {
         diffMode: "structural",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        guideNotes: "inline",
       },
     });
   });
@@ -153,6 +162,7 @@ describe("settingsRepository", () => {
         diffMode: "line",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        guideNotes: "inline",
       },
     });
   });
@@ -167,6 +177,7 @@ import type {
   DiffLayout,
   DiffMode,
   Display,
+  GuideNotes,
   Settings,
   TextSize,
   WordMarkLimit,
@@ -181,6 +192,7 @@ export interface SettingsHandle {
   setDiffMode: (diffMode: DiffMode) => void;
   setDiffLayout: (diffLayout: DiffLayout) => void;
   setWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
+  setGuideNotes: (guideNotes: GuideNotes) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -217,6 +229,10 @@ export function useSettings(): SettingsHandle {
     (wordMarkLimit: WordMarkLimit) => setDisplay({ wordMarkLimit }),
     [setDisplay],
   );
+  const setGuideNotes = useCallback(
+    (guideNotes: GuideNotes) => setDisplay({ guideNotes }),
+    [setDisplay],
+  );
 
   return {
     settings,
@@ -224,6 +240,7 @@ export function useSettings(): SettingsHandle {
     setDiffMode,
     setDiffLayout,
     setWordMarkLimit,
+    setGuideNotes,
   };
 }
 ```

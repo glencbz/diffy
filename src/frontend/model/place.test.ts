@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { GitOid } from "./history";
-import { type Place, readPlace, writePlace } from "./place";
+import { openPull, type Place, readPlace, writePlace } from "./place";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -154,6 +154,18 @@ describe("writePlace", () => {
         spot: { commit: oid("c"), file: { path: "src/a.ts", line: 9 } },
       },
     },
+    { tab: "local-guided", review: null },
+    { tab: "pull-guided", pull: null },
+    {
+      tab: "local-guided",
+      review: {
+        name: "stack/one",
+        from: { kind: "version", id: "1" },
+        to: "2",
+        spot: { commit: oid("c"), file: { path: "src/a.ts", line: 9 } },
+      },
+    },
+    { tab: "pull-guided", pull: openPull(7) },
   ];
 
   for (const place of places) {

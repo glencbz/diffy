@@ -17,11 +17,15 @@ export const WordMarkLimit = z.union([
 ]);
 export type WordMarkLimit = z.infer<typeof WordMarkLimit>;
 
+export const GuideNotes = z.enum(["inline", "margin"]);
+export type GuideNotes = z.infer<typeof GuideNotes>;
+
 const DEFAULT_DISPLAY = {
   textSize: "standard",
   diffMode: "structural",
   diffLayout: "unified",
   wordMarkLimit: 0.7,
+  guideNotes: "inline",
 } as const;
 
 // Every field added after the first needs a default, or older saved
@@ -31,6 +35,7 @@ export const Display = z.object({
   diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
   diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
   wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
+  guideNotes: GuideNotes.default(DEFAULT_DISPLAY.guideNotes),
 });
 export type Display = z.infer<typeof Display>;
 

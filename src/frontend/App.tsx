@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/shell.md#frontend-app>>[init]
 import type { Place } from "./model/place";
+import { GuidedScreen } from "./screens/GuidedScreen";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
 import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
@@ -34,6 +35,9 @@ function screenAt(place: Place, go: (place: Place) => void) {
       return <LocalHistoryScreen onGo={go} />;
     case "pulls":
       return <PullRequestsScreen place={place.pull} onGo={go} />;
+    case "local-guided":
+    case "pull-guided":
+      return <GuidedScreen place={place} onGo={go} />;
     case "settings":
       return <SettingsScreen onGo={go} />;
   }

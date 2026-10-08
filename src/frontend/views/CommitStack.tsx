@@ -41,7 +41,7 @@ type QuietKind = "dropped" | "unchanged";
  *  move, so both collapse to a line until the reader asks for them. A
  *  predicate rather than a boolean, so the row that follows is known to be
  *  one of the two without being told so a second time. */
-function isQuiet(kind: StackRowKind): kind is QuietKind {
+export function isQuiet(kind: StackRowKind): kind is QuietKind {
   return kind === "dropped" || kind === "unchanged";
 }
 

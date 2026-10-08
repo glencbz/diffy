@@ -6,10 +6,13 @@ export function PullList({
   pulls,
   selected,
   onSelect,
+  guided,
 }: {
   pulls: PullSummary[];
   selected: number | null;
   onSelect: (number: number) => void;
+  /** Whether a pull request's newest head has a guide, on a guided read. */
+  guided?: (pull: PullSummary) => boolean;
 }) {
   return (
     <div>
@@ -27,6 +30,7 @@ export function PullList({
           <span className="pull-list__row">
             <span className="pull-list__number">#{pull.number}</span>
             <PullStateChip state={pull.state} />
+            {guided?.(pull) && <span className="guided-chip">guided</span>}
           </span>
           <span className="pull-list__title">{pull.title}</span>
           <span className="pull-list__base">← {pull.baseRefName}</span>

@@ -44,7 +44,7 @@ const PULL: GuideSources = {
     series: `pull:o/r#${number}`,
     version: "h".repeat(40),
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/guided/pulls/${number}`,
     commits: [
       { commitId: "aaaa1111", changeId: null, subject: "first" },
       { commitId: "bbbb2222", changeId: null, subject: "second" },
@@ -116,7 +116,7 @@ describe("the guide tools", () => {
     // assert
     expect(written).toEqual({
       text: [
-        "https://vm:4000/pulls/7",
+        "https://vm:4000/guided/pulls/7",
         "the guide to v2: 1 ideas over 1 of 2 commits",
         "not on any stop:",
         "  aaaa1111 a.ts: 20-22",
@@ -230,7 +230,7 @@ describe("the guide tools", () => {
 
     // assert
     expect(written.text.split("\n").slice(0, 2)).toEqual([
-      "https://vm:4000/reviews/t",
+      "https://vm:4000/guided/reviews/t",
       "the guide to v1: 1 ideas over 1 of 1 commits",
     ]);
     expect(JSON.parse(read.text).ideas[0].commit).toBe(

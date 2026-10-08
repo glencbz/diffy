@@ -10,7 +10,7 @@ import { usePullHistory } from "../state/pullHistory";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
 import { PullHeader } from "../views/PullHeader";
-import { SeriesReview, type SeriesScreen } from "./SeriesReview";
+import { type Guiding, SeriesReview, type SeriesScreen } from "./SeriesReview";
 
 export function PullReview({
   repo,
@@ -19,6 +19,7 @@ export function PullReview({
   place,
   review,
   onGo,
+  guiding,
 }: {
   repo: string;
   number: number;
@@ -27,8 +28,10 @@ export function PullReview({
   place: PullPlace;
   review: ReviewHandle;
   onGo: (place: PullPlace, visit?: Visit) => void;
+  guiding: Guiding | null;
 }) {
   const answer = usePullHistory(repo, number);
+  const tab = guiding === null ? "pulls" : "pull-guided";
   const history = useMemo(
     () => (answer.status === "ready" ? pullHistory(answer.data) : null),
     [answer],
@@ -48,7 +51,15 @@ export function PullReview({
     source: { kind: "pull", repo, number },
     series: pullSeries(repo, number),
     history,
-    header: <PullHeader number={number} pull={pull} />,
+    header: (
+      <PullHeader
+        number={number}
+        pull={pull}
+        classic={
+          guiding === null ? null : pullHref({ ...place, number }, "pulls")
+        }
+      />
+    ),
     wholeLabel: "whole pull request",
     keyOf: (document, before, after) =>
       pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
@@ -61,7 +72,8 @@ export function PullReview({
       place={place}
       review={review}
       onGo={(next, visit) => onGo({ ...next, number }, visit)}
-      href={(next) => pullHref({ ...next, number })}
+      href={(next) => pullHref({ ...next, number }, tab)}
+      guiding={guiding}
     />
   );
 }

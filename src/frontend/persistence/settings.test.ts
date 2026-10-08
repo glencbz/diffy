@@ -17,6 +17,7 @@ describe("settingsRepository", () => {
         diffMode: "line",
         diffLayout: "split",
         wordMarkLimit: 0.9,
+        guideNotes: "margin",
       },
     };
 
@@ -37,6 +38,7 @@ describe("settingsRepository", () => {
         diffMode: "structural",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        guideNotes: "inline",
       },
     });
   });
@@ -56,6 +58,7 @@ describe("settingsRepository", () => {
         diffMode: "structural",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        guideNotes: "inline",
       },
     });
   });
@@ -75,6 +78,7 @@ describe("settingsRepository", () => {
         diffMode: "line",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        guideNotes: "inline",
       },
     });
   });

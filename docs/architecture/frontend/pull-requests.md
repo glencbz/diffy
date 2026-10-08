@@ -433,29 +433,35 @@ its place; picking another opens it at base against latest, and
 A number the list does not hold, because the list holds only the newest pull
 requests, still opens by its address, without the title and state the list
 would give it. Falling back to the list would break every older link, such as
-the one an agent hands over with a [guide](guide.md).
+the one an agent hands over with a [guide](guide.md#the-tabs).
 
 ```tsx
 //| id: frontend-controller-pull-requests
 //| file: src/frontend/controllers/PullRequests.tsx
 import { useState } from "react";
+import { guideTo } from "../model/guide";
 import { openPull, type PullChoice, type PullPlace } from "../model/place";
 import type { PullSummary } from "../model/pull";
+import { pullSeries } from "../model/review";
 import type { Visit } from "../state/place";
 import { usePulls } from "../state/pulls";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
 import { PullPanes } from "../views/PullPanes/PullPanes";
 import { PullReview } from "./PullReview";
+import type { Guiding } from "./SeriesReview";
 
 export function PullRequests({
   place,
   review,
   onGo,
+  guiding = null,
 }: {
   place: PullPlace | null;
   review: ReviewHandle;
   onGo: (place: PullPlace | null, visit?: Visit) => void;
+  /** Set on a guided read. */
+  guiding?: Guiding | null;
 }) {
   const pulls = usePulls();
   const [sheetOver, setSheetOver] = useState<number | null>(null);
@@ -480,6 +486,16 @@ export function PullRequests({
         setSheetOver(null);
         onGo(number === place?.number ? place : openPull(number));
       }}
+      guided={
+        guiding === null
+          ? undefined
+          : (pull) =>
+              guideTo(
+                review.document.guides,
+                pullSeries(repo, pull.number),
+                pull.headRefOid,
+              ) !== undefined
+      }
       review={
         choice.phase === "browsing" || place === null ? (
           <Message>Select a pull request to review it.</Message>
@@ -492,6 +508,7 @@ export function PullRequests({
             place={place}
             review={review}
             onGo={onGo}
+            guiding={guiding}
           />
         )
       }
@@ -664,6 +681,11 @@ step is a pick in every respect. The place used is the one
 [`opening`](#the-head-last-reviewed) resolves, so picks in a since-review
 comparison keep its before end.
 
+A guided read sets `guiding`, which lays the
+[guide](guide.md#the-tabs) over the stack and changes how rows open and load.
+Everything else is the same screen, so a guided read loses nothing a plain
+one has.
+
 Scrolling the stack to another row writes that commit back to the address,
 replacing the entry rather than pushing one, so back returns to the last
 pick rather than every commit scrolled past. It goes through the address
@@ -673,10 +695,11 @@ commit is current would disagree between a pick and the scroll it causes.
 ```tsx
 //| id: frontend-controller-series-review
 //| file: src/frontend/controllers/SeriesReview.tsx
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { AsyncState } from "../model/asyncState";
 import { compareAsks, withCompared } from "../model/compared";
 import type { FileDiff } from "../model/diff";
+import { guideTo } from "../model/guide";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
@@ -695,6 +718,7 @@ import {
   versionAsk,
   versionName,
 } from "../model/series";
+import type { GuideNotes } from "../model/settings";
 import { useBeforePaths, useCompared } from "../state/compared";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
@@ -709,9 +733,12 @@ import {
   CommitStack,
   changeSize,
   countLines,
+  isQuiet,
+  type StackLayer,
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
+import { GuidedStack } from "../views/Guided/GuidedStack";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
@@ -853,6 +880,45 @@ function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
   return next;
 }
 
+/** How the reader wants a guide's notes, and how to change it. */
+export interface NotesChoice {
+  at: GuideNotes;
+  onChange: (at: GuideNotes) => void;
+}
+
+/** A [guided read](guide.md) of a series: the screen as it always is, with
+ *  the guide to the version on the right laid over its stack. */
+export interface Guiding {
+  notes: NotesChoice;
+}
+
+/** The slots to ask for next when diffs load one at a time: those already
+ *  asked for, and the first not yet asked of the current row's and then
+ *  the rest top to bottom. A large commit's diff takes seconds, and asking
+ *  for every commit at once can keep one waiting past the server's
+ *  timeout. */
+function oneAtATime(
+  slots: Slot[],
+  asked: ReadonlySet<string>,
+  current: string | null,
+): Slot[] {
+  const next = [
+    ...slots.filter((slot) => slotKey(slot) === current),
+    ...slots,
+  ].find((slot) => !asked.has(slotKey(slot)));
+  return slots.filter((slot) => asked.has(slotKey(slot)) || slot === next);
+}
+
+function sameSlots(a: Slot[], b: Slot[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((slot, index) => {
+      const other = b[index];
+      return other !== undefined && slotKey(slot) === slotKey(other);
+    })
+  );
+}
+
 /** What differs between one kind of series and another, which is where its
  *  versions and commits come from and how its rows are filed. */
 export interface SeriesScreen {
@@ -880,12 +946,15 @@ export function SeriesReview({
   review,
   onGo,
   href,
+  guiding = null,
 }: {
   screen: SeriesScreen;
   place: SeriesPlace;
   review: ReviewHandle;
   onGo: (place: SeriesPlace, visit?: Visit) => void;
   href: (place: SeriesPlace) => string;
+  /** Set on a guided read. */
+  guiding?: Guiding | null;
 }) {
   const { source, series, history } = screen;
   const { versions } = history;
@@ -893,7 +962,12 @@ export function SeriesReview({
   const marked = reviewedIn(review.document, series);
   const reviewed = lastReviewed(marked, versions);
   const place = opening(asked, reviewed, versions);
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  // The rows the reader opened or closed. A guided read starts with every
+  // row open but those the stack folds to a line; a plain one with none.
+  const [toggledRows, setToggledRows] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const [seen, setSeen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
   const [sizes, resize] = usePaneSizes();
@@ -935,7 +1009,13 @@ export function SeriesReview({
             ),
         },
   );
-  const diffs = useRowDiffs(rowAsk(source, from, to), pairing.slots);
+  // A guided read loads every row's diff at the start, so it asks for them
+  // one at a time.
+  const [fed, setFed] = useState<Slot[]>([]);
+  const diffs = useRowDiffs(
+    rowAsk(source, from, to),
+    guiding === null ? pairing.slots : fed,
+  );
 
   const reviewOf = (row: StackRow): ComparisonReview => {
     const before = row.kind === "dropped" ? row.commit : row.was;
@@ -967,10 +1047,11 @@ export function SeriesReview({
     );
     return { ...row, files: { status: "ready", data: files } };
   });
-  const sources = useSources(
-    rows.flatMap((row) =>
-      open.has(row.key) && row.files.status === "ready" ? row.files.data : [],
-    ),
+  const open: ReadonlySet<string> = new Set(
+    rows.flatMap((row) => {
+      const starts = guiding !== null && !isQuiet(row.kind);
+      return starts !== toggledRows.has(row.key) ? [row.key] : [];
+    }),
   );
 
   const currentIndex = rows.findIndex(
@@ -979,12 +1060,39 @@ export function SeriesReview({
   const currentRow = rows[currentIndex];
   const currentKey = currentRow?.key ?? null;
 
+  // A guided read has every row open, but a row's highlighting loads only
+  // once the row has been on screen, as a plain read's does once the
+  // reader opens it.
+  const sources = useSources(
+    rows.flatMap((row) =>
+      open.has(row.key) &&
+      (guiding === null || seen.has(row.key)) &&
+      row.files.status === "ready"
+        ? row.files.data
+        : [],
+    ),
+  );
+  const shownKey = currentKey ?? rows[0]?.key ?? null;
+  useEffect(() => {
+    if (guiding === null || shownKey === null) return;
+    setSeen((now) => (now.has(shownKey) ? now : new Set(now).add(shownKey)));
+  }, [guiding, shownKey]);
+
+  const landed = new Set(diffs.keys());
+  const feed = oneAtATime(pairing.slots, landed, currentKey);
+  useEffect(() => {
+    if (guiding === null) return;
+    setFed((now) => (sameSlots(now, feed) ? now : feed));
+  });
+
   // A file in the address is a file on screen, so the row it is in opens,
   // on arrival and whenever back or forward lands on another one.
   const fileKey = spot === null || spot.file === null ? null : currentKey;
+  const opened = useRef(open);
+  opened.current = open;
   useEffect(() => {
-    if (fileKey === null) return;
-    setOpen((now) => (now.has(fileKey) ? now : new Set(now).add(fileKey)));
+    if (fileKey === null || opened.current.has(fileKey)) return;
+    setToggledRows((now) => toggled(now, fileKey));
   }, [fileKey]);
 
   const commitsLoading =
@@ -1045,6 +1153,40 @@ export function SeriesReview({
 
   const label = (id: string) =>
     `${versionName(versions, id)} · ${id.slice(0, 7)}`;
+
+  const stack = (layer?: StackLayer) => (
+    <CommitStack
+      rows={rows}
+      sources={sources}
+      open={open}
+      onToggle={(key) => setToggledRows((now) => toggled(now, key))}
+      expanded={expanded}
+      onExpand={(key) => setExpanded((now) => toggled(now, key))}
+      current={currentKey}
+      onInView={(key) => {
+        const row = rows.find((candidate) => candidate.key === key);
+        if (row === undefined) return;
+        onGo(
+          {
+            ...place,
+            to,
+            spot: { commit: row.commit.commitId, file: null },
+          },
+          "replace",
+        );
+      }}
+      reveal={picks + arrivals}
+      links={links}
+      reviewOf={reviewOf}
+      actions={review.status === "ready" ? review.actions : null}
+      beforePaths={beforePaths}
+      display={display}
+      since={
+        from.kind === "version" ? versionName(versions, from.id) : "the base"
+      }
+      layer={layer}
+    />
+  );
 
   return (
     <PullReviewPanes
@@ -1118,39 +1260,19 @@ export function SeriesReview({
           <Message tone="error">{commitsError}</Message>
         ) : commitsLoading ? (
           <Message>Loading commits...</Message>
+        ) : guiding === null ? (
+          stack()
         ) : (
-          <CommitStack
+          <GuidedStack
             rows={rows}
-            sources={sources}
-            open={open}
-            onToggle={(key) => setOpen((now) => toggled(now, key))}
-            expanded={expanded}
-            onExpand={(key) => setExpanded((now) => toggled(now, key))}
+            guide={guideTo(review.document.guides, series, to)}
             current={currentKey}
-            onInView={(key) => {
-              const row = rows.find((candidate) => candidate.key === key);
-              if (row === undefined) return;
-              onGo(
-                {
-                  ...place,
-                  to,
-                  spot: { commit: row.commit.commitId, file: null },
-                },
-                "replace",
-              );
-            }}
-            reveal={picks + arrivals}
-            links={links}
-            reviewOf={reviewOf}
-            actions={review.status === "ready" ? review.actions : null}
-            beforePaths={beforePaths}
-            display={display}
-            since={
-              from.kind === "version"
-                ? versionName(versions, from.id)
-                : "the base"
-            }
-          />
+            onPick={pick}
+            notesAt={guiding.notes.at}
+            onNotesAt={guiding.notes.onChange}
+          >
+            {stack}
+          </GuidedStack>
         )
       }
     />
@@ -1179,7 +1301,7 @@ import { usePullHistory } from "../state/pullHistory";
 import type { ReviewHandle } from "../state/review";
 import { Message } from "../views/Message";
 import { PullHeader } from "../views/PullHeader";
-import { SeriesReview, type SeriesScreen } from "./SeriesReview";
+import { type Guiding, SeriesReview, type SeriesScreen } from "./SeriesReview";
 
 export function PullReview({
   repo,
@@ -1188,6 +1310,7 @@ export function PullReview({
   place,
   review,
   onGo,
+  guiding,
 }: {
   repo: string;
   number: number;
@@ -1196,8 +1319,10 @@ export function PullReview({
   place: PullPlace;
   review: ReviewHandle;
   onGo: (place: PullPlace, visit?: Visit) => void;
+  guiding: Guiding | null;
 }) {
   const answer = usePullHistory(repo, number);
+  const tab = guiding === null ? "pulls" : "pull-guided";
   const history = useMemo(
     () => (answer.status === "ready" ? pullHistory(answer.data) : null),
     [answer],
@@ -1217,7 +1342,15 @@ export function PullReview({
     source: { kind: "pull", repo, number },
     series: pullSeries(repo, number),
     history,
-    header: <PullHeader number={number} pull={pull} />,
+    header: (
+      <PullHeader
+        number={number}
+        pull={pull}
+        classic={
+          guiding === null ? null : pullHref({ ...place, number }, "pulls")
+        }
+      />
+    ),
     wholeLabel: "whole pull request",
     keyOf: (document, before, after) =>
       pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
@@ -1230,7 +1363,8 @@ export function PullReview({
       place={place}
       review={review}
       onGo={(next, visit) => onGo({ ...next, number }, visit)}
-      href={(next) => pullHref({ ...next, number })}
+      href={(next) => pullHref({ ...next, number }, tab)}
+      guiding={guiding}
     />
   );
 }
@@ -1556,10 +1690,13 @@ export function PullList({
   pulls,
   selected,
   onSelect,
+  guided,
 }: {
   pulls: PullSummary[];
   selected: number | null;
   onSelect: (number: number) => void;
+  /** Whether a pull request's newest head has a guide, on a guided read. */
+  guided?: (pull: PullSummary) => boolean;
 }) {
   return (
     <div>
@@ -1577,6 +1714,7 @@ export function PullList({
           <span className="pull-list__row">
             <span className="pull-list__number">#{pull.number}</span>
             <PullStateChip state={pull.state} />
+            {guided?.(pull) && <span className="guided-chip">guided</span>}
           </span>
           <span className="pull-list__title">{pull.title}</span>
           <span className="pull-list__base">← {pull.baseRefName}</span>
@@ -1656,15 +1794,23 @@ import { PullStateChip } from "./PullStateChip";
 export function PullHeader({
   number,
   pull,
+  classic,
 }: {
   number: number;
   /** Null for a pull request older than the list holds. */
   pull: PullSummary | null;
+  /** On a guided read, where the same place is without the guide. */
+  classic: string | null;
 }) {
   return (
     <header className="pull-header">
       <span className="pull-header__meta">#{number}</span>
       {pull !== null && <PullSummaryParts pull={pull} />}
+      {classic !== null && (
+        <a href={classic} className="pull-header__link">
+          classic view
+        </a>
+      )}
     </header>
   );
 }

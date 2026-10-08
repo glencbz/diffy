@@ -5,15 +5,23 @@ import { PullStateChip } from "./PullStateChip";
 export function PullHeader({
   number,
   pull,
+  classic,
 }: {
   number: number;
   /** Null for a pull request older than the list holds. */
   pull: PullSummary | null;
+  /** On a guided read, where the same place is without the guide. */
+  classic: string | null;
 }) {
   return (
     <header className="pull-header">
       <span className="pull-header__meta">#{number}</span>
       {pull !== null && <PullSummaryParts pull={pull} />}
+      {classic !== null && (
+        <a href={classic} className="pull-header__link">
+          classic view
+        </a>
+      )}
     </header>
   );
 }

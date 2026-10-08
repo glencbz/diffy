@@ -293,6 +293,7 @@ export function PullPanes({
   pulls,
   onSelect,
   review,
+  guided,
 }: {
   choice: PullChoice;
   onOpen: () => void;
@@ -300,6 +301,7 @@ export function PullPanes({
   pulls: PullSummary[];
   onSelect: (number: number) => void;
   review: ReactNode;
+  guided?: (pull: PullSummary) => boolean;
 }) {
   return (
     <>
@@ -342,6 +344,7 @@ export function PullPanes({
             pulls={pulls}
             selected={choice.phase === "browsing" ? null : choice.number}
             onSelect={onSelect}
+            guided={guided}
           />
         </div>
         <div className="pane pane--main">{review}</div>

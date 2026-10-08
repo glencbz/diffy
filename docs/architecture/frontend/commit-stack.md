@@ -57,12 +57,6 @@ row whose top has passed `READING_LINE`, the line the
 [file navigator](file-tree.md#stepping-through-files) reads by, is the one
 being read, and `onInView` reports it.
 
-A pick scrolls its row to the top and holds it there while the rows above it
-load and change height, until the reader scrolls, clicks, or types. Without
-the hold, a pick made while diffs are still arriving lands wherever the rows
-above push it, and the address then follows whatever row ended up at the
-top.
-
 ```tsx
 //| id: frontend-view-commit-stack
 export type StackRowKind =
@@ -79,7 +73,7 @@ type QuietKind = "dropped" | "unchanged";
  *  move, so both collapse to a line until the reader asks for them. A
  *  predicate rather than a boolean, so the row that follows is known to be
  *  one of the two without being told so a second time. */
-function isQuiet(kind: StackRowKind): kind is QuietKind {
+export function isQuiet(kind: StackRowKind): kind is QuietKind {
   return kind === "dropped" || kind === "unchanged";
 }
 

@@ -24,6 +24,10 @@ is and version numbers in the query, `/reviews/stack/commits/77d2…?from=1&to=2
 Both kinds read what follows the series through one `readSeries`, handed the
 rule for a version id: a head oid, or a number.
 
+A [guided](guide.md#the-tabs) read of either kind is the same place under
+`/guided`, as `/guided/pulls/41/commits/77d2…`, so a link between the
+two keeps the reader where they are.
+
 ## The place
 
 `Place`'s nesting is the path's, so a line without a file cannot be held.
@@ -39,7 +43,9 @@ export type Place =
   | { tab: "local" }
   | { tab: "settings" }
   | { tab: "pulls"; pull: PullPlace | null }
-  | { tab: "reviews"; review: LocalPlace | null };
+  | { tab: "reviews"; review: LocalPlace | null }
+  | { tab: "local-guided"; review: LocalPlace | null }
+  | { tab: "pull-guided"; pull: PullPlace | null };
 
 /** Where the reader is in one series: the two versions compared, and what
  *  they picked out of them. */
@@ -109,6 +115,8 @@ export function openLocal(name: string): LocalPlace {
 export function tabPlace(tab: Place["tab"]): Place {
   if (tab === "pulls") return { tab: "pulls", pull: null };
   if (tab === "reviews") return { tab: "reviews", review: null };
+  if (tab === "local-guided") return { tab: "local-guided", review: null };
+  if (tab === "pull-guided") return { tab: "pull-guided", pull: null };
   return { tab };
 }
 ```
@@ -124,24 +132,43 @@ export type Address = Pick<URL, "pathname" | "search" | "hash">;
 export function readPlace(address: Address): Place {
   const [tab, ...rest] = address.pathname.split("/").filter((s) => s !== "");
   if (tab === "settings") return { tab: "settings" };
-  if (tab === "pulls") {
-    const [numberSegment, ...after] = rest;
-    const number = positive(numberSegment);
-    if (number === null) return { tab: "pulls", pull: null };
-    const place = readSeries(after, address, oid);
-    return { tab: "pulls", pull: { number, ...place } };
-  }
+  if (tab === "pulls") return { tab: "pulls", pull: readPull(rest, address) };
   if (tab === "reviews") {
-    const [nameSegment, ...after] = rest;
-    const name = nameSegment === undefined ? null : decoded(nameSegment);
-    if (name === null) return { tab: "reviews", review: null };
-    const place = readSeries(after, address, (value) => {
-      const number = positive(value);
-      return number === null ? null : String(number);
-    });
-    return { tab: "reviews", review: { name, ...place } };
+    return { tab: "reviews", review: readLocal(rest, address) };
+  }
+  // A guided read is the same place as the screen it guides, under /guided.
+  if (tab === "guided") {
+    const [kind, ...after] = rest;
+    if (kind === "pulls") {
+      return { tab: "pull-guided", pull: readPull(after, address) };
+    }
+    if (kind === "reviews") {
+      return { tab: "local-guided", review: readLocal(after, address) };
+    }
   }
   return { tab: "local" };
+}
+
+function readPull(
+  [numberSegment, ...after]: string[],
+  address: Address,
+): PullPlace | null {
+  const number = positive(numberSegment);
+  if (number === null) return null;
+  return { number, ...readSeries(after, address, oid) };
+}
+
+function readLocal(
+  [nameSegment, ...after]: string[],
+  address: Address,
+): LocalPlace | null {
+  const name = nameSegment === undefined ? null : decoded(nameSegment);
+  if (name === null) return null;
+  const place = readSeries(after, address, (value) => {
+    const number = positive(value);
+    return number === null ? null : String(number);
+  });
+  return { name, ...place };
 }
 
 /** A place in one series, from what follows the series in the address.
@@ -206,6 +233,17 @@ export function writePlace(place: Place): string {
     if (place.pull === null) return "/pulls";
     return writeSeries(["pulls", String(place.pull.number)], place.pull);
   }
+  if (place.tab === "pull-guided") {
+    if (place.pull === null) return "/guided/pulls";
+    return writeSeries(
+      ["guided", "pulls", String(place.pull.number)],
+      place.pull,
+    );
+  }
+  if (place.tab === "local-guided") {
+    if (place.review === null) return "/guided/reviews";
+    return writeSeries(["guided", "reviews", place.review.name], place.review);
+  }
   if (place.review === null) return "/reviews";
   return writeSeries(["reviews", place.review.name], place.review);
 }
@@ -232,14 +270,22 @@ function writeSeries(
   return `/${path}${search === "" ? "" : `?${search}`}${hash}`;
 }
 
-/** The href a link to a place on the pull request screen carries. */
-export function pullHref(pull: PullPlace): string {
-  return writePlace({ tab: "pulls", pull });
+/** The href a link to a place on the pull request screen carries, or on
+ *  its guided read. */
+export function pullHref(
+  pull: PullPlace,
+  tab: "pulls" | "pull-guided" = "pulls",
+): string {
+  return writePlace({ tab, pull });
 }
 
-/** The href a link to a place in a local review carries. */
-export function localHref(review: LocalPlace): string {
-  return writePlace({ tab: "reviews", review });
+/** The href a link to a place in a local review carries, or in its guided
+ *  read. */
+export function localHref(
+  review: LocalPlace,
+  tab: "reviews" | "local-guided" = "reviews",
+): string {
+  return writePlace({ tab, review });
 }
 ```
 
@@ -312,7 +358,7 @@ export function useArrivals(): number {
 //| file: src/frontend/model/place.test.ts
 import { describe, expect, test } from "bun:test";
 import { GitOid } from "./history";
-import { type Place, readPlace, writePlace } from "./place";
+import { openPull, type Place, readPlace, writePlace } from "./place";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -465,6 +511,18 @@ describe("writePlace", () => {
         spot: { commit: oid("c"), file: { path: "src/a.ts", line: 9 } },
       },
     },
+    { tab: "local-guided", review: null },
+    { tab: "pull-guided", pull: null },
+    {
+      tab: "local-guided",
+      review: {
+        name: "stack/one",
+        from: { kind: "version", id: "1" },
+        to: "2",
+        spot: { commit: oid("c"), file: { path: "src/a.ts", line: 9 } },
+      },
+    },
+    { tab: "pull-guided", pull: openPull(7) },
   ];
 
   for (const place of places) {

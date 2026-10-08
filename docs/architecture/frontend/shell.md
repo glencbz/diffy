@@ -56,6 +56,7 @@ context: [settings](settings.md#sharing-the-settings), the
 //| id: frontend-app
 //| file: src/frontend/App.tsx
 import type { Place } from "./model/place";
+import { GuidedScreen } from "./screens/GuidedScreen";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
 import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
@@ -90,6 +91,9 @@ function screenAt(place: Place, go: (place: Place) => void) {
       return <LocalHistoryScreen onGo={go} />;
     case "pulls":
       return <PullRequestsScreen place={place.pull} onGo={go} />;
+    case "local-guided":
+    case "pull-guided":
+      return <GuidedScreen place={place} onGo={go} />;
     case "settings":
       return <SettingsScreen onGo={go} />;
   }
@@ -123,17 +127,27 @@ function screenAt(place: Place, go: (place: Place) => void) {
 "Local reviews" comes first, since they hold what is waiting for the reader,
 and the operation screen's tab is "Operations", for what it compares.
 Pressing the open screen's tab does nothing, rather than going to its bare
-[`tabPlace`](address.md#the-place) and losing the reader's place.
+[`tabPlace`](address.md#the-place) and losing the reader's place. Each
+[guided](guide.md#the-guided-view) tab sits beside the screen of the series
+it reads.
 
 ```tsx
 //| id: frontend-view-mode-tabs
 //| file: src/frontend/views/ModeTabs.tsx
-export type Mode = "reviews" | "local" | "pulls" | "settings";
+export type Mode =
+  | "reviews"
+  | "local-guided"
+  | "local"
+  | "pulls"
+  | "pull-guided"
+  | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
   reviews: "Local reviews",
+  "local-guided": "Local guided",
   local: "Operations",
   pulls: "Pull requests",
+  "pull-guided": "Pull guided",
   settings: "Settings",
 };
 

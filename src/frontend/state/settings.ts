@@ -4,6 +4,7 @@ import type {
   DiffLayout,
   DiffMode,
   Display,
+  GuideNotes,
   Settings,
   TextSize,
   WordMarkLimit,
@@ -18,6 +19,7 @@ export interface SettingsHandle {
   setDiffMode: (diffMode: DiffMode) => void;
   setDiffLayout: (diffLayout: DiffLayout) => void;
   setWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
+  setGuideNotes: (guideNotes: GuideNotes) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -54,6 +56,10 @@ export function useSettings(): SettingsHandle {
     (wordMarkLimit: WordMarkLimit) => setDisplay({ wordMarkLimit }),
     [setDisplay],
   );
+  const setGuideNotes = useCallback(
+    (guideNotes: GuideNotes) => setDisplay({ guideNotes }),
+    [setDisplay],
+  );
 
   return {
     settings,
@@ -61,6 +67,7 @@ export function useSettings(): SettingsHandle {
     setDiffMode,
     setDiffLayout,
     setWordMarkLimit,
+    setGuideNotes,
   };
 }
 // ~/~ end

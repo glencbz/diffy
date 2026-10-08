@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-controller-local-reviews>>[init]
 import { useState } from "react";
+import { guideTo } from "../model/guide";
 import { type LocalPlace, localHref, openLocal } from "../model/place";
 import {
   type LocalReview,
@@ -15,16 +16,19 @@ import type { ReviewHandle } from "../state/review";
 import { LocalReviewList } from "../views/LocalReviewList";
 import { Message } from "../views/Message";
 import { CommitLog } from "./CommitLog";
-import { SeriesReview, type SeriesScreen } from "./SeriesReview";
+import { type Guiding, SeriesReview, type SeriesScreen } from "./SeriesReview";
 
 export function LocalReviews({
   place,
   review,
   onGo,
+  guiding = null,
 }: {
   place: LocalPlace | null;
   review: ReviewHandle;
   onGo: (place: LocalPlace | null, visit?: Visit) => void;
+  /** Set on a guided read. */
+  guiding?: Guiding | null;
 }) {
   const [order, setOrder] = useState<LocalReviewOrder>("modified-newest");
 
@@ -87,6 +91,16 @@ export function LocalReviews({
               selected={[]}
             />
           )}
+          guided={
+            guiding === null
+              ? undefined
+              : (local) =>
+                  guideTo(
+                    review.document.guides,
+                    localSeries(local.name),
+                    String(local.versions.length),
+                  ) !== undefined
+          }
         />
       </div>
       <div className="pane pane--main">
@@ -103,6 +117,7 @@ export function LocalReviews({
             place={place}
             review={review}
             onGo={onGo}
+            guiding={guiding}
           />
         )}
       </div>
@@ -115,13 +130,16 @@ function LocalReviewScreen({
   place,
   review,
   onGo,
+  guiding,
 }: {
   local: LocalReview;
   place: LocalPlace;
   review: ReviewHandle;
   onGo: (place: LocalPlace, visit?: Visit) => void;
+  guiding: Guiding | null;
 }) {
   const { name } = local;
+  const tab = guiding === null ? "reviews" : "local-guided";
   const screen: SeriesScreen = {
     source: { kind: "local", review: local },
     series: localSeries(name),
@@ -132,6 +150,14 @@ function LocalReviewScreen({
         <span className="pull-header__meta">
           {local.versions.at(-1)?.revset}
         </span>
+        {guiding !== null && (
+          <a
+            href={localHref({ ...place, name }, "reviews")}
+            className="pull-header__link"
+          >
+            classic view
+          </a>
+        )}
       </header>
     ),
     wholeLabel: "whole review",
@@ -148,7 +174,8 @@ function LocalReviewScreen({
       place={place}
       review={review}
       onGo={(next, visit) => onGo({ ...next, name }, visit)}
-      href={(next) => localHref({ ...next, name })}
+      href={(next) => localHref({ ...next, name }, tab)}
+      guiding={guiding}
     />
   );
 }

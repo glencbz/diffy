@@ -960,6 +960,7 @@ export function GapLine({
   );
 }
 ```
+
 ### Line decor
 
 A layer over the diff, such as a [guide](guide.md), draws on
@@ -969,7 +970,6 @@ for each in the place it already draws lines and their comments, so a layer
 works in either layout and either diff mode without knowing how a line is
 drawn. Each drawn line carries its anchor as `data-anchor`, for a layer that
 places things level with a line.
-
 
 The header path and the gutter share one narrowing of `DiffLinks` to the
 file.

@@ -3356,4 +3356,442 @@
   }
 }
 /* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/guide.md#design-guided>>[init] */
+@layer components {
+  /* An idea's colour, as a line in the gutter and a tint behind its notes. */
+  .idea--blue {
+    --idea: var(--blue-600);
+  }
+
+  .idea--amber {
+    --idea: var(--amber-600);
+  }
+
+  .idea--green {
+    --idea: var(--green-600);
+  }
+
+  .idea--purple {
+    --idea: var(--purple-600);
+  }
+
+  .idea--teal {
+    --idea: var(--teal-600);
+  }
+
+  [class*="idea--"] {
+    --idea-surface: color-mix(in srgb, var(--idea) 10%, transparent);
+  }
+
+  .guided-faint {
+    font-weight: normal;
+    color: var(--text-faint);
+  }
+
+  .guided-added {
+    color: var(--diff-added);
+  }
+
+  .guided-removed {
+    color: var(--diff-removed);
+  }
+
+  .guided-rail__head {
+    margin: var(--space-4) var(--space-2) var(--space-3);
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .guided-rail__head:first-child {
+    margin-top: 0;
+  }
+
+  .guided-file {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .guided-file:hover,
+  .guided-file--on {
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  /* Ellipsis on the left, so the file name stays when the path is long. */
+  .guided-file__path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+  }
+
+  .guided-file__size {
+    font-size: var(--text-size-small);
+  }
+
+  .guided-file--plain .guided-file__path {
+    color: var(--text-muted);
+  }
+
+  .guided-strip {
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 1px;
+    height: 3px;
+  }
+
+  .guided-strip i {
+    min-width: 3px;
+    background: var(--idea);
+    border-radius: 1px;
+  }
+
+  .guided-strip .guided-strip--plain {
+    background: var(--border);
+  }
+
+  .guided-strip .guided-strip--off {
+    opacity: 0.2;
+  }
+
+  .guided-idea {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font: inherit;
+    font-weight: bold;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .guided-idea:hover {
+    background: var(--surface);
+  }
+
+  .guided-idea--on {
+    background: var(--idea-surface);
+    border-color: var(--idea);
+  }
+
+  .guided-idea--off {
+    opacity: 0.45;
+  }
+
+  .guided-dot {
+    display: inline-block;
+    flex: none;
+    width: 0.7em;
+    height: 0.7em;
+    background: var(--idea);
+    border-radius: 50%;
+  }
+
+  /* The rail stands beside the stack in the scrolling pane, as tall as the
+     pane, so it stays in view the whole way down. */
+  .guided-body {
+    display: grid;
+    grid-template-columns: 20em minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .guided-rail {
+    position: sticky;
+    top: 0;
+    max-height: var(--guided-rail-height, 100vh);
+    padding: var(--space-4);
+    overflow: auto;
+    background: var(--surface-sunken);
+    border-right: 1px solid var(--border);
+  }
+
+  .guided-rail__by {
+    margin: 0 var(--space-2) var(--space-3);
+  }
+
+  .guided-main {
+    min-width: 0;
+  }
+
+  .guided-chip {
+    padding: 0 var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--text-inverse);
+    background: var(--accent);
+    border-radius: var(--radius);
+  }
+
+  /* The idea's line runs down the edge of the gutter, faint beside
+     context, solid beside the lines it changes. */
+  .guided-line .diff-line__gutter {
+    box-shadow: 4px 0 color-mix(in srgb, var(--idea) 25%, transparent);
+  }
+
+  .guided-line:is(.diff-line--added, .diff-line--removed) .diff-line__gutter {
+    color: var(--idea);
+    box-shadow: 4px 0 var(--idea);
+  }
+
+  .guided-line--dim {
+    opacity: 0.5;
+  }
+
+  .guided-line--dim .diff-line__gutter {
+    box-shadow: 4px 0 var(--border-subtle);
+  }
+
+  .guided-line--lit {
+    background-image: linear-gradient(var(--idea-surface), var(--idea-surface));
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 760px) {
+    .guided-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .guided-rail {
+      position: static;
+      max-height: 30vh;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/guide.md#design-guided>>[1] */
+@layer components {
+  .guided-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+    padding: 0 var(--space-2) var(--space-3);
+  }
+
+  .guided-switch {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .guided-switch button,
+  .guided-button {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: var(--surface);
+    border: 0;
+  }
+
+  .guided-switch button + button {
+    border-left: 1px solid var(--border);
+  }
+
+  .guided-switch button[aria-pressed="true"] {
+    color: var(--text-inverse);
+    background: var(--text);
+  }
+
+  .guided-button {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: var(--surface);
+    border: 0;
+  }
+
+  .guided-message__notes {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-bottom: var(--space-3);
+  }
+
+  /* A tab sits in the sign column of the row a note is on, in place of the
+     row's + or -. */
+  .guided-tab {
+    min-width: 1.5em;
+    height: 1.35em;
+    padding: 0 var(--space-1);
+    font: inherit;
+    font-size: var(--text-size-small);
+    font-weight: bold;
+    line-height: 1.35em;
+    color: var(--idea);
+    cursor: pointer;
+    background: var(--idea-surface);
+    border: 0;
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--idea) 60%, transparent);
+  }
+
+  .guided-tab:hover,
+  .guided-tab--open {
+    color: var(--text-inverse);
+    background: var(--idea);
+    box-shadow: none;
+  }
+
+  .guided-tab--off {
+    opacity: 0.25;
+  }
+
+  .guided-note {
+    max-width: 60em;
+    padding: var(--space-3) var(--space-4);
+    margin: var(--space-2) var(--space-5) var(--space-3) 10.5em;
+    line-height: var(--text-line-height);
+    white-space: normal;
+    background: var(--surface);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--idea);
+    border-radius: var(--radius);
+  }
+
+  .guided-note--lit {
+    background: var(--idea-surface);
+  }
+
+  .guided-note--off {
+    opacity: 0.35;
+  }
+
+  .guided-note__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+    align-items: center;
+  }
+
+  .guided-note__head .guided-faint {
+    white-space: nowrap;
+  }
+
+  .guided-note__idea {
+    color: var(--idea);
+  }
+
+  .guided-note__hide {
+    padding: 0;
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: none;
+    border: 0;
+  }
+
+  .guided-note__text {
+    margin: var(--space-1) 0 0;
+  }
+
+  .guided-note__grow {
+    flex: 1;
+  }
+
+  .guided-margin {
+    position: relative;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .guided-margin .guided-note {
+    position: absolute;
+    right: var(--space-3);
+    left: var(--space-3);
+    margin: 0;
+    font-size: var(--text-size-small);
+    border-color: transparent;
+    border-left-color: color-mix(in srgb, var(--idea) 50%, transparent);
+  }
+
+  .guided-margin .guided-note--lit {
+    border-left-color: var(--idea);
+  }
+
+  .guided-peek {
+    position: fixed;
+    z-index: 30;
+    padding: var(--space-3) var(--space-4);
+    line-height: var(--text-line-height);
+    pointer-events: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--idea);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 15%);
+  }
+
+  .guided-message {
+    padding: 0 var(--space-4) var(--space-3);
+  }
+
+  .guided-message .guided-note {
+    margin-left: 0;
+  }
+
+  /* An open note sits under its line, past the gutter, and stays put when
+     the patch scrolls sideways, as a line's comments do. */
+  .diff-file__line-note {
+    position: sticky;
+    left: 0;
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+
+  .diff-file__line-note .guided-note {
+    margin-left: calc(var(--gutter-width) + var(--space-4));
+  }
+
+  .diff-file__beside {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 20em;
+  }
+
+  .guided-line .diff-line__sign {
+    display: inline-block;
+    min-width: 1.6em;
+  }
+}
+
+@layer components-narrow {
+  @media (max-width: 1100px) {
+    .diff-file__beside {
+      grid-template-columns: minmax(0, 1fr) 14em;
+    }
+  }
+
+  /* A phone opens notes under their lines, so it has nothing to switch. */
+  @media (max-width: 760px) {
+    .guided-switch {
+      display: none;
+    }
+
+    .diff-file__line-note .guided-note {
+      margin-right: var(--space-2);
+      margin-left: var(--space-2);
+    }
+  }
+}
+/* ~/~ end */
 /* ~/~ end */

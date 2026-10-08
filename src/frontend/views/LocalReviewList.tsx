@@ -23,6 +23,7 @@ export function LocalReviewList({
   onSelect,
   variant,
   commits,
+  guided,
 }: {
   reviews: LocalReview[];
   forgotten: LocalReview[];
@@ -33,6 +34,8 @@ export function LocalReviewList({
   variant: LocalReviewListVariant;
   /** The graph of one version's commits. */
   commits: (version: LocalVersion) => ReactNode;
+  /** Whether a review's newest version has a guide, on a guided read. */
+  guided?: (review: LocalReview) => boolean;
 }) {
   return (
     <div>
@@ -71,6 +74,9 @@ export function LocalReviewList({
                     v{review.versions.length}
                   </span>
                   <span className="pull-list__title">{review.name}</span>
+                  {guided?.(review) && (
+                    <span className="guided-chip">guided</span>
+                  )}
                 </span>
                 {newest !== undefined && (
                   <span className="pull-list__base">{newest.revset}</span>
