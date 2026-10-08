@@ -18,7 +18,7 @@ import {
 } from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
-import { FileRow } from "./FileRow/FileRow";
+import { FileRow, type LineDecor } from "./FileRow/FileRow";
 import { FileSummary } from "./FileSummary";
 
 export function DiffView({
@@ -29,6 +29,7 @@ export function DiffView({
   links,
   reveal,
   display,
+  decor,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
@@ -42,6 +43,8 @@ export function DiffView({
   reveal?: number;
   /** How the reader asked for diffs to be drawn. */
   display: Display;
+  /** What a layer over the diff draws on each file. */
+  decor?: (file: FileDiff) => LineDecor | undefined;
 }) {
   const [composer, setComposer] = useState<Anchor | null>(null);
 
@@ -73,6 +76,7 @@ export function DiffView({
             display={display}
             links={links}
             reveal={reveal}
+            decor={decor?.(file)}
             variant={
               review === undefined
                 ? { kind: "plain-diff" }

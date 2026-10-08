@@ -179,7 +179,7 @@ import {
 } from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
-import { FileRow } from "./FileRow/FileRow";
+import { FileRow, type LineDecor } from "./FileRow/FileRow";
 import { FileSummary } from "./FileSummary";
 
 export function DiffView({
@@ -190,6 +190,7 @@ export function DiffView({
   links,
   reveal,
   display,
+  decor,
 }: {
   files: FileDiff[];
   sources?: SourceLookup;
@@ -203,6 +204,8 @@ export function DiffView({
   reveal?: number;
   /** How the reader asked for diffs to be drawn. */
   display: Display;
+  /** What a layer over the diff draws on each file. */
+  decor?: (file: FileDiff) => LineDecor | undefined;
 }) {
   const [composer, setComposer] = useState<Anchor | null>(null);
 
@@ -234,6 +237,7 @@ export function DiffView({
             display={display}
             links={links}
             reveal={reveal}
+            decor={decor?.(file)}
             variant={
               review === undefined
                 ? { kind: "plain-diff" }
@@ -414,6 +418,8 @@ import { CommentComposer, CommentThreads } from "../../Comments";
 import { CompareWith } from "./CompareWith";
 import { DiffModeSwitch } from "./DiffModeSwitch";
 import {
+  anchorKey,
+  type CodeLine,
   type DrawnLine,
   drawnLines,
   type OpenedGaps,
@@ -425,6 +431,24 @@ import {
 import { GapLine } from "./GapLine";
 import { type FileLinks, fileLinks, follow } from "./links";
 import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
+
+/** What a layer over the diff, such as a [guide](guide.md), draws on one
+ *  file, whatever the file is drawn for. */
+export interface LineDecor {
+  /** After the path in the header. */
+  header: ReactNode;
+  /** The classes a line of the file takes, if any. */
+  lineClass: (line: CodeLine) => string | null;
+  /** What sits in a line's sign column in place of its sign, if anything. */
+  marker: (line: CodeLine) => ReactNode;
+  /** What draws under one line, after its comments. */
+  under: (anchor: LineAnchor) => ReactNode;
+  /** What draws above the lines, given the keys of those drawn, so what
+   *  belongs on a line not drawn still shows. */
+  above: (drawn: ReadonlySet<string>) => ReactNode;
+  /** A column beside the lines, or null for none. */
+  aside: ReactNode;
+}
 
 /** What a file is drawn for: to be read, or to be reviewed. */
 export type FileRowVariant = PlainDiffFileRow | ReviewFileRow;
@@ -465,6 +489,7 @@ export function FileRow({
   variant,
   links: diffLinks,
   reveal,
+  decor,
 }: {
   file: FileDiff;
   anchor: string;
@@ -473,6 +498,7 @@ export function FileRow({
   variant: FileRowVariant;
   links?: DiffLinks;
   reveal?: number;
+  decor?: LineDecor;
 }) {
   const sides = sidesOf(file, sources);
   const links =
@@ -511,7 +537,22 @@ export function FileRow({
     : file.binary
       ? { kind: "binary" }
       : { kind: "text", lines: drawnLines(body, sides, opened) };
-  const parts = partsOf(variant, path, file.patch, links, content, setOpened);
+  const drawnKeys = new Set(
+    content.kind === "text"
+      ? content.lines.flatMap((line) =>
+          "anchor" in line ? [anchorKey(line.anchor)] : [],
+        )
+      : [],
+  );
+  const parts = partsOf(
+    variant,
+    path,
+    file.patch,
+    links,
+    content.kind !== "folded",
+    drawnKeys,
+    setOpened,
+  );
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -539,6 +580,18 @@ export function FileRow({
         side={side}
         action={parts.lineAction}
         selected={links?.selected?.line ?? null}
+        decor={
+          decor === undefined || !("anchor" in line)
+            ? undefined
+            : {
+                className: decor.lineClass(line),
+                // A line in both columns takes its marker in its own side's.
+                marker:
+                  side === undefined || line.anchor.side === side
+                    ? decor.marker(line)
+                    : null,
+              }
+        }
       />
     );
   const cell = (line: DrawnLine | null, key: number, side: Side) =>
@@ -549,11 +602,14 @@ export function FileRow({
     );
   const under = (line: DrawnLine | null, key: string) =>
     line !== null && "anchor" in line ? (
-      <Fragment key={key}>{parts.underLine(line.anchor)}</Fragment>
+      <Fragment key={key}>
+        {parts.underLine(line.anchor)}
+        {decor?.under(line.anchor)}
+      </Fragment>
     ) : null;
 
   return (
-    <section id={anchor} ref={section} className="diff-file">
+    <section id={anchor} ref={section} className="diff-file" data-path={path}>
       <header
         className={
           links?.selected != null && links.selected.line === null
@@ -589,6 +645,7 @@ export function FileRow({
           </a>
         )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
+        {decor?.header}
         {parts.note}
         {content.kind === "text" && (
           <DiffModeSwitch
@@ -604,34 +661,46 @@ export function FileRow({
         {parts.controls}
       </header>
       {parts.aboveBody}
-      {content.kind === "folded" ? null : content.kind === "binary" ? (
-        <p className="diff-file__binary">Binary file, no textual diff.</p>
-      ) : split ? (
-        <pre className="diff-file__patch diff-file__patch--split">
-          {splitRows(content.lines).flatMap((row, index) =>
-            row.kind === "across"
-              ? [drawn(row.line, 2 * index)]
-              : [
-                  cell(row.before, 2 * index, "before"),
-                  cell(row.after, 2 * index + 1, "after"),
-                  under(row.before, `before-${index}`),
-                  row.after === row.before
-                    ? null
-                    : under(row.after, `after-${index}`),
-                ],
-          )}
-        </pre>
+      {content.kind === "text" && decor?.above(drawnKeys)}
+      {content.kind === "text" && decor != null && decor.aside != null ? (
+        <div className="diff-file__beside">
+          {lines()}
+          {decor.aside}
+        </div>
       ) : (
-        <pre className="diff-file__patch">
-          {content.lines.flatMap((line, index) => [
-            drawn(line, index),
-            under(line, `under-${index}`),
-          ])}
-        </pre>
+        lines()
       )}
       {parts.belowBody}
     </section>
   );
+
+  function lines(): ReactNode {
+    return content.kind === "folded" ? null : content.kind === "binary" ? (
+      <p className="diff-file__binary">Binary file, no textual diff.</p>
+    ) : split ? (
+      <pre className="diff-file__patch diff-file__patch--split">
+        {splitRows(content.lines).flatMap((row, index) =>
+          row.kind === "across"
+            ? [drawn(row.line, 2 * index)]
+            : [
+                cell(row.before, 2 * index, "before"),
+                cell(row.after, 2 * index + 1, "after"),
+                under(row.before, `before-${index}`),
+                row.after === row.before
+                  ? null
+                  : under(row.after, `after-${index}`),
+              ],
+        )}
+      </pre>
+    ) : (
+      <pre className="diff-file__patch">
+        {content.lines.flatMap((line, index) => [
+          drawn(line, index),
+          under(line, `under-${index}`),
+        ])}
+      </pre>
+    );
+  }
 }
 
 /** What a file draws under its header. Only text has lines to draw or a
@@ -672,10 +741,11 @@ function partsOf(
   path: string,
   patch: string,
   links: FileLinks | undefined,
-  content: FileContent,
+  open: boolean,
+  /** The keys of the lines drawn. */
+  drawn: ReadonlySet<string>,
   setOpened: (opened: boolean) => void,
 ): VariantParts {
-  const open = content.kind !== "folded";
   switch (variant.kind) {
     case "plain-diff":
       return {
@@ -688,16 +758,9 @@ function partsOf(
         belowBody: null,
       };
     case "review": {
-      const drawn = new Set(
-        content.kind === "text"
-          ? content.lines.flatMap((line) =>
-              "anchor" in line ? [lineKey(line.anchor)] : [],
-            )
-          : [],
-      );
       const placed = (comment: RowComment) => {
         const at = drawnAt(comment, patch);
-        return at !== null && drawn.has(lineKey(at));
+        return at !== null && drawn.has(anchorKey(at));
       };
       const composer =
         variant.composer?.kind === "line" ? variant.composer : null;
@@ -752,11 +815,11 @@ function partsOf(
           />
         ),
         underLine: (anchor) => {
-          const key = lineKey(anchor);
-          const composing = composer !== null && lineKey(composer) === key;
+          const key = anchorKey(anchor);
+          const composing = composer !== null && anchorKey(composer) === key;
           const comments = variant.comments.filter((comment) => {
             const at = drawnAt(comment, patch);
-            return at !== null && lineKey(at) === key;
+            return at !== null && anchorKey(at) === key;
           });
           if (!composing && comments.length === 0) return null;
           return (
@@ -773,7 +836,7 @@ function partsOf(
         belowBody: open && (
           <FileComments
             review={variant}
-            composer={composer !== null && !drawn.has(lineKey(composer))}
+            composer={composer !== null && !drawn.has(anchorKey(composer))}
             comments={variant.comments.filter(
               (comment) => comment.kind === "line" && !placed(comment),
             )}
@@ -783,10 +846,6 @@ function partsOf(
       };
     }
   }
-}
-
-function lineKey({ side, line }: LineAnchor): string {
-  return `${side}:${line}`;
 }
 
 /** The composer, when it is open here, and threads. */
@@ -901,6 +960,16 @@ export function GapLine({
   );
 }
 ```
+### Line decor
+
+A layer over the diff, such as a [guide](guide.md), draws on
+a file through `LineDecor`: classes and a marker on each line, something under
+a line, something above the lines, and a column beside them. `FileRow` asks
+for each in the place it already draws lines and their comments, so a layer
+works in either layout and either diff mode without knowing how a line is
+drawn. Each drawn line carries its anchor as `data-anchor`, for a layer that
+places things level with a line.
+
 
 The header path and the gutter share one narrowing of `DiffLinks` to the
 file.
@@ -1251,6 +1320,14 @@ export type DrawnLine =
       beforeLine: number | null;
     };
 
+/** A line of the file as drawn, which has a place in it. */
+export type CodeLine = Extract<DrawnLine, { anchor: LineAnchor }>;
+
+/** The key a line is found by, in the page and in sets of lines. */
+export function anchorKey({ side, line }: LineAnchor): string {
+  return `${side}:${line}`;
+}
+
 /** Whether a gap runs to the top or the bottom of the file, where only one
  *  of its ends meets a hunk. */
 export type GapEdge = "top" | "bottom" | null;
@@ -1474,9 +1551,16 @@ marks it in reviewed diffs too.
 ```tsx
 //| id: frontend-view-diff-patch-line
 //| file: src/frontend/views/DiffView/FileRow/PatchLine.tsx
+
+import type { ReactNode } from "react";
 import type { LineAnchor } from "../../../model/review";
 import type { PaintedToken } from "../../../model/words";
-import type { CodeKind, DrawnLine, Side } from "./drawnLines";
+import {
+  anchorKey,
+  type CodeKind,
+  type DrawnLine,
+  type Side,
+} from "./drawnLines";
 import { type FileLinks, follow } from "./links";
 
 /** What reaching for a line does. */
@@ -1497,12 +1581,16 @@ export function PatchLine({
   side,
   action,
   selected,
+  decor,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
   side?: Side;
   action: LineAction;
   /** The after-side line the address names, if any. */
   selected: number | null;
+  /** What a layer over the diff adds to the line: classes, and a marker in
+   *  place of its sign. */
+  decor?: { className: string | null; marker: ReactNode };
 }) {
   const anchor =
     "anchor" in line && (side === undefined || line.anchor.side === side)
@@ -1519,7 +1607,9 @@ export function PatchLine({
       </span>
     ) : (
       <span>
-        <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+        <span className="diff-line__sign">
+          {decor?.marker ?? SIGNS[line.kind]}
+        </span>
         {line.tokens.map((token, index) => (
           <span
             // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
@@ -1534,12 +1624,14 @@ export function PatchLine({
   const marked =
     afterLine !== null && selected === afterLine ? " diff-line--selected" : "";
   const column = side === undefined ? "" : ` diff-line--${side}`;
-  const className = `diff-line diff-line--${line.kind}${column}${marked}`;
+  const decorated = decor?.className == null ? "" : ` ${decor.className}`;
+  const className = `diff-line diff-line--${line.kind}${column}${marked}${decorated}`;
+  const at = anchor === null ? undefined : anchorKey(anchor);
 
   switch (action.kind) {
     case "none":
       return (
-        <div className={className}>
+        <div className={className} data-anchor={at}>
           {gutter}
           {text}
         </div>
@@ -1547,7 +1639,7 @@ export function PatchLine({
     case "link": {
       const { links } = action;
       return (
-        <div className={className}>
+        <div className={className} data-anchor={at}>
           {afterLine === null ? (
             gutter
           ) : (
@@ -1568,7 +1660,7 @@ export function PatchLine({
     case "comment": {
       const { onOpenComposer } = action;
       return anchor === null ? (
-        <div className={className}>
+        <div className={className} data-anchor={at}>
           {gutter}
           {text}
         </div>
@@ -1580,6 +1672,7 @@ export function PatchLine({
             onOpenComposer(anchor);
           }}
           className={`${className} diff-line--interactive`}
+          data-anchor={at}
         >
           <button
             type="button"
