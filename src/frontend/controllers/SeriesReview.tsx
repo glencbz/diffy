@@ -2,6 +2,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { AsyncState } from "../model/asyncState";
 import { compareAsks, withCompared } from "../model/compared";
+import { componentsTo } from "../model/components";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
@@ -22,6 +23,7 @@ import {
   versionName,
 } from "../model/series";
 import { useBeforePaths, useCompared } from "../state/compared";
+import { useCounterpart, useOwnDiffs } from "../state/components";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals, type Visit } from "../state/place";
@@ -35,9 +37,12 @@ import {
   CommitStack,
   changeSize,
   countLines,
+  type StackLayer,
   type StackRow,
   type StackRowKind,
 } from "../views/CommitStack";
+import { ComponentsStack } from "../views/Components/ComponentsStack";
+import { ComponentsSwitch } from "../views/ComponentsSwitch";
 import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
@@ -215,7 +220,10 @@ export function SeriesReview({
 }) {
   const { source, series, history } = screen;
   const { versions } = history;
-  const { display } = useSettingsContext().settings;
+  const {
+    settings: { display },
+    setComponents,
+  } = useSettingsContext();
   const marked = reviewedIn(review.document, series);
   const reviewed = lastReviewed(marked, versions);
   const place = opening(asked, reviewed, versions);
@@ -284,6 +292,30 @@ export function SeriesReview({
     stacked.flatMap((row) => compareAsks(reviewOf(row))),
   );
   const beforePaths = useBeforePaths();
+  // A version an agent wrote a component map of reads with it laid over the
+  // stack, unless the reader took it off.
+  const maps = review.status === "ready" ? review.document.componentMaps : [];
+  const toMap = componentsTo(maps, series, to);
+  const fromMap =
+    from.kind === "version" ? componentsTo(maps, series, from.id) : undefined;
+  const componentsOn = toMap !== undefined && display.components === "shown";
+  const counterpartOf = useCounterpart({
+    source,
+    series,
+    versions,
+    to,
+    commits: afterCommits,
+    maps,
+    enabled: componentsOn && from.kind === "base",
+  });
+  const [ownDiffs, wantOwn] = useOwnDiffs({
+    source,
+    from: from.kind === "version" ? from.id : null,
+    to,
+    fromCommits: beforeCommits,
+    toCommits: afterCommits,
+  });
+
   const rows = stacked.map((row): StackRow => {
     if (row.files.status !== "ready") return row;
     const files = withCompared(
@@ -369,6 +401,40 @@ export function SeriesReview({
     };
   };
 
+  const stack = (layer?: StackLayer) => (
+    <CommitStack
+      rows={rows}
+      sources={sources}
+      open={open}
+      onToggle={(key) => setOpen((now) => toggled(now, key))}
+      expanded={expanded}
+      onExpand={(key) => setExpanded((now) => toggled(now, key))}
+      current={currentKey}
+      onInView={(key) => {
+        const row = rows.find((candidate) => candidate.key === key);
+        if (row === undefined) return;
+        onGo(
+          {
+            ...place,
+            to,
+            spot: { commit: row.commit.commitId, file: null },
+          },
+          "replace",
+        );
+      }}
+      reveal={picks + arrivals}
+      links={links}
+      reviewOf={reviewOf}
+      actions={review.status === "ready" ? review.actions : null}
+      beforePaths={beforePaths}
+      display={display}
+      since={
+        from.kind === "version" ? versionName(versions, from.id) : "the base"
+      }
+      layer={layer}
+    />
+  );
+
   const label = (id: string) =>
     `${versionName(versions, id)} · ${id.slice(0, 7)}`;
 
@@ -390,6 +456,12 @@ export function SeriesReview({
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
           />
+          {toMap !== undefined && (
+            <ComponentsSwitch
+              shown={display.components}
+              onChange={setComponents}
+            />
+          )}
           <LastReviewed
             versions={versions}
             reviewed={reviewed}
@@ -440,43 +512,66 @@ export function SeriesReview({
         )
       }
       diff={
-        commitsError !== null ? (
+        // The components layer stays mounted while a new comparison loads,
+        // since it holds the place the reader is switching to.
+        componentsOn && toMap !== undefined ? (
+          <ComponentsStack
+            rows={rows}
+            components={[
+              ...toMap.components,
+              ...(fromMap?.components ?? []),
+              ...versions.flatMap((version) =>
+                version.id === to || version.id === fromMap?.version
+                  ? []
+                  : (componentsTo(maps, series, version.id)?.components ?? []),
+              ),
+            ]}
+            current={currentKey}
+            open={open}
+            onOpenRow={(key) =>
+              setOpen((now) => (now.has(key) ? now : toggled(now, key)))
+            }
+            from={
+              from.kind === "version"
+                ? { id: from.id, name: versionName(versions, from.id) }
+                : null
+            }
+            to={{ id: to, name: versionName(versions, to) }}
+            counterpartOf={counterpartOf}
+            ownDiffs={ownDiffs}
+            onWantOwn={wantOwn}
+            onCompare={(nextFrom, nextTo) =>
+              onGo({
+                ...place,
+                from:
+                  nextFrom === null
+                    ? { kind: "base" }
+                    : { kind: "version", id: nextFrom },
+                to: nextTo,
+                spot: null,
+              })
+            }
+            comments={review.status === "ready" ? review.document.comments : []}
+            split={display.diffLayout === "split"}
+            railSize={sizes["components-rail"] ?? null}
+            onRailResize={(size) => resize("components-rail", size)}
+          >
+            {(layer) =>
+              commitsError !== null ? (
+                <Message tone="error">{commitsError}</Message>
+              ) : commitsLoading ? (
+                <Message>Loading commits...</Message>
+              ) : (
+                stack(layer)
+              )
+            }
+          </ComponentsStack>
+        ) : commitsError !== null ? (
           <Message tone="error">{commitsError}</Message>
         ) : commitsLoading ? (
           <Message>Loading commits...</Message>
         ) : (
-          <CommitStack
-            rows={rows}
-            sources={sources}
-            open={open}
-            onToggle={(key) => setOpen((now) => toggled(now, key))}
-            expanded={expanded}
-            onExpand={(key) => setExpanded((now) => toggled(now, key))}
-            current={currentKey}
-            onInView={(key) => {
-              const row = rows.find((candidate) => candidate.key === key);
-              if (row === undefined) return;
-              onGo(
-                {
-                  ...place,
-                  to,
-                  spot: { commit: row.commit.commitId, file: null },
-                },
-                "replace",
-              );
-            }}
-            reveal={picks + arrivals}
-            links={links}
-            reviewOf={reviewOf}
-            actions={review.status === "ready" ? review.actions : null}
-            beforePaths={beforePaths}
-            display={display}
-            since={
-              from.kind === "version"
-                ? versionName(versions, from.id)
-                : "the base"
-            }
-          />
+          stack()
         )
       }
     />
