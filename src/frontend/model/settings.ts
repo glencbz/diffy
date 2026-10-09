@@ -17,11 +17,17 @@ export const WordMarkLimit = z.union([
 ]);
 export type WordMarkLimit = z.infer<typeof WordMarkLimit>;
 
+/** Whether a series with a [component map](components.md) is read with it
+ *  laid over the diff. */
+export const ComponentsShown = z.enum(["shown", "hidden"]);
+export type ComponentsShown = z.infer<typeof ComponentsShown>;
+
 const DEFAULT_DISPLAY = {
   textSize: "standard",
   diffMode: "structural",
   diffLayout: "unified",
   wordMarkLimit: 0.7,
+  components: "shown",
 } as const;
 
 // Every field added after the first needs a default, or older saved
@@ -31,6 +37,7 @@ export const Display = z.object({
   diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
   diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
   wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
+  components: ComponentsShown.default(DEFAULT_DISPLAY.components),
 });
 export type Display = z.infer<typeof Display>;
 

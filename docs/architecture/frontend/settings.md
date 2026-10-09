@@ -15,7 +15,9 @@ its own switch. Layout (one column or [side by side](diff.md#side-by-side))
 applies to every file at once and is per device, since a phone has less room.
 The word mark limit is the share of a line's words that can change before
 [its marks go](diff.md#changed-words), offered in steps a reader can tell
-apart.
+apart. Whether a [component map](components.md#the-switch) is laid over
+a series is set from the switch in the comparison bar, and kept here so it
+holds on every series.
 
 ```ts
 //| id: frontend-model-settings
@@ -38,11 +40,17 @@ export const WordMarkLimit = z.union([
 ]);
 export type WordMarkLimit = z.infer<typeof WordMarkLimit>;
 
+/** Whether a series with a [component map](components.md) is read with it
+ *  laid over the diff. */
+export const ComponentsShown = z.enum(["shown", "hidden"]);
+export type ComponentsShown = z.infer<typeof ComponentsShown>;
+
 const DEFAULT_DISPLAY = {
   textSize: "standard",
   diffMode: "structural",
   diffLayout: "unified",
   wordMarkLimit: 0.7,
+  components: "shown",
 } as const;
 
 // Every field added after the first needs a default, or older saved
@@ -52,6 +60,7 @@ export const Display = z.object({
   diffMode: DiffMode.default(DEFAULT_DISPLAY.diffMode),
   diffLayout: DiffLayout.default(DEFAULT_DISPLAY.diffLayout),
   wordMarkLimit: WordMarkLimit.default(DEFAULT_DISPLAY.wordMarkLimit),
+  components: ComponentsShown.default(DEFAULT_DISPLAY.components),
 });
 export type Display = z.infer<typeof Display>;
 
@@ -95,6 +104,7 @@ describe("settingsRepository", () => {
         diffMode: "line",
         diffLayout: "split",
         wordMarkLimit: 0.9,
+        components: "shown",
       },
     };
 
@@ -115,6 +125,7 @@ describe("settingsRepository", () => {
         diffMode: "structural",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        components: "shown",
       },
     });
   });
@@ -134,6 +145,7 @@ describe("settingsRepository", () => {
         diffMode: "structural",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        components: "shown",
       },
     });
   });
@@ -153,6 +165,7 @@ describe("settingsRepository", () => {
         diffMode: "line",
         diffLayout: "unified",
         wordMarkLimit: 0.7,
+        components: "shown",
       },
     });
   });
@@ -164,6 +177,7 @@ describe("settingsRepository", () => {
 //| file: src/frontend/state/settings.ts
 import { createContext, useCallback, useContext, useLayoutEffect } from "react";
 import type {
+  ComponentsShown,
   DiffLayout,
   DiffMode,
   Display,
@@ -181,6 +195,7 @@ export interface SettingsHandle {
   setDiffMode: (diffMode: DiffMode) => void;
   setDiffLayout: (diffLayout: DiffLayout) => void;
   setWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
+  setComponents: (components: ComponentsShown) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -218,12 +233,18 @@ export function useSettings(): SettingsHandle {
     [setDisplay],
   );
 
+  const setComponents = useCallback(
+    (components: ComponentsShown) => setDisplay({ components }),
+    [setDisplay],
+  );
+
   return {
     settings,
     setTextSize,
     setDiffMode,
     setDiffLayout,
     setWordMarkLimit,
+    setComponents,
   };
 }
 ```

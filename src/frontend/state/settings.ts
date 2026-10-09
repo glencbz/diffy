@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/settings.md#frontend-state-settings>>[init]
 import { createContext, useCallback, useContext, useLayoutEffect } from "react";
 import type {
+  ComponentsShown,
   DiffLayout,
   DiffMode,
   Display,
@@ -18,6 +19,7 @@ export interface SettingsHandle {
   setDiffMode: (diffMode: DiffMode) => void;
   setDiffLayout: (diffLayout: DiffLayout) => void;
   setWordMarkLimit: (wordMarkLimit: WordMarkLimit) => void;
+  setComponents: (components: ComponentsShown) => void;
 }
 
 export function useSettings(): SettingsHandle {
@@ -55,12 +57,18 @@ export function useSettings(): SettingsHandle {
     [setDisplay],
   );
 
+  const setComponents = useCallback(
+    (components: ComponentsShown) => setDisplay({ components }),
+    [setDisplay],
+  );
+
   return {
     settings,
     setTextSize,
     setDiffMode,
     setDiffLayout,
     setWordMarkLimit,
+    setComponents,
   };
 }
 // ~/~ end
