@@ -92,11 +92,18 @@ the same commits reads too.
 A local review's row is filed by `localRowKey`, under its change id the way
 `reviewKey` files one.
 
+**Component maps** name what each part of a version's changes is;
+[the component map](components.md#the-component-map) says what they hold.
+`write-components` replaces a version's map whole, so an agent rewrites a map
+rather than patching it, and `purge-forgotten` drops a purged review's maps
+with its other series state.
+
 ```ts
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
+import { ComponentMap, withComponents } from "./components";
 import type { InterdiffRow } from "./diff";
 import { followLine, readPatch } from "./patch";
 
@@ -248,6 +255,7 @@ export const ReviewDocument = z.object({
   pairings: z.array(KeptPairing).default([]),
   compared: z.array(ComparedFile).default([]),
   localReviews: z.array(LocalReview).default([]),
+  componentMaps: z.array(ComponentMap).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -260,6 +268,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   pairings: [],
   compared: [],
   localReviews: [],
+  componentMaps: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -271,7 +280,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.keys.length === 0 &&
     document.pairings.length === 0 &&
     document.compared.length === 0 &&
-    document.localReviews.length === 0
+    document.localReviews.length === 0 &&
+    document.componentMaps.length === 0
   );
 }
 
@@ -698,6 +708,7 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("restore-review"), name: z.string() }),
   z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
+  z.object({ kind: z.literal("write-components"), map: ComponentMap }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -901,8 +912,16 @@ export function applyCommand(
           (version) => !purged.has(version.series),
         ),
         pairings: document.pairings.filter((kept) => !purged.has(kept.series)),
+        componentMaps: document.componentMaps.filter(
+          (map) => !purged.has(map.series),
+        ),
       };
     }
+    case "write-components":
+      return {
+        ...document,
+        componentMaps: withComponents(document.componentMaps, command.map),
+      };
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -952,6 +971,16 @@ export function applyCommand(
               reviews,
             ),
           document.localReviews,
+        ),
+        componentMaps: command.document.componentMaps.reduce(
+          (maps, map) =>
+            maps.some(
+              (kept) =>
+                kept.series === map.series && kept.version === map.version,
+            )
+              ? maps
+              : withComponents(maps, map),
+          document.componentMaps,
         ),
       };
   }
