@@ -18,6 +18,8 @@ import { CommentComposer, CommentThreads } from "../../Comments";
 import { CompareWith } from "./CompareWith";
 import { DiffModeSwitch } from "./DiffModeSwitch";
 import {
+  anchorKey,
+  type CodeLine,
   type DrawnLine,
   drawnLines,
   patchBody,
@@ -27,6 +29,30 @@ import {
 } from "./drawnLines";
 import { type FileLinks, fileLinks, follow } from "./links";
 import { EmptyCell, type LineAction, PatchLine } from "./PatchLine";
+
+/** What a layer over the diff, such as [components](components.md), draws on one
+ *  file, whatever the file is drawn for. */
+export interface LineDecor {
+  /** After the path in the header. */
+  header: ReactNode;
+  /** The classes a line of the file takes, if any. */
+  lineClass: (line: CodeLine) => string | null;
+  /** What sits in a line's sign column in place of its sign, if anything. */
+  marker: (line: CodeLine) => ReactNode;
+  /** What draws under one line, after its comments. */
+  under: (anchor: LineAnchor) => ReactNode;
+  /** What draws above the lines, given the keys of those drawn, so what
+   *  belongs on a line not drawn still shows. */
+  above: (drawn: ReadonlySet<string>) => ReactNode;
+  /** A column beside the lines, or null for none. */
+  aside: ReactNode;
+  /** What draws just before a line, given the last added or removed line
+   *  before it in the same column and hunk, so a run of changes can carry a
+   *  heading. Optional: a layer without headings leaves it out. */
+  over?: (line: CodeLine, previous: CodeLine | null) => ReactNode;
+  /** What a token's text draws as, where a layer marks words in the code. */
+  token?: (text: string, line: CodeLine) => ReactNode;
+}
 
 /** What a file is drawn for: to be read, or to be reviewed. */
 export type FileRowVariant = PlainDiffFileRow | ReviewFileRow;
@@ -67,6 +93,7 @@ export function FileRow({
   variant,
   links: diffLinks,
   reveal,
+  decor,
 }: {
   file: FileDiff;
   anchor: string;
@@ -75,6 +102,7 @@ export function FileRow({
   variant: FileRowVariant;
   links?: DiffLinks;
   reveal?: number;
+  decor?: LineDecor;
 }) {
   const sides = sidesOf(file, sources);
   const links =
@@ -112,7 +140,22 @@ export function FileRow({
     : file.binary
       ? { kind: "binary" }
       : { kind: "text", lines: drawnLines(body, sides, shown) };
-  const parts = partsOf(variant, path, file.patch, links, content, setOpened);
+  const drawnKeys = new Set(
+    content.kind === "text"
+      ? content.lines.flatMap((line) =>
+          "anchor" in line ? [anchorKey(line.anchor)] : [],
+        )
+      : [],
+  );
+  const parts = partsOf(
+    variant,
+    path,
+    file.patch,
+    links,
+    content.kind !== "folded",
+    drawnKeys,
+    setOpened,
+  );
 
   const drawn = (line: DrawnLine, key: number, side?: Side) =>
     line.kind === "gap" ? (
@@ -139,6 +182,22 @@ export function FileRow({
         side={side}
         action={parts.lineAction}
         selected={links?.selected?.line ?? null}
+        decor={
+          decor === undefined || !("anchor" in line)
+            ? undefined
+            : {
+                className: decor.lineClass(line),
+                // A line in both columns takes its marker in its own side's.
+                marker:
+                  side === undefined || line.anchor.side === side
+                    ? decor.marker(line)
+                    : null,
+                token:
+                  decor.token === undefined
+                    ? undefined
+                    : (text: string) => decor.token?.(text, line),
+              }
+        }
       />
     );
   const cell = (line: DrawnLine | null, key: number, side: Side) =>
@@ -149,11 +208,14 @@ export function FileRow({
     );
   const under = (line: DrawnLine | null, key: string) =>
     line !== null && "anchor" in line ? (
-      <Fragment key={key}>{parts.underLine(line.anchor)}</Fragment>
+      <Fragment key={key}>
+        {parts.underLine(line.anchor)}
+        {decor?.under(line.anchor)}
+      </Fragment>
     ) : null;
 
   return (
-    <section id={anchor} ref={section} className="diff-file">
+    <section id={anchor} ref={section} className="diff-file" data-path={path}>
       <header
         className={
           links?.selected != null && links.selected.line === null
@@ -189,6 +251,7 @@ export function FileRow({
           </a>
         )}
         {reason !== null && <span className="diff-file__reason">{reason}</span>}
+        {decor?.header}
         {parts.note}
         {content.kind === "text" && (
           <DiffModeSwitch
@@ -204,34 +267,86 @@ export function FileRow({
         {parts.controls}
       </header>
       {parts.aboveBody}
-      {content.kind === "folded" ? null : content.kind === "binary" ? (
-        <p className="diff-file__binary">Binary file, no textual diff.</p>
-      ) : split ? (
-        <pre className="diff-file__patch diff-file__patch--split">
-          {splitRows(content.lines).flatMap((row, index) =>
-            row.kind === "across"
-              ? [drawn(row.line, 2 * index)]
-              : [
-                  cell(row.before, 2 * index, "before"),
-                  cell(row.after, 2 * index + 1, "after"),
-                  under(row.before, `before-${index}`),
-                  row.after === row.before
-                    ? null
-                    : under(row.after, `after-${index}`),
-                ],
-          )}
-        </pre>
+      {content.kind === "text" && decor?.above(drawnKeys)}
+      {content.kind === "text" && decor != null && decor.aside != null ? (
+        <div className="diff-file__beside">
+          {lines()}
+          {decor.aside}
+        </div>
       ) : (
-        <pre className="diff-file__patch">
-          {content.lines.flatMap((line, index) => [
-            drawn(line, index),
-            under(line, `under-${index}`),
-          ])}
-        </pre>
+        lines()
       )}
       {parts.belowBody}
     </section>
   );
+
+  // The last changed line drawn in each column, so a heading knows the run
+  // it starts. A hunk header or a gap ends a run.
+  function overs() {
+    const last: Record<"one" | Side, CodeLine | null> = {
+      one: null,
+      before: null,
+      after: null,
+    };
+    return (line: DrawnLine | null, column: "one" | Side): ReactNode => {
+      if (line === null) return null;
+      if (!("anchor" in line)) {
+        last[column] = null;
+        return null;
+      }
+      const drawnOver = decor?.over?.(line, last[column]) ?? null;
+      if (line.kind !== "context") last[column] = line;
+      return drawnOver;
+    };
+  }
+
+  function lines(): ReactNode {
+    const over = overs();
+    return content.kind === "folded" ? null : content.kind === "binary" ? (
+      <p className="diff-file__binary">Binary file, no textual diff.</p>
+    ) : split ? (
+      <pre className="diff-file__patch diff-file__patch--split">
+        {splitRows(content.lines).flatMap((row, index) => {
+          if (row.kind === "across") {
+            over(row.line, "before");
+            over(row.line, "after");
+            return [drawn(row.line, 2 * index)];
+          }
+          const before = over(row.before, "before");
+          const after =
+            row.after === row.before ? null : over(row.after, "after");
+          return [
+            before === null && after === null ? null : (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering lines
+              <Fragment key={`over-${index}`}>
+                <div className="diff-line diff-line--before diff-line--over">
+                  {before}
+                </div>
+                <div className="diff-line diff-line--after diff-line--over">
+                  {after}
+                </div>
+              </Fragment>
+            ),
+            cell(row.before, 2 * index, "before"),
+            cell(row.after, 2 * index + 1, "after"),
+            under(row.before, `before-${index}`),
+            row.after === row.before
+              ? null
+              : under(row.after, `after-${index}`),
+          ];
+        })}
+      </pre>
+    ) : (
+      <pre className="diff-file__patch">
+        {content.lines.flatMap((line, index) => [
+          // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering lines
+          <Fragment key={`over-${index}`}>{over(line, "one")}</Fragment>,
+          drawn(line, index),
+          under(line, `under-${index}`),
+        ])}
+      </pre>
+    );
+  }
 }
 
 /** What a file draws under its header. Only text has lines to draw or a
@@ -272,10 +387,11 @@ function partsOf(
   path: string,
   patch: string,
   links: FileLinks | undefined,
-  content: FileContent,
+  open: boolean,
+  /** The keys of the lines drawn. */
+  drawn: ReadonlySet<string>,
   setOpened: (opened: boolean) => void,
 ): VariantParts {
-  const open = content.kind !== "folded";
   switch (variant.kind) {
     case "plain-diff":
       return {
@@ -288,16 +404,9 @@ function partsOf(
         belowBody: null,
       };
     case "review": {
-      const drawn = new Set(
-        content.kind === "text"
-          ? content.lines.flatMap((line) =>
-              "anchor" in line ? [lineKey(line.anchor)] : [],
-            )
-          : [],
-      );
       const placed = (comment: RowComment) => {
         const at = drawnAt(comment, patch);
-        return at !== null && drawn.has(lineKey(at));
+        return at !== null && drawn.has(anchorKey(at));
       };
       const composer =
         variant.composer?.kind === "line" ? variant.composer : null;
@@ -352,11 +461,11 @@ function partsOf(
           />
         ),
         underLine: (anchor) => {
-          const key = lineKey(anchor);
-          const composing = composer !== null && lineKey(composer) === key;
+          const key = anchorKey(anchor);
+          const composing = composer !== null && anchorKey(composer) === key;
           const comments = variant.comments.filter((comment) => {
             const at = drawnAt(comment, patch);
-            return at !== null && lineKey(at) === key;
+            return at !== null && anchorKey(at) === key;
           });
           if (!composing && comments.length === 0) return null;
           return (
@@ -373,7 +482,7 @@ function partsOf(
         belowBody: open && (
           <FileComments
             review={variant}
-            composer={composer !== null && !drawn.has(lineKey(composer))}
+            composer={composer !== null && !drawn.has(anchorKey(composer))}
             comments={variant.comments.filter(
               (comment) => comment.kind === "line" && !placed(comment),
             )}
@@ -383,10 +492,6 @@ function partsOf(
       };
     }
   }
-}
-
-function lineKey({ side, line }: LineAnchor): string {
-  return `${side}:${line}`;
 }
 
 /** The composer, when it is open here, and threads. */

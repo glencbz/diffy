@@ -3340,4 +3340,538 @@
   }
 }
 /* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/components.md#design-components>>[init] */
+@layer components {
+  /* A kind takes one of the graph's lane colours, so the dark theme has a
+   * readable one for free. Wiring, refactors and any kind not named here stay
+   * grey: they are the parts a reader most often skims. */
+  [class*="components-kind--"] {
+    --component: var(--text-faint);
+  }
+  .components-kind--schema,
+  .components-kind--field {
+    --component: var(--graph-lane-0);
+  }
+  .components-kind--command {
+    --component: var(--graph-lane-4);
+  }
+  .components-kind--action {
+    --component: var(--graph-lane-1);
+  }
+  .components-kind--view {
+    --component: var(--graph-lane-2);
+  }
+  .components-kind--styles {
+    --component: var(--graph-lane-3);
+  }
+  .components-kind--helper {
+    --component: var(--graph-lane-5);
+  }
+  .components-kind--test {
+    --component: var(--graph-lane-6);
+  }
+
+  .components-switch-mode {
+    display: inline-flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 2px var(--space-3) 2px var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .components-switch-mode:hover {
+    border-color: var(--text-muted);
+  }
+  .components-switch-mode__track {
+    position: relative;
+    width: 24px;
+    height: 13px;
+    border-radius: 7px;
+    background: var(--border);
+  }
+  .components-switch-mode__track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--surface);
+  }
+  .components-switch-mode[aria-checked="true"] .components-switch-mode__track {
+    background: var(--accent);
+  }
+  .components-switch-mode[aria-checked="true"]
+    .components-switch-mode__track::after {
+    left: 13px;
+  }
+
+  .components-body {
+    display: flex;
+    align-items: flex-start;
+  }
+  .components-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .components-body > .splitter {
+    align-self: stretch;
+  }
+  .components-rail {
+    flex: none;
+    position: sticky;
+    top: 0;
+    width: var(--pane-size, 24em);
+    max-height: 100vh;
+    overflow: auto;
+    padding: var(--space-4);
+    background: var(--surface-sunken);
+    border-right: 1px solid var(--border);
+    font-size: var(--text-size-small);
+  }
+  .components-rail__head {
+    margin: var(--space-4) var(--space-2) var(--space-2);
+    font-size: var(--text-size-small);
+    font-weight: normal;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .components-rail__head small {
+    text-transform: none;
+    color: var(--text-faint);
+  }
+  .components-rail__message {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .components-rail__message:hover {
+    border-color: var(--text-muted);
+  }
+  .components-toc {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .components-toc__group {
+    padding: var(--space-2) var(--space-2) 0;
+    color: var(--text-faint);
+  }
+  .components-toc__entry {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    width: 100%;
+    padding: 1px var(--space-2);
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 3px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .components-toc__entry:hover {
+    background: var(--surface-selected);
+  }
+  .components-toc--here > .components-toc__entry {
+    border-left-color: var(--component);
+    background: var(--surface);
+    font-weight: 600;
+  }
+  .components-toc--off > .components-toc__entry {
+    color: var(--text-faint);
+  }
+  .components-toc__name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .components-toc__fate {
+    flex: none;
+    width: 1ch;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-faint);
+  }
+  .components-toc__count {
+    display: inline-flex;
+    gap: 2px;
+    align-items: center;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .components-file {
+    padding: 2px var(--space-2) var(--space-2);
+  }
+  .components-file__path {
+    display: block;
+    overflow: hidden;
+    color: var(--text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .components-file--here .components-file__path {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .components-file__total {
+    float: right;
+    margin-left: var(--space-2);
+    color: var(--text-faint);
+  }
+  .components-file__strip {
+    display: flex;
+    gap: 1px;
+    height: 6px;
+    margin-top: 2px;
+    overflow: hidden;
+    border-radius: 2px;
+  }
+  .components-file__strip button {
+    min-width: 2px;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, var(--component) 65%, var(--surface));
+    cursor: pointer;
+  }
+  /* Hatched, so lines no component owns never read as a grey component. */
+  .components-file__strip .components-file__unowned {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--border-subtle) 0 2px,
+      transparent 2px 4px
+    );
+    outline: 1px solid var(--border-subtle);
+    outline-offset: -1px;
+  }
+  .components-file__strip .components-file--lit {
+    background: var(--component);
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--text) 40%, transparent);
+  }
+
+  /* As quiet as a hunk header: it names a run of lines, it is not one. */
+  .components-heading {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    padding: 1px var(--space-3) 0 calc(var(--space-3) + 2px);
+    border-top: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--component);
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-size-small);
+    white-space: nowrap;
+  }
+  .diff-line--over {
+    padding: 0;
+  }
+  .diff-file__patch--split > .diff-line--over:empty {
+    border-top: 1px solid var(--border-subtle);
+  }
+  .components-heading__kind {
+    color: var(--component);
+  }
+  .components-heading__name {
+    font-weight: 600;
+  }
+  .components-heading--minor .components-heading__name {
+    font-weight: normal;
+    color: var(--text-muted);
+  }
+  .components-heading__about {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-faint);
+    text-overflow: ellipsis;
+  }
+  .components-heading__right {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    margin-left: auto;
+    color: var(--text-faint);
+  }
+  .components-heading__places {
+    display: flex;
+    gap: 2px;
+    align-items: baseline;
+  }
+  .components-chip,
+  .components-fate {
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-faint);
+    font: inherit;
+    white-space: nowrap;
+  }
+  button.components-chip,
+  button.components-fate {
+    cursor: pointer;
+  }
+  button.components-chip:hover,
+  button.components-fate:hover {
+    background: var(--surface-selected);
+    color: var(--text);
+  }
+  .components-fate--changed {
+    color: var(--review-stale);
+  }
+  .components-fate--new {
+    color: var(--diff-added);
+  }
+  .components-fate--removed {
+    color: var(--diff-removed);
+  }
+  /* The ways to another comparison are bordered, so they read as controls
+   * among the heading's words. */
+  .components-switch {
+    display: inline-flex;
+    gap: 1px;
+    align-items: center;
+    padding-left: var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-sunken);
+    color: var(--text-muted);
+  }
+  .components-switch .components-switch__side {
+    padding: 0 var(--space-2);
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .components-fate--switch {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    border: 1px solid color-mix(in srgb, var(--review-stale) 40%, transparent);
+  }
+  .components-icon {
+    width: 1.15em;
+    height: 1.15em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vertical-align: -0.2em;
+  }
+  .components-flash {
+    animation: components-flash 1.4s ease-out;
+  }
+  @keyframes components-flash {
+    from {
+      background: color-mix(in srgb, var(--component) 25%, var(--surface));
+    }
+  }
+
+  .diff-line.components-line {
+    box-shadow: inset 3px 0 0
+      color-mix(in srgb, var(--component) 35%, transparent);
+  }
+  .diff-line.components-line--reading {
+    box-shadow: inset 3px 0 0 var(--component);
+  }
+  /* Words and phrases are links that look like the text they are in. */
+  .components-word,
+  .components-mention {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    text-decoration: underline dotted
+      color-mix(in srgb, var(--component) 80%, transparent);
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .components-mention {
+    text-decoration-thickness: 1.5px;
+  }
+  .components-word:hover,
+  .components-mention:hover {
+    background: color-mix(in srgb, var(--component) 12%, transparent);
+    text-decoration-style: solid;
+  }
+  .components-mention--absent {
+    text-decoration-color: var(--border);
+    cursor: default;
+  }
+
+  .components-peek {
+    position: fixed;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    width: 600px;
+    max-width: calc(100vw - 16px);
+    max-height: 60vh;
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--component);
+    border-radius: 6px;
+    background: var(--surface-raised);
+    box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
+    font-size: var(--text-size-small);
+  }
+  .components-peek__head {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-sunken);
+  }
+  .components-peek__head .components-chip {
+    margin-left: auto;
+  }
+  .components-peek__body {
+    overflow: auto;
+  }
+  .components-peek__foot {
+    padding: var(--space-1) var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-faint);
+  }
+  .components-peek__wait {
+    margin: var(--space-3);
+    color: var(--text-faint);
+  }
+  .components-lines {
+    margin: 0;
+    font-size: var(--text-size-small);
+  }
+  .components-lines__line {
+    display: flex;
+    white-space: pre;
+  }
+  .components-lines__line--added {
+    background: var(--diff-added-surface);
+  }
+  .components-lines__line--removed {
+    background: var(--diff-removed-surface);
+  }
+  .components-lines__number {
+    flex: none;
+    width: 3.5em;
+    padding-right: var(--space-2);
+    color: var(--text-ghost);
+    text-align: right;
+  }
+  .components-lines__sign {
+    flex: none;
+    width: 1.5em;
+    color: var(--text-faint);
+  }
+  .components-lines__gap {
+    padding-left: 7em;
+    color: var(--text-ghost);
+  }
+  .components-thread {
+    margin: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .components-thread__head {
+    padding: 2px var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-faint);
+  }
+  .components-thread__message {
+    padding: var(--space-1) var(--space-3);
+  }
+  .components-thread__other {
+    color: var(--graph-lane-4);
+  }
+
+  /* The way back sits low in the reader's view, in the accent colour, so it
+   * is found without being looked for. */
+  .components-trail {
+    position: fixed;
+    bottom: 8vh;
+    left: 50%;
+    z-index: 40;
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    max-width: calc(100vw - 32px);
+    padding: 12px 14px 12px 24px;
+    border: 2px solid var(--accent);
+    border-radius: 32px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+    box-shadow: 0 4px 18px rgb(0 0 0 / 0.18);
+    font-size: 15px;
+    transform: translateX(-50%);
+  }
+  .components-trail__label {
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .components-trail button {
+    padding: 6px 16px;
+    border: 0;
+    border-radius: 14px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .components-trail button:hover {
+    background: var(--surface-selected);
+  }
+  .components-trail .components-trail--back {
+    background: var(--accent);
+    color: var(--text-inverse);
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/components.md#design-components>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .components-body {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .components-body > .splitter {
+      display: none;
+    }
+    .components-rail {
+      position: static;
+      width: auto;
+      max-height: 30vh;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .components-heading {
+      flex-wrap: wrap;
+      white-space: normal;
+    }
+    .components-heading__right {
+      margin-left: 0;
+    }
+  }
+}
+/* ~/~ end */
 /* ~/~ end */

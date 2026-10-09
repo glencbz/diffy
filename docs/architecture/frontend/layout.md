@@ -990,7 +990,8 @@ export type PaneKey =
   | "local-after"
   | "local-log"
   | "local-combined"
-  | "pull-commits";
+  | "pull-commits"
+  | "components-rail";
 export type Axis = "x" | "y";
 
 /** One entry per resizable pane: which way it grows and how small it may get. */
@@ -1000,6 +1001,7 @@ export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-log": { axis: "x", min: 160 },
   "local-combined": { axis: "x", min: 160 },
   "pull-commits": { axis: "y", min: 48 },
+  "components-rail": { axis: "x", min: 180 },
 };
 
 /** What a drag must always leave the pane that gives way. */
@@ -1011,6 +1013,7 @@ export const PaneSizes = z.object({
   "local-log": z.number().optional(),
   "local-combined": z.number().optional(),
   "pull-commits": z.number().optional(),
+  "components-rail": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;
 
