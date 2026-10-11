@@ -3384,8 +3384,12 @@
     font: inherit;
     cursor: pointer;
   }
-  .components-switch-mode:hover {
+  .components-switch-mode:hover:enabled {
     border-color: var(--text-muted);
+  }
+  .components-switch-mode:disabled {
+    color: var(--text-faint);
+    cursor: default;
   }
   .components-switch-mode__track {
     position: relative;
@@ -3573,8 +3577,17 @@
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--text) 40%, transparent);
   }
 
-  /* As quiet as a hunk header: it names a run of lines, it is not one. */
+  /* As quiet as a hunk header: it names a run of lines, it is not one. It
+   * spans its column whatever it says, so the steps at its right end sit in
+   * the same spot from one heading to the next, and it stays in view while
+   * long lines scroll sideways under it. */
   .components-heading {
+    position: sticky;
+    left: 0;
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
     display: flex;
     gap: var(--space-3);
     align-items: baseline;
@@ -3639,6 +3652,12 @@
     display: flex;
     gap: 2px;
     align-items: baseline;
+    margin-left: auto;
+  }
+  /* Wide enough for "10 of 12", so the arrows keep their place. */
+  .components-heading__count {
+    min-width: 8ch;
+    text-align: center;
   }
   /* A component the page draws once has nowhere to step to. */
   .components-heading__places[hidden] {

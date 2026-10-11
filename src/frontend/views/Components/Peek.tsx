@@ -3,8 +3,10 @@ import type { ReactNode } from "react";
 import type { AsyncState } from "../../model/asyncState";
 import { type Component, placeAt, type RowTrees } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
-import { readPatch } from "../../model/patch";
+import { type HunkLine, readPatch } from "../../model/patch";
 import type { Comment } from "../../model/review";
+import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
+import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
 /** What a peek shows: a component's lines in some diff, or its threads. */
 export type Peeked =
@@ -38,11 +40,13 @@ export type Peeked =
 export function Peek({
   peeked,
   components,
+  sources,
   onLeave,
   onClose,
 }: {
   peeked: Peeked;
   components: Component[];
+  sources: SourceLookup;
   onLeave: () => void;
   onClose: () => void;
 }) {
@@ -80,6 +84,7 @@ export function Peek({
                 trees={peeked.trees}
                 id={peeked.component.id}
                 path={peeked.path}
+                sources={sources}
               />
             ) : (
               <p className="components-peek__wait">
@@ -179,18 +184,21 @@ function Lines({
   trees,
   id,
   path,
+  sources,
 }: {
   components: Component[];
   files: FileDiff[];
   trees: RowTrees;
   id: string;
   path: string;
+  sources: SourceLookup;
 }) {
   const rows: ReactNode[] = [];
   for (const file of files) {
     const before = "path" in file ? file.path : file.oldPath;
     const after = "path" in file ? file.path : file.newPath;
     if (after !== path && before !== path) continue;
+    const sides = sidesOf(file, sources);
     for (const hunk of readPatch(file.patch).hunks) {
       const lines = hunk.lines.filter((line) => line.kind !== "note");
       const inside = lines.map((line) => {
@@ -231,7 +239,19 @@ function Lines({
                   ? "-"
                   : " "}
             </span>
-            <span>{line.code}</span>
+            <span>
+              {tokensOf(sides, line).map((token, index) => (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: a line's tokens never reorder
+                  key={index}
+                  className={
+                    token.kind === null ? undefined : `syntax--${token.kind}`
+                  }
+                >
+                  {token.text}
+                </span>
+              ))}
+            </span>
           </div>,
         );
       }
@@ -242,5 +262,19 @@ function Lines({
   ) : (
     <pre className="components-lines">{rows}</pre>
   );
+}
+
+/** A line's highlighted tokens, from the side it is on, or its code as one
+ *  plain token while that side loads or says something else. */
+function tokensOf(
+  sides: { old: SourceFile | null; new: SourceFile | null },
+  line: Exclude<HunkLine, { kind: "note" }>,
+): SyntaxToken[] {
+  const tokens =
+    line.kind === "removed"
+      ? sides.old?.lines[line.oldLine - 1]
+      : sides.new?.lines[line.newLine - 1];
+  if (tokens?.map((token) => token.text).join("") === line.code) return tokens;
+  return [{ text: line.code, kind: null }];
 }
 // ~/~ end

@@ -1,5 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-series-review>>[init]
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { AsyncState } from "../model/asyncState";
 import { compareAsks, withCompared } from "../model/compared";
 import { componentsTo } from "../model/components";
@@ -339,11 +345,20 @@ export function SeriesReview({
     );
     return { ...row, files: { status: "ready", data: files } };
   });
-  const sources = useSources(
-    rows.flatMap((row) =>
+  // A peek can show a version's file no open row draws, so its sides load
+  // with the rest.
+  const [peekFiles, setPeekFiles] = useState<FileDiff[]>([]);
+  const peekAt = useCallback(
+    (files: FileDiff[]) =>
+      setPeekFiles((now) => (sameFiles(now, files) ? now : files)),
+    [],
+  );
+  const sources = useSources([
+    ...rows.flatMap((row) =>
       open.has(row.key) && row.files.status === "ready" ? row.files.data : [],
     ),
-  );
+    ...peekFiles,
+  ]);
 
   const currentIndex = rows.findIndex(
     (row) => row.commit.commitId === current || row.was?.commitId === current,
@@ -470,12 +485,11 @@ export function SeriesReview({
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
           />
-          {toMap !== undefined && (
-            <ComponentsSwitch
-              shown={display.components}
-              onChange={setComponents}
-            />
-          )}
+          <ComponentsSwitch
+            shown={display.components}
+            disabled={toMap === undefined}
+            onChange={setComponents}
+          />
           <LastReviewed
             versions={versions}
             reviewed={reviewed}
@@ -533,6 +547,8 @@ export function SeriesReview({
           enabled={componentsOn}
           rows={rows}
           components={components}
+          sources={sources}
+          onPeekFiles={peekAt}
           current={currentKey}
           open={open}
           onOpenRow={(key) =>
@@ -579,5 +595,12 @@ export function SeriesReview({
       }
     />
   );
+}
+
+/** Whether two lists name the same files at the same blobs. */
+function sameFiles(a: FileDiff[], b: FileDiff[]): boolean {
+  const key = (files: FileDiff[]) =>
+    files.map((file) => `${file.oldBlob}:${file.newBlob}`).join(" ");
+  return key(a) === key(b);
 }
 // ~/~ end

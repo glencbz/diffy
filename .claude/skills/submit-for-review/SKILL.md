@@ -6,8 +6,8 @@ description: >
   "put this up", "open a PR for this", or finishing a change, which in this
   repo always ends in a PR. Never create a PR without it. Pushes the change,
   opens a pull request if there is not one already, serves this workspace's
-  app and docs on ports of their own, and reports the URLs and the commands
-  that expose them.
+  app and docs on ports of their own, registers it in diffy with its
+  component map, and reports the URLs and the commands that expose them.
 ---
 
 # Submitting work for review
@@ -148,7 +148,33 @@ here; the VM is ephemeral and the ports depend on what else is already serving.
 
 PRs are authored by `exe-dev-github-integration[bot]`, not by the person asking.
 
-## 5. Hand it over
+## 5. Register it in diffy, with its component map
 
-Report the PR URL and both preview URLs in the reply, not only in the PR body.
-They open as they are; there is no `share port` step.
+Glen reads the change in diffy too, so register every version under its
+bookmark with the `diffy` MCP tools, and write the version's component map
+straight after. Do it on follow-up rounds as well; a new version starts
+without a map. Without one, the review shows no Components switch.
+
+1. `register_review` with the bookmark as the name. It answers with the link.
+2. `read_components` on the version before, if there is one, so each
+   component keeps its id and the reader is told what is new, gone or changed.
+3. `write_components` with the whole map of the new version. For each commit,
+   name the pieces of work it does (a schema, a command, a view, the wiring
+   between them), each with:
+   - `kind` in a word and `role`: implements, refactors, wires or tests.
+   - `places`: the runs of changed lines that make it, on the side they are
+     on (removed lines are `before`), with a few words on what each run does.
+     Take the line numbers from `jj diff -r <change> --git`, not from memory.
+   - `words`: the identifiers in the code that mean it.
+   - `mentions`: phrases quoted exactly from the commit's message. The tool
+     refuses one the message does not make.
+
+   The answer lists the changed lines no component claims. Claim the ones
+   that are part of a component; generated or incidental lines can stay out.
+
+If the `diffy` tools are missing, :4000 is down; see `CLAUDE.md`.
+
+## 6. Hand it over
+
+Report the PR URL, both preview URLs and the diffy link in the reply, not only
+in the PR body. They open as they are; there is no `share port` step.
