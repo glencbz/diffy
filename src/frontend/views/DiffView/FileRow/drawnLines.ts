@@ -41,6 +41,14 @@ export type DrawnLine =
       beforeLine: number | null;
     };
 
+/** A line of the file as drawn, which has a place in it. */
+export type CodeLine = Extract<DrawnLine, { anchor: LineAnchor }>;
+
+/** The key a line is found by, in the page and in sets of lines. */
+export function anchorKey({ side, line }: LineAnchor): string {
+  return `${side}:${line}`;
+}
+
 /** Each side of one file, whole, where it has loaded. */
 export interface FileSides {
   old: SourceFile | null;

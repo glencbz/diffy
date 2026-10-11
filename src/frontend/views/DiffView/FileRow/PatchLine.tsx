@@ -1,7 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff-patch-line>>[init]
+
+import type { ReactNode } from "react";
 import type { LineAnchor } from "../../../model/review";
 import type { PaintedToken } from "../../../model/words";
-import type { CodeKind, DrawnLine, Side } from "./drawnLines";
+import {
+  anchorKey,
+  type CodeKind,
+  type DrawnLine,
+  type Side,
+} from "./drawnLines";
 import { type FileLinks, follow } from "./links";
 
 /** What reaching for a line does. */
@@ -22,12 +29,20 @@ export function PatchLine({
   side,
   action,
   selected,
+  decor,
 }: {
   line: Exclude<DrawnLine, { kind: "gap" }>;
   side?: Side;
   action: LineAction;
   /** The after-side line the address names, if any. */
   selected: number | null;
+  /** What a layer over the diff adds to the line: classes, and a marker in
+   *  place of its sign. */
+  decor?: {
+    className: string | null;
+    marker: ReactNode;
+    token?: (text: string) => ReactNode;
+  };
 }) {
   const anchor =
     "anchor" in line && (side === undefined || line.anchor.side === side)
@@ -44,14 +59,16 @@ export function PatchLine({
       </span>
     ) : (
       <span>
-        <span className="diff-line__sign">{SIGNS[line.kind]}</span>
+        <span className="diff-line__sign">
+          {decor?.marker ?? SIGNS[line.kind]}
+        </span>
         {line.tokens.map((token, index) => (
           <span
             // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tokens
             key={index}
             className={tokenClass(token)}
           >
-            {token.text}
+            {decor?.token?.(token.text) ?? token.text}
           </span>
         ))}
       </span>
@@ -59,12 +76,14 @@ export function PatchLine({
   const marked =
     afterLine !== null && selected === afterLine ? " diff-line--selected" : "";
   const column = side === undefined ? "" : ` diff-line--${side}`;
-  const className = `diff-line diff-line--${line.kind}${column}${marked}`;
+  const decorated = decor?.className == null ? "" : ` ${decor.className}`;
+  const className = `diff-line diff-line--${line.kind}${column}${marked}${decorated}`;
+  const at = anchor === null ? undefined : anchorKey(anchor);
 
   switch (action.kind) {
     case "none":
       return (
-        <div className={className}>
+        <div className={className} data-anchor={at}>
           {gutter}
           {text}
         </div>
@@ -72,7 +91,7 @@ export function PatchLine({
     case "link": {
       const { links } = action;
       return (
-        <div className={className}>
+        <div className={className} data-anchor={at}>
           {afterLine === null ? (
             gutter
           ) : (
@@ -93,7 +112,7 @@ export function PatchLine({
     case "comment": {
       const { onOpenComposer } = action;
       return anchor === null ? (
-        <div className={className}>
+        <div className={className} data-anchor={at}>
           {gutter}
           {text}
         </div>
@@ -105,6 +124,7 @@ export function PatchLine({
             onOpenComposer(anchor);
           }}
           className={`${className} diff-line--interactive`}
+          data-anchor={at}
         >
           <button
             type="button"

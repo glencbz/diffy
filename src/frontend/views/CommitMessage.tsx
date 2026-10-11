@@ -1,4 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/commit-message.md#frontend-view-commit-message>>[init]
+import type { ReactNode } from "react";
 /** The opening of a commit body, its first paragraph or its first six
  *  lines, whichever runs shorter. Counts source lines, the ones the author
  *  wrote, not rendered lines. This repo wraps commit bodies at 72 columns,
@@ -131,8 +132,12 @@ export function CommitMessage({
   className,
   isExpanded,
   onExpand,
+  words,
 }: {
   description: string;
+  /** What a run of the message's text draws as, where a layer marks words
+   *  in it. */
+  words?: (text: string) => ReactNode;
   /** The box the caller holds the message in. */
   className: string;
   isExpanded: boolean;
@@ -146,7 +151,7 @@ export function CommitMessage({
     <div className={className}>
       {blocks.map((block, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering message blocks
-        <MessageBlockView key={index} block={block} />
+        <MessageBlockView key={index} block={block} words={words} />
       ))}
       {rest > 0 && (
         <button
@@ -166,16 +171,22 @@ export function CommitMessage({
   );
 }
 
-function MessageBlockView({ block }: { block: MessageBlock }) {
+function MessageBlockView({
+  block,
+  words = (text) => text,
+}: {
+  block: MessageBlock;
+  words?: (text: string) => ReactNode;
+}) {
   if (block.kind === "paragraph") {
-    return <p className="commit-message__paragraph">{block.text}</p>;
+    return <p className="commit-message__paragraph">{words(block.text)}</p>;
   }
   if (block.kind === "bullets") {
     return (
       <ul className="commit-message__bullets">
         {block.items.map((item, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering bullet items
-          <li key={index}>{item}</li>
+          <li key={index}>{words(item)}</li>
         ))}
       </ul>
     );
