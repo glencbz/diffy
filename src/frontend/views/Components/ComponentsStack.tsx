@@ -31,6 +31,7 @@ import {
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import type { Comment } from "../../model/review";
+import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
 import { paneSize, Splitter } from "../Splitter";
@@ -63,6 +64,10 @@ export interface ComponentsStackProps {
   counterparts: Counterparts;
   /** Each commit's own diff, once asked for. */
   ownDiffs: ReadonlyMap<string, AsyncState<FileDiff[]>>;
+  /** Highlighted sides, for a peek's lines. */
+  sources: SourceLookup;
+  /** The files a peek shows, whose sides to highlight. */
+  onPeekFiles: (files: FileDiff[]) => void;
   onWantOwn: (commitId: string) => void;
   /** Opens another comparison, at `commit` when one is named. */
   onCompare: (from: string | null, to: string, commit: string | null) => void;
@@ -567,6 +572,18 @@ export function ComponentsStack(props: ComponentsStackProps) {
             peeked.files,
         }
       : peeked;
+  const peekFiles =
+    shownPeek?.kind === "lines" && shownPeek.files.status === "ready"
+      ? shownPeek.files.data.filter(
+          (file) =>
+            ("path" in file ? file.path : file.newPath) === shownPeek.path ||
+            ("path" in file ? file.path : file.oldPath) === shownPeek.path,
+        )
+      : null;
+  const { onPeekFiles } = props;
+  useEffect(() => {
+    if (peekFiles !== null && peekFiles.length > 0) onPeekFiles(peekFiles);
+  }, [peekFiles, onPeekFiles]);
 
   /** The place a drawn line belongs to, in the trees its row draws. */
   const placeOfLine = (
@@ -1287,6 +1304,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
         <Peek
           peeked={shownPeek}
           components={components}
+          sources={props.sources}
           onLeave={() =>
             setPeeked((now) => (now?.kind === "lines" ? null : now))
           }

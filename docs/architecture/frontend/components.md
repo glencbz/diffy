@@ -674,6 +674,7 @@ import {
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import type { Comment } from "../../model/review";
+import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
 import { paneSize, Splitter } from "../Splitter";
@@ -706,6 +707,10 @@ export interface ComponentsStackProps {
   counterparts: Counterparts;
   /** Each commit's own diff, once asked for. */
   ownDiffs: ReadonlyMap<string, AsyncState<FileDiff[]>>;
+  /** Highlighted sides, for a peek's lines. */
+  sources: SourceLookup;
+  /** The files a peek shows, whose sides to highlight. */
+  onPeekFiles: (files: FileDiff[]) => void;
   onWantOwn: (commitId: string) => void;
   /** Opens another comparison, at `commit` when one is named. */
   onCompare: (from: string | null, to: string, commit: string | null) => void;
@@ -1210,6 +1215,18 @@ export function ComponentsStack(props: ComponentsStackProps) {
             peeked.files,
         }
       : peeked;
+  const peekFiles =
+    shownPeek?.kind === "lines" && shownPeek.files.status === "ready"
+      ? shownPeek.files.data.filter(
+          (file) =>
+            ("path" in file ? file.path : file.newPath) === shownPeek.path ||
+            ("path" in file ? file.path : file.oldPath) === shownPeek.path,
+        )
+      : null;
+  const { onPeekFiles } = props;
+  useEffect(() => {
+    if (peekFiles !== null && peekFiles.length > 0) onPeekFiles(peekFiles);
+  }, [peekFiles, onPeekFiles]);
 
   /** The place a drawn line belongs to, in the trees its row draws. */
   const placeOfLine = (
@@ -1930,6 +1947,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
         <Peek
           peeked={shownPeek}
           components={components}
+          sources={props.sources}
           onLeave={() =>
             setPeeked((now) => (now?.kind === "lines" ? null : now))
           }
@@ -2317,8 +2335,10 @@ import type { ReactNode } from "react";
 import type { AsyncState } from "../../model/asyncState";
 import { type Component, placeAt, type RowTrees } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
-import { readPatch } from "../../model/patch";
+import { type HunkLine, readPatch } from "../../model/patch";
 import type { Comment } from "../../model/review";
+import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
+import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
 /** What a peek shows: a component's lines in some diff, or its threads. */
 export type Peeked =
@@ -2352,11 +2372,13 @@ export type Peeked =
 export function Peek({
   peeked,
   components,
+  sources,
   onLeave,
   onClose,
 }: {
   peeked: Peeked;
   components: Component[];
+  sources: SourceLookup;
   onLeave: () => void;
   onClose: () => void;
 }) {
@@ -2394,6 +2416,7 @@ export function Peek({
                 trees={peeked.trees}
                 id={peeked.component.id}
                 path={peeked.path}
+                sources={sources}
               />
             ) : (
               <p className="components-peek__wait">
@@ -2493,18 +2516,21 @@ function Lines({
   trees,
   id,
   path,
+  sources,
 }: {
   components: Component[];
   files: FileDiff[];
   trees: RowTrees;
   id: string;
   path: string;
+  sources: SourceLookup;
 }) {
   const rows: ReactNode[] = [];
   for (const file of files) {
     const before = "path" in file ? file.path : file.oldPath;
     const after = "path" in file ? file.path : file.newPath;
     if (after !== path && before !== path) continue;
+    const sides = sidesOf(file, sources);
     for (const hunk of readPatch(file.patch).hunks) {
       const lines = hunk.lines.filter((line) => line.kind !== "note");
       const inside = lines.map((line) => {
@@ -2545,7 +2571,19 @@ function Lines({
                   ? "-"
                   : " "}
             </span>
-            <span>{line.code}</span>
+            <span>
+              {tokensOf(sides, line).map((token, index) => (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: a line's tokens never reorder
+                  key={index}
+                  className={
+                    token.kind === null ? undefined : `syntax--${token.kind}`
+                  }
+                >
+                  {token.text}
+                </span>
+              ))}
+            </span>
           </div>,
         );
       }
@@ -2556,6 +2594,20 @@ function Lines({
   ) : (
     <pre className="components-lines">{rows}</pre>
   );
+}
+
+/** A line's highlighted tokens, from the side it is on, or its code as one
+ *  plain token while that side loads or says something else. */
+function tokensOf(
+  sides: { old: SourceFile | null; new: SourceFile | null },
+  line: Exclude<HunkLine, { kind: "note" }>,
+): SyntaxToken[] {
+  const tokens =
+    line.kind === "removed"
+      ? sides.old?.lines[line.oldLine - 1]
+      : sides.new?.lines[line.newLine - 1];
+  if (tokens?.map((token) => token.text).join("") === line.code) return tokens;
+  return [{ text: line.code, kind: null }];
 }
 ```
 
@@ -2904,8 +2956,17 @@ export function ComponentsSwitch({
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--text) 40%, transparent);
   }
 
-  /* As quiet as a hunk header: it names a run of lines, it is not one. */
+  /* As quiet as a hunk header: it names a run of lines, it is not one. It
+   * spans its column whatever it says, so the steps at its right end sit in
+   * the same spot from one heading to the next, and it stays in view while
+   * long lines scroll sideways under it. */
   .components-heading {
+    position: sticky;
+    left: 0;
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
     display: flex;
     gap: var(--space-3);
     align-items: baseline;
@@ -2970,6 +3031,12 @@ export function ComponentsSwitch({
     display: flex;
     gap: 2px;
     align-items: baseline;
+    margin-left: auto;
+  }
+  /* Wide enough for "10 of 12", so the arrows keep their place. */
+  .components-heading__count {
+    min-width: 8ch;
+    text-align: center;
   }
   /* A component the page draws once has nowhere to step to. */
   .components-heading__places[hidden] {
