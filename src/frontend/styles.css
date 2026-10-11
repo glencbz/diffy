@@ -3384,8 +3384,12 @@
     font: inherit;
     cursor: pointer;
   }
-  .components-switch-mode:hover {
+  .components-switch-mode:hover:enabled {
     border-color: var(--text-muted);
+  }
+  .components-switch-mode:disabled {
+    color: var(--text-faint);
+    cursor: default;
   }
   .components-switch-mode__track {
     position: relative;

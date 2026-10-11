@@ -485,12 +485,11 @@ export function SeriesReview({
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
           />
-          {toMap !== undefined && (
-            <ComponentsSwitch
-              shown={display.components}
-              onChange={setComponents}
-            />
-          )}
+          <ComponentsSwitch
+            shown={display.components}
+            disabled={toMap === undefined}
+            onChange={setComponents}
+          />
           <LastReviewed
             versions={versions}
             reviewed={reviewed}
