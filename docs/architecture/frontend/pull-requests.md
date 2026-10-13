@@ -1250,6 +1250,10 @@ export function SeriesReview({
             })
           }
           comments={review.status === "ready" ? review.document.comments : []}
+          reviewOf={reviewOf}
+          onTogglePlaceSeen={
+            review.status === "ready" ? review.actions.togglePlaceSeen : null
+          }
           split={display.diffLayout === "split"}
           railSize={sizes["components-rail"] ?? null}
           onRailResize={(size) => resize("components-rail", size)}

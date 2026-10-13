@@ -3,6 +3,7 @@ import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
+import type { PlaceVersion } from "./review";
 
 /** Lines of one file a commit changes, counted from 1 on `side`, both ends
  *  included. */
@@ -174,19 +175,25 @@ function pathsOf(file: FileDiff): { before: string; after: string } {
     : { before: file.oldPath, after: file.newPath };
 }
 
+interface ChangedLine {
+  ref: PlaceRef | null;
+  kind: "added" | "removed";
+  code: string;
+}
+
 /** The place each changed line of `file` belongs to, in drawn order. */
 function changedPlaces(
   components: Component[],
   trees: RowTrees,
   file: FileDiff,
-): { ref: PlaceRef | null; kind: "added" | "removed" }[] {
+): ChangedLine[] {
   const paths = pathsOf(file);
-  const out: { ref: PlaceRef | null; kind: "added" | "removed" }[] = [];
+  const out: ChangedLine[] = [];
   for (const hunk of readPatch(file.patch).hunks) {
     for (const line of hunk.lines) {
       if (line.kind === "added") {
         const ref = placeAt(components, trees.after, paths.after, line.newLine);
-        out.push({ ref, kind: "added" });
+        out.push({ ref, kind: "added", code: line.code });
       } else if (line.kind === "removed") {
         const ref = placeAt(
           components,
@@ -194,7 +201,7 @@ function changedPlaces(
           paths.before,
           line.oldLine,
         );
-        out.push({ ref, kind: "removed" });
+        out.push({ ref, kind: "removed", code: line.code });
       }
     }
   }
@@ -232,6 +239,39 @@ export function drawnPlaces(
     }
   }
   return out;
+}
+
+/** Whether a line of `b` folds, and is marked seen, with the heading of
+ *  `a`. A commit's own diff folds one place. An interdiff folds the
+ *  component's whole share of the file, since which place of one version
+ *  pairs with which of the other is only loosely known. */
+export function sameFold(trees: RowTrees, a: PlaceRef, b: PlaceRef): boolean {
+  return trees.before?.side === "after"
+    ? a.component.id === b.component.id
+    : placeKey(a) === placeKey(b);
+}
+
+/** What the reader marks seen under the heading of `ref` in `file`: a
+ *  digest of the lines it folds, so a later version that changes them reads
+ *  unseen. */
+export function placeVersion(
+  components: Component[],
+  trees: RowTrees,
+  file: FileDiff,
+  ref: PlaceRef,
+): PlaceVersion {
+  let hash = 0x811c9dc5;
+  for (const line of changedPlaces(components, trees, file)) {
+    if (line.ref === null || !sameFold(trees, ref, line.ref)) continue;
+    for (const char of `${line.kind === "added" ? "+" : "-"}${line.code}\n`) {
+      hash = Math.imul(hash ^ (char.codePointAt(0) ?? 0), 0x01000193);
+    }
+  }
+  return {
+    componentId: ref.component.id,
+    path: pathsOf(file).after,
+    lines: (hash >>> 0).toString(16).padStart(8, "0"),
+  };
 }
 
 /** One component's share of a file's changed lines, or the share no

@@ -3628,6 +3628,31 @@
   .components-heading__kind {
     color: var(--component);
   }
+  .components-heading__fold {
+    flex: none;
+    width: 1.5ch;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  /* A folded run is its heading alone, closed off from the lines below. */
+  .components-heading--folded {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .components-heading__seen {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+    align-self: center;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .components-heading__seen input {
+    margin: 0;
+  }
   .components-heading__name {
     font-weight: 600;
   }

@@ -30,6 +30,7 @@ import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
+import type { PlaceVersion } from "./review";
 
 /** Lines of one file a commit changes, counted from 1 on `side`, both ends
  *  included. */
@@ -218,19 +219,25 @@ function pathsOf(file: FileDiff): { before: string; after: string } {
     : { before: file.oldPath, after: file.newPath };
 }
 
+interface ChangedLine {
+  ref: PlaceRef | null;
+  kind: "added" | "removed";
+  code: string;
+}
+
 /** The place each changed line of `file` belongs to, in drawn order. */
 function changedPlaces(
   components: Component[],
   trees: RowTrees,
   file: FileDiff,
-): { ref: PlaceRef | null; kind: "added" | "removed" }[] {
+): ChangedLine[] {
   const paths = pathsOf(file);
-  const out: { ref: PlaceRef | null; kind: "added" | "removed" }[] = [];
+  const out: ChangedLine[] = [];
   for (const hunk of readPatch(file.patch).hunks) {
     for (const line of hunk.lines) {
       if (line.kind === "added") {
         const ref = placeAt(components, trees.after, paths.after, line.newLine);
-        out.push({ ref, kind: "added" });
+        out.push({ ref, kind: "added", code: line.code });
       } else if (line.kind === "removed") {
         const ref = placeAt(
           components,
@@ -238,7 +245,7 @@ function changedPlaces(
           paths.before,
           line.oldLine,
         );
-        out.push({ ref, kind: "removed" });
+        out.push({ ref, kind: "removed", code: line.code });
       }
     }
   }
@@ -276,6 +283,39 @@ export function drawnPlaces(
     }
   }
   return out;
+}
+
+/** Whether a line of `b` folds, and is marked seen, with the heading of
+ *  `a`. A commit's own diff folds one place. An interdiff folds the
+ *  component's whole share of the file, since which place of one version
+ *  pairs with which of the other is only loosely known. */
+export function sameFold(trees: RowTrees, a: PlaceRef, b: PlaceRef): boolean {
+  return trees.before?.side === "after"
+    ? a.component.id === b.component.id
+    : placeKey(a) === placeKey(b);
+}
+
+/** What the reader marks seen under the heading of `ref` in `file`: a
+ *  digest of the lines it folds, so a later version that changes them reads
+ *  unseen. */
+export function placeVersion(
+  components: Component[],
+  trees: RowTrees,
+  file: FileDiff,
+  ref: PlaceRef,
+): PlaceVersion {
+  let hash = 0x811c9dc5;
+  for (const line of changedPlaces(components, trees, file)) {
+    if (line.ref === null || !sameFold(trees, ref, line.ref)) continue;
+    for (const char of `${line.kind === "added" ? "+" : "-"}${line.code}\n`) {
+      hash = Math.imul(hash ^ (char.codePointAt(0) ?? 0), 0x01000193);
+    }
+  }
+  return {
+    componentId: ref.component.id,
+    path: pathsOf(file).after,
+    lines: (hash >>> 0).toString(16).padStart(8, "0"),
+  };
 }
 
 /** One component's share of a file's changed lines, or the share no
@@ -678,6 +718,12 @@ The commit message takes part: a phrase that describes a component links to
 it, and a heading links back to the phrase, unfolding the message the way the
 reader would, so folding it again works as it always does.
 
+A heading folds its run the way a file's header folds the file. Its Seen box
+is the run's Viewed: it is kept in the [review document](review.md#review-state),
+and a run marked seen starts folded until its lines change. Folds the reader
+makes by hand last only as long as the page. Marking a run seen clears a hand
+fold, so the run folds the way checking Viewed folds a file.
+
 The stack sits inside this view whether the map is on or off, so switching
 it keeps every file's folds and opened gaps. The layer changes only when what
 it draws does: a hover, a peek or the reading line moving draws this view
@@ -713,14 +759,21 @@ import {
   type PlaceRef,
   placeAt,
   placeKey,
+  placeVersion,
   type RowTrees,
   rowTrees,
   runStarts,
+  sameFold,
   sameRun,
   wordAdded,
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
-import type { Comment } from "../../model/review";
+import {
+  type Comment,
+  type ComparisonReview,
+  isPlaceSeen,
+  type PlaceVersion,
+} from "../../model/review";
 import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
@@ -763,6 +816,12 @@ export interface ComponentsStackProps {
   onCompare: (from: string | null, to: string, commit: string | null) => void;
   /** Every comment in the review document. */
   comments: Comment[];
+  /** What the reader has kept on each row. */
+  reviewOf: (row: StackRow) => ComparisonReview;
+  /** Null while there is no review document to mark a place seen in. */
+  onTogglePlaceSeen:
+    | ((row: ComparisonReview, place: PlaceVersion) => void)
+    | null;
   split: boolean;
   /** The rail's width as the reader dragged it, or null for the default. */
   railSize: number | null;
@@ -830,6 +889,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
     to,
     counterparts,
     comments,
+    reviewOf,
+    onTogglePlaceSeen,
     split,
     railSize,
     onRailResize,
@@ -849,6 +910,9 @@ export function ComponentsStack(props: ComponentsStackProps) {
     return () => window.removeEventListener("popstate", forget);
   }, []);
   const [peeked, setPeeked] = useState<Peeked | null>(null);
+  // The headings the reader folded or unfolded, by row, file and place;
+  // the rest start folded when they are marked seen.
+  const [opened, setOpened] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [reading, setReading] = useState<{
     id: string;
     path: string;
@@ -1312,8 +1376,19 @@ export function ComponentsStack(props: ComponentsStackProps) {
     });
   };
 
+  const foldKey = (row: StackRow, path: string, ref: PlaceRef) =>
+    `${row.key}|${path}|${row.was === null ? placeKey(ref) : ref.component.id}`;
+  const seenAt = (row: StackRow, file: FileDiff, ref: PlaceRef) => {
+    const place = placeVersion(components, rowTrees(row), file, ref);
+    return { place, seen: isPlaceSeen(reviewOf(row).seenPlaces, place) };
+  };
+  const isFolded = (row: StackRow, file: FileDiff, ref: PlaceRef) =>
+    opened.get(foldKey(row, "path" in file ? file.path : file.newPath, ref)) ??
+    seenAt(row, file, ref).seen;
+
   const headingParts = (
     row: StackRow,
+    file: FileDiff,
     drawn: DrawnPlace,
     side: "before" | "after",
   ): HeadingParts => {
@@ -1524,6 +1599,36 @@ export function ComponentsStack(props: ComponentsStackProps) {
             },
           }
         : null,
+      fold: {
+        folded: isFolded(row, file, ref),
+        onToggle: () => {
+          const folded = isFolded(row, file, ref);
+          setOpened((now) =>
+            new Map(now).set(foldKey(row, path, ref), !folded),
+          );
+        },
+      },
+      seen:
+        !rest || onTogglePlaceSeen === null
+          ? null
+          : (() => {
+              const { place, seen } = seenAt(row, file, ref);
+              return {
+                seen,
+                // Marking it seen folds it, as marking a file viewed does;
+                // unmarking leaves it as the reader has it.
+                onToggle: () => {
+                  onTogglePlaceSeen(reviewOf(row), place);
+                  if (!seen) {
+                    setOpened((now) => {
+                      const next = new Map(now);
+                      next.delete(foldKey(row, path, ref));
+                      return next;
+                    });
+                  }
+                },
+              };
+            })(),
       onLeave: leave,
     };
   };
@@ -1740,12 +1845,25 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // The layer reads everything through `live`, so it only has to change
   // when what it draws does. A hover or the reading line moving draws this
   // view again, not the diff under it.
-  const live = useRef({ headingParts, placeOfLine, wordsIn, mentionsIn });
-  live.current = { headingParts, placeOfLine, wordsIn, mentionsIn };
+  const live = useRef({
+    headingParts,
+    placeOfLine,
+    isFolded,
+    wordsIn,
+    mentionsIn,
+  });
+  live.current = { headingParts, placeOfLine, isFolded, wordsIn, mentionsIn };
   const fates = rows
     .map(
       (row) =>
         `${row.key}:${counterpartOf(row.commit.commitId)?.files.status ?? "-"}`,
+    )
+    .join(" ");
+  const seenMarks = rows
+    .flatMap((row) =>
+      reviewOf(row).seenPlaces.map(
+        (mark) => `${row.key}|${mark.componentId}|${mark.path}|${mark.lines}`,
+      ),
     )
     .join(" ");
   // biome-ignore lint/correctness/useExhaustiveDependencies: what the layer draws from; the rest it reads through `live`
@@ -1759,6 +1877,17 @@ export function ComponentsStack(props: ComponentsStackProps) {
         const trees = rowTrees(row);
         return (file) => {
           const path = "path" in file ? file.path : file.newPath;
+          // Each place's fold, worked out once per drawing of the file.
+          const folds = new Map<string, boolean>();
+          const foldedAt = (ref: PlaceRef) => {
+            const key = placeKey(ref);
+            let folded = folds.get(key);
+            if (folded === undefined) {
+              folded = live.current.isFolded(row, file, ref);
+              folds.set(key, folded);
+            }
+            return folded;
+          };
           return {
             header: null,
             lineClass: (line) => {
@@ -1789,8 +1918,24 @@ export function ComponentsStack(props: ComponentsStackProps) {
               if (drawn === undefined) return null;
               return (
                 <Heading
-                  {...live.current.headingParts(row, drawn, line.anchor.side)}
+                  {...live.current.headingParts(
+                    row,
+                    file,
+                    drawn,
+                    line.anchor.side,
+                  )}
                 />
+              );
+            },
+            folded: (line) => {
+              if (line.kind === "context") return false;
+              const ref = live.current.placeOfLine(trees, file, line);
+              if (ref === null) return false;
+              return places.some(
+                (each) =>
+                  each.path === path &&
+                  sameFold(trees, each.ref, ref) &&
+                  foldedAt(each.ref),
               );
             },
             token: (text, line) =>
@@ -1799,7 +1944,17 @@ export function ComponentsStack(props: ComponentsStackProps) {
         };
       },
     }),
-    [placesOf, components, split, from?.id, to.id, comments, fates],
+    [
+      placesOf,
+      components,
+      split,
+      from?.id,
+      to.id,
+      comments,
+      fates,
+      opened,
+      seenMarks,
+    ],
   );
   const stack = useMemo(
     () => children(enabled ? layer : undefined),
@@ -2093,6 +2248,11 @@ export interface HeadingParts {
   /** Steps through the component's places. The page numbers them from the
    *  headings it draws, which the structural view and folds change. */
   places: { onStep: (by: 1 | -1) => void } | null;
+  /** Folds the lines under the heading, as a file's chevron folds the file. */
+  fold: { folded: boolean; onToggle: () => void };
+  /** Null where there is no review document to mark it in, or, side by
+   *  side, on the before column's heading. */
+  seen: { seen: boolean; onToggle: () => void } | null;
   onLeave: () => void;
 }
 
@@ -2106,6 +2266,8 @@ export function Heading({
   message,
   threads,
   places,
+  fold,
+  seen,
   onLeave,
 }: HeadingParts) {
   const { component, place } = at;
@@ -2126,11 +2288,20 @@ export function Heading({
   );
   return (
     <div
-      className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}`}
+      className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}${fold.folded ? " components-heading--folded" : ""}`}
       data-components-key={`${component.commitId}:${component.id}/${place}`}
       data-components-id={component.id}
       data-path={path}
     >
+      <button
+        type="button"
+        className="components-heading__fold"
+        aria-expanded={!fold.folded}
+        aria-label={fold.folded ? "unfold" : "fold"}
+        onClick={fold.onToggle}
+      >
+        {fold.folded ? "▸" : "▾"}
+      </button>
       <span className="components-heading__kind">{component.kind}</span>
       <span className="components-heading__name">{component.name}</span>
       <span className="components-heading__about">
@@ -2216,6 +2387,16 @@ export function Heading({
               ›
             </button>
           </span>
+        )}
+        {seen !== null && (
+          <label className="components-heading__seen">
+            <input
+              type="checkbox"
+              checked={seen.seen}
+              onChange={seen.onToggle}
+            />
+            Seen
+          </label>
         )}
       </span>
     </div>
@@ -3107,6 +3288,31 @@ export function ComponentsSwitch({
   }
   .components-heading__kind {
     color: var(--component);
+  }
+  .components-heading__fold {
+    flex: none;
+    width: 1.5ch;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  /* A folded run is its heading alone, closed off from the lines below. */
+  .components-heading--folded {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .components-heading__seen {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+    align-self: center;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .components-heading__seen input {
+    margin: 0;
   }
   .components-heading__name {
     font-weight: 600;
