@@ -15,6 +15,7 @@ import {
   commentOn,
   EMPTY_REVIEW,
   keepKey,
+  markPlaceSeen,
   markSeen,
   markViewed,
   type ReviewActions,
@@ -157,6 +158,8 @@ export function useReview(): ReviewHandle {
       dropReply: (commentId, replyId) =>
         send({ kind: "delete-reply", commentId, replyId }),
       toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
+      togglePlaceSeen: (row, place) =>
+        write(row, markPlaceSeen(row, place, now())),
       compare: (row, newPath, oldPath) =>
         write(row, {
           kind: "set-compared",
