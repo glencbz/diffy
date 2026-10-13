@@ -372,6 +372,46 @@ export function mentionedIn(description: string, component: Component) {
   );
 }
 
+/** An added line of a row's diff, in the place it belongs to. */
+export interface AddedLine {
+  ref: PlaceRef;
+  path: string;
+  /** Counted on the after side. */
+  line: number;
+}
+
+/** The added line of component `id` that brings `word` in: the first that
+ *  declares it, or else the first that names it, and whether it declares. A
+ *  component's first place is often an import, which names it too. */
+export function wordAdded(
+  word: string,
+  id: string,
+  components: Component[],
+  trees: RowTrees,
+  files: FileDiff[],
+): { at: AddedLine; declares: boolean } | null {
+  const name = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const named = new RegExp(`(?<![\\w-])${name}(?![\\w-])`);
+  const declared = new RegExp(
+    `\\b(?:function|class|interface|type|enum|const|let|var|def|fn|struct)\\s+${name}(?![\\w-])|^\\s*(?:readonly\\s+)?${name}\\??\\s*:`,
+  );
+  let first: AddedLine | null = null;
+  for (const file of files) {
+    const path = pathsOf(file).after;
+    for (const hunk of readPatch(file.patch).hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind !== "added" || !named.test(line.code)) continue;
+        const ref = placeAt(components, trees.after, path, line.newLine);
+        if (ref?.component.id !== id) continue;
+        const at = { ref, path, line: line.newLine };
+        if (declared.test(line.code)) return { at, declares: true };
+        first ??= at;
+      }
+    }
+  }
+  return first === null ? null : { at: first, declares: false };
+}
+
 /** A version as the comparison picker names it: `v2`. */
 export interface NamedVersion {
   id: string;

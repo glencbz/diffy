@@ -10,6 +10,7 @@ import {
 import type { AsyncState } from "../../model/asyncState";
 import { fileAnchor } from "../../model/changedFiles";
 import {
+  type AddedLine,
   type Component,
   type Counterparts,
   counterpartFate,
@@ -28,6 +29,7 @@ import {
   rowTrees,
   runStarts,
   sameRun,
+  wordAdded,
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import type { Comment } from "../../model/review";
@@ -909,8 +911,36 @@ export function ComponentsStack(props: ComponentsStackProps) {
       );
     };
   };
-  const peekFirst = (target: HTMLElement, component: Component) => {
-    const found = firstPlace(component.id);
+  /** Where the rows add a name of component `id`: a line declaring it in
+   *  any row comes before a line that only names it. */
+  const wordAt = (id: string, word: string) => {
+    let named: { row: StackRow; at: AddedLine } | null = null;
+    for (const row of rows) {
+      if (row.files.status !== "ready" || row.kind === "dropped") continue;
+      const found = wordAdded(
+        word,
+        id,
+        components,
+        rowTrees(row),
+        row.files.data,
+      );
+      if (found?.declares) return { row, at: found.at };
+      if (found !== null) named ??= { row, at: found.at };
+    }
+    return named;
+  };
+  /** Peeks at a component where a name of it is added, or at its first
+   *  place. */
+  const peekFirst = (
+    target: HTMLElement,
+    component: Component,
+    word: string | null,
+  ) => {
+    const added = word === null ? null : wordAt(component.id, word);
+    const found =
+      added === null
+        ? firstPlace(component.id)
+        : { row: added.row, drawn: { path: added.at.path } };
     if (found === null) return;
     peekLines(
       target,
@@ -930,6 +960,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     key: number,
     className: string,
     onGo: () => void,
+    word: string | null,
     data: Record<string, string | number> = {},
   ) => (
     <a
@@ -937,7 +968,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       href={`#components-${ident(component.id)}`}
       className={`${className} components-kind--${component.kind}`}
       {...data}
-      onMouseEnter={(event) => peekFirst(event.currentTarget, component)}
+      onMouseEnter={(event) => peekFirst(event.currentTarget, component, word)}
       onMouseLeave={leave}
       onClick={(event) => {
         event.preventDefault();
@@ -972,8 +1003,19 @@ export function ComponentsStack(props: ComponentsStackProps) {
           if (at !== null) {
             remember(at, "path" in file ? file.path : file.newPath);
           } else rememberHere();
-          go();
+          const added = wordAt(component.id, run.text);
+          if (added === null) {
+            go();
+            return;
+          }
+          // The line, by its file in its row. The place's key opens the row
+          // and unfolds the file on the way, as for a heading.
+          goTo({
+            ...toPlace(added.at.ref, added.at.path),
+            selector: `#${CSS.escape(fileAnchor(added.row.commit.commitId, added.at.path))} [data-anchor="after:${added.at.line}"]`,
+          });
         },
+        run.text,
         // Names in code are many; tabbing goes through the diff's own
         // stops, and the rail reaches every component.
         { tabIndex: -1 },
@@ -997,6 +1039,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
           rememberMessage(row, component.id);
           go();
         },
+        null,
         {
           "data-components-message": row.key,
           "data-components-mention": component.id,
