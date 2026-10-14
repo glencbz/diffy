@@ -27,6 +27,8 @@ export interface HeadingParts {
   move: { text: string; title: string; onGo: () => void } | null;
   message: (() => void) | null;
   threads: { count: number; onOpen: (target: HTMLElement) => void } | null;
+  /** The lines of the diff that name the component from elsewhere. */
+  uses: { count: number; onOpen: (target: HTMLElement) => void } | null;
   /** Steps through the component's places. The page numbers them from the
    *  headings it draws, which the structural view and folds change. */
   places: { onStep: (by: 1 | -1) => void } | null;
@@ -47,6 +49,7 @@ export function Heading({
   move,
   message,
   threads,
+  uses,
   places,
   fold,
   seen,
@@ -147,6 +150,16 @@ export function Heading({
             onClick={(event) => threads.onOpen(event.currentTarget)}
           >
             <CommentIcon /> {threads.count}
+          </button>
+        )}
+        {uses !== null && (
+          <button
+            type="button"
+            className="components-chip"
+            title="the lines of this diff that use it"
+            onClick={(event) => uses.onOpen(event.currentTarget)}
+          >
+            ← {uses.count} {uses.count === 1 ? "use" : "uses"}
           </button>
         )}
         {places !== null && (

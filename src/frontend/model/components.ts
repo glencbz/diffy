@@ -452,6 +452,70 @@ export function wordAdded(
   return first === null ? null : { at: first, declares: false };
 }
 
+/** A line of a row's diff that names a component it is not part of. */
+export interface Reference {
+  /** The component the line names. */
+  to: Component;
+  word: string;
+  path: string;
+  /** Counted on the after side. */
+  line: number;
+  code: string;
+  /** Whether the row adds the line, or only shows it as context. */
+  added: boolean;
+  /** The place the line belongs to, or null for code no component owns. */
+  from: PlaceRef | null;
+}
+
+/** Every line of `files` that names a component outside that component's
+ *  own places, in the order the diff draws them. Where two versions' maps
+ *  give a name, the row's own commit's component takes it. */
+export function referencesIn(
+  components: Component[],
+  trees: RowTrees,
+  files: FileDiff[],
+): Reference[] {
+  const words = new Map<string, Component>();
+  for (const each of components) {
+    for (const word of each.words) {
+      if (!words.has(word) || each.commitId === trees.after.commitId) {
+        words.set(word, each);
+      }
+    }
+  }
+  const out: Reference[] = [];
+  for (const file of files) {
+    const path = pathsOf(file).after;
+    for (const hunk of readPatch(file.patch).hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind !== "added" && line.kind !== "context") continue;
+        const from =
+          line.kind === "added"
+            ? placeAt(components, trees.after, path, line.newLine)
+            : null;
+        const seen = new Set<string>();
+        for (const run of marked(line.code, words, true)) {
+          const to = run.mark;
+          if (to === null || seen.has(to.id) || from?.component.id === to.id) {
+            continue;
+          }
+          seen.add(to.id);
+          out.push({
+            to,
+            word: run.text,
+            path,
+            line: line.newLine,
+            code: line.code,
+            added: line.kind === "added",
+            from,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** A version as the comparison picker names it: `v2`. */
 export interface NamedVersion {
   id: string;

@@ -496,6 +496,70 @@ export function wordAdded(
   return first === null ? null : { at: first, declares: false };
 }
 
+/** A line of a row's diff that names a component it is not part of. */
+export interface Reference {
+  /** The component the line names. */
+  to: Component;
+  word: string;
+  path: string;
+  /** Counted on the after side. */
+  line: number;
+  code: string;
+  /** Whether the row adds the line, or only shows it as context. */
+  added: boolean;
+  /** The place the line belongs to, or null for code no component owns. */
+  from: PlaceRef | null;
+}
+
+/** Every line of `files` that names a component outside that component's
+ *  own places, in the order the diff draws them. Where two versions' maps
+ *  give a name, the row's own commit's component takes it. */
+export function referencesIn(
+  components: Component[],
+  trees: RowTrees,
+  files: FileDiff[],
+): Reference[] {
+  const words = new Map<string, Component>();
+  for (const each of components) {
+    for (const word of each.words) {
+      if (!words.has(word) || each.commitId === trees.after.commitId) {
+        words.set(word, each);
+      }
+    }
+  }
+  const out: Reference[] = [];
+  for (const file of files) {
+    const path = pathsOf(file).after;
+    for (const hunk of readPatch(file.patch).hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind !== "added" && line.kind !== "context") continue;
+        const from =
+          line.kind === "added"
+            ? placeAt(components, trees.after, path, line.newLine)
+            : null;
+        const seen = new Set<string>();
+        for (const run of marked(line.code, words, true)) {
+          const to = run.mark;
+          if (to === null || seen.has(to.id) || from?.component.id === to.id) {
+            continue;
+          }
+          seen.add(to.id);
+          out.push({
+            to,
+            word: run.text,
+            path,
+            line: line.newLine,
+            code: line.code,
+            added: line.kind === "added",
+            from,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** A version as the comparison picker names it: `v2`. */
 export interface NamedVersion {
   id: string;
@@ -714,6 +778,14 @@ declares it, or else the first that names it, rather than to the
 component's first place, which is often an import of the name and so not
 what the reader pointed at.
 
+A component's first heading counts its uses: the lines of the rows on screen,
+added or context, that name it outside its own places. The count opens a
+list of them grouped by the component each sits in, and of the components it
+uses in turn, and lights those lines while the list is open. Uses come from
+the same names the links do, matched in the diff, rather than from a search
+of the repository: a review is about the lines the change draws, and callers
+it leaves untouched would need a server-side search to find.
+
 The commit message takes part: a phrase that describes a component links to
 it, and a heading links back to the phrase, unfolding the message the way the
 reader would, so folding it again works as it always does.
@@ -760,7 +832,9 @@ import {
   placeAt,
   placeKey,
   placeVersion,
+  type Reference,
   type RowTrees,
+  referencesIn,
   rowTrees,
   runStarts,
   sameFold,
@@ -928,6 +1002,45 @@ export function ComponentsStack(props: ComponentsStackProps) {
   }, [rows, components]);
   const commitsOf = (commitId: string) =>
     components.filter((each) => each.commitId === commitId);
+
+  /** Every line the rows draw that names a component from elsewhere. */
+  const references = useMemo(() => {
+    const out: { row: StackRow; ref: Reference }[] = [];
+    for (const row of rows) {
+      if (row.files.status !== "ready" || row.kind === "dropped") continue;
+      for (const ref of referencesIn(
+        components,
+        rowTrees(row),
+        row.files.data,
+      )) {
+        out.push({ row, ref });
+      }
+    }
+    return out;
+  }, [rows, components]);
+  /** Each row's using lines, by `path:line`, to the ids they name. */
+  const usingLines = useMemo(() => {
+    const out = new Map<string, Map<string, string[]>>();
+    for (const { row, ref } of references) {
+      const lines = out.get(row.key) ?? new Map<string, string[]>();
+      const key = `${ref.path}:${ref.line}`;
+      lines.set(key, [...(lines.get(key) ?? []), ref.to.id]);
+      out.set(row.key, lines);
+    }
+    return out;
+  }, [references]);
+  const usedBy = (id: string) =>
+    references.flatMap((each) => (each.ref.to.id === id ? [each.ref] : []));
+  const usesOf = (id: string) => {
+    const counts = new Map<string, { component: Component; count: number }>();
+    for (const { ref } of references) {
+      if (ref.from?.component.id !== id) continue;
+      const had = counts.get(ref.to.id) ?? { component: ref.to, count: 0 };
+      had.count++;
+      counts.set(ref.to.id, had);
+    }
+    return [...counts.values()];
+  };
 
   const versionOf = (commitId: string) => {
     for (const row of rows) {
@@ -1571,6 +1684,46 @@ export function ComponentsStack(props: ComponentsStackProps) {
               },
             }
           : null,
+      uses:
+        rest && first && usedBy(component.id).length > 0
+          ? {
+              count: usedBy(component.id).length,
+              onOpen: (target) => {
+                const box = target.getBoundingClientRect();
+                setPeeked({
+                  kind: "uses",
+                  component,
+                  used: usedBy(component.id),
+                  uses: usesOf(component.id),
+                  onGo: (used) => {
+                    const at = references.find((each) => each.ref === used);
+                    if (at === undefined) return;
+                    remember(ref, path);
+                    // The line, by its file in its row; the place it sits
+                    // in opens the row and unfolds the file on the way.
+                    goTo({
+                      key: used.from === null ? null : placeKey(used.from),
+                      id: used.from?.component.id ?? "",
+                      path: used.path,
+                      selector: `#${CSS.escape(fileAnchor(at.row.commit.commitId, used.path))} [data-anchor="after:${used.line}"]`,
+                    });
+                  },
+                  reach: (other) => {
+                    const go = reach(other.id);
+                    return go === null
+                      ? null
+                      : () => {
+                          remember(ref, path);
+                          go();
+                        };
+                  },
+                  x: box.left,
+                  y: box.bottom + 6,
+                  above: box.top - 6,
+                });
+              },
+            }
+          : null,
       places: rest
         ? {
             onStep: (by) => {
@@ -1811,7 +1964,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
         run.text,
         // Names in code are many; tabbing goes through the diff's own
         // stops, and the rail reaches every component.
-        { tabIndex: -1 },
+        { tabIndex: -1, "data-components-word": component.id },
       );
     });
   };
@@ -1891,10 +2044,28 @@ export function ComponentsStack(props: ComponentsStackProps) {
           return {
             header: null,
             lineClass: (line) => {
-              if (line.kind === "context") return null;
-              const ref = live.current.placeOfLine(trees, file, line);
-              if (ref === null) return null;
-              return `components-line components-kind--${ref.component.kind} components-of--${ident(ref.component.id)}`;
+              // A line that uses a component is marked with it, so an open
+              // list of its uses can light them with one rule.
+              const using = (
+                (line.anchor.side === "after" &&
+                  usingLines
+                    .get(row.key)
+                    ?.get(`${path}:${line.anchor.line}`)) ||
+                []
+              ).map((id) => `components-using--${ident(id)}`);
+              const ref =
+                line.kind === "context"
+                  ? null
+                  : live.current.placeOfLine(trees, file, line);
+              const own =
+                ref === null
+                  ? []
+                  : [
+                      "components-line",
+                      `components-kind--${ref.component.kind}`,
+                      `components-of--${ident(ref.component.id)}`,
+                    ];
+              return [...own, ...using].join(" ") || null;
             },
             marker: () => null,
             under: () => null,
@@ -1954,6 +2125,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       fates,
       opened,
       seenMarks,
+      usingLines,
     ],
   );
   const stack = useMemo(
@@ -2091,6 +2263,10 @@ export function ComponentsStack(props: ComponentsStackProps) {
           // The place being read takes a solid bar. A rule rather than a
           // class on its lines, so moving it never draws the diff again.
           <style>{`.diff-file[data-path="${CSS.escape(reading.path)}"] .components-of--${ident(reading.id)} { box-shadow: inset 3px 0 0 var(--component); }`}</style>
+        )}
+        {enabled && peeked?.kind === "uses" && (
+          // While its list is open, the lines that use a component are lit.
+          <style>{`.components-using--${ident(peeked.component.id)} { background-image: linear-gradient(to left, var(--accent) 4px, transparent 4px); } .components-using--${ident(peeked.component.id)} [data-components-word="${CSS.escape(peeked.component.id)}"] { background: color-mix(in srgb, var(--component) 22%, transparent); text-decoration-style: solid; }`}</style>
         )}
         {enabled && (
           <aside
@@ -2245,6 +2421,8 @@ export interface HeadingParts {
   move: { text: string; title: string; onGo: () => void } | null;
   message: (() => void) | null;
   threads: { count: number; onOpen: (target: HTMLElement) => void } | null;
+  /** The lines of the diff that name the component from elsewhere. */
+  uses: { count: number; onOpen: (target: HTMLElement) => void } | null;
   /** Steps through the component's places. The page numbers them from the
    *  headings it draws, which the structural view and folds change. */
   places: { onStep: (by: 1 | -1) => void } | null;
@@ -2265,6 +2443,7 @@ export function Heading({
   move,
   message,
   threads,
+  uses,
   places,
   fold,
   seen,
@@ -2365,6 +2544,16 @@ export function Heading({
             onClick={(event) => threads.onOpen(event.currentTarget)}
           >
             <CommentIcon /> {threads.count}
+          </button>
+        )}
+        {uses !== null && (
+          <button
+            type="button"
+            className="components-chip"
+            title="the lines of this diff that use it"
+            onClick={(event) => uses.onOpen(event.currentTarget)}
+          >
+            ← {uses.count} {uses.count === 1 ? "use" : "uses"}
           </button>
         )}
         {places !== null && (
@@ -2602,14 +2791,20 @@ export function Rail({
 //| file: src/frontend/views/Components/Peek.tsx
 import type { ReactNode } from "react";
 import type { AsyncState } from "../../model/asyncState";
-import { type Component, placeAt, type RowTrees } from "../../model/components";
+import {
+  type Component,
+  placeAt,
+  type Reference,
+  type RowTrees,
+} from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import { type HunkLine, readPatch } from "../../model/patch";
 import type { Comment } from "../../model/review";
 import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
 import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
-/** What a peek shows: a component's lines in some diff, or its threads. */
+/** What a peek shows: a component's lines in some diff, its threads, or
+ *  the lines that use it. */
 export type Peeked =
   | {
       kind: "lines";
@@ -2632,6 +2827,21 @@ export type Peeked =
       /** Goes to where a thread sits, or null when this comparison does not
        *  draw its line. */
       goTo: (comment: Comment) => (() => void) | null;
+      x: number;
+      /** Just below the trigger, and just above it. */
+      y: number;
+      above: number;
+    }
+  | {
+      kind: "uses";
+      component: Component;
+      /** The lines that name it from elsewhere, in drawn order. */
+      used: Reference[];
+      /** The components its own lines name, and how many lines do. */
+      uses: { component: Component; count: number }[];
+      onGo: (reference: Reference) => void;
+      /** Goes to a component, or null when nothing on screen reaches it. */
+      reach: (component: Component) => (() => void) | null;
       x: number;
       /** Just below the trigger, and just above it. */
       y: number;
@@ -2699,6 +2909,22 @@ export function Peek({
             <div className="components-peek__foot">{peeked.note}</div>
           )}
         </>
+      ) : peeked.kind === "uses" ? (
+        <>
+          <div className="components-peek__head">
+            <b>{peeked.component.name}</b>
+            <span>
+              {peeked.used.length} {peeked.used.length === 1 ? "use" : "uses"}{" "}
+              in this diff
+            </span>
+            <button type="button" className="components-chip" onClick={onClose}>
+              close ✕
+            </button>
+          </div>
+          <div className="components-peek__body">
+            <Uses peeked={peeked} />
+          </div>
+        </>
       ) : (
         <>
           <div className="components-peek__head">
@@ -2746,6 +2972,104 @@ export function Peek({
         </>
       )}
     </div>
+  );
+}
+
+/** Who uses a component, by the component each line sits in, and what it
+ *  uses in turn. */
+function Uses({ peeked }: { peeked: Extract<Peeked, { kind: "uses" }> }) {
+  const groups = new Map<
+    string,
+    { component: Component | null; path: string; refs: Reference[] }
+  >();
+  for (const reference of peeked.used) {
+    const component = reference.from?.component ?? null;
+    // Lines no component owns group by file.
+    const key = component?.id ?? `file:${reference.path}`;
+    const group = groups.get(key) ?? {
+      component,
+      path: reference.path,
+      refs: [],
+    };
+    group.refs.push(reference);
+    groups.set(key, group);
+  }
+  return (
+    <div className="components-uses">
+      <div className="components-uses__section">Used by</div>
+      {[...groups].map(([key, group]) => (
+        <div key={key}>
+          <div
+            className={`components-uses__group${group.component === null ? "" : ` components-kind--${group.component.kind}`}`}
+          >
+            {group.component !== null && (
+              <span className="components-heading__kind">
+                {group.component.kind}
+              </span>
+            )}
+            <b>{group.component?.name ?? group.path.split("/").pop()}</b>
+            <span className="components-uses__count">×{group.refs.length}</span>
+          </div>
+          {group.refs.map((reference) => (
+            <button
+              type="button"
+              key={`${reference.path}:${reference.line}`}
+              className="components-uses__line"
+              title={`${reference.path}:${reference.line}`}
+              onClick={() => peeked.onGo(reference)}
+            >
+              <span className="components-uses__where">
+                {reference.added ? "+" : " "}
+                {reference.path.split("/").pop()}:{reference.line}
+              </span>
+              <UsedCode reference={reference} />
+            </button>
+          ))}
+        </div>
+      ))}
+      {peeked.uses.length > 0 && (
+        <>
+          <div className="components-uses__section">Uses</div>
+          <div className="components-uses__uses">
+            {peeked.uses.map(({ component, count }) => {
+              const go = peeked.reach(component);
+              return (
+                <button
+                  type="button"
+                  key={component.id}
+                  className={`components-chip components-kind--${component.kind}`}
+                  disabled={go === null}
+                  onClick={go ?? undefined}
+                >
+                  <span className="components-heading__kind">
+                    {component.kind}
+                  </span>{" "}
+                  {component.name} <small>×{count}</small>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A using line, with the name it uses in the used component's colour. */
+function UsedCode({ reference }: { reference: Reference }) {
+  const code = reference.code.trim();
+  // Whole, as the name was found, so `Reply` is not lit inside `ReplyList`.
+  const name = reference.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const at = code.search(new RegExp(`(?<![\\w-])${name}(?![\\w-])`));
+  if (at < 0) return <code>{code}</code>;
+  return (
+    <code>
+      {code.slice(0, at)}
+      <b className={`components-kind--${reference.to.kind}`}>
+        {reference.word}
+      </b>
+      {code.slice(at + reference.word.length)}
+    </code>
   );
 }
 
@@ -3481,6 +3805,66 @@ export function ComponentsSwitch({
     margin: var(--space-3);
     color: var(--text-faint);
   }
+  .components-uses {
+    padding-bottom: var(--space-2);
+  }
+  .components-uses__section {
+    padding: var(--space-2) var(--space-3) var(--space-1);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .components-uses__group {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    padding: var(--space-1) var(--space-3);
+    border-left: 3px solid var(--component, var(--border));
+  }
+  .components-uses__count {
+    margin-left: auto;
+    color: var(--text-faint);
+  }
+  .components-uses__line {
+    display: flex;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 2px var(--space-3) 2px calc(var(--space-3) + 3px);
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .components-uses__line:hover {
+    background: var(--surface-selected);
+  }
+  .components-uses__line code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+  }
+  .components-uses__line b {
+    color: var(--component);
+  }
+  .components-uses__where {
+    flex: none;
+    min-width: 11em;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    white-space: pre;
+  }
+  .components-uses__uses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: 0 var(--space-3);
+  }
+  .components-uses__uses .components-chip {
+    border: 1px solid var(--border);
+  }
   .components-lines {
     margin: 0;
     font-size: var(--text-size-small);
@@ -3663,6 +4047,7 @@ import {
   mentionedIn,
   placeAt,
   placeKey,
+  referencesIn,
   rowTrees,
   runStarts,
   sameRun,
@@ -3959,6 +4344,56 @@ describe("finding where a word is added", () => {
       declares: false,
     });
     expect(missing).toBeNull();
+  });
+});
+
+describe("finding what uses a component", () => {
+  const USES = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -1,2 +1,5 @@
+ import { Reply } from "./reply";
++export const Reply = z.object({});
++const replies = z.array(Reply);
++use(Reply, Reply);
+ ReplyList();
+`;
+  const trees = rowTrees({ commit: { commitId: "c1" }, was: null });
+  const at = (id: string, start: number, commitId = "c1"): Component => ({
+    ...component(id, commitId),
+    words: id === "field" ? ["replies"] : ["Reply"],
+    places: [{ path: "a.ts", side: "after", start, about: "" }],
+  });
+
+  test("finds each line naming it outside its own places, once a line", () => {
+    // arrange
+    const reply = at("reply", 2);
+    const field = at("field", 3);
+
+    // act
+    const found = referencesIn([reply, field], trees, [file(USES)]);
+
+    // assert
+    expect(
+      found.map((each) => [each.line, each.from?.component.id, each.added]),
+    ).toEqual([
+      [1, undefined, false],
+      [3, "field", true],
+      [4, undefined, true],
+    ]);
+    expect(found.every((each) => each.to === reply)).toBe(true);
+  });
+
+  test("names the row's own version of a component two maps give", () => {
+    // arrange
+    const older = at("reply", 9, "c0");
+    const newer = at("reply", 2);
+
+    // act
+    const found = referencesIn([older, newer], trees, [file(USES)]);
+
+    // assert
+    expect(found.every((each) => each.to === newer)).toBe(true);
   });
 });
 ```
