@@ -16,6 +16,7 @@ import {
   runStarts,
   sameRun,
   withComponents,
+  wordAdded,
 } from "./components";
 import type { FileDiff } from "./diff";
 
@@ -262,6 +263,51 @@ describe("marking text", () => {
 
     // assert
     expect(found).toBe(true);
+  });
+});
+
+describe("finding where a word is added", () => {
+  const ADDS = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -0,0 +1,5 @@
++import { Peek } from "./peek";
++const a = 1;
++export function Peek() {}
++const PeekAll = 2;
++use(Peek);
+`;
+  const trees = rowTrees({ commit: { commitId: "c1" }, was: null });
+  const own = (start: number, end: number): Component => ({
+    ...component("peek"),
+    places: [{ path: "a.ts", side: "after", start, end, about: "" }],
+  });
+
+  test("lands on the declaration rather than the import before it", () => {
+    // act
+    const found = wordAdded("Peek", "peek", [own(1, 5)], trees, [file(ADDS)]);
+
+    // assert
+    expect(found?.at.line).toBe(3);
+    expect(found?.declares).toBe(true);
+  });
+
+  test("falls back to the first line naming it, in its component only", () => {
+    // arrange
+    const other = { ...component("other"), places: own(1, 3).places };
+
+    // act
+    const named = wordAdded("Peek", "peek", [own(4, 5), other], trees, [
+      file(ADDS),
+    ]);
+    const missing = wordAdded("Gone", "peek", [own(1, 5)], trees, [file(ADDS)]);
+
+    // assert
+    expect(named).toEqual({
+      at: { ref: { component: own(4, 5), place: 0 }, path: "a.ts", line: 5 },
+      declares: false,
+    });
+    expect(missing).toBeNull();
   });
 });
 // ~/~ end

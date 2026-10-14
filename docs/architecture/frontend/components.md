@@ -416,6 +416,46 @@ export function mentionedIn(description: string, component: Component) {
   );
 }
 
+/** An added line of a row's diff, in the place it belongs to. */
+export interface AddedLine {
+  ref: PlaceRef;
+  path: string;
+  /** Counted on the after side. */
+  line: number;
+}
+
+/** The added line of component `id` that brings `word` in: the first that
+ *  declares it, or else the first that names it, and whether it declares. A
+ *  component's first place is often an import, which names it too. */
+export function wordAdded(
+  word: string,
+  id: string,
+  components: Component[],
+  trees: RowTrees,
+  files: FileDiff[],
+): { at: AddedLine; declares: boolean } | null {
+  const name = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const named = new RegExp(`(?<![\\w-])${name}(?![\\w-])`);
+  const declared = new RegExp(
+    `\\b(?:function|class|interface|type|enum|const|let|var|def|fn|struct)\\s+${name}(?![\\w-])|^\\s*(?:readonly\\s+)?${name}\\??\\s*:`,
+  );
+  let first: AddedLine | null = null;
+  for (const file of files) {
+    const path = pathsOf(file).after;
+    for (const hunk of readPatch(file.patch).hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind !== "added" || !named.test(line.code)) continue;
+        const ref = placeAt(components, trees.after, path, line.newLine);
+        if (ref?.component.id !== id) continue;
+        const at = { ref, path, line: line.newLine };
+        if (declared.test(line.code)) return { at, declares: true };
+        first ??= at;
+      }
+    }
+  }
+  return first === null ? null : { at: first, declares: false };
+}
+
 /** A version as the comparison picker names it: `v2`. */
 export interface NamedVersion {
   id: string;
@@ -629,6 +669,11 @@ own diff at it, one only the other version has opens the two compared, and a
 name or phrase that leads nowhere stays plain text. A jump into a folded file
 unfolds it, as the reader would.
 
+A name in the code peeks and jumps to the line of its component that
+declares it, or else the first that names it, rather than to the
+component's first place, which is often an import of the name and so not
+what the reader pointed at.
+
 The commit message takes part: a phrase that describes a component links to
 it, and a heading links back to the phrase, unfolding the message the way the
 reader would, so folding it again works as it always does.
@@ -653,6 +698,7 @@ import {
 import type { AsyncState } from "../../model/asyncState";
 import { fileAnchor } from "../../model/changedFiles";
 import {
+  type AddedLine,
   type Component,
   type Counterparts,
   counterpartFate,
@@ -671,6 +717,7 @@ import {
   rowTrees,
   runStarts,
   sameRun,
+  wordAdded,
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import type { Comment } from "../../model/review";
@@ -1552,8 +1599,36 @@ export function ComponentsStack(props: ComponentsStackProps) {
       );
     };
   };
-  const peekFirst = (target: HTMLElement, component: Component) => {
-    const found = firstPlace(component.id);
+  /** Where the rows add a name of component `id`: a line declaring it in
+   *  any row comes before a line that only names it. */
+  const wordAt = (id: string, word: string) => {
+    let named: { row: StackRow; at: AddedLine } | null = null;
+    for (const row of rows) {
+      if (row.files.status !== "ready" || row.kind === "dropped") continue;
+      const found = wordAdded(
+        word,
+        id,
+        components,
+        rowTrees(row),
+        row.files.data,
+      );
+      if (found?.declares) return { row, at: found.at };
+      if (found !== null) named ??= { row, at: found.at };
+    }
+    return named;
+  };
+  /** Peeks at a component where a name of it is added, or at its first
+   *  place. */
+  const peekFirst = (
+    target: HTMLElement,
+    component: Component,
+    word: string | null,
+  ) => {
+    const added = word === null ? null : wordAt(component.id, word);
+    const found =
+      added === null
+        ? firstPlace(component.id)
+        : { row: added.row, drawn: { path: added.at.path } };
     if (found === null) return;
     peekLines(
       target,
@@ -1573,6 +1648,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     key: number,
     className: string,
     onGo: () => void,
+    word: string | null,
     data: Record<string, string | number> = {},
   ) => (
     <a
@@ -1580,7 +1656,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       href={`#components-${ident(component.id)}`}
       className={`${className} components-kind--${component.kind}`}
       {...data}
-      onMouseEnter={(event) => peekFirst(event.currentTarget, component)}
+      onMouseEnter={(event) => peekFirst(event.currentTarget, component, word)}
       onMouseLeave={leave}
       onClick={(event) => {
         event.preventDefault();
@@ -1615,8 +1691,19 @@ export function ComponentsStack(props: ComponentsStackProps) {
           if (at !== null) {
             remember(at, "path" in file ? file.path : file.newPath);
           } else rememberHere();
-          go();
+          const added = wordAt(component.id, run.text);
+          if (added === null) {
+            go();
+            return;
+          }
+          // The line, by its file in its row. The place's key opens the row
+          // and unfolds the file on the way, as for a heading.
+          goTo({
+            ...toPlace(added.at.ref, added.at.path),
+            selector: `#${CSS.escape(fileAnchor(added.row.commit.commitId, added.at.path))} [data-anchor="after:${added.at.line}"]`,
+          });
         },
+        run.text,
         // Names in code are many; tabbing goes through the diff's own
         // stops, and the rail reaches every component.
         { tabIndex: -1 },
@@ -1640,6 +1727,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
           rememberMessage(row, component.id);
           go();
         },
+        null,
         {
           "data-components-message": row.key,
           "data-components-mention": component.id,
@@ -3373,6 +3461,7 @@ import {
   runStarts,
   sameRun,
   withComponents,
+  wordAdded,
 } from "./components";
 import type { FileDiff } from "./diff";
 
@@ -3619,6 +3708,51 @@ describe("marking text", () => {
 
     // assert
     expect(found).toBe(true);
+  });
+});
+
+describe("finding where a word is added", () => {
+  const ADDS = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -0,0 +1,5 @@
++import { Peek } from "./peek";
++const a = 1;
++export function Peek() {}
++const PeekAll = 2;
++use(Peek);
+`;
+  const trees = rowTrees({ commit: { commitId: "c1" }, was: null });
+  const own = (start: number, end: number): Component => ({
+    ...component("peek"),
+    places: [{ path: "a.ts", side: "after", start, end, about: "" }],
+  });
+
+  test("lands on the declaration rather than the import before it", () => {
+    // act
+    const found = wordAdded("Peek", "peek", [own(1, 5)], trees, [file(ADDS)]);
+
+    // assert
+    expect(found?.at.line).toBe(3);
+    expect(found?.declares).toBe(true);
+  });
+
+  test("falls back to the first line naming it, in its component only", () => {
+    // arrange
+    const other = { ...component("other"), places: own(1, 3).places };
+
+    // act
+    const named = wordAdded("Peek", "peek", [own(4, 5), other], trees, [
+      file(ADDS),
+    ]);
+    const missing = wordAdded("Gone", "peek", [own(1, 5)], trees, [file(ADDS)]);
+
+    // assert
+    expect(named).toEqual({
+      at: { ref: { component: own(4, 5), place: 0 }, path: "a.ts", line: 5 },
+      declares: false,
+    });
+    expect(missing).toBeNull();
   });
 });
 ```
