@@ -204,6 +204,14 @@ what the agent just changed, while `review_status` compares the newest with
 the last version the reader marked reviewed, which is what the reader has
 yet to read. Both match commits by change id, as comments do.
 
+`read_review_history` is the one tool that reads across reviews: it answers
+with what the reader wrote in a window of time, for an agent working out how
+the reader reviews. It hands back whole threads rather than the reader's
+comments alone, since a reply only makes sense beside what it answers. It
+finds a comment's review by the commit it was written on, which the review
+store records only for local reviews, so a pull request's threads come back
+with no review named.
+
 Registering commits identical to the newest version's adds nothing. The
 other option, a version identical to the last, would hand the reader a
 comparison with nothing in it and turn a reviewed review back to them.
@@ -336,6 +344,13 @@ function where(anchor: Anchor): string {
 }
 
 const Name = z.string().min(1).describe("the local review's name");
+
+/** A time as milliseconds since the epoch. The document's own times are not
+ *  all written the same way, so they compare as numbers, not strings. */
+const Moment = z
+  .string()
+  .refine((at) => !Number.isNaN(Date.parse(at)), "not an ISO date or time")
+  .transform((at) => Date.parse(at));
 
 export function reviewTools(store: ReviewStore): Tool[] {
   return [
@@ -515,6 +530,88 @@ export function reviewTools(store: ReviewStore): Tool[] {
           ];
         });
         return JSON.stringify(comments, null, 2);
+      },
+    }),
+    tool({
+      name: "read_review_history",
+      description:
+        "Read everything the reader wrote while reviewing between two times, across every review, as JSON: the versions they marked reviewed, and each thread they started or replied to in the window, whole, with the agent's side of it. A thread names its local review and change, or no review when it is on a pull request. Use it to learn how the reader reviews.",
+      input: z.object({
+        since: Moment.describe(
+          "the start of the window, as an ISO date or time",
+        ),
+        until: Moment.optional().describe(
+          "the end of the window, as an ISO date or time; now if left out",
+        ),
+      }),
+      call: async ({ since, until = Date.now() }, { origin }) => {
+        const { document } = store.read();
+        const within = (at: string) => {
+          const time = Date.parse(at);
+          return since <= time && time < until;
+        };
+        const byReader = (author: string) => author !== AGENT;
+        const threads = document.comments
+          .filter(
+            (comment) =>
+              (byReader(comment.author) && within(comment.createdAt)) ||
+              comment.replies.some(
+                (reply) => byReader(reply.author) && within(reply.createdAt),
+              ),
+          )
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        // A comment's commit was in the version the reader read it in.
+        const reviewOf = new Map(
+          document.localReviews.flatMap((review) =>
+            review.versions.flatMap((version) =>
+              version.commits.map((commit) => [commit, review.name] as const),
+            ),
+          ),
+        );
+        // Only local reviews' commits: a pull request's are fetched where
+        // jj cannot see them, and one unknown id fails the whole lookup.
+        const entries = await jjCommits([
+          ...new Set(
+            threads.flatMap((comment) =>
+              reviewOf.has(comment.commitId) ? [comment.commitId] : [],
+            ),
+          ),
+        ]);
+        return JSON.stringify(
+          {
+            reviewed: document.reviewed
+              .filter((mark) => within(mark.reviewedAt))
+              .map((mark) => ({
+                series: mark.series,
+                version: `v${mark.version}`,
+                at: mark.reviewedAt,
+              })),
+            threads: threads.map((comment) => {
+              const review = reviewOf.get(comment.commitId) ?? null;
+              const entry = entries.get(comment.commitId);
+              return {
+                id: comment.id,
+                review,
+                link: review === null ? null : link(origin, review),
+                change: entry?.changeId.slice(0, 8) ?? null,
+                subject: entry === undefined ? null : subject(entry),
+                commit: comment.commitId.slice(0, 12),
+                at: where(comment),
+                author: comment.author,
+                createdAt: comment.createdAt,
+                body: comment.body,
+                resolved: comment.resolved,
+                replies: comment.replies.map(({ author, body, createdAt }) => ({
+                  author,
+                  body,
+                  createdAt,
+                })),
+              };
+            }),
+          },
+          null,
+          2,
+        );
       },
     }),
     tool({
@@ -1199,6 +1296,7 @@ describe("the protocol", () => {
       "list_reviews",
       "review_status",
       "read_comments",
+      "read_review_history",
       "add_comment",
       "reply_to_comment",
       "resolve_comment",
@@ -1377,6 +1475,85 @@ describe("the review tools", () => {
       }),
     ]);
     expect(missing).toEqual({ text: "no comment has id nope", isError: true });
+  });
+
+  test("reads what the reader wrote in a window across reviews", async () => {
+    // arrange
+    const [tip] = await jjLog({ revset: TIP });
+    if (tip === undefined) throw new Error("no history");
+    await call("register_review", { name: "t", revset: TIP });
+    const comment = (id: string, createdAt: string, commitId: string) => ({
+      kind: "add-comment" as const,
+      comment: {
+        id,
+        reviewKey: `change:${tip.changeId}`,
+        commitId,
+        body: id,
+        resolved: false,
+        createdAt,
+        author: "reader",
+        replies: [],
+        kind: "comparison" as const,
+      },
+    });
+    store.apply(comment("before", "2026-09-01T00:00:00Z", tip.commitId));
+    store.apply(comment("inside", "2026-10-02T00:00:00.000Z", tip.commitId));
+    store.apply(comment("on a pull", "2026-10-03T00:00:00Z", "f".repeat(40)));
+    const agents = await call("add_comment", {
+      name: "t",
+      change: tip.changeId,
+      body: "why this way?",
+    });
+    store.apply({
+      kind: "add-reply",
+      commentId: agents.text,
+      reply: {
+        id: "r",
+        body: "because",
+        createdAt: "2026-10-04T00:00:00Z",
+        author: "reader",
+      },
+    });
+    store.apply({
+      kind: "mark-reviewed",
+      series: "local:t",
+      version: "1",
+      at: "2026-10-05T00:00:00Z",
+    });
+
+    // act
+    const read = await call("read_review_history", {
+      since: "2026-10-01",
+      until: "2026-10-06",
+    });
+    const bad = await call("read_review_history", { since: "last week" });
+
+    // assert
+    const history = JSON.parse(read.text);
+    expect(history.reviewed).toEqual([
+      { series: "local:t", version: "v1", at: "2026-10-05T00:00:00Z" },
+    ]);
+    expect(history.threads).toEqual([
+      expect.objectContaining({
+        id: "inside",
+        review: "t",
+        link: "https://vm:4000/reviews/t",
+        change: tip.changeId.slice(0, 8),
+      }),
+      expect.objectContaining({ id: "on a pull", review: null, change: null }),
+      expect.objectContaining({
+        id: agents.text,
+        author: "claude",
+        replies: [
+          {
+            author: "reader",
+            body: "because",
+            createdAt: "2026-10-04T00:00:00Z",
+          },
+        ],
+      }),
+    ]);
+    expect(bad.isError).toBe(true);
   });
 
   test("tells the agent what it got wrong as a failed call", async () => {
