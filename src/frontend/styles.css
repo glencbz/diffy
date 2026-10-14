@@ -3485,8 +3485,9 @@
   .components-toc__entry {
     display: flex;
     gap: var(--space-2);
+    flex: 1;
     align-items: baseline;
-    width: 100%;
+    min-width: 0;
     padding: 1px var(--space-2);
     border: 0;
     border-left: 2px solid transparent;
@@ -3526,6 +3527,62 @@
     gap: 2px;
     align-items: center;
     color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .components-toc > li:not(.components-toc__group) {
+    display: flex;
+    align-items: baseline;
+  }
+  .components-toc__seen {
+    flex: none;
+    min-width: 3ch;
+    padding: 1px var(--space-1);
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .components-toc__seen:hover:not(:disabled) {
+    background: var(--surface-selected);
+    color: var(--text);
+    text-decoration: underline;
+  }
+  .components-toc__seen:disabled {
+    cursor: default;
+  }
+  .components-toc__seen--none {
+    color: var(--text-ghost);
+  }
+  /* Put away: still listed and reachable, but quieter than what is left. */
+  .components-toc--seen > .components-toc__entry .components-toc__name {
+    color: var(--text-faint);
+  }
+  .components-progress {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin: 0 var(--space-2) var(--space-2);
+    color: var(--text-faint);
+  }
+  .components-progress__bar {
+    flex: 1;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--border-subtle);
+  }
+  .components-progress__bar > span {
+    display: block;
+    height: 100%;
+    background: var(--text-muted);
+  }
+  .components-progress__text {
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
   .components-file {
@@ -3575,6 +3632,12 @@
   .components-file__strip .components-file--lit {
     background: var(--component);
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--text) 40%, transparent);
+  }
+  .components-file--viewed .components-file__path {
+    color: var(--text-faint);
+  }
+  .components-file--viewed .components-file__strip {
+    opacity: 0.45;
   }
 
   /* As quiet as a hunk header: it names a run of lines, it is not one. It
