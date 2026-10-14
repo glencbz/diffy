@@ -31,9 +31,11 @@ function cleanStderr(stderr: string): string {
   return (errors.length > 0 ? errors.join("\n") : stderr).trim();
 }
 
-async function runJj(args: string[]): Promise<string> {
+/** Runs jj in `cwd`, or in the repository being served when it is left out. */
+async function runJj(args: string[], cwd?: string): Promise<string> {
   try {
-    return await $`jj ${args}`.quiet().text();
+    const run = $`jj ${args}`.quiet();
+    return await (cwd === undefined ? run : run.cwd(cwd)).text();
   } catch (error) {
     if (error instanceof $.ShellError) {
       const message =
@@ -283,15 +285,16 @@ export async function jjOpLog(
 Every workspace of a repository shares one store. In the workspace that made
 the repository `.jj/repo` is the store; in any other it is a file holding a
 relative path to it. `jjRepoDir` follows that and resolves a real path, so
-every workspace names the same directory.
+every workspace names the same directory. It reads the served repository
+unless given another workspace's root.
 
 ```ts
 //| id: jj-module
 
-/** The real path of the repository store behind the current workspace,
+/** The real path of the repository store behind the workspace at `cwd`,
  *  the same for every workspace of one repository. */
-export async function jjRepoDir(): Promise<string> {
-  const root = (await runJj(["workspace", "root"])).trim();
+export async function jjRepoDir(cwd?: string): Promise<string> {
+  const root = (await runJj(["workspace", "root"], cwd)).trim();
   const dotJj = join(root, ".jj");
   const repo = join(dotJj, "repo");
   const target = (await stat(repo)).isFile()

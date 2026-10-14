@@ -45,6 +45,11 @@ import {
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import {
+  type RecentRepos,
+  repoRoutes,
+  type ServedRepo,
+} from "./backend/repo/repos";
+import {
   localCommits,
   localDiff,
   localSize,
@@ -512,9 +517,11 @@ export function handleLocalSize(req: Request): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[12]
 
-export function routes(store: ReviewStore) {
+export function routes(served: ServedRepo, recent: RecentRepos) {
+  const store = served.store;
   return {
     "/*": index,
+    ...repoRoutes(served, recent),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": handleLog,
     "/api/operations": handleOperations,
