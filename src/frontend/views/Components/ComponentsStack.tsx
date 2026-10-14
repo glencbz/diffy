@@ -26,7 +26,9 @@ import {
   placeAt,
   placeKey,
   placeVersion,
+  type Reference,
   type RowTrees,
+  referencesIn,
   rowTrees,
   runStarts,
   sameFold,
@@ -194,6 +196,45 @@ export function ComponentsStack(props: ComponentsStackProps) {
   }, [rows, components]);
   const commitsOf = (commitId: string) =>
     components.filter((each) => each.commitId === commitId);
+
+  /** Every line the rows draw that names a component from elsewhere. */
+  const references = useMemo(() => {
+    const out: { row: StackRow; ref: Reference }[] = [];
+    for (const row of rows) {
+      if (row.files.status !== "ready" || row.kind === "dropped") continue;
+      for (const ref of referencesIn(
+        components,
+        rowTrees(row),
+        row.files.data,
+      )) {
+        out.push({ row, ref });
+      }
+    }
+    return out;
+  }, [rows, components]);
+  /** Each row's using lines, by `path:line`, to the ids they name. */
+  const usingLines = useMemo(() => {
+    const out = new Map<string, Map<string, string[]>>();
+    for (const { row, ref } of references) {
+      const lines = out.get(row.key) ?? new Map<string, string[]>();
+      const key = `${ref.path}:${ref.line}`;
+      lines.set(key, [...(lines.get(key) ?? []), ref.to.id]);
+      out.set(row.key, lines);
+    }
+    return out;
+  }, [references]);
+  const usedBy = (id: string) =>
+    references.flatMap((each) => (each.ref.to.id === id ? [each.ref] : []));
+  const usesOf = (id: string) => {
+    const counts = new Map<string, { component: Component; count: number }>();
+    for (const { ref } of references) {
+      if (ref.from?.component.id !== id) continue;
+      const had = counts.get(ref.to.id) ?? { component: ref.to, count: 0 };
+      had.count++;
+      counts.set(ref.to.id, had);
+    }
+    return [...counts.values()];
+  };
 
   const versionOf = (commitId: string) => {
     for (const row of rows) {
@@ -837,6 +878,46 @@ export function ComponentsStack(props: ComponentsStackProps) {
               },
             }
           : null,
+      uses:
+        rest && first && usedBy(component.id).length > 0
+          ? {
+              count: usedBy(component.id).length,
+              onOpen: (target) => {
+                const box = target.getBoundingClientRect();
+                setPeeked({
+                  kind: "uses",
+                  component,
+                  used: usedBy(component.id),
+                  uses: usesOf(component.id),
+                  onGo: (used) => {
+                    const at = references.find((each) => each.ref === used);
+                    if (at === undefined) return;
+                    remember(ref, path);
+                    // The line, by its file in its row; the place it sits
+                    // in opens the row and unfolds the file on the way.
+                    goTo({
+                      key: used.from === null ? null : placeKey(used.from),
+                      id: used.from?.component.id ?? "",
+                      path: used.path,
+                      selector: `#${CSS.escape(fileAnchor(at.row.commit.commitId, used.path))} [data-anchor="after:${used.line}"]`,
+                    });
+                  },
+                  reach: (other) => {
+                    const go = reach(other.id);
+                    return go === null
+                      ? null
+                      : () => {
+                          remember(ref, path);
+                          go();
+                        };
+                  },
+                  x: box.left,
+                  y: box.bottom + 6,
+                  above: box.top - 6,
+                });
+              },
+            }
+          : null,
       places: rest
         ? {
             onStep: (by) => {
@@ -1077,7 +1158,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
         run.text,
         // Names in code are many; tabbing goes through the diff's own
         // stops, and the rail reaches every component.
-        { tabIndex: -1 },
+        { tabIndex: -1, "data-components-word": component.id },
       );
     });
   };
@@ -1157,10 +1238,28 @@ export function ComponentsStack(props: ComponentsStackProps) {
           return {
             header: null,
             lineClass: (line) => {
-              if (line.kind === "context") return null;
-              const ref = live.current.placeOfLine(trees, file, line);
-              if (ref === null) return null;
-              return `components-line components-kind--${ref.component.kind} components-of--${ident(ref.component.id)}`;
+              // A line that uses a component is marked with it, so an open
+              // list of its uses can light them with one rule.
+              const using = (
+                (line.anchor.side === "after" &&
+                  usingLines
+                    .get(row.key)
+                    ?.get(`${path}:${line.anchor.line}`)) ||
+                []
+              ).map((id) => `components-using--${ident(id)}`);
+              const ref =
+                line.kind === "context"
+                  ? null
+                  : live.current.placeOfLine(trees, file, line);
+              const own =
+                ref === null
+                  ? []
+                  : [
+                      "components-line",
+                      `components-kind--${ref.component.kind}`,
+                      `components-of--${ident(ref.component.id)}`,
+                    ];
+              return [...own, ...using].join(" ") || null;
             },
             marker: () => null,
             under: () => null,
@@ -1220,6 +1319,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       fates,
       opened,
       seenMarks,
+      usingLines,
     ],
   );
   const stack = useMemo(
@@ -1357,6 +1457,10 @@ export function ComponentsStack(props: ComponentsStackProps) {
           // The place being read takes a solid bar. A rule rather than a
           // class on its lines, so moving it never draws the diff again.
           <style>{`.diff-file[data-path="${CSS.escape(reading.path)}"] .components-of--${ident(reading.id)} { box-shadow: inset 3px 0 0 var(--component); }`}</style>
+        )}
+        {enabled && peeked?.kind === "uses" && (
+          // While its list is open, the lines that use a component are lit.
+          <style>{`.components-using--${ident(peeked.component.id)} { background-image: linear-gradient(to left, var(--accent) 4px, transparent 4px); } .components-using--${ident(peeked.component.id)} [data-components-word="${CSS.escape(peeked.component.id)}"] { background: color-mix(in srgb, var(--component) 22%, transparent); text-decoration-style: solid; }`}</style>
         )}
         {enabled && (
           <aside

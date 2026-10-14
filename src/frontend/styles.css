@@ -3820,6 +3820,66 @@
     margin: var(--space-3);
     color: var(--text-faint);
   }
+  .components-uses {
+    padding-bottom: var(--space-2);
+  }
+  .components-uses__section {
+    padding: var(--space-2) var(--space-3) var(--space-1);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .components-uses__group {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    padding: var(--space-1) var(--space-3);
+    border-left: 3px solid var(--component, var(--border));
+  }
+  .components-uses__count {
+    margin-left: auto;
+    color: var(--text-faint);
+  }
+  .components-uses__line {
+    display: flex;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 2px var(--space-3) 2px calc(var(--space-3) + 3px);
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .components-uses__line:hover {
+    background: var(--surface-selected);
+  }
+  .components-uses__line code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+  }
+  .components-uses__line b {
+    color: var(--component);
+  }
+  .components-uses__where {
+    flex: none;
+    min-width: 11em;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    white-space: pre;
+  }
+  .components-uses__uses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: 0 var(--space-3);
+  }
+  .components-uses__uses .components-chip {
+    border: 1px solid var(--border);
+  }
   .components-lines {
     margin: 0;
     font-size: var(--text-size-small);

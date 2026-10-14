@@ -13,6 +13,7 @@ import {
   placeAt,
   placeKey,
   placeVersion,
+  referencesIn,
   rowTrees,
   runStarts,
   sameFold,
@@ -353,6 +354,56 @@ describe("finding where a word is added", () => {
       declares: false,
     });
     expect(missing).toBeNull();
+  });
+});
+
+describe("finding what uses a component", () => {
+  const USES = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -1,2 +1,5 @@
+ import { Reply } from "./reply";
++export const Reply = z.object({});
++const replies = z.array(Reply);
++use(Reply, Reply);
+ ReplyList();
+`;
+  const trees = rowTrees({ commit: { commitId: "c1" }, was: null });
+  const at = (id: string, start: number, commitId = "c1"): Component => ({
+    ...component(id, commitId),
+    words: id === "field" ? ["replies"] : ["Reply"],
+    places: [{ path: "a.ts", side: "after", start, about: "" }],
+  });
+
+  test("finds each line naming it outside its own places, once a line", () => {
+    // arrange
+    const reply = at("reply", 2);
+    const field = at("field", 3);
+
+    // act
+    const found = referencesIn([reply, field], trees, [file(USES)]);
+
+    // assert
+    expect(
+      found.map((each) => [each.line, each.from?.component.id, each.added]),
+    ).toEqual([
+      [1, undefined, false],
+      [3, "field", true],
+      [4, undefined, true],
+    ]);
+    expect(found.every((each) => each.to === reply)).toBe(true);
+  });
+
+  test("names the row's own version of a component two maps give", () => {
+    // arrange
+    const older = at("reply", 9, "c0");
+    const newer = at("reply", 2);
+
+    // act
+    const found = referencesIn([older, newer], trees, [file(USES)]);
+
+    // assert
+    expect(found.every((each) => each.to === newer)).toBe(true);
   });
 });
 // ~/~ end

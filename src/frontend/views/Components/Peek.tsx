@@ -1,14 +1,20 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-view-components-peek>>[init]
 import type { ReactNode } from "react";
 import type { AsyncState } from "../../model/asyncState";
-import { type Component, placeAt, type RowTrees } from "../../model/components";
+import {
+  type Component,
+  placeAt,
+  type Reference,
+  type RowTrees,
+} from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import { type HunkLine, readPatch } from "../../model/patch";
 import type { Comment } from "../../model/review";
 import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
 import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
-/** What a peek shows: a component's lines in some diff, or its threads. */
+/** What a peek shows: a component's lines in some diff, its threads, or
+ *  the lines that use it. */
 export type Peeked =
   | {
       kind: "lines";
@@ -31,6 +37,21 @@ export type Peeked =
       /** Goes to where a thread sits, or null when this comparison does not
        *  draw its line. */
       goTo: (comment: Comment) => (() => void) | null;
+      x: number;
+      /** Just below the trigger, and just above it. */
+      y: number;
+      above: number;
+    }
+  | {
+      kind: "uses";
+      component: Component;
+      /** The lines that name it from elsewhere, in drawn order. */
+      used: Reference[];
+      /** The components its own lines name, and how many lines do. */
+      uses: { component: Component; count: number }[];
+      onGo: (reference: Reference) => void;
+      /** Goes to a component, or null when nothing on screen reaches it. */
+      reach: (component: Component) => (() => void) | null;
       x: number;
       /** Just below the trigger, and just above it. */
       y: number;
@@ -98,6 +119,22 @@ export function Peek({
             <div className="components-peek__foot">{peeked.note}</div>
           )}
         </>
+      ) : peeked.kind === "uses" ? (
+        <>
+          <div className="components-peek__head">
+            <b>{peeked.component.name}</b>
+            <span>
+              {peeked.used.length} {peeked.used.length === 1 ? "use" : "uses"}{" "}
+              in this diff
+            </span>
+            <button type="button" className="components-chip" onClick={onClose}>
+              close ✕
+            </button>
+          </div>
+          <div className="components-peek__body">
+            <Uses peeked={peeked} />
+          </div>
+        </>
       ) : (
         <>
           <div className="components-peek__head">
@@ -145,6 +182,104 @@ export function Peek({
         </>
       )}
     </div>
+  );
+}
+
+/** Who uses a component, by the component each line sits in, and what it
+ *  uses in turn. */
+function Uses({ peeked }: { peeked: Extract<Peeked, { kind: "uses" }> }) {
+  const groups = new Map<
+    string,
+    { component: Component | null; path: string; refs: Reference[] }
+  >();
+  for (const reference of peeked.used) {
+    const component = reference.from?.component ?? null;
+    // Lines no component owns group by file.
+    const key = component?.id ?? `file:${reference.path}`;
+    const group = groups.get(key) ?? {
+      component,
+      path: reference.path,
+      refs: [],
+    };
+    group.refs.push(reference);
+    groups.set(key, group);
+  }
+  return (
+    <div className="components-uses">
+      <div className="components-uses__section">Used by</div>
+      {[...groups].map(([key, group]) => (
+        <div key={key}>
+          <div
+            className={`components-uses__group${group.component === null ? "" : ` components-kind--${group.component.kind}`}`}
+          >
+            {group.component !== null && (
+              <span className="components-heading__kind">
+                {group.component.kind}
+              </span>
+            )}
+            <b>{group.component?.name ?? group.path.split("/").pop()}</b>
+            <span className="components-uses__count">×{group.refs.length}</span>
+          </div>
+          {group.refs.map((reference) => (
+            <button
+              type="button"
+              key={`${reference.path}:${reference.line}`}
+              className="components-uses__line"
+              title={`${reference.path}:${reference.line}`}
+              onClick={() => peeked.onGo(reference)}
+            >
+              <span className="components-uses__where">
+                {reference.added ? "+" : " "}
+                {reference.path.split("/").pop()}:{reference.line}
+              </span>
+              <UsedCode reference={reference} />
+            </button>
+          ))}
+        </div>
+      ))}
+      {peeked.uses.length > 0 && (
+        <>
+          <div className="components-uses__section">Uses</div>
+          <div className="components-uses__uses">
+            {peeked.uses.map(({ component, count }) => {
+              const go = peeked.reach(component);
+              return (
+                <button
+                  type="button"
+                  key={component.id}
+                  className={`components-chip components-kind--${component.kind}`}
+                  disabled={go === null}
+                  onClick={go ?? undefined}
+                >
+                  <span className="components-heading__kind">
+                    {component.kind}
+                  </span>{" "}
+                  {component.name} <small>×{count}</small>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A using line, with the name it uses in the used component's colour. */
+function UsedCode({ reference }: { reference: Reference }) {
+  const code = reference.code.trim();
+  // Whole, as the name was found, so `Reply` is not lit inside `ReplyList`.
+  const name = reference.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const at = code.search(new RegExp(`(?<![\\w-])${name}(?![\\w-])`));
+  if (at < 0) return <code>{code}</code>;
+  return (
+    <code>
+      {code.slice(0, at)}
+      <b className={`components-kind--${reference.to.kind}`}>
+        {reference.word}
+      </b>
+      {code.slice(at + reference.word.length)}
+    </code>
   );
 }
 
