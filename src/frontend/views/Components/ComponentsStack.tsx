@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { AsyncState } from "../../model/asyncState";
-import { fileAnchor } from "../../model/changedFiles";
+import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type AddedLine,
   type Component,
@@ -40,6 +40,7 @@ import {
   type Comment,
   type ComparisonReview,
   isPlaceSeen,
+  isViewed,
   type PlaceVersion,
 } from "../../model/review";
 import type { SourceLookup } from "../../model/source";
@@ -1390,6 +1391,33 @@ export function ComponentsStack(props: ComponentsStackProps) {
     : (rows.find((each) => each.key === current) ??
       rows.find((each) => (placesOf.get(each.key)?.length ?? 0) > 0));
   const drawnHere = shown === undefined ? [] : (placesOf.get(shown.key) ?? []);
+  const shownFiles =
+    shown?.files.status === "ready" ? shown.files.data : ([] as FileDiff[]);
+  const fileAt = (path: string) =>
+    shownFiles.find(
+      (file) => ("path" in file ? file.path : file.newPath) === path,
+    );
+  const viewedHere = (file: FileDiff) =>
+    shown !== undefined &&
+    isViewed(reviewOf(shown).viewed, fileVersionOf(file));
+  // Each fold a component draws on this row, once, and whether the reader
+  // has put it away.
+  const foldsOf = (id: string) => {
+    if (shown === undefined) return [];
+    const out = new Map<string, { drawn: DrawnPlace; seen: boolean }>();
+    for (const each of drawnHere) {
+      if (each.ref.component.id !== id) continue;
+      const file = fileAt(each.path);
+      if (file === undefined) continue;
+      const key = foldKey(shown, each.path, each.ref);
+      if (out.has(key)) continue;
+      out.set(key, {
+        drawn: each,
+        seen: viewedHere(file) || seenAt(shown, file, each.ref).seen,
+      });
+    }
+    return [...out.values()];
+  };
   const entries: RailEntry[] = [];
   if (shown !== undefined) {
     const listed = [
@@ -1410,6 +1438,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       const runs = runStarts(drawnHere).filter(
         (each) => each.ref.component.id === component.id,
       );
+      const folds = foldsOf(component.id);
       const inCommit = component.commitId === shown.commit.commitId;
       const fate: Fate | null =
         mine.length === 0
@@ -1437,6 +1466,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
         drawn: mine.length > 0,
         places: runs.length,
         threads: commentsOn(component.id).length,
+        folds: folds.length,
+        seen: folds.filter((each) => each.seen).length,
       });
     }
   }
@@ -1445,6 +1476,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       ? shown.files.data.map((file) => ({
           path: "path" in file ? file.path : file.newPath,
           shares: fileShares(components, rowTrees(shown), file),
+          viewed: viewedHere(file),
         }))
       : [];
 
@@ -1526,6 +1558,14 @@ export function ComponentsStack(props: ComponentsStackProps) {
                     comparisonKey(null, to.id),
                   );
                 }
+              }}
+              onGoUnseen={(entry) => {
+                const first = foldsOf(entry.component.id).find(
+                  (each) => !each.seen,
+                );
+                if (first === undefined) return;
+                rememberHere();
+                goTo(toPlace(first.drawn.ref, first.drawn.path));
               }}
               onGoShare={(path, share) => {
                 if (share.first === null) return;

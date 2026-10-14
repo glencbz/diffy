@@ -16,12 +16,16 @@ export interface RailEntry {
   drawn: boolean;
   places: number;
   threads: number;
+  /** The folds it draws on this row, and how many the reader put away. */
+  folds: number;
+  seen: number;
 }
 
 /** One file of the current row, and its changed lines by component. */
 export interface RailFile {
   path: string;
   shares: FileShare[];
+  viewed: boolean;
 }
 
 const ROLES: [ComponentRole, string][] = [
@@ -47,6 +51,7 @@ export function Rail({
   reading,
   onMessage,
   onGo,
+  onGoUnseen,
   onGoShare,
 }: {
   /** The current row's diff has not landed yet. */
@@ -58,6 +63,8 @@ export function Rail({
   reading: { id: string; path: string } | null;
   onMessage: (() => void) | null;
   onGo: (entry: RailEntry) => void;
+  /** Goes to the first fold of the entry the reader has not put away. */
+  onGoUnseen: (entry: RailEntry) => void;
   onGoShare: (path: string, share: FileShare) => void;
 }) {
   if (loading) {
@@ -78,6 +85,11 @@ export function Rail({
       <h3 className="components-rail__head">
         Components <small>{comparing}</small>
       </h3>
+      <Progress
+        done={entries.reduce((sum, entry) => sum + entry.seen, 0)}
+        of={entries.reduce((sum, entry) => sum + entry.folds, 0)}
+        label="seen"
+      />
       <ul className="components-toc">
         {ROLES.flatMap(([role, label]) => {
           const own = entries.filter((entry) => entry.component.role === role);
@@ -92,7 +104,7 @@ export function Rail({
               return (
                 <li
                   key={component.id}
-                  className={`components-kind--${component.kind}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}`}
+                  className={`components-kind--${component.kind}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}${entry.folds > 0 && entry.seen === entry.folds ? " components-toc--seen" : ""}`}
                 >
                   <button
                     type="button"
@@ -128,6 +140,21 @@ export function Rail({
                       </span>
                     )}
                   </button>
+                  {entry.folds > 0 && (
+                    <button
+                      type="button"
+                      className={`components-toc__seen${entry.seen === 0 ? " components-toc__seen--none" : ""}`}
+                      title={
+                        entry.seen === entry.folds
+                          ? `all ${entry.folds} seen`
+                          : `${entry.seen} of ${entry.folds} seen: go to the first unseen`
+                      }
+                      disabled={entry.seen === entry.folds}
+                      onClick={() => onGoUnseen(entry)}
+                    >
+                      {entry.seen}/{entry.folds}
+                    </button>
+                  )}
                 </li>
               );
             }),
@@ -137,12 +164,17 @@ export function Rail({
       <h3 className="components-rail__head">
         Files <small>each bar: its changed lines, by component</small>
       </h3>
+      <Progress
+        done={files.filter((file) => file.viewed).length}
+        of={files.length}
+        label="viewed"
+      />
       {files.map((file) => {
         const total = file.shares.reduce((sum, share) => sum + share.lines, 0);
         return (
           <div
             key={file.path}
-            className={`components-file${reading?.path === file.path ? " components-file--here" : ""}`}
+            className={`components-file${reading?.path === file.path ? " components-file--here" : ""}${file.viewed ? " components-file--viewed" : ""}`}
           >
             <span className="components-file__path">
               <span className="components-file__total">{total}</span>
@@ -175,6 +207,29 @@ export function Rail({
         );
       })}
     </>
+  );
+}
+
+/** How much of a list the reader has put away, as a bar and a count. */
+function Progress({
+  done,
+  of,
+  label,
+}: {
+  done: number;
+  of: number;
+  label: string;
+}) {
+  if (of === 0) return null;
+  return (
+    <div className="components-progress" title={`${done} of ${of} ${label}`}>
+      <span className="components-progress__bar">
+        <span style={{ width: `${(100 * done) / of}%` }} />
+      </span>
+      <span className="components-progress__text">
+        {done === of ? "all" : `${done} of ${of}`} {label}
+      </span>
+    </div>
   );
 }
 // ~/~ end

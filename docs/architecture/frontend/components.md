@@ -814,7 +814,7 @@ import {
   useState,
 } from "react";
 import type { AsyncState } from "../../model/asyncState";
-import { fileAnchor } from "../../model/changedFiles";
+import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type AddedLine,
   type Component,
@@ -846,6 +846,7 @@ import {
   type Comment,
   type ComparisonReview,
   isPlaceSeen,
+  isViewed,
   type PlaceVersion,
 } from "../../model/review";
 import type { SourceLookup } from "../../model/source";
@@ -2196,6 +2197,33 @@ export function ComponentsStack(props: ComponentsStackProps) {
     : (rows.find((each) => each.key === current) ??
       rows.find((each) => (placesOf.get(each.key)?.length ?? 0) > 0));
   const drawnHere = shown === undefined ? [] : (placesOf.get(shown.key) ?? []);
+  const shownFiles =
+    shown?.files.status === "ready" ? shown.files.data : ([] as FileDiff[]);
+  const fileAt = (path: string) =>
+    shownFiles.find(
+      (file) => ("path" in file ? file.path : file.newPath) === path,
+    );
+  const viewedHere = (file: FileDiff) =>
+    shown !== undefined &&
+    isViewed(reviewOf(shown).viewed, fileVersionOf(file));
+  // Each fold a component draws on this row, once, and whether the reader
+  // has put it away.
+  const foldsOf = (id: string) => {
+    if (shown === undefined) return [];
+    const out = new Map<string, { drawn: DrawnPlace; seen: boolean }>();
+    for (const each of drawnHere) {
+      if (each.ref.component.id !== id) continue;
+      const file = fileAt(each.path);
+      if (file === undefined) continue;
+      const key = foldKey(shown, each.path, each.ref);
+      if (out.has(key)) continue;
+      out.set(key, {
+        drawn: each,
+        seen: viewedHere(file) || seenAt(shown, file, each.ref).seen,
+      });
+    }
+    return [...out.values()];
+  };
   const entries: RailEntry[] = [];
   if (shown !== undefined) {
     const listed = [
@@ -2216,6 +2244,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       const runs = runStarts(drawnHere).filter(
         (each) => each.ref.component.id === component.id,
       );
+      const folds = foldsOf(component.id);
       const inCommit = component.commitId === shown.commit.commitId;
       const fate: Fate | null =
         mine.length === 0
@@ -2243,6 +2272,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
         drawn: mine.length > 0,
         places: runs.length,
         threads: commentsOn(component.id).length,
+        folds: folds.length,
+        seen: folds.filter((each) => each.seen).length,
       });
     }
   }
@@ -2251,6 +2282,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
       ? shown.files.data.map((file) => ({
           path: "path" in file ? file.path : file.newPath,
           shares: fileShares(components, rowTrees(shown), file),
+          viewed: viewedHere(file),
         }))
       : [];
 
@@ -2332,6 +2364,14 @@ export function ComponentsStack(props: ComponentsStackProps) {
                     comparisonKey(null, to.id),
                   );
                 }
+              }}
+              onGoUnseen={(entry) => {
+                const first = foldsOf(entry.component.id).find(
+                  (each) => !each.seen,
+                );
+                if (first === undefined) return;
+                rememberHere();
+                goTo(toPlace(first.drawn.ref, first.drawn.path));
               }}
               onGoShare={(path, share) => {
                 if (share.first === null) return;
@@ -2601,6 +2641,15 @@ changed lines shared out by component. A bar's width is a component's share
 of the file's changed lines, not where they fall, since the diff beside it
 already shows where.
 
+Each entry counts the runs the reader has put away, and the rail totals them
+as a bar over the list, with a matching bar over the files for Viewed. A run
+counts as put away when its heading is marked seen or its whole file is
+marked viewed, so the two boxes never disagree about what is left. The count
+is per run, not per component: a component with many runs shows partial
+progress rather than reading as untouched until the last one is seen.
+Clicking the count goes to the component's first run left, which is why it
+is a button of its own beside the entry rather than a part of it.
+
 ```tsx
 //| id: frontend-view-components-rail
 //| file: src/frontend/views/Components/Rail.tsx
@@ -2621,12 +2670,16 @@ export interface RailEntry {
   drawn: boolean;
   places: number;
   threads: number;
+  /** The folds it draws on this row, and how many the reader put away. */
+  folds: number;
+  seen: number;
 }
 
 /** One file of the current row, and its changed lines by component. */
 export interface RailFile {
   path: string;
   shares: FileShare[];
+  viewed: boolean;
 }
 
 const ROLES: [ComponentRole, string][] = [
@@ -2652,6 +2705,7 @@ export function Rail({
   reading,
   onMessage,
   onGo,
+  onGoUnseen,
   onGoShare,
 }: {
   /** The current row's diff has not landed yet. */
@@ -2663,6 +2717,8 @@ export function Rail({
   reading: { id: string; path: string } | null;
   onMessage: (() => void) | null;
   onGo: (entry: RailEntry) => void;
+  /** Goes to the first fold of the entry the reader has not put away. */
+  onGoUnseen: (entry: RailEntry) => void;
   onGoShare: (path: string, share: FileShare) => void;
 }) {
   if (loading) {
@@ -2683,6 +2739,11 @@ export function Rail({
       <h3 className="components-rail__head">
         Components <small>{comparing}</small>
       </h3>
+      <Progress
+        done={entries.reduce((sum, entry) => sum + entry.seen, 0)}
+        of={entries.reduce((sum, entry) => sum + entry.folds, 0)}
+        label="seen"
+      />
       <ul className="components-toc">
         {ROLES.flatMap(([role, label]) => {
           const own = entries.filter((entry) => entry.component.role === role);
@@ -2697,7 +2758,7 @@ export function Rail({
               return (
                 <li
                   key={component.id}
-                  className={`components-kind--${component.kind}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}`}
+                  className={`components-kind--${component.kind}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}${entry.folds > 0 && entry.seen === entry.folds ? " components-toc--seen" : ""}`}
                 >
                   <button
                     type="button"
@@ -2733,6 +2794,21 @@ export function Rail({
                       </span>
                     )}
                   </button>
+                  {entry.folds > 0 && (
+                    <button
+                      type="button"
+                      className={`components-toc__seen${entry.seen === 0 ? " components-toc__seen--none" : ""}`}
+                      title={
+                        entry.seen === entry.folds
+                          ? `all ${entry.folds} seen`
+                          : `${entry.seen} of ${entry.folds} seen: go to the first unseen`
+                      }
+                      disabled={entry.seen === entry.folds}
+                      onClick={() => onGoUnseen(entry)}
+                    >
+                      {entry.seen}/{entry.folds}
+                    </button>
+                  )}
                 </li>
               );
             }),
@@ -2742,12 +2818,17 @@ export function Rail({
       <h3 className="components-rail__head">
         Files <small>each bar: its changed lines, by component</small>
       </h3>
+      <Progress
+        done={files.filter((file) => file.viewed).length}
+        of={files.length}
+        label="viewed"
+      />
       {files.map((file) => {
         const total = file.shares.reduce((sum, share) => sum + share.lines, 0);
         return (
           <div
             key={file.path}
-            className={`components-file${reading?.path === file.path ? " components-file--here" : ""}`}
+            className={`components-file${reading?.path === file.path ? " components-file--here" : ""}${file.viewed ? " components-file--viewed" : ""}`}
           >
             <span className="components-file__path">
               <span className="components-file__total">{total}</span>
@@ -2780,6 +2861,29 @@ export function Rail({
         );
       })}
     </>
+  );
+}
+
+/** How much of a list the reader has put away, as a bar and a count. */
+function Progress({
+  done,
+  of,
+  label,
+}: {
+  done: number;
+  of: number;
+  label: string;
+}) {
+  if (of === 0) return null;
+  return (
+    <div className="components-progress" title={`${done} of ${of} ${label}`}>
+      <span className="components-progress__bar">
+        <span style={{ width: `${(100 * done) / of}%` }} />
+      </span>
+      <span className="components-progress__text">
+        {done === of ? "all" : `${done} of ${of}`} {label}
+      </span>
+    </div>
   );
 }
 ```
@@ -3470,8 +3574,9 @@ export function ComponentsSwitch({
   .components-toc__entry {
     display: flex;
     gap: var(--space-2);
+    flex: 1;
     align-items: baseline;
-    width: 100%;
+    min-width: 0;
     padding: 1px var(--space-2);
     border: 0;
     border-left: 2px solid transparent;
@@ -3511,6 +3616,62 @@ export function ComponentsSwitch({
     gap: 2px;
     align-items: center;
     color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .components-toc > li:not(.components-toc__group) {
+    display: flex;
+    align-items: baseline;
+  }
+  .components-toc__seen {
+    flex: none;
+    min-width: 3ch;
+    padding: 1px var(--space-1);
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .components-toc__seen:hover:not(:disabled) {
+    background: var(--surface-selected);
+    color: var(--text);
+    text-decoration: underline;
+  }
+  .components-toc__seen:disabled {
+    cursor: default;
+  }
+  .components-toc__seen--none {
+    color: var(--text-ghost);
+  }
+  /* Put away: still listed and reachable, but quieter than what is left. */
+  .components-toc--seen > .components-toc__entry .components-toc__name {
+    color: var(--text-faint);
+  }
+  .components-progress {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin: 0 var(--space-2) var(--space-2);
+    color: var(--text-faint);
+  }
+  .components-progress__bar {
+    flex: 1;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--border-subtle);
+  }
+  .components-progress__bar > span {
+    display: block;
+    height: 100%;
+    background: var(--text-muted);
+  }
+  .components-progress__text {
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
   .components-file {
@@ -3560,6 +3721,12 @@ export function ComponentsSwitch({
   .components-file__strip .components-file--lit {
     background: var(--component);
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--text) 40%, transparent);
+  }
+  .components-file--viewed .components-file__path {
+    color: var(--text-faint);
+  }
+  .components-file--viewed .components-file__strip {
+    opacity: 0.45;
   }
 
   /* As quiet as a hunk header: it names a run of lines, it is not one. It
