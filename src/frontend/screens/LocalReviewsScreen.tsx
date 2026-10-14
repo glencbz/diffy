@@ -1,5 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-screen-local-reviews>>[init]
+
 import { LocalReviews } from "../controllers/LocalReviews";
+import { RepoMenu } from "../controllers/RepoMenu";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
 import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
@@ -18,6 +20,7 @@ export function LocalReviewsScreen({
   return (
     <div className="app">
       <ModeTabs
+        repo={<RepoMenu />}
         mode="reviews"
         onSelect={(mode) => {
           if (mode !== "reviews") onGo(tabPlace(mode));

@@ -195,6 +195,8 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-mode-tabs>>
 
+<<design-repos>>
+
 <<design-panes>>
 
 <<design-splitter>>

@@ -410,6 +410,293 @@
 }
 /* ~/~ end */
 
+/* ~/~ begin <<docs/architecture/frontend/repos.md#design-repos>>[init] */
+@layer components {
+  .repo-switcher {
+    display: flex;
+    flex: none;
+    border-right: 1px solid var(--border);
+  }
+
+  .repo-switcher__button {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: var(--text);
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .repo-switcher__button:hover,
+  .repo-switcher__button[aria-expanded="true"] {
+    background: var(--surface-sunken);
+  }
+
+  .repo-switcher__name {
+    font-weight: bold;
+  }
+
+  .repo-switcher__parent,
+  .repo-switcher__caret {
+    color: var(--text-faint);
+  }
+
+  .repo-switcher__popover,
+  .repo-switcher__notice {
+    position: fixed;
+    z-index: 50;
+    width: min(560px, calc(100vw - 2 * var(--space-4)));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+    box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
+  }
+
+  .repo-switcher__notice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-4) var(--space-5);
+    line-height: 1.5;
+    background: var(--review-unseen-surface);
+  }
+
+  .repo-switcher__notice-actions {
+    display: flex;
+    gap: var(--space-4);
+    margin-left: auto;
+  }
+
+  .repo-switcher__notice button {
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .repo-list {
+    display: flex;
+    flex-direction: column;
+    max-height: min(70dvh, 560px);
+  }
+
+  .repo-list__input {
+    padding: var(--space-5);
+    font: inherit;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    outline: none;
+  }
+
+  .repo-list__failure {
+    margin: 0;
+    padding: var(--space-3) var(--space-5);
+    color: var(--danger);
+  }
+
+  .repo-list__rows {
+    margin: 0;
+    padding: var(--space-2) 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+
+  .repo-list__heading {
+    padding: var(--space-4) var(--space-5) var(--space-2);
+    font-size: 0.8em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .repo-list__empty {
+    padding: var(--space-5);
+    color: var(--text-muted);
+  }
+
+  .repo-list__undo {
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface-raised);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .repo-list__undo button {
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .repo-row {
+    display: flex;
+  }
+
+  .repo-row--active {
+    background: var(--surface-selected);
+  }
+
+  .repo-row__main {
+    display: flex;
+    flex: 1;
+    gap: var(--space-4);
+    align-items: center;
+    min-width: 0;
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .repo-row--closed .repo-row__main {
+    color: var(--text-muted);
+    cursor: default;
+  }
+
+  .repo-row__mark {
+    flex: none;
+    width: 1.2em;
+    color: var(--accent);
+  }
+
+  .repo-row__text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .repo-row__name {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    font-weight: bold;
+  }
+
+  .repo-row__parent,
+  .repo-row__detail {
+    overflow: hidden;
+    font-size: 0.9em;
+    font-weight: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .repo-row__parent {
+    color: var(--text-faint);
+  }
+
+  .repo-row__detail {
+    color: var(--text-muted);
+  }
+
+  .repo-row--closed .repo-row__detail {
+    color: var(--text-faint);
+  }
+
+  .repo-row__meta {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: var(--space-1);
+    align-items: flex-end;
+    font-size: 0.85em;
+    color: var(--text-faint);
+  }
+
+  .repo-row__reviews {
+    padding: 0 var(--space-3);
+    color: var(--accent);
+    background: var(--review-unseen-surface);
+    border-radius: var(--radius);
+  }
+
+  /* Shown on hover and for the active row, so the list reads as names. */
+  .repo-row__forget {
+    flex: none;
+    width: 2em;
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    visibility: hidden;
+    background: none;
+    border: none;
+  }
+
+  .repo-row:hover .repo-row__forget,
+  .repo-row--active .repo-row__forget {
+    visibility: visible;
+  }
+
+  .repo-row__forget:hover {
+    color: var(--danger);
+  }
+
+  .open-repo {
+    display: flex;
+    justify-content: center;
+    min-height: 100dvh;
+    padding: 12dvh var(--space-6) var(--space-6);
+    box-sizing: border-box;
+    font-family: var(--font-mono);
+    font-size: var(--text-size);
+    color: var(--text);
+    background: var(--surface-raised);
+  }
+
+  .open-repo__card {
+    align-self: flex-start;
+    width: min(600px, 100%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .open-repo__card h1 {
+    margin: 0;
+    padding: var(--space-6) var(--space-6) 0;
+    font-size: 1.3em;
+  }
+
+  .open-repo__card p {
+    margin: 0;
+    padding: var(--space-4) var(--space-6) var(--space-5);
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .open-repo__card .repo-list__input {
+    border-top: 1px solid var(--border);
+  }
+}
+
+@layer components-narrow {
+  /* No hover on a phone, and the name alone fits the tab bar. */
+  @media (max-width: 480px) {
+    .repo-switcher__parent {
+      display: none;
+    }
+
+    .repo-row__forget {
+      visibility: visible;
+    }
+  }
+}
+/* ~/~ end */
+
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-panes>>[init] */
 @layer components {
   .panes {

@@ -1,5 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-screen-pull-requests>>[init]
+
 import { PullRequests } from "../controllers/PullRequests";
+import { RepoMenu } from "../controllers/RepoMenu";
 import { type Place, type PullPlace, tabPlace } from "../model/place";
 import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
@@ -18,6 +20,7 @@ export function PullRequestsScreen({
   return (
     <div className="app">
       <ModeTabs
+        repo={<RepoMenu />}
         mode="pulls"
         onSelect={(mode) => {
           if (mode !== "pulls") onGo(tabPlace(mode));

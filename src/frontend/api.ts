@@ -16,6 +16,13 @@ import type {
   PullHistory,
   PullSummary,
 } from "./model/pull";
+import type {
+  FoundRepo,
+  RecentEntry,
+  RepoProbe,
+  RepoSummary,
+  ServedRepo,
+} from "./model/repo";
 import type { SourceFile } from "./model/source";
 
 const commitRef = z.object({
@@ -445,5 +452,95 @@ export async function registerLocalReview(asked: {
     );
   }
   return z.object({ name: z.string() }).parse(body).name;
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[7]
+
+const servedRepo = z.object({
+  home: z.string(),
+  current: z.string().nullable(),
+  startedOutside: z.string().nullable(),
+});
+const repoSummary = z.object({
+  root: z.string(),
+  workingCopy: z.string(),
+  reviews: z.number(),
+  openedAt: z.string().nullable(),
+});
+const foundRepo = z.object({
+  root: z.string(),
+  kind: z.enum(["jj", "git"]),
+});
+const recentEntry = z.object({ root: z.string(), openedAt: z.string() });
+const repoProbe = z.discriminatedUnion("kind", [
+  z.object({ kind: z.enum(["jj", "git"]), root: z.string() }),
+  z.object({ kind: z.literal("none") }),
+]);
+
+/** Send `body` as JSON, turning a refusal into its `error` message. */
+async function sendJson(
+  method: string,
+  url: string,
+  body: unknown,
+): Promise<unknown> {
+  const res = await fetch(url, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const answer: unknown = await res.json();
+  if (!res.ok) {
+    const parsed = errorResponse.safeParse(answer);
+    throw new Error(
+      parsed.success
+        ? parsed.data.error
+        : `${method} ${url} failed (${res.status})`,
+    );
+  }
+  return answer;
+}
+
+export async function fetchServedRepo(): Promise<ServedRepo> {
+  return servedRepo.parse(await getJson("/api/repo", "GET /api/repo"));
+}
+
+export async function fetchRecentRepos(): Promise<RepoSummary[]> {
+  return z
+    .array(repoSummary)
+    .parse(await getJson("/api/repo/recent", "GET /api/repo/recent"));
+}
+
+export async function fetchFoundRepos(): Promise<FoundRepo[]> {
+  return z
+    .array(foundRepo)
+    .parse(await getJson("/api/repo/found", "GET /api/repo/found"));
+}
+
+export async function probeRepoPath(path: string): Promise<RepoProbe> {
+  const params = new URLSearchParams({ path });
+  return repoProbe.parse(
+    await getJson(`/api/repo/probe?${params}`, "GET /api/repo/probe"),
+  );
+}
+
+/** Serve the repository holding `path`, and answer its root. */
+export async function openRepo(path: string): Promise<string> {
+  const answer = await sendJson("POST", "/api/repo", { path });
+  return z.object({ root: z.string() }).parse(answer).root;
+}
+
+export async function forgetRecentRepo(
+  root: string,
+): Promise<RecentEntry | null> {
+  const answer = await sendJson("DELETE", "/api/repo/recent", { root });
+  return z.object({ removed: recentEntry.nullable() }).parse(answer).removed;
+}
+
+export async function restoreRecentRepo(entry: RecentEntry): Promise<void> {
+  await sendJson("PUT", "/api/repo/recent", entry);
+}
+
+export async function dismissRepoNotice(): Promise<void> {
+  await sendJson("DELETE", "/api/repo/notice", {});
 }
 // ~/~ end

@@ -2,14 +2,44 @@
 import type { Place } from "./model/place";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
 import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
+import { OpenRepoScreen } from "./screens/OpenRepoScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
 import { usePlace } from "./state/place";
+import { RepoContext, useServedRepo } from "./state/repo";
 import { ReviewContext, useReview } from "./state/review";
 import { SettingsContext, useSettings } from "./state/settings";
+import { Message } from "./views/Message";
 
 export function App() {
+  const repo = useServedRepo();
+  return <RepoContext value={repo}>{served(repo.served)}</RepoContext>;
+}
+
+function served(repo: ReturnType<typeof useServedRepo>["served"]) {
+  switch (repo.status) {
+    case "loading":
+      return null;
+    case "error":
+      return (
+        <div className="app">
+          <Message tone="error">{repo.message}</Message>
+        </div>
+      );
+    case "ready":
+      return repo.data.current === null ? (
+        <OpenRepoScreen
+          home={repo.data.home}
+          startedOutside={repo.data.startedOutside}
+        />
+      ) : (
+        <Screens />
+      );
+  }
+}
+
+function Screens() {
   const [place, go] = usePlace();
   const settings = useSettings();
   const review = useReview();
