@@ -25,14 +25,21 @@ import {
   type PlaceRef,
   placeAt,
   placeKey,
+  placeVersion,
   type RowTrees,
   rowTrees,
   runStarts,
+  sameFold,
   sameRun,
   wordAdded,
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
-import type { Comment } from "../../model/review";
+import {
+  type Comment,
+  type ComparisonReview,
+  isPlaceSeen,
+  type PlaceVersion,
+} from "../../model/review";
 import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
@@ -75,6 +82,12 @@ export interface ComponentsStackProps {
   onCompare: (from: string | null, to: string, commit: string | null) => void;
   /** Every comment in the review document. */
   comments: Comment[];
+  /** What the reader has kept on each row. */
+  reviewOf: (row: StackRow) => ComparisonReview;
+  /** Null while there is no review document to mark a place seen in. */
+  onTogglePlaceSeen:
+    | ((row: ComparisonReview, place: PlaceVersion) => void)
+    | null;
   split: boolean;
   /** The rail's width as the reader dragged it, or null for the default. */
   railSize: number | null;
@@ -142,6 +155,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
     to,
     counterparts,
     comments,
+    reviewOf,
+    onTogglePlaceSeen,
     split,
     railSize,
     onRailResize,
@@ -161,6 +176,9 @@ export function ComponentsStack(props: ComponentsStackProps) {
     return () => window.removeEventListener("popstate", forget);
   }, []);
   const [peeked, setPeeked] = useState<Peeked | null>(null);
+  // The headings the reader folded or unfolded, by row, file and place;
+  // the rest start folded when they are marked seen.
+  const [opened, setOpened] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [reading, setReading] = useState<{
     id: string;
     path: string;
@@ -624,8 +642,19 @@ export function ComponentsStack(props: ComponentsStackProps) {
     });
   };
 
+  const foldKey = (row: StackRow, path: string, ref: PlaceRef) =>
+    `${row.key}|${path}|${row.was === null ? placeKey(ref) : ref.component.id}`;
+  const seenAt = (row: StackRow, file: FileDiff, ref: PlaceRef) => {
+    const place = placeVersion(components, rowTrees(row), file, ref);
+    return { place, seen: isPlaceSeen(reviewOf(row).seenPlaces, place) };
+  };
+  const isFolded = (row: StackRow, file: FileDiff, ref: PlaceRef) =>
+    opened.get(foldKey(row, "path" in file ? file.path : file.newPath, ref)) ??
+    seenAt(row, file, ref).seen;
+
   const headingParts = (
     row: StackRow,
+    file: FileDiff,
     drawn: DrawnPlace,
     side: "before" | "after",
   ): HeadingParts => {
@@ -836,6 +865,36 @@ export function ComponentsStack(props: ComponentsStackProps) {
             },
           }
         : null,
+      fold: {
+        folded: isFolded(row, file, ref),
+        onToggle: () => {
+          const folded = isFolded(row, file, ref);
+          setOpened((now) =>
+            new Map(now).set(foldKey(row, path, ref), !folded),
+          );
+        },
+      },
+      seen:
+        !rest || onTogglePlaceSeen === null
+          ? null
+          : (() => {
+              const { place, seen } = seenAt(row, file, ref);
+              return {
+                seen,
+                // Marking it seen folds it, as marking a file viewed does;
+                // unmarking leaves it as the reader has it.
+                onToggle: () => {
+                  onTogglePlaceSeen(reviewOf(row), place);
+                  if (!seen) {
+                    setOpened((now) => {
+                      const next = new Map(now);
+                      next.delete(foldKey(row, path, ref));
+                      return next;
+                    });
+                  }
+                },
+              };
+            })(),
       onLeave: leave,
     };
   };
@@ -1052,12 +1111,25 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // The layer reads everything through `live`, so it only has to change
   // when what it draws does. A hover or the reading line moving draws this
   // view again, not the diff under it.
-  const live = useRef({ headingParts, placeOfLine, wordsIn, mentionsIn });
-  live.current = { headingParts, placeOfLine, wordsIn, mentionsIn };
+  const live = useRef({
+    headingParts,
+    placeOfLine,
+    isFolded,
+    wordsIn,
+    mentionsIn,
+  });
+  live.current = { headingParts, placeOfLine, isFolded, wordsIn, mentionsIn };
   const fates = rows
     .map(
       (row) =>
         `${row.key}:${counterpartOf(row.commit.commitId)?.files.status ?? "-"}`,
+    )
+    .join(" ");
+  const seenMarks = rows
+    .flatMap((row) =>
+      reviewOf(row).seenPlaces.map(
+        (mark) => `${row.key}|${mark.componentId}|${mark.path}|${mark.lines}`,
+      ),
     )
     .join(" ");
   // biome-ignore lint/correctness/useExhaustiveDependencies: what the layer draws from; the rest it reads through `live`
@@ -1071,6 +1143,17 @@ export function ComponentsStack(props: ComponentsStackProps) {
         const trees = rowTrees(row);
         return (file) => {
           const path = "path" in file ? file.path : file.newPath;
+          // Each place's fold, worked out once per drawing of the file.
+          const folds = new Map<string, boolean>();
+          const foldedAt = (ref: PlaceRef) => {
+            const key = placeKey(ref);
+            let folded = folds.get(key);
+            if (folded === undefined) {
+              folded = live.current.isFolded(row, file, ref);
+              folds.set(key, folded);
+            }
+            return folded;
+          };
           return {
             header: null,
             lineClass: (line) => {
@@ -1101,8 +1184,24 @@ export function ComponentsStack(props: ComponentsStackProps) {
               if (drawn === undefined) return null;
               return (
                 <Heading
-                  {...live.current.headingParts(row, drawn, line.anchor.side)}
+                  {...live.current.headingParts(
+                    row,
+                    file,
+                    drawn,
+                    line.anchor.side,
+                  )}
                 />
+              );
+            },
+            folded: (line) => {
+              if (line.kind === "context") return false;
+              const ref = live.current.placeOfLine(trees, file, line);
+              if (ref === null) return false;
+              return places.some(
+                (each) =>
+                  each.path === path &&
+                  sameFold(trees, each.ref, ref) &&
+                  foldedAt(each.ref),
               );
             },
             token: (text, line) =>
@@ -1111,7 +1210,17 @@ export function ComponentsStack(props: ComponentsStackProps) {
         };
       },
     }),
-    [placesOf, components, split, from?.id, to.id, comments, fates],
+    [
+      placesOf,
+      components,
+      split,
+      from?.id,
+      to.id,
+      comments,
+      fates,
+      opened,
+      seenMarks,
+    ],
   );
   const stack = useMemo(
     () => children(enabled ? layer : undefined),

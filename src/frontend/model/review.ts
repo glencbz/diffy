@@ -83,6 +83,22 @@ export const ViewedFile = FileVersion.extend({
 });
 export type ViewedFile = z.infer<typeof ViewedFile>;
 
+/** One place of a component as a comparison draws it: the component, the
+ *  file, and a digest of the lines it changes there. Two versions that agree
+ *  on all three draw the same run. */
+export const PlaceVersion = z.object({
+  componentId: z.string(),
+  path: z.string(),
+  lines: z.string(),
+});
+export type PlaceVersion = z.infer<typeof PlaceVersion>;
+
+export const SeenPlace = PlaceVersion.extend({
+  reviewKey: z.string(),
+  seenAt: z.string(),
+});
+export type SeenPlace = z.infer<typeof SeenPlace>;
+
 /** One version of a series the reader said they reviewed: a head of a pull
  *  request, named by its oid. */
 export const ReviewedVersion = z.object({
@@ -148,6 +164,7 @@ export const ReviewDocument = z.object({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
+  seenPlaces: z.array(SeenPlace).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
   keys: z.array(KeptKey).default([]),
   pairings: z.array(KeptPairing).default([]),
@@ -161,6 +178,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   marks: [],
   comments: [],
   viewed: [],
+  seenPlaces: [],
   reviewed: [],
   keys: [],
   pairings: [],
@@ -174,6 +192,7 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.marks.length === 0 &&
     document.comments.length === 0 &&
     document.viewed.length === 0 &&
+    document.seenPlaces.length === 0 &&
     document.reviewed.length === 0 &&
     document.keys.length === 0 &&
     document.pairings.length === 0 &&
@@ -349,6 +368,7 @@ export interface ComparisonReview {
   review: RowReview;
   comments: RowComment[];
   viewed: ViewedFile[];
+  seenPlaces: SeenPlace[];
   compared: ComparedFile[];
 }
 
@@ -447,6 +467,7 @@ export function reviewComparison(
     ),
     comments,
     viewed: document.viewed.filter((mark) => mark.reviewKey === key),
+    seenPlaces: document.seenPlaces.filter((mark) => mark.reviewKey === key),
     compared: document.compared.filter((file) => file.reviewKey === key),
   };
 }
@@ -523,6 +544,17 @@ export function isViewed(viewed: ViewedFile[], file: FileVersion): boolean {
   return viewed.some((mark) => sameVersion(mark, file));
 }
 
+function samePlace(a: PlaceVersion, b: PlaceVersion): boolean {
+  return (
+    a.componentId === b.componentId && a.path === b.path && a.lines === b.lines
+  );
+}
+
+/** Whether one of a row's seen marks covers the place as it reads now. */
+export function isPlaceSeen(seen: SeenPlace[], place: PlaceVersion): boolean {
+  return seen.some((mark) => samePlace(mark, place));
+}
+
 /** One change a reader or an agent makes to the review document. Each says
  *  what the state should become, so applying one twice leaves what applying
  *  it once did. */
@@ -538,6 +570,13 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     reviewKey: z.string(),
     file: FileVersion,
     viewed: z.boolean(),
+    at: z.string(),
+  }),
+  z.object({
+    kind: z.literal("set-place-seen"),
+    reviewKey: z.string(),
+    place: PlaceVersion,
+    seen: z.boolean(),
     at: z.string(),
   }),
   z.object({ kind: z.literal("add-comment"), comment: Comment }),
@@ -645,6 +684,26 @@ export function applyCommand(
               },
             ]
           : viewed,
+      };
+    }
+    case "set-place-seen": {
+      const seenPlaces = document.seenPlaces.filter(
+        (mark) =>
+          mark.reviewKey !== command.reviewKey ||
+          !samePlace(mark, command.place),
+      );
+      return {
+        ...document,
+        seenPlaces: command.seen
+          ? [
+              ...seenPlaces,
+              {
+                ...command.place,
+                reviewKey: command.reviewKey,
+                seenAt: command.at,
+              },
+            ]
+          : seenPlaces,
       };
     }
     case "add-comment":
@@ -833,6 +892,11 @@ export function applyCommand(
           command.document.viewed,
           (a, b) => a.reviewKey === b.reviewKey && sameVersion(a, b),
         ),
+        seenPlaces: added(
+          document.seenPlaces,
+          command.document.seenPlaces,
+          (a, b) => a.reviewKey === b.reviewKey && samePlace(a, b),
+        ),
         reviewed: added(
           document.reviewed,
           command.document.reviewed,
@@ -961,6 +1025,7 @@ export interface ReviewActions {
   editReply: (commentId: string, replyId: string, body: string) => void;
   dropReply: (commentId: string, replyId: string) => void;
   toggleViewed: (row: ComparisonReview, file: FileVersion) => void;
+  togglePlaceSeen: (row: ComparisonReview, place: PlaceVersion) => void;
   /** Reads `newPath` against `oldPath`, or against itself again for null. */
   compare: (
     row: ComparisonReview,
@@ -1008,6 +1073,21 @@ export function markViewed(
     reviewKey: row.reviewKey,
     file,
     viewed: !isViewed(row.viewed, file),
+    at,
+  };
+}
+
+/** Marks one place of a component on a row seen, or not seen if it is. */
+export function markPlaceSeen(
+  row: ComparisonReview,
+  place: PlaceVersion,
+  at: string,
+): ReviewCommand {
+  return {
+    kind: "set-place-seen",
+    reviewKey: row.reviewKey,
+    place,
+    seen: !isPlaceSeen(row.seenPlaces, place),
     at,
   };
 }

@@ -30,6 +30,11 @@ export interface HeadingParts {
   /** Steps through the component's places. The page numbers them from the
    *  headings it draws, which the structural view and folds change. */
   places: { onStep: (by: 1 | -1) => void } | null;
+  /** Folds the lines under the heading, as a file's chevron folds the file. */
+  fold: { folded: boolean; onToggle: () => void };
+  /** Null where there is no review document to mark it in, or, side by
+   *  side, on the before column's heading. */
+  seen: { seen: boolean; onToggle: () => void } | null;
   onLeave: () => void;
 }
 
@@ -43,6 +48,8 @@ export function Heading({
   message,
   threads,
   places,
+  fold,
+  seen,
   onLeave,
 }: HeadingParts) {
   const { component, place } = at;
@@ -63,11 +70,20 @@ export function Heading({
   );
   return (
     <div
-      className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}`}
+      className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}${fold.folded ? " components-heading--folded" : ""}`}
       data-components-key={`${component.commitId}:${component.id}/${place}`}
       data-components-id={component.id}
       data-path={path}
     >
+      <button
+        type="button"
+        className="components-heading__fold"
+        aria-expanded={!fold.folded}
+        aria-label={fold.folded ? "unfold" : "fold"}
+        onClick={fold.onToggle}
+      >
+        {fold.folded ? "▸" : "▾"}
+      </button>
       <span className="components-heading__kind">{component.kind}</span>
       <span className="components-heading__name">{component.name}</span>
       <span className="components-heading__about">
@@ -153,6 +169,16 @@ export function Heading({
               ›
             </button>
           </span>
+        )}
+        {seen !== null && (
+          <label className="components-heading__seen">
+            <input
+              type="checkbox"
+              checked={seen.seen}
+              onChange={seen.onToggle}
+            />
+            Seen
+          </label>
         )}
       </span>
     </div>

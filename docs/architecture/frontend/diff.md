@@ -451,6 +451,9 @@ export interface LineDecor {
    *  changes can carry a heading once even where the structural view
    *  interleaves runs. Optional: a layer without headings leaves it out. */
   over?: (line: CodeLine, earlier: readonly CodeLine[]) => ReactNode;
+  /** Whether a changed line is folded away under the heading `over` drew
+   *  for its run. Optional, as `over` is. */
+  folded?: (line: CodeLine) => boolean;
   /** What a token's text draws as, where a layer marks words in the code. */
   token?: (text: string, line: CodeLine) => ReactNode;
 }
@@ -548,6 +551,10 @@ export function FileRow({
         )
       : [],
   );
+  const hidden = foldedLines(
+    content.kind === "text" ? content.lines : [],
+    decor?.folded,
+  );
   const parts = partsOf(
     variant,
     path,
@@ -602,13 +609,13 @@ export function FileRow({
       />
     );
   const cell = (line: DrawnLine | null, key: number, side: Side) =>
-    line === null ? (
+    line === null || hidden.has(line) ? (
       <EmptyCell key={key} side={side} />
     ) : (
       drawn(line, key, side)
     );
   const under = (line: DrawnLine | null, key: string) =>
-    line !== null && "anchor" in line ? (
+    line !== null && "anchor" in line && !hidden.has(line) ? (
       <Fragment key={key}>
         {parts.underLine(line.anchor)}
         {decor?.under(line.anchor)}
@@ -701,6 +708,10 @@ export function FileRow({
     };
   }
 
+  function gone(line: DrawnLine | null) {
+    return line === null || hidden.has(line);
+  }
+
   function lines(): ReactNode {
     const over = overs();
     return content.kind === "folded" ? null : content.kind === "binary" ? (
@@ -711,7 +722,7 @@ export function FileRow({
           if (row.kind === "across") {
             over(row.line, "before");
             over(row.line, "after");
-            return [drawn(row.line, 2 * index)];
+            return hidden.has(row.line) ? [] : [drawn(row.line, 2 * index)];
           }
           const before = over(row.before, "before");
           const after =
@@ -728,8 +739,12 @@ export function FileRow({
                 </div>
               </Fragment>
             ),
-            cell(row.before, 2 * index, "before"),
-            cell(row.after, 2 * index + 1, "after"),
+            ...(gone(row.before) && gone(row.after)
+              ? []
+              : [
+                  cell(row.before, 2 * index, "before"),
+                  cell(row.after, 2 * index + 1, "after"),
+                ]),
             under(row.before, `before-${index}`),
             row.after === row.before
               ? null
@@ -742,12 +757,42 @@ export function FileRow({
         {content.lines.flatMap((line, index) => [
           // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering lines
           <Fragment key={`over-${index}`}>{over(line, "one")}</Fragment>,
-          drawn(line, index),
+          hidden.has(line) ? null : drawn(line, index),
           under(line, `under-${index}`),
         ])}
       </pre>
     );
   }
+}
+
+/** The lines a layer folds away: its folded changed lines, and the context
+ *  between two of them in one hunk, so a folded run leaves nothing of itself
+ *  but its heading. */
+function foldedLines(
+  lines: DrawnLine[],
+  folded: ((line: CodeLine) => boolean) | undefined,
+): ReadonlySet<DrawnLine> {
+  const out = new Set<DrawnLine>();
+  if (folded === undefined) return out;
+  let context: DrawnLine[] = [];
+  let open = false;
+  for (const line of lines) {
+    if (!("anchor" in line)) {
+      context = [];
+      open = false;
+    } else if (line.kind === "context") {
+      if (open) context.push(line);
+    } else if (folded(line)) {
+      for (const each of context) out.add(each);
+      out.add(line);
+      context = [];
+      open = true;
+    } else {
+      context = [];
+      open = false;
+    }
+  }
+  return out;
 }
 
 /** What a file draws under its header. Only text has lines to draw or a
@@ -947,7 +992,11 @@ lines before it in the same column and hunk, so a heading can start each run
 of changes that belong together, and not start it again where the run resumes
 after other lines; `FileRow` tracks those lines because only it knows the
 drawn order, which gaps, layout and diff mode all change. `token`
-draws a token's text, so a layer can mark words in the code.
+draws a token's text, so a layer can mark words in the code. `folded` hides a
+run under its heading; `FileRow` also hides the context lines inside the run
+because only it knows which lines sit between two folded ones. A layer that
+hid lines by class would leave that context, and the comments on hidden
+lines, drawn.
 
 The header path and the gutter share one narrowing of `DiffLinks` to the
 file.

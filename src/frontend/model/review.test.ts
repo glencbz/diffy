@@ -10,14 +10,17 @@ import {
   drawnAt,
   EMPTY_REVIEW,
   type FileVersion,
+  isPlaceSeen,
   isViewed,
   keepKey,
   keptPairing,
   localReview,
   localRowKey,
   localSeries,
+  markPlaceSeen,
   markSeen,
   markViewed,
+  type PlaceVersion,
   pullRowKey,
   type ReviewCommand,
   ReviewDocument,
@@ -687,6 +690,48 @@ describe("viewed files", () => {
 
     // assert
     expect(isViewed(viewed, file)).toBe(false);
+  });
+});
+
+describe("seen places", () => {
+  const place: PlaceVersion = {
+    componentId: "parser",
+    path: "f.ts",
+    lines: "0a1b2c3d",
+  };
+  const row = pairRow("a", "a1", "a2");
+
+  test("reads a place seen on its row until it is marked again", () => {
+    // arrange
+    const marked = applied(
+      empty,
+      markPlaceSeen(reviewedRow(row, empty), place, "2026-10-13T09:00:00Z"),
+    );
+
+    // act
+    const unmarked = applied(
+      marked,
+      markPlaceSeen(reviewedRow(row, marked), place, "2026-10-13T09:01:00Z"),
+    );
+
+    // assert
+    expect(isPlaceSeen(reviewedRow(row, marked).seenPlaces, place)).toBe(true);
+    expect(unmarked.seenPlaces).toEqual([]);
+  });
+
+  test("reads a place not seen once its lines have changed", () => {
+    // arrange
+    const document = applied(
+      empty,
+      markPlaceSeen(reviewedRow(row, empty), place, "2026-10-13T09:00:00Z"),
+    );
+
+    // act
+    const seen = reviewedRow(pairRow("a", "a1", "a3"), document).seenPlaces;
+
+    // assert
+    expect(isPlaceSeen(seen, place)).toBe(true);
+    expect(isPlaceSeen(seen, { ...place, lines: "ffffffff" })).toBe(false);
   });
 });
 
