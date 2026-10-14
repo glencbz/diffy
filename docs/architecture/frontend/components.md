@@ -4217,9 +4217,11 @@ import {
   mentionedIn,
   placeAt,
   placeKey,
+  placeVersion,
   referencesIn,
   rowTrees,
   runStarts,
+  sameFold,
   sameRun,
   withComponents,
   wordAdded,
@@ -4358,6 +4360,49 @@ describe("reading a row", () => {
       ["rename", 2],
       [null, 2],
     ]);
+  });
+});
+
+describe("folds", () => {
+  test("folds one place of a commit's own diff, and a component's share of an interdiff", () => {
+    // arrange
+    const own = rowTrees({ commit: { commitId: "c2" }, was: null });
+    const between = rowTrees({
+      commit: { commitId: "c2" },
+      was: { commitId: "c1" },
+    });
+    const old = { component: RENAME, place: 0 };
+    const renamed = { component: RENAME, place: 1 };
+
+    // act
+    const apart = sameFold(own, old, renamed);
+    const together = sameFold(between, { component: OLDER, place: 0 }, old);
+
+    // assert
+    expect(apart).toBe(false);
+    expect(together).toBe(true);
+  });
+
+  test("marks a place by its own lines, whatever else the file changes", () => {
+    // arrange
+    const trees = rowTrees({ commit: { commitId: "c2" }, was: null });
+    const four = { component: FOUR, place: 0 };
+    const other = PATCH.replace("+TWO", "+Two");
+
+    // act
+    const before = placeVersion(ALL, trees, file(), four);
+    const after = placeVersion(ALL, trees, file(other), four);
+    const changed = placeVersion(
+      ALL,
+      trees,
+      file(PATCH.replace("+FOUR", "+Four")),
+      four,
+    );
+
+    // assert
+    expect(after).toEqual(before);
+    expect(changed.lines).not.toBe(before.lines);
+    expect(before).toMatchObject({ componentId: "four", path: "a.ts" });
   });
 });
 
