@@ -1012,7 +1012,11 @@ export function applyCommand(
         ...document,
         componentKinds: withKind(
           document.componentKinds,
-          { name: command.name, advice: command.advice },
+          {
+            name: command.name,
+            advice: command.advice,
+            ...(command.colour === undefined ? {} : { colour: command.colour }),
+          },
           command.before,
         ),
       };
