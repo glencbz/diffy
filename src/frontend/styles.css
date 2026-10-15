@@ -2994,9 +2994,10 @@
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .local-review__deleted {
+  .local-review__deleted > summary {
     padding: var(--space-4) var(--space-4) var(--space-2);
     color: var(--text-faint);
+    cursor: pointer;
     border-bottom: 1px solid var(--border-subtle);
   }
 
