@@ -1,6 +1,9 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { stat } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { $ } from "bun";
 import {
   COMMIT_MARKERS,
   JjError,
@@ -132,6 +135,51 @@ describe("jjRepoDir", () => {
     expect(dir.endsWith("/.jj/repo")).toBe(true);
     expect((await stat(dir)).isDirectory()).toBe(true);
   });
+});
+
+describe("in a throwaway repository", () => {
+  /** Runs `body` with a fresh jj repository as the one being served. */
+  async function inRepo(body: (dir: string) => Promise<void>) {
+    const dir = await mkdtemp(join(tmpdir(), "diffy-jj-"));
+    const served = process.cwd();
+    try {
+      await $`jj git init`.cwd(dir).quiet();
+      process.chdir(dir);
+      await body(dir);
+    } finally {
+      process.chdir(served);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("reads a stale working copy", () =>
+    inRepo(async (dir) => {
+      // arrange
+      // Rewriting @ without touching the working copy leaves it stale.
+      await $`jj --ignore-working-copy describe -m moved`.cwd(dir).quiet();
+
+      // act
+      const [commit] = await jjLog({ revset: "@" });
+      const operations = await jjOpLog({ snapshot: true });
+
+      // assert
+      expect(commit?.description).toBe("moved\n");
+      expect(operations[0]?.description).toStartWith("describe commit");
+    }));
+
+  test("records a file edit as an operation only when asked to", () =>
+    inRepo(async (dir) => {
+      // arrange
+      await Bun.write(join(dir, "a.txt"), "a\n");
+
+      // act
+      const read = await jjOpLog();
+      const polled = await jjOpLog({ snapshot: true });
+
+      // assert
+      expect(polled.length).toBe(read.length + 1);
+      expect(polled[0]?.description).toBe("snapshot working copy");
+    }));
 });
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[1]
