@@ -241,11 +241,13 @@ after graph out of line with the before one.
 ```tsx
 //| id: frontend-screen-local-history
 //| file: src/frontend/screens/LocalHistoryScreen.tsx
+
 import { type ReactNode, useState } from "react";
 import { CombinedLog } from "../controllers/CombinedLog";
 import { CommitLog } from "../controllers/CommitLog";
 import { DiffPane } from "../controllers/DiffPane";
 import { RegisterReview } from "../controllers/RegisterReview";
+import { RepoMenu } from "../controllers/RepoMenu";
 import type { LocalHistory } from "../model/localHistory";
 import { newerOperation, pickerValue } from "../model/localHistory";
 import { openLocal, type Place, tabPlace } from "../model/place";
@@ -289,6 +291,7 @@ export function LocalHistoryScreen({ onGo }: { onGo: (place: Place) => void }) {
   return (
     <div className="app">
       <ModeTabs
+        repo={<RepoMenu />}
         mode="local"
         onSelect={(mode) => {
           if (mode !== "local") onGo(tabPlace(mode));

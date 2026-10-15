@@ -67,6 +67,11 @@ import {
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import {
+  type RecentRepos,
+  repoRoutes,
+  type ServedRepo,
+} from "./backend/repo/repos";
+import {
   localCommits,
   localDiff,
   localSize,
@@ -634,14 +639,18 @@ export function handleLocalSize(req: Request): Promise<Response> {
 
 Every non-API path serves the page, since the frontend keeps the reader's
 place in [the path](../frontend/address.md). An unknown API path is a 404.
-`/mcp` is where [agents](agents.md) reach the review document.
+`/mcp` is where [agents](agents.md) reach the review document. Routes that
+read the review document take `ServedRepo`'s store, which follows the
+[repository being served](repos.md).
 
 ```ts
 //| id: backend-server
 
-export function routes(store: ReviewStore) {
+export function routes(served: ServedRepo, recent: RecentRepos) {
+  const store = served.store;
   return {
     "/*": index,
+    ...repoRoutes(served, recent),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": handleLog,
     "/api/operations": handleOperations,

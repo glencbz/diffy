@@ -20,13 +20,15 @@ export interface ReviewStore {
   apply(command: ReviewCommand): ReviewSnapshot;
   /** The revision alone, without reading the document. */
   revision(): number;
+  close(): void;
 }
 
-/** The review store of the repository the server was started in. */
+/** The review store of the repository at `cwd`, or of the one served. */
 export async function reviewStorePath(
   env: Record<string, string | undefined> = process.env,
+  cwd?: string,
 ): Promise<string> {
-  const repo = await jjRepoDir();
+  const repo = await jjRepoDir(cwd);
   const dataHome = env.XDG_DATA_HOME || join(homedir(), ".local", "share");
   const dir = join(dataHome, "diffy");
   await mkdir(dir, { recursive: true });
@@ -93,6 +95,7 @@ export function openReviewStore(path: string): ReviewStore {
     // keep the newer of two answers that arrive out of order.
     apply: (command) => apply.immediate(command),
     revision: () => selectRevision.get()?.revision ?? 0,
+    close: () => db.close(),
   };
 }
 // ~/~ end

@@ -24,9 +24,17 @@ test("a port that is not one is a usage error", () => {
   }
 });
 
-test("unknown flags and stray arguments are usage errors", () => {
+test("a path names the repository to serve", () => {
+  expect(parseCommand(["~/src/a", "-p", "4100"])).toEqual({
+    kind: "serve",
+    path: "~/src/a",
+    port: { kind: "given", port: 4100 },
+  });
+});
+
+test("unknown flags and a second path are usage errors", () => {
   expect(parseCommand(["--bogus"]).kind).toBe("usage-error");
-  expect(parseCommand(["somewhere"]).kind).toBe("usage-error");
+  expect(parseCommand(["a", "b"]).kind).toBe("usage-error");
 });
 
 test("difft takes exactly two directories", () => {

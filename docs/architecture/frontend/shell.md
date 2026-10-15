@@ -45,7 +45,9 @@ createRoot(container).render(<App />);
 
 ## App
 
-`App` reads the open screen from the [address](address.md) through
+`App` first waits for the [repository being served](repos.md#holding-the-served-repository),
+and with none draws the screen that asks for one. Past that, it reads the
+open screen from the [address](address.md) through
 `usePlace`; the `switch` over `place.tab` is the routing table. What belongs to
 more than one screen, or must survive one unmounting, is held here in a
 context: [settings](settings.md#sharing-the-settings), the
@@ -58,14 +60,44 @@ context: [settings](settings.md#sharing-the-settings), the
 import type { Place } from "./model/place";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
 import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
+import { OpenRepoScreen } from "./screens/OpenRepoScreen";
 import { PullRequestsScreen } from "./screens/PullRequestsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
 import { usePlace } from "./state/place";
+import { RepoContext, useServedRepo } from "./state/repo";
 import { ReviewContext, useReview } from "./state/review";
 import { SettingsContext, useSettings } from "./state/settings";
+import { Message } from "./views/Message";
 
 export function App() {
+  const repo = useServedRepo();
+  return <RepoContext value={repo}>{served(repo.served)}</RepoContext>;
+}
+
+function served(repo: ReturnType<typeof useServedRepo>["served"]) {
+  switch (repo.status) {
+    case "loading":
+      return null;
+    case "error":
+      return (
+        <div className="app">
+          <Message tone="error">{repo.message}</Message>
+        </div>
+      );
+    case "ready":
+      return repo.data.current === null ? (
+        <OpenRepoScreen
+          home={repo.data.home}
+          startedOutside={repo.data.startedOutside}
+        />
+      ) : (
+        <Screens />
+      );
+  }
+}
+
+function Screens() {
   const [place, go] = usePlace();
   const settings = useSettings();
   const review = useReview();
@@ -123,11 +155,15 @@ function screenAt(place: Place, go: (place: Place) => void) {
 "Local reviews" comes first, since they hold what is waiting for the reader,
 and the operation screen's tab is "Operations", for what it compares.
 Pressing the open screen's tab does nothing, rather than going to its bare
-[`tabPlace`](address.md#the-place) and losing the reader's place.
+[`tabPlace`](address.md#the-place) and losing the reader's place. The
+[repository switcher](repos.md#repo-switcher) comes before the tabs, as what
+every tab reads from.
 
 ```tsx
 //| id: frontend-view-mode-tabs
 //| file: src/frontend/views/ModeTabs.tsx
+import type { ReactNode } from "react";
+
 export type Mode = "reviews" | "local" | "pulls" | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
@@ -138,14 +174,18 @@ const CAPTIONS: Record<Mode, string> = {
 };
 
 export function ModeTabs({
+  repo,
   mode,
   onSelect,
 }: {
+  /** The repository switcher, wired by the screen. */
+  repo: ReactNode;
   mode: Mode;
   onSelect: (mode: Mode) => void;
 }) {
   return (
     <nav className="tabs">
+      {repo}
       {(Object.keys(CAPTIONS) as Mode[]).map((candidate) => (
         <button
           type="button"

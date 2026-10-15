@@ -451,6 +451,7 @@ export function SettingsForm({
 ```tsx
 //| id: frontend-screen-settings
 //| file: src/frontend/screens/SettingsScreen.tsx
+import { RepoMenu } from "../controllers/RepoMenu";
 import { type Place, tabPlace } from "../model/place";
 import { useSettingsContext } from "../state/settings";
 import { ModeTabs } from "../views/ModeTabs";
@@ -462,6 +463,7 @@ export function SettingsScreen({ onGo }: { onGo: (place: Place) => void }) {
   return (
     <div className="app">
       <ModeTabs
+        repo={<RepoMenu />}
         mode="settings"
         onSelect={(mode) => {
           if (mode !== "settings") onGo(tabPlace(mode));
