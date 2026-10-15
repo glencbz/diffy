@@ -3881,8 +3881,9 @@
   .components-toc__seen:disabled {
     cursor: default;
   }
-  .components-toc__seen--none {
-    color: var(--text-ghost);
+  /* A finished count steps back, so what is left stands out on a scan. */
+  .components-toc__seen--done {
+    color: var(--text-faint);
   }
   /* Put away: still listed and reachable, but quieter than what is left. */
   .components-toc--seen > .components-toc__entry .components-toc__name {

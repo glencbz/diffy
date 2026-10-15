@@ -143,7 +143,7 @@ export function Rail({
                   {entry.folds > 0 && (
                     <button
                       type="button"
-                      className={`components-toc__seen${entry.seen === 0 ? " components-toc__seen--none" : ""}`}
+                      className={`components-toc__seen${entry.seen === entry.folds ? " components-toc__seen--done" : ""}`}
                       title={
                         entry.seen === entry.folds
                           ? `all ${entry.folds} seen`
