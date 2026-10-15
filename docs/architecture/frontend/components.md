@@ -2646,9 +2646,11 @@ as a bar over the list, with a matching bar over the files for Viewed. A run
 counts as put away when its heading is marked seen or its whole file is
 marked viewed, so the two boxes never disagree about what is left. The count
 is per run, not per component: a component with many runs shows partial
-progress rather than reading as untouched until the last one is seen.
-Clicking the count goes to the component's first run left, which is why it
-is a button of its own beside the entry rather than a part of it.
+progress rather than reading as untouched until the last one is seen. A
+finished count is drawn fainter than one with runs left, so a scan down the
+column finds what is left. Clicking the count goes to the component's first
+run left, which is why it is a button of its own beside the entry rather
+than a part of it.
 
 ```tsx
 //| id: frontend-view-components-rail
@@ -2797,7 +2799,7 @@ export function Rail({
                   {entry.folds > 0 && (
                     <button
                       type="button"
-                      className={`components-toc__seen${entry.seen === 0 ? " components-toc__seen--none" : ""}`}
+                      className={`components-toc__seen${entry.seen === entry.folds ? " components-toc__seen--done" : ""}`}
                       title={
                         entry.seen === entry.folds
                           ? `all ${entry.folds} seen`
@@ -3644,8 +3646,9 @@ export function ComponentsSwitch({
   .components-toc__seen:disabled {
     cursor: default;
   }
-  .components-toc__seen--none {
-    color: var(--text-ghost);
+  /* A finished count steps back, so what is left stands out on a scan. */
+  .components-toc__seen--done {
+    color: var(--text-faint);
   }
   /* Put away: still listed and reachable, but quieter than what is left. */
   .components-toc--seen > .components-toc__entry .components-toc__name {
