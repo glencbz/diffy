@@ -665,6 +665,11 @@ layer stays mounted while a new comparison loads, since it holds the place
 the reader is switching to, and the counterpart version's commits and
 comparisons load only while it is on.
 
+The drawer's [threads](threads.md) tab reads the same rows the stack draws,
+so it says which threads this comparison leaves out. A jump to a thread is a
+pick of its commit, file, and line, so it scrolls the stack the way a graph
+pick does.
+
 Scrolling the stack to another row writes that commit back to the address,
 replacing the entry rather than pushing one, so back returns to the last
 pick rather than every commit scrolled past. It goes through the address
@@ -703,6 +708,12 @@ import {
   versionAsk,
   versionName,
 } from "../model/series";
+import {
+  drawnThreads,
+  type SeriesThread,
+  seriesThreads,
+  threadPlace,
+} from "../model/threads";
 import { useBeforePaths, useCompared } from "../state/compared";
 import { useCounterpart, useOwnDiffs } from "../state/components";
 import { usePairing } from "../state/pairing";
@@ -710,7 +721,11 @@ import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals, type Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
-import { useSeriesCommits, useSeriesSize } from "../state/series";
+import {
+  useEveryVersion,
+  useSeriesCommits,
+  useSeriesSize,
+} from "../state/series";
 import { useSettingsContext } from "../state/settings";
 import { useSources } from "../state/source";
 import {
@@ -729,6 +744,7 @@ import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
 import { PullReviewPanes } from "../views/PullReviewPanes/PullReviewPanes";
 import { SeriesComparisonPicker } from "../views/SeriesComparisonPicker";
+import { ThreadList } from "../views/ThreadList";
 import { CommitLog } from "./CommitLog";
 
 /** One array for every version that has not arrived. `usePairing` recomputes
@@ -1035,6 +1051,33 @@ export function SeriesReview({
     ...peekFiles,
   ]);
 
+  const everyVersion = useEveryVersion(source, versions);
+  const threads =
+    everyVersion.status === "ready"
+      ? seriesThreads(
+          review.document.comments,
+          everyVersion.data,
+          drawnThreads(
+            rows.map((row) => ({
+              key: row.key,
+              commitId: row.commit.commitId,
+              files: row.files.status === "ready" ? row.files.data : null,
+              comments: reviewOf(row).comments,
+            })),
+          ),
+        )
+      : [];
+  const goToThread = (thread: SeriesThread) => {
+    onGo(threadPlace(thread, place, to));
+    // A thread on the whole commit picks no file, so nothing else opens a
+    // quiet row to show it.
+    const row = thread.drawn?.row;
+    if (row !== undefined) {
+      setOpen((now) => (now.has(row) ? now : new Set(now).add(row)));
+    }
+    setPicks((now) => now + 1);
+  };
+
   const currentIndex = rows.findIndex(
     (row) => row.commit.commitId === current || row.was?.commitId === current,
   );
@@ -1189,6 +1232,20 @@ export function SeriesReview({
             }
           />
         </>
+      }
+      openThreads={threads.filter((thread) => !thread.comment.resolved).length}
+      threads={
+        everyVersion.status === "error" ? (
+          <Message tone="error">{everyVersion.message}</Message>
+        ) : everyVersion.status === "loading" ? (
+          <Message>Loading threads...</Message>
+        ) : (
+          <ThreadList
+            threads={threads}
+            actions={review.status === "ready" ? review.actions : null}
+            onGo={goToThread}
+          />
+        )
       }
       commits={
         commitsError !== null ? (

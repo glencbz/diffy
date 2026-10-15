@@ -2,6 +2,7 @@
 import { type ReactNode, useState } from "react";
 import { paneSize, Splitter } from "../Splitter";
 import { DrawerBar } from "./DrawerBar";
+import { type DrawerTab, DrawerTabs } from "./DrawerTabs";
 
 /** Where the reader is in the stack: the row picked, if any, out of how
  *  many, and a line naming it. */
@@ -15,6 +16,8 @@ export function PullReviewPanes({
   header,
   picker,
   commits,
+  threads,
+  openThreads,
   diff,
   position,
   onStep,
@@ -26,6 +29,9 @@ export function PullReviewPanes({
   header: ReactNode;
   picker: ReactNode;
   commits: ReactNode;
+  threads: ReactNode;
+  /** How many threads the series has open, for the tab to say. */
+  openThreads: number;
   diff: ReactNode;
   position: StackPosition;
   onStep: (step: -1 | 1) => void;
@@ -33,6 +39,7 @@ export function PullReviewPanes({
   onResize: (size: number | null) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [tab, setTab] = useState<DrawerTab>("commits");
   return (
     <>
       {header}
@@ -54,7 +61,8 @@ export function PullReviewPanes({
               }
               style={paneSize(size)}
             >
-              {commits}
+              <DrawerTabs tab={tab} onTab={setTab} openThreads={openThreads} />
+              {tab === "commits" ? commits : threads}
             </div>
             <Splitter
               pane="pull-commits"
