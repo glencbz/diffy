@@ -81,7 +81,8 @@ export function handleLog(req: Request): Promise<Response> {
 }
 
 export function handleOperations(): Promise<Response> {
-  return jjJson(() => jjOpLog({ limit: 200 }));
+  // The one read that snapshots: live refresh sees an edit as an operation.
+  return jjJson(() => jjOpLog({ limit: 200, snapshot: true }));
 }
 
 export function handleDiff(req: Request): Promise<Response> {

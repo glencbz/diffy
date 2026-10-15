@@ -106,10 +106,10 @@ export function pickerValue(
 ## Polling the operation log
 
 `useLocalHistory` polls `fetchOperations` every two seconds while the tab is
-visible. `jj op log` snapshots the working copy first, so a poll also turns a
-file edit into an operation. A server watching `op_heads` and pushing over a
-socket would need a watcher and a channel, and would still miss an edit until
-some jj command snapshotted it. A failed poll keeps the last good list; a
+visible. `/api/operations` has jj snapshot the working copy first, so a poll
+also turns a file edit into an operation. A server watching `op_heads` and
+pushing over a socket would need a watcher and a channel, and would still miss
+an edit until some jj command snapshotted it. A failed poll keeps the last good list; a
 failed first load keeps polling.
 
 ```tsx

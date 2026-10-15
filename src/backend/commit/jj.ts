@@ -22,10 +22,20 @@ function cleanStderr(stderr: string): string {
   return (errors.length > 0 ? errors.join("\n") : stderr).trim();
 }
 
-/** Runs jj in `cwd`, or in the repository being served when it is left out. */
-async function runJj(args: string[], cwd?: string): Promise<string> {
+interface RunJjOptions {
+  /** Where to run jj; the repository being served when left out. */
+  cwd?: string;
+  /** Snapshot the working copy first, as a bare `jj` command does. */
+  snapshot?: boolean;
+}
+
+async function runJj(
+  args: string[],
+  { cwd, snapshot = false }: RunJjOptions = {},
+): Promise<string> {
+  const flags = snapshot ? [] : ["--ignore-working-copy"];
   try {
-    const run = $`jj ${args}`.quiet();
+    const run = $`jj ${flags} ${args}`.quiet();
     return await (cwd === undefined ? run : run.cwd(cwd)).text();
   } catch (error) {
     if (error instanceof $.ShellError) {
@@ -209,6 +219,8 @@ const JjOpLogEntryWire = z.object({
 
 export interface JjOpLogOptions {
   limit?: number;
+  /** Snapshot the working copy first, so a file edit becomes an operation. */
+  snapshot?: boolean;
 }
 
 const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
@@ -219,7 +231,16 @@ export async function jjOpLog(
   const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
   if (options.limit !== undefined) args.push("-n", String(options.limit));
 
-  const output = await runJj(args);
+  const output = await runJj(args, { snapshot: options.snapshot }).catch(
+    (error: unknown) => {
+      if (
+        error instanceof JjError &&
+        /working copy is stale/.test(error.message)
+      )
+        return runJj(args);
+      throw error;
+    },
+  );
 
   return output
     .split("\n")
@@ -240,7 +261,7 @@ export async function jjOpLog(
 /** The real path of the repository store behind the workspace at `cwd`,
  *  the same for every workspace of one repository. */
 export async function jjRepoDir(cwd?: string): Promise<string> {
-  const root = (await runJj(["workspace", "root"], cwd)).trim();
+  const root = (await runJj(["workspace", "root"], { cwd })).trim();
   const dotJj = join(root, ".jj");
   const repo = join(dotJj, "repo");
   const target = (await stat(repo)).isFile()

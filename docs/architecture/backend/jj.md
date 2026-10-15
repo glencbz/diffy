@@ -5,6 +5,14 @@ jj is a revset, so a non-zero exit becomes a `JjError` carrying jj's message,
 which routes answer as a 400; anything else, such as jj missing from `PATH`,
 propagates as a 500.
 
+Every call passes `--ignore-working-copy`, so reading the repository never
+snapshots the working copy. A snapshot writes an operation, so the concurrent
+reads one page fires would each race to record one, and a workspace whose
+working copy falls behind an operation it did not see refuses every command
+that snapshots until someone runs `jj workspace update-stale`. Only the
+operation poll has a use for a snapshot; see
+[reading past operations](#reading-past-operations).
+
 ```ts
 //| id: jj-module
 //| file: src/backend/commit/jj.ts
@@ -31,10 +39,20 @@ function cleanStderr(stderr: string): string {
   return (errors.length > 0 ? errors.join("\n") : stderr).trim();
 }
 
-/** Runs jj in `cwd`, or in the repository being served when it is left out. */
-async function runJj(args: string[], cwd?: string): Promise<string> {
+interface RunJjOptions {
+  /** Where to run jj; the repository being served when left out. */
+  cwd?: string;
+  /** Snapshot the working copy first, as a bare `jj` command does. */
+  snapshot?: boolean;
+}
+
+async function runJj(
+  args: string[],
+  { cwd, snapshot = false }: RunJjOptions = {},
+): Promise<string> {
+  const flags = snapshot ? [] : ["--ignore-working-copy"];
   try {
-    const run = $`jj ${args}`.quiet();
+    const run = $`jj ${flags} ${args}`.quiet();
     return await (cwd === undefined ? run : run.cwd(cwd)).text();
   } catch (error) {
     if (error instanceof $.ShellError) {
@@ -227,6 +245,12 @@ export async function jjCommits(
 `--at-operation` to view the repo just after it. The repo's first operation
 has no command line, so `args` is `""` there.
 
+A caller that polls for change asks for a `snapshot`, so a file edit in the
+served workspace shows up as a new operation. A stale working copy refuses
+the snapshot, and the poll falls back to the operations as they stand rather
+than failing: diffy reads the repository, and bringing a workspace up to date
+is its owner's call.
+
 ```sh
 jj op log --no-graph -T 'json(self) ++ "\n"'
 ```
@@ -253,6 +277,8 @@ const JjOpLogEntryWire = z.object({
 
 export interface JjOpLogOptions {
   limit?: number;
+  /** Snapshot the working copy first, so a file edit becomes an operation. */
+  snapshot?: boolean;
 }
 
 const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
@@ -263,7 +289,16 @@ export async function jjOpLog(
   const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
   if (options.limit !== undefined) args.push("-n", String(options.limit));
 
-  const output = await runJj(args);
+  const output = await runJj(args, { snapshot: options.snapshot }).catch(
+    (error: unknown) => {
+      if (
+        error instanceof JjError &&
+        /working copy is stale/.test(error.message)
+      )
+        return runJj(args);
+      throw error;
+    },
+  );
 
   return output
     .split("\n")
@@ -294,7 +329,7 @@ unless given another workspace's root.
 /** The real path of the repository store behind the workspace at `cwd`,
  *  the same for every workspace of one repository. */
 export async function jjRepoDir(cwd?: string): Promise<string> {
-  const root = (await runJj(["workspace", "root"], cwd)).trim();
+  const root = (await runJj(["workspace", "root"], { cwd })).trim();
   const dotJj = join(root, ".jj");
   const repo = join(dotJj, "repo");
   const target = (await stat(repo)).isFile()
@@ -526,7 +561,10 @@ all-`z` change id.
 //| id: jj-module-test
 //| file: src/backend/commit/jj.test.ts
 import { describe, expect, test } from "bun:test";
-import { stat } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { $ } from "bun";
 import {
   COMMIT_MARKERS,
   JjError,
@@ -658,6 +696,51 @@ describe("jjRepoDir", () => {
     expect(dir.endsWith("/.jj/repo")).toBe(true);
     expect((await stat(dir)).isDirectory()).toBe(true);
   });
+});
+
+describe("in a throwaway repository", () => {
+  /** Runs `body` with a fresh jj repository as the one being served. */
+  async function inRepo(body: (dir: string) => Promise<void>) {
+    const dir = await mkdtemp(join(tmpdir(), "diffy-jj-"));
+    const served = process.cwd();
+    try {
+      await $`jj git init`.cwd(dir).quiet();
+      process.chdir(dir);
+      await body(dir);
+    } finally {
+      process.chdir(served);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("reads a stale working copy", () =>
+    inRepo(async (dir) => {
+      // arrange
+      // Rewriting @ without touching the working copy leaves it stale.
+      await $`jj --ignore-working-copy describe -m moved`.cwd(dir).quiet();
+
+      // act
+      const [commit] = await jjLog({ revset: "@" });
+      const operations = await jjOpLog({ snapshot: true });
+
+      // assert
+      expect(commit?.description).toBe("moved\n");
+      expect(operations[0]?.description).toStartWith("describe commit");
+    }));
+
+  test("records a file edit as an operation only when asked to", () =>
+    inRepo(async (dir) => {
+      // arrange
+      await Bun.write(join(dir, "a.txt"), "a\n");
+
+      // act
+      const read = await jjOpLog();
+      const polled = await jjOpLog({ snapshot: true });
+
+      // assert
+      expect(polled.length).toBe(read.length + 1);
+      expect(polled[0]?.description).toBe("snapshot working copy");
+    }));
 });
 ```
 
