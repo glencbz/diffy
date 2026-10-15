@@ -28,13 +28,99 @@ export const ComponentRole = z.enum([
 ]);
 export type ComponentRole = z.infer<typeof ComponentRole>;
 
+/** One word of a repository's vocabulary for what a component is. */
+export const ComponentKind = z.object({
+  /** It names a class, so it is a slug. */
+  name: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]*$/, "a kind is lowercase letters, digits and -"),
+  /** How an agent tells a component of this kind, in a sentence or two. */
+  advice: z.string().default(""),
+});
+export type ComponentKind = z.infer<typeof ComponentKind>;
+
+/** The vocabulary a repository starts with. */
+export const DEFAULT_KINDS: ComponentKind[] = [
+  {
+    name: "schema",
+    advice:
+      "A type, validator or table that says what data looks like: a zod schema, an interface, a column.",
+  },
+  {
+    name: "action",
+    advice:
+      "Code that changes state when something happens: a handler, a reducer case, a setter.",
+  },
+  {
+    name: "view",
+    advice: "Code that draws: a React component and the markup it returns.",
+  },
+  {
+    name: "styles",
+    advice: "CSS, and the class names it hangs on.",
+  },
+  {
+    name: "command",
+    advice:
+      "An entry point something outside calls: an HTTP route, an MCP tool, a CLI subcommand, a store command.",
+  },
+  {
+    name: "helper",
+    advice:
+      "A function other components call that holds no state of its own: parsing, formatting, a computation.",
+  },
+  {
+    name: "test",
+    advice: "Tests and their fixtures.",
+  },
+  {
+    name: "wiring",
+    advice:
+      "Code that only passes things along: imports, props threaded through, a route registered. Its role is usually wires.",
+  },
+];
+
+/** `kinds` with `kind` just before the kind named `before`, or else in
+ *  place of the kind of its name, or else at the end. */
+export function withKind(
+  kinds: ComponentKind[],
+  kind: ComponentKind,
+  before?: string,
+): ComponentKind[] {
+  const others = kinds.filter((kept) => kept.name !== kind.name);
+  const at =
+    before === undefined
+      ? kinds.findIndex((kept) => kept.name === kind.name)
+      : others.findIndex((kept) => kept.name === before);
+  return at === -1
+    ? [...others, kind]
+    : [...others.slice(0, at), kind, ...others.slice(at)];
+}
+
+/** The graph has this many lane colours to give kinds. */
+const LANES = 7;
+
+/** A rule giving each of the first `LANES` kinds a lane's colour, in
+ *  vocabulary order. The kinds after them stay grey, as the parts a reader
+ *  skims. */
+export function kindColours(kinds: ComponentKind[]): string {
+  return kinds
+    .slice(0, LANES)
+    .map(
+      (kind, index) =>
+        `.components-kind--${kind.name} { --component: var(--graph-lane-${index}); }`,
+    )
+    .join("\n");
+}
+
 /** One piece of work a commit does, named for what it is. */
 export const Component = z.object({
   commitId: z.string(),
   /** The same in every version, so each version's map names the same
    *  component the same way. */
   id: z.string().min(1),
-  /** What it is: schema, command, view, wiring, test. */
+  /** What it is, a word of the repository's vocabulary when it was
+   *  written. */
   kind: z.string().min(1),
   name: z.string().min(1),
   role: ComponentRole,

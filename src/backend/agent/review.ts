@@ -16,7 +16,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists, and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);

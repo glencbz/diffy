@@ -12,6 +12,7 @@ import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type AddedLine,
   type Component,
+  type ComponentKind,
   type Counterparts,
   counterpartFate,
   type DrawnPlace,
@@ -19,6 +20,7 @@ import {
   type Fate,
   fileShares,
   interdiffFate,
+  kindColours,
   marked,
   mentionedIn,
   type NamedVersion,
@@ -62,6 +64,8 @@ export interface ComponentsStackProps {
   /** Every component of the versions the screen compares, and of the
    *  version the rows are held against. */
   components: Component[];
+  /** The repository's vocabulary, which gives each kind its colour. */
+  kinds: ComponentKind[];
   /** The row the address names, which the rail describes. */
   current: string | null;
   open: ReadonlySet<string>;
@@ -151,6 +155,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     enabled,
     rows,
     components,
+    kinds,
     current,
     open,
     onOpenRow,
@@ -1485,6 +1490,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
   return (
     <>
       <div className="components-body" ref={body}>
+        {enabled && <style>{kindColours(kinds)}</style>}
         {enabled && reading !== null && (
           // The place being read takes a solid bar. A rule rather than a
           // class on its lines, so moving it never draws the diff again.

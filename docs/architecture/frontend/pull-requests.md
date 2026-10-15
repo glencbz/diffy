@@ -688,7 +688,7 @@ import {
 } from "react";
 import type { AsyncState } from "../model/asyncState";
 import { compareAsks, withCompared } from "../model/compared";
-import { componentsTo } from "../model/components";
+import { componentsTo, DEFAULT_KINDS } from "../model/components";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
@@ -1279,6 +1279,11 @@ export function SeriesReview({
           enabled={componentsOn}
           rows={rows}
           components={components}
+          kinds={
+            review.status === "ready"
+              ? review.document.componentKinds
+              : DEFAULT_KINDS
+          }
           sources={sources}
           onPeekFiles={peekAt}
           current={currentKey}

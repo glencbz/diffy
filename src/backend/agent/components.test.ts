@@ -101,7 +101,7 @@ async function call(
 const LOUDER = {
   commit: "aaaa",
   id: "louder",
-  kind: "rename",
+  kind: "helper",
   name: "TWO",
   role: "refactors",
   mentions: ["Make two louder"],
@@ -200,6 +200,120 @@ describe("the component tools", () => {
     // assert
     expect(written.isError).toBe(true);
     expect(written.text).toContain("moves to place 3");
+  });
+});
+
+describe("the vocabulary tools", () => {
+  test("refuse a kind the repository does not use, and say which it does", async () => {
+    // arrange
+    const model = { ...LOUDER, kind: "model" };
+
+    // act
+    const written = await call("write_components", {
+      pull: 7,
+      components: [model],
+    });
+
+    // assert
+    expect(written.isError).toBe(true);
+    expect(written.text).toContain(
+      "louder is a model, which is not a kind this repository uses",
+    );
+    expect(written.text).toContain("\nview: Code that draws");
+    expect(store.read().document.componentMaps).toEqual([]);
+  });
+
+  test("define a kind a map can then use", async () => {
+    // arrange
+    // act
+    const defined = await call("define_component_kind", {
+      name: "model",
+      advice: "A class that holds the app's data and rules.",
+    });
+    const written = await call("write_components", {
+      pull: 7,
+      components: [{ ...LOUDER, kind: "model" }],
+    });
+
+    // assert
+    expect(defined.text.split("\n").at(-1)).toBe(
+      "model: A class that holds the app's data and rules.",
+    );
+    expect(written.isError).toBe(false);
+  });
+
+  test("replace a kind's advice where it stands", async () => {
+    // arrange
+    // act
+    const defined = await call("define_component_kind", {
+      name: "schema",
+      advice: "A table.",
+    });
+
+    // assert
+    expect(defined.text.split("\n")[0]).toBe("schema: A table.");
+    expect(store.read().document.componentKinds).toHaveLength(8);
+  });
+
+  test("place a kind before another, so it takes a colour", async () => {
+    // arrange
+    // act
+    const placed = await call("define_component_kind", {
+      name: "controller",
+      advice: "Answers a request.",
+      before: "schema",
+    });
+    const stray = await call("define_component_kind", {
+      name: "model",
+      advice: "Holds data.",
+      before: "nothing",
+    });
+
+    // assert
+    expect(placed.text.split("\n")[0]).toBe("controller: Answers a request.");
+    expect(stray.isError).toBe(true);
+  });
+
+  test("refuse a kind that is not a slug", async () => {
+    // arrange
+    // act
+    const defined = await call("define_component_kind", {
+      name: "Big Model",
+      advice: "A class.",
+    });
+
+    // assert
+    expect(defined.isError).toBe(true);
+  });
+
+  test("remove a kind, and refuse one the repository does not have", async () => {
+    // arrange
+    // act
+    const removed = await call("remove_component_kind", { name: "styles" });
+    const again = await call("remove_component_kind", { name: "styles" });
+
+    // assert
+    expect(removed.text).not.toContain("styles");
+    expect(again.isError).toBe(true);
+    expect(again.text).toContain("styles is not a kind this repository uses");
+  });
+
+  test("let a repository with no vocabulary use any kind", async () => {
+    // arrange
+    for (const { name } of store.read().document.componentKinds) {
+      await call("remove_component_kind", { name });
+    }
+
+    // act
+    const read = await call("read_component_kinds", {});
+    const written = await call("write_components", {
+      pull: 7,
+      components: [{ ...LOUDER, kind: "anything" }],
+    });
+
+    // assert
+    expect(read.text).toContain("no vocabulary");
+    expect(written.isError).toBe(false);
   });
 });
 // ~/~ end

@@ -2,6 +2,7 @@
 import * as z from "zod";
 import {
   type Component,
+  ComponentKind,
   type ComponentMap,
   ComponentPlace,
   ComponentRole,
@@ -39,7 +40,7 @@ const ComponentInput = z.object({
     .string()
     .min(1)
     .describe(
-      "what it is, in a word: schema, command, action, view, styles, wiring, test",
+      "what it is, in a word of the repository's vocabulary, which read_component_kinds lists with how to tell each",
     ),
   name: z
     .string()
@@ -163,6 +164,18 @@ function unclaimed(files: JjFileDiff[], components: Component[]): string[] {
   });
 }
 
+/** The vocabulary, a kind to a line with how to tell it. */
+function vocabulary(kinds: ComponentKind[]): string {
+  if (kinds.length === 0) {
+    return "this repository has no vocabulary, so a component can be of any kind";
+  }
+  return kinds
+    .map(
+      (kind) => `${kind.name}${kind.advice === "" ? "" : `: ${kind.advice}`}`,
+    )
+    .join("\n");
+}
+
 export function componentTools(
   store: ReviewStore,
   sources: SeriesSources = liveSources(store),
@@ -171,12 +184,22 @@ export function componentTools(
     tool({
       name: "write_components",
       description:
-        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds (a schema, a command, a view, the wiring between them) and the changed lines that make each one. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
+        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
       input: z.object({
         ...Target,
         components: z.array(ComponentInput).min(1),
       }),
       call: async ({ review, pull, components }, { origin }) => {
+        const kinds = store.read().document.componentKinds;
+        const unknown = components.find(
+          (input) =>
+            kinds.length > 0 && !kinds.some((kind) => kind.name === input.kind),
+        );
+        if (unknown !== undefined) {
+          throw new ToolError(
+            `${unknown.id} is a ${unknown.kind}, which is not a kind this repository uses. Its kinds are:\n${vocabulary(kinds)}`,
+          );
+        }
         const target = await targetOf(sources, { review, pull });
         const resolved = components.map(
           ({ commit, ...rest }): Component => ({
@@ -278,6 +301,69 @@ export function componentTools(
           null,
           2,
         );
+      },
+    }),
+    tool({
+      name: "read_component_kinds",
+      description:
+        "Read this repository's vocabulary of component kinds, each with advice on how to tell a component of that kind. Read it before writing a component map, and use only these kinds.",
+      input: z.object({}),
+      call: async () => vocabulary(store.read().document.componentKinds),
+    }),
+    tool({
+      name: "define_component_kind",
+      description:
+        "Add a kind to this repository's vocabulary of component kinds, or replace the advice of one it has. The reader decides the vocabulary: define a kind when they ask for one. The first seven kinds each take a colour of their own, in order, and the rest are grey, so place a kind the reader will want told apart with before. Answers with the whole vocabulary.",
+      input: ComponentKind.extend({
+        name: ComponentKind.shape.name.describe(
+          "the kind, one lowercase word, such as controller",
+        ),
+        advice: z
+          .string()
+          .min(1)
+          .describe(
+            "how to tell a component of this kind from the others, written to the agent that will map a change",
+          ),
+        before: z
+          .string()
+          .optional()
+          .describe(
+            "the kind to place it just before; without one a new kind goes last and a kind already there stays where it is",
+          ),
+      }),
+      call: async ({ name, advice, before }) => {
+        const kinds = store.read().document.componentKinds;
+        if (
+          before !== undefined &&
+          !kinds.some((kind) => kind.name === before)
+        ) {
+          throw new ToolError(
+            `${before} is not a kind this repository uses. Its kinds are:\n${vocabulary(kinds)}`,
+          );
+        }
+        const { document } = store.apply({
+          kind: "define-kind",
+          name,
+          advice,
+          before,
+        });
+        return vocabulary(document.componentKinds);
+      },
+    }),
+    tool({
+      name: "remove_component_kind",
+      description:
+        "Remove a kind from this repository's vocabulary of component kinds, when the reader asks. Maps already written keep it, drawn grey. Answers with the whole vocabulary.",
+      input: z.object({ name: z.string().min(1) }),
+      call: async ({ name }) => {
+        const kinds = store.read().document.componentKinds;
+        if (!kinds.some((kind) => kind.name === name)) {
+          throw new ToolError(
+            `${name} is not a kind this repository uses. Its kinds are:\n${vocabulary(kinds)}`,
+          );
+        }
+        const { document } = store.apply({ kind: "remove-kind", name });
+        return vocabulary(document.componentKinds);
       },
     }),
   ];
