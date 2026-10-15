@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type Component,
   type ComponentMap,
+  coloursOf,
   componentsTo,
   counterpartFate,
   DEFAULT_KINDS,
@@ -115,17 +116,36 @@ describe("a vocabulary", () => {
     ]);
   });
 
-  test("gives the first seven kinds a lane's colour each, and leaves the rest grey", () => {
+  test("draws a kind in its own colour, and one stored without a colour in one nobody asked for", () => {
     // arrange
+    const kinds = [
+      { name: "model", advice: "", colour: "ink" as const },
+      { name: "view", advice: "" },
+      { name: "controller", advice: "", colour: "grey" as const },
+    ];
+
     // act
-    const rules = kindColours(DEFAULT_KINDS).split("\n");
+    const rules = kindColours(kinds).split("\n");
 
     // assert
-    expect(rules).toHaveLength(7);
-    expect(rules[0]).toBe(
-      ".components-kind--schema { --component: var(--graph-lane-0); }",
-    );
-    expect(rules.join("\n")).not.toContain("wiring");
+    expect(rules).toEqual([
+      ".components-kind--model { --component: var(--graph-lane-0); }",
+      ".components-kind--view { --component: var(--graph-lane-1); }",
+      ".components-kind--controller { --component: var(--text-faint); }",
+    ]);
+  });
+
+  test("leaves a kind grey once every colour is taken", () => {
+    // arrange
+    const kinds = DEFAULT_KINDS.map(({ name, advice }) => ({ name, advice }));
+
+    // act
+    const colours = coloursOf([...kinds, { name: "extra", advice: "" }]);
+
+    // assert
+    expect(colours.get("test")).toBe("red");
+    expect(colours.get("wiring")).toBe("grey");
+    expect(colours.get("extra")).toBe("grey");
   });
 });
 

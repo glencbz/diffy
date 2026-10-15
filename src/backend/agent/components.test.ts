@@ -283,7 +283,7 @@ describe("the vocabulary tools", () => {
     expect(written.text).toContain(
       "louder is a model, which is not a kind this repository uses",
     );
-    expect(written.text).toContain("\nview: Code that draws");
+    expect(written.text).toContain("\nview (green): Code that draws");
     expect(store.read().document.componentMaps).toEqual([]);
   });
 
@@ -293,6 +293,7 @@ describe("the vocabulary tools", () => {
     const defined = await call("define_component_kind", {
       name: "model",
       advice: "A class that holds the app's data and rules.",
+      colour: "blue",
     });
     const written = await call("write_components", {
       pull: 7,
@@ -301,40 +302,63 @@ describe("the vocabulary tools", () => {
 
     // assert
     expect(defined.text.split("\n").at(-1)).toBe(
-      "model: A class that holds the app's data and rules.",
+      "model (blue): A class that holds the app's data and rules.",
     );
     expect(written.isError).toBe(false);
   });
 
-  test("replace a kind's advice where it stands", async () => {
+  test("replace a kind's advice or colour where it stands, keeping the other", async () => {
     // arrange
     // act
-    const defined = await call("define_component_kind", {
+    const advised = await call("define_component_kind", {
       name: "schema",
       advice: "A table.",
     });
+    const coloured = await call("define_component_kind", {
+      name: "schema",
+      colour: "red",
+    });
 
     // assert
-    expect(defined.text.split("\n")[0]).toBe("schema: A table.");
+    expect(advised.text.split("\n")[0]).toBe("schema (ink): A table.");
+    expect(coloured.text.split("\n")[0]).toBe("schema (red): A table.");
     expect(store.read().document.componentKinds).toHaveLength(8);
   });
 
-  test("place a kind before another, so it takes a colour", async () => {
+  test("refuse a new kind with no colour, and say which colours are taken", async () => {
+    // arrange
+    // act
+    const defined = await call("define_component_kind", {
+      name: "model",
+      advice: "Holds data.",
+    });
+
+    // assert
+    expect(defined.isError).toBe(true);
+    expect(defined.text).toContain("model is a new kind");
+    expect(defined.text).toContain("\nwiring (grey)");
+  });
+
+  test("place a kind before another", async () => {
     // arrange
     // act
     const placed = await call("define_component_kind", {
       name: "controller",
       advice: "Answers a request.",
+      colour: "teal",
       before: "schema",
     });
     const stray = await call("define_component_kind", {
       name: "model",
       advice: "Holds data.",
+      colour: "blue",
       before: "nothing",
     });
 
     // assert
-    expect(placed.text.split("\n")[0]).toBe("controller: Answers a request.");
+    expect(placed.text.split("\n")[0]).toBe(
+      "controller (teal): Answers a request.",
+    );
     expect(stray.isError).toBe(true);
   });
 
@@ -344,6 +368,7 @@ describe("the vocabulary tools", () => {
     const defined = await call("define_component_kind", {
       name: "Big Model",
       advice: "A class.",
+      colour: "blue",
     });
 
     // assert

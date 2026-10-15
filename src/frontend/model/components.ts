@@ -28,6 +28,23 @@ export const ComponentRole = z.enum([
 ]);
 export type ComponentRole = z.infer<typeof ComponentRole>;
 
+/** The colours a kind can take: the graph's lanes, which have a readable
+ *  shade in either theme, and the grey of the parts a reader skims. */
+export const KIND_COLOURS = {
+  ink: "var(--graph-lane-0)",
+  blue: "var(--graph-lane-1)",
+  green: "var(--graph-lane-2)",
+  purple: "var(--graph-lane-3)",
+  amber: "var(--graph-lane-4)",
+  teal: "var(--graph-lane-5)",
+  red: "var(--graph-lane-6)",
+  grey: "var(--text-faint)",
+} as const;
+export const KindColour = z.enum(
+  Object.keys(KIND_COLOURS) as [keyof typeof KIND_COLOURS],
+);
+export type KindColour = z.infer<typeof KindColour>;
+
 /** One word of a repository's vocabulary for what a component is. */
 export const ComponentKind = z.object({
   /** It names a class, so it is a slug. */
@@ -36,6 +53,8 @@ export const ComponentKind = z.object({
     .regex(/^[a-z][a-z0-9-]*$/, "a kind is lowercase letters, digits and -"),
   /** How an agent tells a component of this kind, in a sentence or two. */
   advice: z.string().default(""),
+  /** A kind stored without one takes a colour no other kind asked for. */
+  colour: KindColour.optional(),
 });
 export type ComponentKind = z.infer<typeof ComponentKind>;
 
@@ -43,38 +62,46 @@ export type ComponentKind = z.infer<typeof ComponentKind>;
 export const DEFAULT_KINDS: ComponentKind[] = [
   {
     name: "schema",
+    colour: "ink",
     advice:
       "A type, validator or table that says what data looks like: a zod schema, an interface, a column.",
   },
   {
     name: "action",
+    colour: "blue",
     advice:
       "Code that changes state when something happens: a handler, a reducer case, a setter.",
   },
   {
     name: "view",
+    colour: "green",
     advice: "Code that draws: a React component and the markup it returns.",
   },
   {
     name: "styles",
+    colour: "purple",
     advice: "CSS, and the class names it hangs on.",
   },
   {
     name: "command",
+    colour: "amber",
     advice:
       "An entry point something outside calls: an HTTP route, an MCP tool, a CLI subcommand, a store command.",
   },
   {
     name: "helper",
+    colour: "teal",
     advice:
       "A function other components call that holds no state of its own: parsing, formatting, a computation.",
   },
   {
     name: "test",
+    colour: "red",
     advice: "Tests and their fixtures.",
   },
   {
     name: "wiring",
+    colour: "grey",
     advice:
       "Code that only passes things along: imports, props threaded through, a route registered. Its role is usually wires.",
   },
@@ -97,18 +124,25 @@ export function withKind(
     : [...others.slice(0, at), kind, ...others.slice(at)];
 }
 
-/** The graph has this many lane colours to give kinds. */
-const LANES = 7;
+/** The colour each kind is drawn in. A kind with none of its own takes,
+ *  in vocabulary order, the next colour no kind asked for, so a reader can
+ *  still tell it apart; once those run out it is grey. */
+export function coloursOf(kinds: ComponentKind[]): Map<string, KindColour> {
+  const asked = new Set(kinds.map((kind) => kind.colour));
+  const free = KindColour.options.filter(
+    (colour) => colour !== "grey" && !asked.has(colour),
+  );
+  return new Map(
+    kinds.map((kind) => [kind.name, kind.colour ?? free.shift() ?? "grey"]),
+  );
+}
 
-/** A rule giving each of the first `LANES` kinds a lane's colour, in
- *  vocabulary order. The kinds after them stay grey, as the parts a reader
- *  skims. */
+/** A rule giving each kind its colour. */
 export function kindColours(kinds: ComponentKind[]): string {
-  return kinds
-    .slice(0, LANES)
+  return [...coloursOf(kinds)]
     .map(
-      (kind, index) =>
-        `.components-kind--${kind.name} { --component: var(--graph-lane-${index}); }`,
+      ([name, colour]) =>
+        `.components-kind--${name} { --component: ${KIND_COLOURS[colour]}; }`,
     )
     .join("\n");
 }
