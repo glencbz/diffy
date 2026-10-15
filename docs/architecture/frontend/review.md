@@ -102,12 +102,27 @@ A local review's row is filed by `localRowKey`, under its change id the way
 rather than patching it, and `purge-forgotten` drops a purged review's maps
 with its other series state.
 
+**Component kinds** are the repository's vocabulary for what a component is,
+each with advice to the agent on how to tell it. They live in the document
+because the document is already one per repository and every agent writes
+through it. A file in the repository would be snapshotted into whatever change
+is checked out, and would change with it. A document stored before the
+vocabulary existed parses with the default one, which the repository then
+keeps and edits as its own. `import` leaves the vocabulary alone, since what
+the browser kept never had one.
+
 ```ts
 //| id: frontend-model-review
 //| file: src/frontend/model/review.ts
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
-import { ComponentMap, withComponents } from "./components";
+import {
+  ComponentKind,
+  ComponentMap,
+  DEFAULT_KINDS,
+  withComponents,
+  withKind,
+} from "./components";
 import type { InterdiffRow } from "./diff";
 import { followLine, readPatch } from "./patch";
 
@@ -277,6 +292,7 @@ export const ReviewDocument = z.object({
   compared: z.array(ComparedFile).default([]),
   localReviews: z.array(LocalReview).default([]),
   componentMaps: z.array(ComponentMap).default([]),
+  componentKinds: z.array(ComponentKind).default(DEFAULT_KINDS),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -291,6 +307,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   compared: [],
   localReviews: [],
   componentMaps: [],
+  componentKinds: DEFAULT_KINDS,
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -752,6 +769,11 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("restore-review"), name: z.string() }),
   z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
   z.object({ kind: z.literal("write-components"), map: ComponentMap }),
+  ComponentKind.extend({
+    kind: z.literal("define-kind"),
+    before: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("remove-kind"), name: z.string() }),
   z.object({ kind: z.literal("import"), document: ReviewDocument }),
 ]);
 export type ReviewCommand = z.infer<typeof ReviewCommand>;
@@ -985,6 +1007,22 @@ export function applyCommand(
         ...document,
         componentMaps: withComponents(document.componentMaps, command.map),
       };
+    case "define-kind":
+      return {
+        ...document,
+        componentKinds: withKind(
+          document.componentKinds,
+          { name: command.name, advice: command.advice },
+          command.before,
+        ),
+      };
+    case "remove-kind":
+      return {
+        ...document,
+        componentKinds: document.componentKinds.filter(
+          (kind) => kind.name !== command.name,
+        ),
+      };
     case "import":
       return {
         marks: added(document.marks, command.document.marks, sameComparison),
@@ -1050,6 +1088,9 @@ export function applyCommand(
               : withComponents(maps, map),
           document.componentMaps,
         ),
+        // What the browser kept never had a vocabulary, so the repository's
+        // stays.
+        componentKinds: document.componentKinds,
       };
   }
 }

@@ -5,9 +5,11 @@ import {
   type ComponentMap,
   componentsTo,
   counterpartFate,
+  DEFAULT_KINDS,
   drawnPlaces,
   fileShares,
   interdiffFate,
+  kindColours,
   marked,
   mentionedIn,
   placeAt,
@@ -19,6 +21,7 @@ import {
   sameFold,
   sameRun,
   withComponents,
+  withKind,
   wordAdded,
 } from "./components";
 import type { FileDiff } from "./diff";
@@ -61,6 +64,67 @@ describe("component maps", () => {
       "b",
     );
     expect(componentsTo(rewritten, "local:r", "3")).toBeUndefined();
+  });
+});
+
+describe("a vocabulary", () => {
+  test("keeps a redefined kind where it stood, and adds a new one last", () => {
+    // arrange
+    const kinds = [
+      { name: "model", advice: "" },
+      { name: "view", advice: "" },
+    ];
+
+    // act
+    const redefined = withKind(kinds, { name: "model", advice: "data" });
+    const added = withKind(kinds, { name: "controller", advice: "" });
+
+    // assert
+    expect(redefined.map((kind) => kind.advice)).toEqual(["data", ""]);
+    expect(added.map((kind) => kind.name)).toEqual([
+      "model",
+      "view",
+      "controller",
+    ]);
+  });
+
+  test("moves a kind before the one it is placed before", () => {
+    // arrange
+    const kinds = [
+      { name: "model", advice: "" },
+      { name: "view", advice: "" },
+      { name: "controller", advice: "" },
+    ];
+
+    // act
+    const moved = withKind(kinds, { name: "controller", advice: "" }, "model");
+    const added = withKind(kinds, { name: "route", advice: "" }, "view");
+
+    // assert
+    expect(moved.map((kind) => kind.name)).toEqual([
+      "controller",
+      "model",
+      "view",
+    ]);
+    expect(added.map((kind) => kind.name)).toEqual([
+      "model",
+      "route",
+      "view",
+      "controller",
+    ]);
+  });
+
+  test("gives the first seven kinds a lane's colour each, and leaves the rest grey", () => {
+    // arrange
+    // act
+    const rules = kindColours(DEFAULT_KINDS).split("\n");
+
+    // assert
+    expect(rules).toHaveLength(7);
+    expect(rules[0]).toBe(
+      ".components-kind--schema { --component: var(--graph-lane-0); }",
+    );
+    expect(rules.join("\n")).not.toContain("wiring");
   });
 });
 

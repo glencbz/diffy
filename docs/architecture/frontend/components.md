@@ -23,6 +23,15 @@ side its parent's. Code that moved is two places of one component that name
 each other: the removed lines where it left, and the added lines where it
 arrived, so the reader is told which way it went.
 
+A component's kind is a word of its repository's vocabulary, which
+[the review document](review.md#review-state) holds and the reader edits by
+asking an agent ([the vocabulary tools](../backend/agents.md#the-component-tools)).
+A kind takes its colour from its place in the vocabulary, so a kind the reader
+defines is coloured as the default ones are, with no rule written for its
+name. There are seven colours, so a kind the reader wants told apart is
+placed among the first seven, and the rest share the grey a reader skims. A map keeps the kinds it was written with, so a kind removed later
+draws grey rather than leaving the map unreadable.
+
 ```ts
 //| id: frontend-model-components
 //| file: src/frontend/model/components.ts
@@ -55,13 +64,99 @@ export const ComponentRole = z.enum([
 ]);
 export type ComponentRole = z.infer<typeof ComponentRole>;
 
+/** One word of a repository's vocabulary for what a component is. */
+export const ComponentKind = z.object({
+  /** It names a class, so it is a slug. */
+  name: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]*$/, "a kind is lowercase letters, digits and -"),
+  /** How an agent tells a component of this kind, in a sentence or two. */
+  advice: z.string().default(""),
+});
+export type ComponentKind = z.infer<typeof ComponentKind>;
+
+/** The vocabulary a repository starts with. */
+export const DEFAULT_KINDS: ComponentKind[] = [
+  {
+    name: "schema",
+    advice:
+      "A type, validator or table that says what data looks like: a zod schema, an interface, a column.",
+  },
+  {
+    name: "action",
+    advice:
+      "Code that changes state when something happens: a handler, a reducer case, a setter.",
+  },
+  {
+    name: "view",
+    advice: "Code that draws: a React component and the markup it returns.",
+  },
+  {
+    name: "styles",
+    advice: "CSS, and the class names it hangs on.",
+  },
+  {
+    name: "command",
+    advice:
+      "An entry point something outside calls: an HTTP route, an MCP tool, a CLI subcommand, a store command.",
+  },
+  {
+    name: "helper",
+    advice:
+      "A function other components call that holds no state of its own: parsing, formatting, a computation.",
+  },
+  {
+    name: "test",
+    advice: "Tests and their fixtures.",
+  },
+  {
+    name: "wiring",
+    advice:
+      "Code that only passes things along: imports, props threaded through, a route registered. Its role is usually wires.",
+  },
+];
+
+/** `kinds` with `kind` just before the kind named `before`, or else in
+ *  place of the kind of its name, or else at the end. */
+export function withKind(
+  kinds: ComponentKind[],
+  kind: ComponentKind,
+  before?: string,
+): ComponentKind[] {
+  const others = kinds.filter((kept) => kept.name !== kind.name);
+  const at =
+    before === undefined
+      ? kinds.findIndex((kept) => kept.name === kind.name)
+      : others.findIndex((kept) => kept.name === before);
+  return at === -1
+    ? [...others, kind]
+    : [...others.slice(0, at), kind, ...others.slice(at)];
+}
+
+/** The graph has this many lane colours to give kinds. */
+const LANES = 7;
+
+/** A rule giving each of the first `LANES` kinds a lane's colour, in
+ *  vocabulary order. The kinds after them stay grey, as the parts a reader
+ *  skims. */
+export function kindColours(kinds: ComponentKind[]): string {
+  return kinds
+    .slice(0, LANES)
+    .map(
+      (kind, index) =>
+        `.components-kind--${kind.name} { --component: var(--graph-lane-${index}); }`,
+    )
+    .join("\n");
+}
+
 /** One piece of work a commit does, named for what it is. */
 export const Component = z.object({
   commitId: z.string(),
   /** The same in every version, so each version's map names the same
    *  component the same way. */
   id: z.string().min(1),
-  /** What it is: schema, command, view, wiring, test. */
+  /** What it is, a word of the repository's vocabulary when it was
+   *  written. */
   kind: z.string().min(1),
   name: z.string().min(1),
   role: ComponentRole,
@@ -818,6 +913,7 @@ import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type AddedLine,
   type Component,
+  type ComponentKind,
   type Counterparts,
   counterpartFate,
   type DrawnPlace,
@@ -825,6 +921,7 @@ import {
   type Fate,
   fileShares,
   interdiffFate,
+  kindColours,
   marked,
   mentionedIn,
   type NamedVersion,
@@ -868,6 +965,8 @@ export interface ComponentsStackProps {
   /** Every component of the versions the screen compares, and of the
    *  version the rows are held against. */
   components: Component[];
+  /** The repository's vocabulary, which gives each kind its colour. */
+  kinds: ComponentKind[];
   /** The row the address names, which the rail describes. */
   current: string | null;
   open: ReadonlySet<string>;
@@ -957,6 +1056,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     enabled,
     rows,
     components,
+    kinds,
     current,
     open,
     onOpenRow,
@@ -2291,6 +2391,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
   return (
     <>
       <div className="components-body" ref={body}>
+        {enabled && <style>{kindColours(kinds)}</style>}
         {enabled && reading !== null && (
           // The place being read takes a solid bar. A rule rather than a
           // class on its lines, so moving it never draws the diff again.
@@ -3435,32 +3536,10 @@ export function ComponentsSwitch({
 /*| id: design-components
 @layer components {
   /* A kind takes one of the graph's lane colours, so the dark theme has a
-   * readable one for free. Wiring, refactors and any kind not named here stay
-   * grey: they are the parts a reader most often skims. */
+   * readable one for free. The view gives the repository's first kinds
+   * theirs (`kindColours`); this is the grey of every other kind. */
   [class*="components-kind--"] {
     --component: var(--text-faint);
-  }
-  .components-kind--schema,
-  .components-kind--field {
-    --component: var(--graph-lane-0);
-  }
-  .components-kind--command {
-    --component: var(--graph-lane-4);
-  }
-  .components-kind--action {
-    --component: var(--graph-lane-1);
-  }
-  .components-kind--view {
-    --component: var(--graph-lane-2);
-  }
-  .components-kind--styles {
-    --component: var(--graph-lane-3);
-  }
-  .components-kind--helper {
-    --component: var(--graph-lane-5);
-  }
-  .components-kind--test {
-    --component: var(--graph-lane-6);
   }
 
   .components-switch-mode {
@@ -4210,9 +4289,11 @@ import {
   type ComponentMap,
   componentsTo,
   counterpartFate,
+  DEFAULT_KINDS,
   drawnPlaces,
   fileShares,
   interdiffFate,
+  kindColours,
   marked,
   mentionedIn,
   placeAt,
@@ -4224,6 +4305,7 @@ import {
   sameFold,
   sameRun,
   withComponents,
+  withKind,
   wordAdded,
 } from "./components";
 import type { FileDiff } from "./diff";
@@ -4266,6 +4348,67 @@ describe("component maps", () => {
       "b",
     );
     expect(componentsTo(rewritten, "local:r", "3")).toBeUndefined();
+  });
+});
+
+describe("a vocabulary", () => {
+  test("keeps a redefined kind where it stood, and adds a new one last", () => {
+    // arrange
+    const kinds = [
+      { name: "model", advice: "" },
+      { name: "view", advice: "" },
+    ];
+
+    // act
+    const redefined = withKind(kinds, { name: "model", advice: "data" });
+    const added = withKind(kinds, { name: "controller", advice: "" });
+
+    // assert
+    expect(redefined.map((kind) => kind.advice)).toEqual(["data", ""]);
+    expect(added.map((kind) => kind.name)).toEqual([
+      "model",
+      "view",
+      "controller",
+    ]);
+  });
+
+  test("moves a kind before the one it is placed before", () => {
+    // arrange
+    const kinds = [
+      { name: "model", advice: "" },
+      { name: "view", advice: "" },
+      { name: "controller", advice: "" },
+    ];
+
+    // act
+    const moved = withKind(kinds, { name: "controller", advice: "" }, "model");
+    const added = withKind(kinds, { name: "route", advice: "" }, "view");
+
+    // assert
+    expect(moved.map((kind) => kind.name)).toEqual([
+      "controller",
+      "model",
+      "view",
+    ]);
+    expect(added.map((kind) => kind.name)).toEqual([
+      "model",
+      "route",
+      "view",
+      "controller",
+    ]);
+  });
+
+  test("gives the first seven kinds a lane's colour each, and leaves the rest grey", () => {
+    // arrange
+    // act
+    const rules = kindColours(DEFAULT_KINDS).split("\n");
+
+    // assert
+    expect(rules).toHaveLength(7);
+    expect(rules[0]).toBe(
+      ".components-kind--schema { --component: var(--graph-lane-0); }",
+    );
+    expect(rules.join("\n")).not.toContain("wiring");
   });
 });
 

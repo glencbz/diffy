@@ -3670,32 +3670,10 @@
 /* ~/~ begin <<docs/architecture/frontend/components.md#design-components>>[init] */
 @layer components {
   /* A kind takes one of the graph's lane colours, so the dark theme has a
-   * readable one for free. Wiring, refactors and any kind not named here stay
-   * grey: they are the parts a reader most often skims. */
+   * readable one for free. The view gives the repository's first kinds
+   * theirs (`kindColours`); this is the grey of every other kind. */
   [class*="components-kind--"] {
     --component: var(--text-faint);
-  }
-  .components-kind--schema,
-  .components-kind--field {
-    --component: var(--graph-lane-0);
-  }
-  .components-kind--command {
-    --component: var(--graph-lane-4);
-  }
-  .components-kind--action {
-    --component: var(--graph-lane-1);
-  }
-  .components-kind--view {
-    --component: var(--graph-lane-2);
-  }
-  .components-kind--styles {
-    --component: var(--graph-lane-3);
-  }
-  .components-kind--helper {
-    --component: var(--graph-lane-5);
-  }
-  .components-kind--test {
-    --component: var(--graph-lane-6);
   }
 
   .components-switch-mode {
