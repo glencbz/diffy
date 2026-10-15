@@ -918,6 +918,41 @@
     color: var(--accent);
   }
 
+  /* Sticks to the top of the drawer, so a long list keeps its way back. */
+  .drawer-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    gap: var(--space-5);
+    padding: 0 var(--space-5);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .drawer-tab {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-2) 0;
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .drawer-tab[aria-selected="true"] {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+
+  .drawer-tab__count {
+    font-size: var(--text-size-small);
+    color: var(--review-open);
+  }
+
   .pull-toolbar {
     display: flex;
     flex: none;
@@ -934,6 +969,10 @@
   @media (max-width: 1000px) {
     .drawer-bar__step {
       min-width: 44px;
+      min-height: 44px;
+    }
+
+    .drawer-tab {
       min-height: 44px;
     }
 
@@ -4388,6 +4427,145 @@
     .components-trail button:last-child {
       flex: none;
     }
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/threads.md#design-threads>>[init] */
+@layer components {
+  .thread-list {
+    padding-bottom: var(--space-3);
+  }
+
+  .thread-list__filters {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-5) var(--space-2);
+  }
+
+  .thread-list__filter {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-large);
+  }
+
+  .thread-list__filter[aria-pressed="true"] {
+    color: var(--text);
+    background: var(--surface-selected);
+    border-color: var(--accent);
+  }
+
+  .thread-list__count,
+  .thread-list__label,
+  .thread-entry__replies {
+    color: var(--text-faint);
+  }
+
+  .thread-list__empty {
+    margin: 0;
+    padding: var(--space-2) var(--space-5);
+    color: var(--text-faint);
+  }
+
+  .thread-list__heading {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    margin: 0;
+    padding: var(--space-3) var(--space-5) var(--space-1);
+    font-size: var(--text-size-small);
+  }
+
+  .thread-list__label {
+    font-weight: normal;
+  }
+
+  .thread-list__threads {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .thread-entry__line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    align-items: baseline;
+    padding: var(--space-1) var(--space-5) 0;
+    font-size: var(--text-size-small);
+  }
+
+  .thread-entry__fold,
+  .thread-entry__where,
+  .thread-entry__resolve,
+  .thread-entry__go,
+  .thread-entry__excerpt {
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .thread-entry__fold {
+    width: 1em;
+    color: var(--text-faint);
+  }
+
+  .thread-entry__where,
+  .thread-entry__go {
+    color: var(--accent);
+  }
+
+  .thread-entry__where:hover,
+  .thread-entry__go:hover {
+    text-decoration: underline;
+  }
+
+  .thread-entry__shown--drawn {
+    color: var(--review-open);
+  }
+
+  .thread-entry__shown--hidden,
+  .thread-entry__shown--dropped {
+    color: var(--review-stale);
+  }
+
+  /* Always shown, since a phone has no hover to reveal it. */
+  .thread-entry__resolve {
+    margin-left: auto;
+    color: var(--text-muted);
+  }
+
+  /* Two lines of what it says, lined up under the location, not the fold. */
+  .thread-entry__excerpt {
+    display: -webkit-box;
+    width: 100%;
+    padding: 0 var(--space-5) var(--space-2)
+      calc(var(--space-5) + 1em + var(--space-3));
+    overflow: hidden;
+    color: var(--text);
+    text-align: left;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .thread-entry--resolved .thread-entry__excerpt {
+    color: var(--text-faint);
+  }
+
+  .thread-entry__thread {
+    padding-bottom: var(--space-3);
+  }
+
+  .thread-entry__go {
+    margin: 0 var(--space-4);
+    font-size: var(--text-size-small);
   }
 }
 /* ~/~ end */

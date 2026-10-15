@@ -260,6 +260,8 @@ with its markup. The references below are an inventory, not an order.
 <<design-responsive-panes>>
 
 <<design-components>>
+
+<<design-threads>>
 ```
 
 ## Async state

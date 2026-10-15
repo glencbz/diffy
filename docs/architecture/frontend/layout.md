@@ -363,6 +363,7 @@ export function PullPanes({
 import { type ReactNode, useState } from "react";
 import { paneSize, Splitter } from "../Splitter";
 import { DrawerBar } from "./DrawerBar";
+import { type DrawerTab, DrawerTabs } from "./DrawerTabs";
 
 /** Where the reader is in the stack: the row picked, if any, out of how
  *  many, and a line naming it. */
@@ -376,6 +377,8 @@ export function PullReviewPanes({
   header,
   picker,
   commits,
+  threads,
+  openThreads,
   diff,
   position,
   onStep,
@@ -387,6 +390,9 @@ export function PullReviewPanes({
   header: ReactNode;
   picker: ReactNode;
   commits: ReactNode;
+  threads: ReactNode;
+  /** How many threads the series has open, for the tab to say. */
+  openThreads: number;
   diff: ReactNode;
   position: StackPosition;
   onStep: (step: -1 | 1) => void;
@@ -394,6 +400,7 @@ export function PullReviewPanes({
   onResize: (size: number | null) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [tab, setTab] = useState<DrawerTab>("commits");
   return (
     <>
       {header}
@@ -415,7 +422,8 @@ export function PullReviewPanes({
               }
               style={paneSize(size)}
             >
-              {commits}
+              <DrawerTabs tab={tab} onTab={setTab} openThreads={openThreads} />
+              {tab === "commits" ? commits : threads}
             </div>
             <Splitter
               pane="pull-commits"
@@ -445,6 +453,12 @@ band under the list on every short stack, which is most pull requests.
 The comparison picker and the review marks share one toolbar,
 `.pull-toolbar`, which wraps on a narrow window. As two bands they held a
 row of controls and a row of nearly nothing.
+
+The drawer holds the commits or the series'
+[threads](threads.md), a tab each. The threads share the drawer rather than
+take a panel beside the diff, so the diff keeps the window's width, and a
+phone reaches them the way it reaches the commits. The threads tab counts the
+open ones, so a reader on the commits tab still sees how many wait.
 
 The drawer folds to a bar that keeps where the reader is in the stack and a
 stepper to the previous or next row; the rest of the bar is one fold button,
@@ -510,6 +524,48 @@ export function DrawerBar({
 
 function commitCount(count: number): string {
   return count === 1 ? "1 commit" : `${count} commits`;
+}
+```
+
+```tsx
+//| id: frontend-view-drawer-tabs
+//| file: src/frontend/views/PullReviewPanes/DrawerTabs.tsx
+export type DrawerTab = "commits" | "threads";
+
+export function DrawerTabs({
+  tab,
+  onTab,
+  openThreads,
+}: {
+  tab: DrawerTab;
+  onTab: (tab: DrawerTab) => void;
+  openThreads: number;
+}) {
+  return (
+    <div className="drawer-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab === "commits"}
+        onClick={() => onTab("commits")}
+        className="drawer-tab"
+      >
+        Commits
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab === "threads"}
+        onClick={() => onTab("threads")}
+        className="drawer-tab"
+      >
+        Threads
+        {openThreads > 0 && (
+          <span className="drawer-tab__count">{openThreads} open</span>
+        )}
+      </button>
+    </div>
+  );
 }
 ```
 
@@ -602,6 +658,41 @@ function commitCount(count: number): string {
     color: var(--accent);
   }
 
+  /* Sticks to the top of the drawer, so a long list keeps its way back. */
+  .drawer-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    gap: var(--space-5);
+    padding: 0 var(--space-5);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .drawer-tab {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-2) 0;
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .drawer-tab[aria-selected="true"] {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+
+  .drawer-tab__count {
+    font-size: var(--text-size-small);
+    color: var(--review-open);
+  }
+
   .pull-toolbar {
     display: flex;
     flex: none;
@@ -620,6 +711,10 @@ function commitCount(count: number): string {
   @media (max-width: 1000px) {
     .drawer-bar__step {
       min-width: 44px;
+      min-height: 44px;
+    }
+
+    .drawer-tab {
       min-height: 44px;
     }
 

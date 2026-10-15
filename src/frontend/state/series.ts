@@ -9,7 +9,13 @@ import {
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
-import type { VersionAsk } from "../model/series";
+import {
+  type SeriesSource,
+  type SeriesVersion,
+  type VersionAsk,
+  versionAsk,
+} from "../model/series";
+import type { VersionCommits } from "../model/threads";
 
 /** One version's commits, oldest first, the order the pairing and the stack
  *  read in. The backend lists them newest first, as `git log` does. */
@@ -35,9 +41,9 @@ function versionSize(ask: VersionAsk): Promise<FileDiff[]> {
 /** What `load` answers for `ask`, kept loaded while `ask` stays the same.
  *  No ask reads as nothing, which is how a comparison against the base asks
  *  for no before side, and one between versions for no whole size. */
-function useLoaded<T>(
-  ask: VersionAsk | null,
-  load: (ask: VersionAsk) => Promise<T>,
+function useLoaded<A, T>(
+  ask: A | null,
+  load: (ask: A) => Promise<T>,
   none: T,
 ): AsyncState<T> {
   const [state, setState] = useState<AsyncState<T>>({ status: "loading" });
@@ -77,5 +83,27 @@ export function useSeriesCommits(
 
 export function useSeriesSize(ask: VersionAsk | null): AsyncState<FileDiff[]> {
   return useLoaded(ask, versionSize, NONE);
+}
+
+export function useEveryVersion(
+  source: SeriesSource,
+  versions: SeriesVersion[],
+): AsyncState<VersionCommits[]> {
+  const asks = versions.map((version) => ({
+    version,
+    ask: versionAsk(source, version.id),
+  }));
+  return useLoaded(asks, everyVersion, NONE);
+}
+
+function everyVersion(
+  asks: { version: SeriesVersion; ask: VersionAsk }[],
+): Promise<VersionCommits[]> {
+  return Promise.all(
+    asks.map(async ({ version, ask }) => ({
+      version,
+      commits: await versionCommits(ask),
+    })),
+  );
 }
 // ~/~ end
