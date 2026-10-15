@@ -1,12 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-view-local-review-list>>[init]
 import type { ReactNode } from "react";
 import type {
+  ForgottenReviewOrder,
   LocalReview,
   LocalReviewListVariant,
   LocalReviewOrder,
   LocalVersion,
 } from "../model/review";
-import { LOCAL_REVIEW_ORDERS } from "../model/review";
+import { FORGOTTEN_REVIEW_ORDERS, LOCAL_REVIEW_ORDERS } from "../model/review";
 
 const ORDER_LABELS: Record<LocalReviewOrder, string> = {
   "modified-newest": "Modified, newest first",
@@ -14,12 +15,48 @@ const ORDER_LABELS: Record<LocalReviewOrder, string> = {
   name: "Name",
 };
 
+const FORGOTTEN_ORDER_LABELS: Record<ForgottenReviewOrder, string> = {
+  "deleted-newest": "Deleted, newest first",
+  "deleted-oldest": "Deleted, oldest first",
+  name: "Name",
+};
+
+function OrderSelect<Order extends string>({
+  order,
+  choices,
+  labels,
+  onOrder,
+}: {
+  order: Order;
+  choices: readonly Order[];
+  labels: Record<Order, string>;
+  onOrder: (order: Order) => void;
+}) {
+  return (
+    <label className="local-review__order">
+      Sort by{" "}
+      <select
+        value={order}
+        onChange={(event) => onOrder(event.target.value as Order)}
+      >
+        {choices.map((choice) => (
+          <option key={choice} value={choice}>
+            {labels[choice]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function LocalReviewList({
   reviews,
   forgotten,
   selected,
   order,
   onOrder,
+  forgottenOrder,
+  onForgottenOrder,
   onSelect,
   variant,
   commits,
@@ -29,6 +66,8 @@ export function LocalReviewList({
   selected: string | null;
   order: LocalReviewOrder;
   onOrder: (order: LocalReviewOrder) => void;
+  forgottenOrder: ForgottenReviewOrder;
+  onForgottenOrder: (order: ForgottenReviewOrder) => void;
   onSelect: (name: string) => void;
   variant: LocalReviewListVariant;
   /** The graph of one version's commits. */
@@ -36,19 +75,12 @@ export function LocalReviewList({
 }) {
   return (
     <div>
-      <label className="local-review__order">
-        Sort by{" "}
-        <select
-          value={order}
-          onChange={(event) => onOrder(event.target.value as LocalReviewOrder)}
-        >
-          {LOCAL_REVIEW_ORDERS.map((choice) => (
-            <option key={choice} value={choice}>
-              {ORDER_LABELS[choice]}
-            </option>
-          ))}
-        </select>
-      </label>
+      <OrderSelect
+        order={order}
+        choices={LOCAL_REVIEW_ORDERS}
+        labels={ORDER_LABELS}
+        onOrder={onOrder}
+      />
       {reviews.map((review) => {
         const newest = review.versions.at(-1);
         return (
@@ -101,8 +133,14 @@ export function LocalReviewList({
         );
       })}
       {forgotten.length > 0 && (
-        <>
-          <div className="local-review__deleted">recently deleted</div>
+        <details className="local-review__deleted">
+          <summary>recently deleted ({forgotten.length})</summary>
+          <OrderSelect
+            order={forgottenOrder}
+            choices={FORGOTTEN_REVIEW_ORDERS}
+            labels={FORGOTTEN_ORDER_LABELS}
+            onOrder={onForgottenOrder}
+          />
           {forgotten.map((review) => (
             <div
               key={review.name}
@@ -128,7 +166,7 @@ export function LocalReviewList({
               </div>
             </div>
           ))}
-        </>
+        </details>
       )}
     </div>
   );
