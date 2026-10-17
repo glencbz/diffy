@@ -221,6 +221,184 @@ export function withComponents(
 }
 ```
 
+## Arranging a commit's components
+
+The rail arranges a commit's components into groups three ways, and the
+reader picks one. By piece follows the groups the agent names, the parts of
+the change a reader would check one at a time; components it leaves out
+share a last group. By layer reads the code's own layout: a component sits
+in the folder that holds most of its lines, one level below the folder
+every changed file shares, so a change across the backend and the frontend
+splits there and one inside `src/frontend/` splits by its folders. Test
+files make a layer of their own wherever they live. By role is the role
+each component already has.
+
+A group uses another when a line of one of its components names a
+component of the other, the same [uses](#the-components-view) the headings
+count. Groups take no `uses` of their own from the agent: what the diff
+shows is the evidence, and an agent's claim about it would be one more
+thing to check.
+
+```ts
+//| id: frontend-model-groups
+//| file: src/frontend/model/groups.ts
+import type { Component, ComponentGroup, ComponentRole } from "./components";
+
+/** A way of grouping a commit's components. */
+export type Arrangement = "piece" | "layer" | "role";
+
+/** One group of an arrangement, its components in the map's order. */
+export interface Group {
+  id: string;
+  name: string;
+  /** What the group is, in a sentence. */
+  gist: string;
+  ids: string[];
+}
+
+/** The arrangements a commit offers: by piece only once the agent has
+ *  named some. */
+export function arrangementsOf(groups: ComponentGroup[]): Arrangement[] {
+  return groups.length > 0 ? ["piece", "layer", "role"] : ["layer", "role"];
+}
+
+const ROLES: [ComponentRole, string, string][] = [
+  ["implements", "implements", "Components that build what the commit is for."],
+  [
+    "refactors",
+    "refactors",
+    "Components that reshape code without changing what it does.",
+  ],
+  ["wires", "wires through", "Components that only pass things along."],
+  ["tests", "tests", "Tests and their fixtures."],
+];
+
+/** Test files by the names test runners look for. */
+const TEST = /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[^/]+$/;
+
+const dirsOf = (path: string) => path.split("/").slice(0, -1);
+const linesOf = (place: { start: number; end?: number }) =>
+  (place.end ?? place.start) - place.start + 1;
+
+/** The folders of `components`, one level under the folder all their
+ *  non-test files share, and test files as one more. */
+function byLayer(components: Component[]): Group[] {
+  const dirs = components
+    .flatMap((each) => each.places.map((place) => place.path))
+    .filter((path) => !TEST.test(path))
+    .map(dirsOf);
+  const first = dirs[0] ?? [];
+  let common = 0;
+  while (
+    common < first.length &&
+    dirs.every((each) => each[common] === first[common])
+  ) {
+    common++;
+  }
+  const shared = first.slice(0, common).join("/");
+  const layerOf = (path: string) =>
+    TEST.test(path)
+      ? "tests"
+      : (dirsOf(path)[common] ?? (shared === "" ? "(top)" : shared));
+  const home = (component: Component) => {
+    const lines = new Map<string, number>();
+    for (const place of component.places) {
+      const layer = layerOf(place.path);
+      lines.set(layer, (lines.get(layer) ?? 0) + linesOf(place));
+    }
+    return [...lines].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "(top)";
+  };
+  const groups = new Map<string, string[]>();
+  for (const component of components) {
+    const layer = home(component);
+    groups.set(layer, [...(groups.get(layer) ?? []), component.id]);
+  }
+  const prefix = shared === "" ? "" : `${shared}/`;
+  return [...groups]
+    .sort(([a], [b]) =>
+      a === "tests" ? 1 : b === "tests" ? -1 : a.localeCompare(b),
+    )
+    .map(([name, ids]) => ({
+      id: name,
+      name,
+      gist:
+        name === "tests"
+          ? "Components whose lines are mostly in test files."
+          : `Components whose lines are mostly under ${prefix}${name === shared ? "" : `${name}/`}.`,
+      ids,
+    }));
+}
+
+/** `components` arranged into groups, each group holding at least one.
+ *  `groups` are the agent's, used by piece. */
+export function arrange(
+  arrangement: Arrangement,
+  components: Component[],
+  groups: ComponentGroup[],
+): Group[] {
+  const ids = (keep: (component: Component) => boolean) =>
+    components.filter(keep).map((component) => component.id);
+  const arranged: Group[] =
+    arrangement === "piece"
+      ? [
+          ...groups.map((group) => ({
+            id: group.id,
+            name: group.name,
+            gist: group.gist,
+            ids: ids((component) => group.components.includes(component.id)),
+          })),
+          {
+            id: "",
+            name: "everything else",
+            gist: "Components the agent put in no group.",
+            ids: ids(
+              (component) =>
+                !groups.some((group) =>
+                  group.components.includes(component.id),
+                ),
+            ),
+          },
+        ]
+      : arrangement === "layer"
+        ? byLayer(components)
+        : ROLES.map(([role, name, gist]) => ({
+            id: role,
+            name,
+            gist,
+            ids: ids((component) => component.role === role),
+          }));
+  return arranged.filter((group) => group.ids.length > 0);
+}
+
+/** The groups a group's components use, and the groups using it, from
+ *  which component each line of the diff names. */
+export function groupLinks(
+  groups: Group[],
+  uses: { from: string; to: string }[],
+): Map<string, { uses: Group[]; usedBy: Group[] }> {
+  const home = (id: string) => groups.find((group) => group.ids.includes(id));
+  const out = new Map(
+    groups.map((group) => [
+      group.id,
+      { uses: new Set<Group>(), usedBy: new Set<Group>() },
+    ]),
+  );
+  for (const use of uses) {
+    const from = home(use.from);
+    const to = home(use.to);
+    if (from === undefined || to === undefined || from === to) continue;
+    out.get(from.id)?.uses.add(to);
+    out.get(to.id)?.usedBy.add(from);
+  }
+  return new Map(
+    [...out].map(([id, links]) => [
+      id,
+      { uses: [...links.uses], usedBy: [...links.usedBy] },
+    ]),
+  );
+}
+```
+
 ## Reading a row
 
 A line is found by the tree its side of the diff counts: on a commit's own
@@ -929,6 +1107,7 @@ import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type AddedLine,
   type Component,
+  type ComponentGroup,
   type ComponentKind,
   type Counterparts,
   counterpartFate,
@@ -956,6 +1135,12 @@ import {
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import {
+  type Arrangement,
+  arrange,
+  arrangementsOf,
+  groupLinks,
+} from "../../model/groups";
+import {
   type Comment,
   type ComparisonReview,
   isPlaceSeen,
@@ -981,6 +1166,8 @@ export interface ComponentsStackProps {
   /** Every component of the versions the screen compares, and of the
    *  version the rows are held against. */
   components: Component[];
+  /** The groups the agent named, of the same versions. */
+  groups: ComponentGroup[];
   /** The repository's vocabulary, which gives each kind its colour. */
   kinds: ComponentKind[];
   /** The row the address names, which the rail describes. */
@@ -1072,6 +1259,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     enabled,
     rows,
     components,
+    groups,
     kinds,
     current,
     open,
@@ -1405,6 +1593,27 @@ export function ComponentsStack(props: ComponentsStackProps) {
   }, []);
 
   const [railOpen, setRailOpen] = useState(false);
+  // The reader's arrangement, or null for the agent's pieces, else roles.
+  const [arrangement, setArrangement] = useState<Arrangement | null>(null);
+  // The focused group, held with the row and arrangement it belongs to, so
+  // moving to another commit or arrangement lets it go.
+  const [focus, setFocus] = useState<{
+    row: string;
+    arrangement: Arrangement;
+    id: string;
+  } | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [only, setOnly] = useState(false);
+  // Escape lets the focus go, unless it is closing a peek first.
+  const peekOpen = peeked !== null;
+  useEffect(() => {
+    if (peekOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFocus(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [peekOpen]);
   const goTo = (target: Target, y: number | null = null, on = here) => {
     setPeeked(null);
     setLanding({
@@ -2393,6 +2602,27 @@ export function ComponentsStack(props: ComponentsStackProps) {
       });
     }
   }
+  const shownGroups = groups.filter(
+    (group) => group.commitId === shown?.commit.commitId,
+  );
+  const arrangements = arrangementsOf(shownGroups);
+  const arranging =
+    arrangement !== null && arrangements.includes(arrangement)
+      ? arrangement
+      : arrangements.includes("piece")
+        ? "piece"
+        : "role";
+  const arranged = arrange(
+    arranging,
+    entries.map((entry) => entry.component),
+    shownGroups,
+  );
+  const focused =
+    focus !== null &&
+    focus.row === shown?.key &&
+    focus.arrangement === arranging
+      ? (arranged.find((group) => group.id === focus.id) ?? null)
+      : null;
   const files =
     shown?.files.status === "ready"
       ? shown.files.data.map((file) => ({
@@ -2408,6 +2638,23 @@ export function ComponentsStack(props: ComponentsStackProps) {
     <>
       <div className="components-body" ref={body}>
         {enabled && <style>{kindColours(kinds)}</style>}
+        {enabled && focused !== null && (
+          // Every other component's lines and headings grey out, still
+          // there to read. A rule, as the reading bar is, so focusing never
+          // draws the diff again.
+          <style>{`${[".components-line", ".components-heading"]
+            .map(
+              (part) =>
+                `.components-main ${part}${focused.ids
+                  .map((id) =>
+                    part === ".components-line"
+                      ? `:not(.components-of--${ident(id)})`
+                      : `:not([data-components-id="${CSS.escape(id)}"])`,
+                  )
+                  .join("")}`,
+            )
+            .join(", ")} { opacity: 0.25; filter: grayscale(1); }`}</style>
+        )}
         {enabled && reading !== null && (
           // The place being read takes a solid bar. A rule rather than a
           // class on its lines, so moving it never draws the diff again.
@@ -2494,6 +2741,34 @@ export function ComponentsStack(props: ComponentsStackProps) {
                 if (share.first === null) return;
                 rememberHere();
                 goTo(toPlace(share.first, path));
+              }}
+              groups={{
+                arrangement: arranging,
+                arrangements,
+                groups: arranged,
+                links: groupLinks(
+                  arranged,
+                  references.flatMap(({ row, ref }) =>
+                    row.key === shown?.key && ref.from !== null
+                      ? [{ from: ref.from.component.id, to: ref.to.id }]
+                      : [],
+                  ),
+                ),
+                focus: focused?.id ?? null,
+                preview,
+                only,
+                onArrange: (next) => {
+                  setArrangement(next);
+                  setFocus(null);
+                },
+                onFocus: (id) =>
+                  setFocus(
+                    id === null || shown === undefined
+                      ? null
+                      : { row: shown.key, arrangement: arranging, id },
+                  ),
+                onPreview: setPreview,
+                onOnly: setOnly,
               }}
             />
           </aside>
@@ -2752,9 +3027,12 @@ export function Heading({
 
 ### Rail
 
-The rail is the current commit at a glance: its components by role, each
+The rail is the current commit at a glance: its components in the order of
+the [groups](#groups) above them, each striped with its group's colour and
 marked with how it fares in the comparison on screen, then each file's
-changed lines shared out by component. A bar's width is a component's share
+changed lines shared out by component. The list keeps every component in
+view, dimming the other groups' while one is focused, unless the reader
+asks for the focused group's alone. A bar's width is a component's share
 of the file's changed lines, not where they fall, since the diff beside it
 already shows where.
 
@@ -2772,12 +3050,9 @@ than a part of it.
 ```tsx
 //| id: frontend-view-components-rail
 //| file: src/frontend/views/Components/Rail.tsx
-import type {
-  Component,
-  ComponentRole,
-  Fate,
-  FileShare,
-} from "../../model/components";
+import type { ComponentProps } from "react";
+import type { Component, Fate, FileShare } from "../../model/components";
+import { Groups } from "./Groups";
 import { CommentIcon, MessageIcon } from "./icons";
 
 /** One component as the rail lists it. */
@@ -2801,12 +3076,9 @@ export interface RailFile {
   viewed: boolean;
 }
 
-const ROLES: [ComponentRole, string][] = [
-  ["implements", "implements"],
-  ["refactors", "refactors"],
-  ["wires", "wires through"],
-  ["tests", "tests"],
-];
+/** The arranged groups and what the reader does with them, all but the
+ *  counts, which the rail works out from its entries. */
+export type RailGroups = Omit<ComponentProps<typeof Groups>, "counts">;
 
 // The paired graph's marks: + added, − dropped, ~ changed.
 const MARKS: Record<Fate, string> = {
@@ -2826,6 +3098,7 @@ export function Rail({
   onGo,
   onGoUnseen,
   onGoShare,
+  groups,
 }: {
   /** The current row's diff has not landed yet. */
   loading: boolean;
@@ -2839,6 +3112,7 @@ export function Rail({
   /** Goes to the first fold of the entry the reader has not put away. */
   onGoUnseen: (entry: RailEntry) => void;
   onGoShare: (path: string, share: FileShare) => void;
+  groups: RailGroups;
 }) {
   if (loading) {
     return <p className="components-rail__wait">Loading components...</p>;
@@ -2863,75 +3137,94 @@ export function Rail({
         of={entries.reduce((sum, entry) => sum + entry.folds, 0)}
         label="seen"
       />
+      <Groups
+        {...groups}
+        counts={
+          new Map(
+            groups.groups.map((group) => {
+              const own = entries.filter((entry) =>
+                group.ids.includes(entry.component.id),
+              );
+              return [
+                group.id,
+                {
+                  folds: own.reduce((sum, entry) => sum + entry.folds, 0),
+                  seen: own.reduce((sum, entry) => sum + entry.seen, 0),
+                },
+              ];
+            }),
+          )
+        }
+      />
       <ul className="components-toc">
-        {ROLES.flatMap(([role, label]) => {
-          const own = entries.filter((entry) => entry.component.role === role);
-          if (own.length === 0) return [];
-          return [
-            <li key={role} className="components-toc__group">
-              {label}
-            </li>,
-            ...own.map((entry) => {
-              const { component } = entry;
-              const here = reading?.id === component.id;
-              return (
-                <li
-                  key={component.id}
-                  className={`components-kind--${component.kind}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}${entry.folds > 0 && entry.seen === entry.folds ? " components-toc--seen" : ""}`}
+        {groups.groups.flatMap((group, index) => {
+          // Pointing at a group dims the rest as focusing would; dropping
+          // them waits for a click, so the list never jumps under a pointer.
+          const lit = groups.preview ?? groups.focus;
+          if (groups.only && groups.focus !== null && groups.focus !== group.id)
+            return [];
+          const quiet = !groups.only && lit !== null && lit !== group.id;
+          return group.ids.flatMap((id) => {
+            const entry = entries.find((each) => each.component.id === id);
+            if (entry === undefined) return [];
+            const { component } = entry;
+            const here = reading?.id === component.id;
+            const colour = `components-group--${index % 8}`;
+            return [
+              <li
+                key={component.id}
+                className={`components-kind--${component.kind} ${colour}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}${quiet ? " components-toc--quiet" : ""}${entry.folds > 0 && entry.seen === entry.folds ? " components-toc--seen" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="components-toc__entry"
+                  onClick={() => onGo(entry)}
                 >
+                  <span
+                    className={`components-toc__fate components-fate--${entry.fate ?? "none"}`}
+                    title={entry.fate ?? ""}
+                  >
+                    {entry.fate === null ? "" : MARKS[entry.fate]}
+                  </span>
+                  <span className="components-heading__kind">
+                    {component.kind}
+                  </span>
+                  <span className="components-toc__name">{component.name}</span>
+                  {entry.threads > 0 && (
+                    <span
+                      className="components-toc__count"
+                      title={`${entry.threads} thread${entry.threads === 1 ? "" : "s"}`}
+                    >
+                      <CommentIcon /> {entry.threads}
+                    </span>
+                  )}
+                  {entry.places > 1 && (
+                    <span
+                      className="components-toc__count"
+                      title={`${entry.places} places`}
+                    >
+                      ×{entry.places}
+                    </span>
+                  )}
+                </button>
+                {entry.folds > 0 && (
                   <button
                     type="button"
-                    className="components-toc__entry"
-                    onClick={() => onGo(entry)}
+                    className={`components-toc__seen${entry.seen === entry.folds ? " components-toc__seen--done" : ""}`}
+                    title={
+                      entry.seen === entry.folds
+                        ? `all ${entry.folds} seen`
+                        : `${entry.seen} of ${entry.folds} seen: go to the first unseen`
+                    }
+                    disabled={entry.seen === entry.folds}
+                    onClick={() => onGoUnseen(entry)}
                   >
-                    <span
-                      className={`components-toc__fate components-fate--${entry.fate ?? "none"}`}
-                      title={entry.fate ?? ""}
-                    >
-                      {entry.fate === null ? "" : MARKS[entry.fate]}
-                    </span>
-                    <span className="components-heading__kind">
-                      {component.kind}
-                    </span>
-                    <span className="components-toc__name">
-                      {component.name}
-                    </span>
-                    {entry.threads > 0 && (
-                      <span
-                        className="components-toc__count"
-                        title={`${entry.threads} thread${entry.threads === 1 ? "" : "s"}`}
-                      >
-                        <CommentIcon /> {entry.threads}
-                      </span>
-                    )}
-                    {entry.places > 1 && (
-                      <span
-                        className="components-toc__count"
-                        title={`${entry.places} places`}
-                      >
-                        ×{entry.places}
-                      </span>
-                    )}
+                    {entry.seen}/{entry.folds}
                   </button>
-                  {entry.folds > 0 && (
-                    <button
-                      type="button"
-                      className={`components-toc__seen${entry.seen === entry.folds ? " components-toc__seen--done" : ""}`}
-                      title={
-                        entry.seen === entry.folds
-                          ? `all ${entry.folds} seen`
-                          : `${entry.seen} of ${entry.folds} seen: go to the first unseen`
-                      }
-                      disabled={entry.seen === entry.folds}
-                      onClick={() => onGoUnseen(entry)}
-                    >
-                      {entry.seen}/{entry.folds}
-                    </button>
-                  )}
-                </li>
-              );
-            }),
-          ];
+                )}
+              </li>,
+            ];
+          });
         })}
       </ul>
       <h3 className="components-rail__head">
@@ -3002,6 +3295,211 @@ function Progress({
       <span className="components-progress__text">
         {done === of ? "all" : `${done} of ${of}`} {label}
       </span>
+    </div>
+  );
+}
+```
+
+### Groups
+
+The groups sit over the rail's list as one bar, each group a segment as long
+as its runs and filled as far as the reader has put them away, with a legend
+beneath. A segment or its legend entry focuses the group: the diff greys
+every other component's lines, and the list dims or drops them as the
+reader chooses. The bar shows where the change's weight is and how much of
+each part is read in one line, which a list of group headings would spread
+over a screen.
+
+Colour marks what can be clicked: each group has one, its segment, its
+legend swatch, the stripe on each of its components in the list, and the
+underline of its name wherever another group's description names it. The
+group colours are muted hues of their own, so they never read as a kind.
+
+The description slot under the legend holds every group's text at once,
+all but one hidden, in one grid cell. It is as tall as the longest, so
+pointing at or focusing a group never moves the list below, and no
+description is cut short.
+
+```tsx
+//| id: frontend-view-components-groups
+//| file: src/frontend/views/Components/Groups.tsx
+import type { Arrangement, Group } from "../../model/groups";
+
+/** How far the reader has put a group away: its runs, and those seen. */
+export interface GroupCount {
+  folds: number;
+  seen: number;
+}
+
+export function Groups({
+  arrangement,
+  arrangements,
+  groups,
+  counts,
+  links,
+  focus,
+  preview,
+  only,
+  onArrange,
+  onFocus,
+  onPreview,
+  onOnly,
+}: {
+  arrangement: Arrangement;
+  arrangements: Arrangement[];
+  groups: Group[];
+  counts: ReadonlyMap<string, GroupCount>;
+  links: ReadonlyMap<string, { uses: Group[]; usedBy: Group[] }>;
+  /** The focused group's id. */
+  focus: string | null;
+  /** The group pointed at, which the description shows over the focus. */
+  preview: string | null;
+  /** Whether the list drops the other groups' components or dims them. */
+  only: boolean;
+  onArrange: (arrangement: Arrangement) => void;
+  onFocus: (id: string | null) => void;
+  onPreview: (id: string | null) => void;
+  onOnly: (only: boolean) => void;
+}) {
+  const shown = preview ?? focus;
+  const countOf = (group: Group) => {
+    const count = counts.get(group.id) ?? { folds: 0, seen: 0 };
+    return count.folds === 0
+      ? "–"
+      : count.seen === count.folds
+        ? "✓"
+        : `${count.seen}/${count.folds}`;
+  };
+  // Pointing previews and clicking focuses, so one handler set serves the
+  // bar's segment and the legend's entry alike.
+  const handlers = (group: Group) => ({
+    "aria-pressed": focus === group.id,
+    onMouseEnter: () => onPreview(group.id),
+    onMouseLeave: () => onPreview(null),
+    onClick: () => onFocus(focus === group.id ? null : group.id),
+  });
+  const colour = (index: number) => `components-group--${index % 8}`;
+  const named = (other: Group) => (
+    <button
+      type="button"
+      key={other.id}
+      className={`components-groups__link ${colour(groups.indexOf(other))}`}
+      onClick={() => onFocus(other.id)}
+    >
+      {other.name}
+    </button>
+  );
+  const list = (each: Group[]) =>
+    each.flatMap((other, index) => [
+      ...(index === 0 ? [] : [", "]),
+      named(other),
+    ]);
+  return (
+    <div className="components-groups">
+      <div className="components-groups__head">
+        <label className="components-groups__arrange">
+          grouped by
+          <select
+            value={arrangement}
+            onChange={(event) =>
+              onArrange(event.currentTarget.value as Arrangement)
+            }
+          >
+            {arrangements.map((each) => (
+              <option key={each} value={each}>
+                {each}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="components-groups__show">
+          {(
+            [
+              [false, "dim the rest"],
+              [true, "only these"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              type="button"
+              key={label}
+              aria-pressed={only === value}
+              onClick={() => onOnly(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
+      </div>
+      <div className="components-groups__bar">
+        {groups.map((group, index) => {
+          const count = counts.get(group.id) ?? { folds: 0, seen: 0 };
+          // A group the comparison draws nothing of has no length; the
+          // legend still names it.
+          if (count.folds === 0) return null;
+          return (
+            <button
+              type="button"
+              key={group.id}
+              className={`components-groups__segment ${colour(index)}`}
+              style={{ flexGrow: count.folds }}
+              title={`${group.name}: ${count.seen} of ${count.folds} seen`}
+              {...handlers(group)}
+            >
+              <span
+                style={{
+                  width: `${(100 * count.seen) / Math.max(1, count.folds)}%`,
+                }}
+              />
+            </button>
+          );
+        })}
+      </div>
+      <div className="components-groups__legend">
+        {groups.map((group, index) => (
+          <button
+            type="button"
+            key={group.id}
+            className={`components-groups__entry ${colour(index)}`}
+            {...handlers(group)}
+          >
+            <span className="components-groups__swatch" />
+            <span className="components-groups__name">{group.name}</span>
+            <span className="components-groups__count">{countOf(group)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="components-groups__about">
+        {[null, ...groups].map((group) => {
+          const on = (group?.id ?? null) === shown;
+          const { uses, usedBy } =
+            group === null
+              ? { uses: [], usedBy: [] }
+              : (links.get(group.id) ?? { uses: [], usedBy: [] });
+          return (
+            <div
+              key={group?.id ?? ""}
+              aria-hidden={!on}
+              inert={!on}
+              style={{ visibility: on ? "visible" : "hidden" }}
+            >
+              {group === null ? (
+                <p>Pick a {arrangement} to see only its code.</p>
+              ) : (
+                <>
+                  <p>{group.gist === "" ? group.name : group.gist}</p>
+                  <p className="components-groups__links">
+                    {uses.length > 0 && <span>Uses {list(uses)}. </span>}
+                    {usedBy.length > 0 && <span>Used by {list(usedBy)}.</span>}
+                    {uses.length === 0 && usedBy.length === 0 && (
+                      <span>Uses no other {arrangement}.</span>
+                    )}
+                  </p>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -4230,6 +4728,201 @@ export function ComponentsSwitch({
 }
 ```
 
+The groups' colours are hues of their own at one lightness, so a stripe
+never reads as a kind and either theme can read them.
+
+```css
+/*| id: design-components
+@layer components {
+  .components-group--0 {
+    --group: hsl(205 45% 52%);
+  }
+  .components-group--1 {
+    --group: hsl(25 55% 52%);
+  }
+  .components-group--2 {
+    --group: hsl(145 40% 45%);
+  }
+  .components-group--3 {
+    --group: hsl(280 35% 58%);
+  }
+  .components-group--4 {
+    --group: hsl(340 45% 55%);
+  }
+  .components-group--5 {
+    --group: hsl(50 55% 45%);
+  }
+  .components-group--6 {
+    --group: hsl(180 40% 42%);
+  }
+  .components-group--7 {
+    --group: hsl(0 0% 55%);
+  }
+
+  .components-groups {
+    margin: 0 var(--space-2) var(--space-2);
+  }
+  .components-groups__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-2);
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+  }
+  .components-groups__arrange {
+    display: flex;
+    gap: 4px;
+    align-items: baseline;
+    color: var(--text-faint);
+  }
+  .components-groups__arrange select {
+    padding: 0;
+    border: 0;
+    border-bottom: 1px dotted var(--text-muted);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .components-groups__show {
+    display: inline-flex;
+    gap: 1px;
+    padding: 1px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .components-groups__show button {
+    padding: 0 6px;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-faint);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .components-groups__show button:hover {
+    color: var(--text);
+  }
+  .components-groups__show button[aria-pressed="true"] {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .components-groups__bar {
+    display: flex;
+    gap: 2px;
+    height: 16px;
+    margin-bottom: var(--space-1);
+  }
+  .components-groups__segment {
+    position: relative;
+    min-width: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--group) 28%, var(--surface));
+    overflow: hidden;
+    cursor: pointer;
+  }
+  /* The part the reader has put away. */
+  .components-groups__segment > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--group);
+  }
+  .components-groups__segment[aria-pressed="true"] {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+  .components-groups__legend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .components-groups__entry {
+    display: flex;
+    gap: 5px;
+    align-items: baseline;
+    padding: 1px 3px;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-family: system-ui, sans-serif;
+    text-align: left;
+    cursor: pointer;
+  }
+  .components-groups__entry:hover {
+    background: var(--surface-selected);
+  }
+  .components-groups__entry[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--group) 14%, transparent);
+    font-weight: 600;
+  }
+  .components-groups__swatch {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--group);
+  }
+  .components-groups__name {
+    flex: 1;
+  }
+  .components-groups__count {
+    color: var(--text-faint);
+    font-weight: normal;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Every description in one cell, so the slot is as tall as the longest. */
+  .components-groups__about {
+    display: grid;
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-family: system-ui, sans-serif;
+    line-height: 1.4;
+  }
+  .components-groups__about > div {
+    grid-area: 1 / 1;
+  }
+  .components-groups__about p {
+    margin: 0;
+  }
+  .components-groups__about p.components-groups__links {
+    margin-top: 2px;
+    color: var(--text-faint);
+  }
+  .components-groups__link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    text-decoration: underline 2px var(--group);
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .components-groups__link:hover {
+    color: var(--text);
+  }
+
+  .components-toc > li[class*="components-group--"] {
+    padding-left: 3px;
+    box-shadow: inset 3px 0 0 var(--group);
+  }
+  /* Another group's component while one is pointed at or focused. */
+  .components-toc--quiet {
+    opacity: 0.4;
+  }
+}
+```
+
 ```css
 /*| id: design-components
 @layer components-narrow {
@@ -4769,6 +5462,127 @@ describe("finding what uses a component", () => {
 
     // assert
     expect(found.every((each) => each.to === newer)).toBe(true);
+  });
+});
+```
+
+
+```ts
+//| id: frontend-model-groups-test
+//| file: src/frontend/model/groups.test.ts
+import { describe, expect, test } from "bun:test";
+import type { Component, ComponentGroup } from "./components";
+import { arrange, arrangementsOf, groupLinks } from "./groups";
+
+function component(
+  id: string,
+  paths: [string, number][],
+  role: Component["role"] = "implements",
+): Component {
+  return {
+    commitId: "c1",
+    id,
+    kind: "command",
+    name: id,
+    role,
+    gist: "",
+    words: [],
+    mentions: [],
+    places: paths.map(([path, lines]) => ({
+      path,
+      side: "after",
+      start: 1,
+      end: lines,
+      about: "",
+    })),
+  };
+}
+
+const group = (id: string, components: string[]): ComponentGroup => ({
+  commitId: "c1",
+  id,
+  name: id,
+  gist: "",
+  components,
+});
+
+describe("arrange", () => {
+  const model = component("model", [["src/frontend/model/review.ts", 10]]);
+  const view = component("view", [
+    ["src/frontend/views/Comments.tsx", 20],
+    ["src/frontend/model/review.ts", 1],
+  ]);
+  const agent = component("agent", [["src/backend/agent/review.ts", 3]]);
+  const check = component(
+    "check",
+    [["src/frontend/model/review.test.ts", 30]],
+    "tests",
+  );
+
+  test("by piece follows the agent's groups, then the rest", () => {
+    const groups = arrange(
+      "piece",
+      [model, view, agent, check],
+      [group("data", ["model", "agent"]), group("empty", ["gone"])],
+    );
+    expect(groups.map((each) => [each.name, each.ids])).toEqual([
+      ["data", ["model", "agent"]],
+      ["everything else", ["view", "check"]],
+    ]);
+  });
+
+  test("by layer splits one folder below the shared one", () => {
+    expect(
+      arrange("layer", [model, view, agent, check], []).map((each) => [
+        each.name,
+        each.ids,
+      ]),
+    ).toEqual([
+      ["backend", ["agent"]],
+      ["frontend", ["model", "view"]],
+      ["tests", ["check"]],
+    ]);
+  });
+
+  test("by layer goes deeper when every file shares a folder", () => {
+    expect(
+      arrange("layer", [model, view], []).map((each) => [each.name, each.ids]),
+    ).toEqual([
+      ["model", ["model"]],
+      ["views", ["view"]],
+    ]);
+  });
+
+  test("by role keeps the roles' order and skips empty ones", () => {
+    expect(
+      arrange("role", [check, model], []).map((each) => each.name),
+    ).toEqual(["implements", "tests"]);
+  });
+
+  test("offers by piece only once the agent named groups", () => {
+    expect(arrangementsOf([])).toEqual(["layer", "role"]);
+    expect(arrangementsOf([group("a", ["model"])])).toEqual([
+      "piece",
+      "layer",
+      "role",
+    ]);
+  });
+});
+
+describe("groupLinks", () => {
+  test("joins groups by the uses between their components", () => {
+    const groups = [
+      { id: "a", name: "a", gist: "", ids: ["x", "y"] },
+      { id: "b", name: "b", gist: "", ids: ["z"] },
+    ];
+    const links = groupLinks(groups, [
+      { from: "x", to: "y" },
+      { from: "x", to: "z" },
+      { from: "y", to: "z" },
+    ]);
+    expect(links.get("a")?.uses.map((each) => each.id)).toEqual(["b"]);
+    expect(links.get("a")?.usedBy).toEqual([]);
+    expect(links.get("b")?.usedBy.map((each) => each.id)).toEqual(["a"]);
   });
 });
 ```

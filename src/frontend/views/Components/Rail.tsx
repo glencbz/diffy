@@ -1,10 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-view-components-rail>>[init]
-import type {
-  Component,
-  ComponentRole,
-  Fate,
-  FileShare,
-} from "../../model/components";
+import type { ComponentProps } from "react";
+import type { Component, Fate, FileShare } from "../../model/components";
+import { Groups } from "./Groups";
 import { CommentIcon, MessageIcon } from "./icons";
 
 /** One component as the rail lists it. */
@@ -28,12 +25,9 @@ export interface RailFile {
   viewed: boolean;
 }
 
-const ROLES: [ComponentRole, string][] = [
-  ["implements", "implements"],
-  ["refactors", "refactors"],
-  ["wires", "wires through"],
-  ["tests", "tests"],
-];
+/** The arranged groups and what the reader does with them, all but the
+ *  counts, which the rail works out from its entries. */
+export type RailGroups = Omit<ComponentProps<typeof Groups>, "counts">;
 
 // The paired graph's marks: + added, − dropped, ~ changed.
 const MARKS: Record<Fate, string> = {
@@ -53,6 +47,7 @@ export function Rail({
   onGo,
   onGoUnseen,
   onGoShare,
+  groups,
 }: {
   /** The current row's diff has not landed yet. */
   loading: boolean;
@@ -66,6 +61,7 @@ export function Rail({
   /** Goes to the first fold of the entry the reader has not put away. */
   onGoUnseen: (entry: RailEntry) => void;
   onGoShare: (path: string, share: FileShare) => void;
+  groups: RailGroups;
 }) {
   if (loading) {
     return <p className="components-rail__wait">Loading components...</p>;
@@ -90,75 +86,94 @@ export function Rail({
         of={entries.reduce((sum, entry) => sum + entry.folds, 0)}
         label="seen"
       />
+      <Groups
+        {...groups}
+        counts={
+          new Map(
+            groups.groups.map((group) => {
+              const own = entries.filter((entry) =>
+                group.ids.includes(entry.component.id),
+              );
+              return [
+                group.id,
+                {
+                  folds: own.reduce((sum, entry) => sum + entry.folds, 0),
+                  seen: own.reduce((sum, entry) => sum + entry.seen, 0),
+                },
+              ];
+            }),
+          )
+        }
+      />
       <ul className="components-toc">
-        {ROLES.flatMap(([role, label]) => {
-          const own = entries.filter((entry) => entry.component.role === role);
-          if (own.length === 0) return [];
-          return [
-            <li key={role} className="components-toc__group">
-              {label}
-            </li>,
-            ...own.map((entry) => {
-              const { component } = entry;
-              const here = reading?.id === component.id;
-              return (
-                <li
-                  key={component.id}
-                  className={`components-kind--${component.kind}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}${entry.folds > 0 && entry.seen === entry.folds ? " components-toc--seen" : ""}`}
+        {groups.groups.flatMap((group, index) => {
+          // Pointing at a group dims the rest as focusing would; dropping
+          // them waits for a click, so the list never jumps under a pointer.
+          const lit = groups.preview ?? groups.focus;
+          if (groups.only && groups.focus !== null && groups.focus !== group.id)
+            return [];
+          const quiet = !groups.only && lit !== null && lit !== group.id;
+          return group.ids.flatMap((id) => {
+            const entry = entries.find((each) => each.component.id === id);
+            if (entry === undefined) return [];
+            const { component } = entry;
+            const here = reading?.id === component.id;
+            const colour = `components-group--${index % 8}`;
+            return [
+              <li
+                key={component.id}
+                className={`components-kind--${component.kind} ${colour}${here ? " components-toc--here" : ""}${entry.drawn ? "" : " components-toc--off"}${quiet ? " components-toc--quiet" : ""}${entry.folds > 0 && entry.seen === entry.folds ? " components-toc--seen" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="components-toc__entry"
+                  onClick={() => onGo(entry)}
                 >
+                  <span
+                    className={`components-toc__fate components-fate--${entry.fate ?? "none"}`}
+                    title={entry.fate ?? ""}
+                  >
+                    {entry.fate === null ? "" : MARKS[entry.fate]}
+                  </span>
+                  <span className="components-heading__kind">
+                    {component.kind}
+                  </span>
+                  <span className="components-toc__name">{component.name}</span>
+                  {entry.threads > 0 && (
+                    <span
+                      className="components-toc__count"
+                      title={`${entry.threads} thread${entry.threads === 1 ? "" : "s"}`}
+                    >
+                      <CommentIcon /> {entry.threads}
+                    </span>
+                  )}
+                  {entry.places > 1 && (
+                    <span
+                      className="components-toc__count"
+                      title={`${entry.places} places`}
+                    >
+                      ×{entry.places}
+                    </span>
+                  )}
+                </button>
+                {entry.folds > 0 && (
                   <button
                     type="button"
-                    className="components-toc__entry"
-                    onClick={() => onGo(entry)}
+                    className={`components-toc__seen${entry.seen === entry.folds ? " components-toc__seen--done" : ""}`}
+                    title={
+                      entry.seen === entry.folds
+                        ? `all ${entry.folds} seen`
+                        : `${entry.seen} of ${entry.folds} seen: go to the first unseen`
+                    }
+                    disabled={entry.seen === entry.folds}
+                    onClick={() => onGoUnseen(entry)}
                   >
-                    <span
-                      className={`components-toc__fate components-fate--${entry.fate ?? "none"}`}
-                      title={entry.fate ?? ""}
-                    >
-                      {entry.fate === null ? "" : MARKS[entry.fate]}
-                    </span>
-                    <span className="components-heading__kind">
-                      {component.kind}
-                    </span>
-                    <span className="components-toc__name">
-                      {component.name}
-                    </span>
-                    {entry.threads > 0 && (
-                      <span
-                        className="components-toc__count"
-                        title={`${entry.threads} thread${entry.threads === 1 ? "" : "s"}`}
-                      >
-                        <CommentIcon /> {entry.threads}
-                      </span>
-                    )}
-                    {entry.places > 1 && (
-                      <span
-                        className="components-toc__count"
-                        title={`${entry.places} places`}
-                      >
-                        ×{entry.places}
-                      </span>
-                    )}
+                    {entry.seen}/{entry.folds}
                   </button>
-                  {entry.folds > 0 && (
-                    <button
-                      type="button"
-                      className={`components-toc__seen${entry.seen === entry.folds ? " components-toc__seen--done" : ""}`}
-                      title={
-                        entry.seen === entry.folds
-                          ? `all ${entry.folds} seen`
-                          : `${entry.seen} of ${entry.folds} seen: go to the first unseen`
-                      }
-                      disabled={entry.seen === entry.folds}
-                      onClick={() => onGoUnseen(entry)}
-                    >
-                      {entry.seen}/{entry.folds}
-                    </button>
-                  )}
-                </li>
-              );
-            }),
-          ];
+                )}
+              </li>,
+            ];
+          });
         })}
       </ul>
       <h3 className="components-rail__head">

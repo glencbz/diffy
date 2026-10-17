@@ -831,9 +831,11 @@ against the message rather than let a misquote leave a component that the
 message never links to.
 
 The same call takes the commit's groups, the parts of the change a reader
-would check one at a time. A component sits in one group at most, so counts
-over the groups add up, and a group naming a component the commit lacks is
-refused rather than drawn short.
+would check one at a time, which the rail
+[arranges by](../frontend/components.md#arranging-a-commits-components). A
+component sits in one group at most, so the rail's counts add up, and a
+group naming a component the commit lacks is refused rather than drawn
+short.
 
 `read_components` reads a map back in the shape the tool takes, and reads an
 older version's map too, so an agent writing a new version keeps the ids
