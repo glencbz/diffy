@@ -135,6 +135,20 @@ export const Component = z.object({
 });
 export type Component = z.infer<typeof Component>;
 
+/** Components of one commit that make one part of the change, as the agent
+ *  sees it, which the rail can arrange the commit by. */
+export const ComponentGroup = z.object({
+  commitId: z.string(),
+  /** The same in every version, as a component's is. */
+  id: z.string().min(1),
+  name: z.string().min(1),
+  /** What it is, in a sentence. */
+  gist: z.string().default(""),
+  /** Ids of the commit's components, each in one group at most. */
+  components: z.array(z.string()).min(1),
+});
+export type ComponentGroup = z.infer<typeof ComponentGroup>;
+
 /** What each commit of one version of a series builds, component by
  *  component. */
 export const ComponentMap = z.object({
@@ -143,6 +157,8 @@ export const ComponentMap = z.object({
   author: z.string(),
   writtenAt: z.string(),
   components: z.array(Component),
+  /** Maps written before groups have none. */
+  groups: z.array(ComponentGroup).default([]),
 });
 export type ComponentMap = z.infer<typeof ComponentMap>;
 
