@@ -232,7 +232,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists, and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);
@@ -830,6 +830,13 @@ reader's screen finds it there by matching text. The tool checks each one
 against the message rather than let a misquote leave a component that the
 message never links to.
 
+The same call takes the commit's groups, the parts of the change a reader
+would check one at a time, which the rail
+[arranges by](../frontend/components.md#arranging-a-commits-components). A
+component sits in one group at most, so the rail's counts add up, and a
+group naming a component the commit lacks is refused rather than drawn
+short.
+
 `read_components` reads a map back in the shape the tool takes, and reads an
 older version's map too, so an agent writing a new version keeps the ids
 that let a reader compare the two.
@@ -850,6 +857,7 @@ vocabulary is emptied takes any kind.
 import * as z from "zod";
 import {
   type Component,
+  type ComponentGroup,
   ComponentKind,
   type ComponentMap,
   ComponentPlace,
@@ -916,6 +924,26 @@ const ComponentInput = z.object({
     ),
 });
 type ComponentInput = z.infer<typeof ComponentInput>;
+
+const GroupInput = z.object({
+  commit: z
+    .string()
+    .min(1)
+    .describe("the change id or commit id the group's components belong to"),
+  id: z
+    .string()
+    .min(1)
+    .describe("a short slug for the group, the same in every version"),
+  name: z
+    .string()
+    .min(1)
+    .describe("what the group is, in a few words, such as Stored replies"),
+  gist: z.string().default("").describe("what the group does, in a sentence"),
+  components: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe("the ids of this commit's components that make it"),
+});
 
 /** A file's changed lines on each side. */
 function changedLines(file: JjFileDiff) {
@@ -1032,12 +1060,18 @@ export function componentTools(
     tool({
       name: "write_components",
       description:
-        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
+        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one, and the groups those components form. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
       input: z.object({
         ...Target,
         components: z.array(ComponentInput).min(1),
+        groups: z
+          .array(GroupInput)
+          .default([])
+          .describe(
+            "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
+          ),
       }),
-      call: async ({ review, pull, components }, { origin }) => {
+      call: async ({ review, pull, components, groups }, { origin }) => {
         const kinds = store.read().document.componentKinds;
         const unknown = components.find(
           (input) =>
@@ -1087,12 +1121,43 @@ export function componentTools(
           }
         }
 
+        const placed = new Set<string>();
+        const named = new Set<string>();
+        const grouped = groups.map(({ commit, ...rest }): ComponentGroup => {
+          const commitId = commitNamed(target, commit).commitId;
+          const label = short(commitNamed(target, commit));
+          if (named.has(`${commitId}:${rest.id}`)) {
+            throw new ToolError(`${label} has two groups named ${rest.id}`);
+          }
+          named.add(`${commitId}:${rest.id}`);
+          for (const id of rest.components) {
+            if (
+              !resolved.some(
+                (component) =>
+                  component.commitId === commitId && component.id === id,
+              )
+            ) {
+              throw new ToolError(
+                `group ${rest.id} names ${id}, which is not a component of ${label}`,
+              );
+            }
+            if (placed.has(`${commitId}:${id}`)) {
+              throw new ToolError(
+                `${id} is in two groups of ${label}; a component is in one group at most`,
+              );
+            }
+            placed.add(`${commitId}:${id}`);
+          }
+          return { ...rest, commitId };
+        });
+
         const map: ComponentMap = {
           series: target.series,
           version: target.version,
           author: AGENT,
           writtenAt: new Date().toISOString(),
           components: resolved,
+          groups: grouped,
         };
         store.apply({ kind: "write-components", map });
         return [
@@ -1144,6 +1209,10 @@ export function componentTools(
             components: map.components.map(({ commitId, ...component }) => ({
               commit: names.get(commitId) ?? commitId,
               ...component,
+            })),
+            groups: map.groups.map(({ commitId, ...group }) => ({
+              commit: names.get(commitId) ?? commitId,
+              ...group,
             })),
           },
           null,
@@ -1695,6 +1764,70 @@ describe("the component tools", () => {
     // assert
     expect(written.isError).toBe(true);
     expect(written.text).toContain("moves to place 3");
+  });
+
+  test("write groups and read them back", async () => {
+    // arrange
+    const group = {
+      commit: "aaaa",
+      id: "names",
+      name: "Louder names",
+      gist: "Every name says it louder.",
+      components: ["louder"],
+    };
+
+    // act
+    await call("write_components", {
+      pull: 7,
+      components: [LOUDER],
+      groups: [group],
+    });
+    const read = await call("read_components", { pull: 7 });
+
+    // assert
+    const { commit: _, ...stored } = group;
+    expect(store.read().document.componentMaps[0]?.groups).toEqual([
+      { ...stored, commitId: "aaaa1111" },
+    ]);
+    expect(JSON.parse(read.text).groups).toEqual([
+      { ...group, commit: "aaaa1111" },
+    ]);
+  });
+
+  test("refuse a group of a component the commit does not have", async () => {
+    // arrange
+    // act
+    const written = await call("write_components", {
+      pull: 7,
+      components: [LOUDER],
+      groups: [{ commit: "aaaa", id: "g", name: "G", components: ["quiet"] }],
+    });
+
+    // assert
+    expect(written.isError).toBe(true);
+    expect(written.text).toContain("not a component of aaaa1111");
+    expect(store.read().document.componentMaps).toEqual([]);
+  });
+
+  test("refuse a component in two groups", async () => {
+    // arrange
+    const twice = (id: string) => ({
+      commit: "aaaa",
+      id,
+      name: id,
+      components: ["louder"],
+    });
+
+    // act
+    const written = await call("write_components", {
+      pull: 7,
+      components: [LOUDER],
+      groups: [twice("a"), twice("b")],
+    });
+
+    // assert
+    expect(written.isError).toBe(true);
+    expect(written.text).toContain("louder is in two groups");
   });
 });
 

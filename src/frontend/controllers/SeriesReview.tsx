@@ -330,6 +330,11 @@ export function SeriesReview({
       ),
     ];
   }, [maps, series, to, fromId, versions]);
+  // Their groups, held the same way.
+  const groups = useMemo(
+    () => maps.flatMap((map) => (map.series === series ? map.groups : [])),
+    [maps, series],
+  );
   const counterparts = useCounterpart({
     source,
     series,
@@ -599,6 +604,7 @@ export function SeriesReview({
           enabled={componentsOn}
           rows={rows}
           components={components}
+          groups={groups}
           kinds={
             review.status === "ready"
               ? review.document.componentKinds

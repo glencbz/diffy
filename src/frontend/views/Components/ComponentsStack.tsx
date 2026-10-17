@@ -12,6 +12,7 @@ import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type AddedLine,
   type Component,
+  type ComponentGroup,
   type ComponentKind,
   type Counterparts,
   counterpartFate,
@@ -39,6 +40,12 @@ import {
 } from "../../model/components";
 import type { FileDiff } from "../../model/diff";
 import {
+  type Arrangement,
+  arrange,
+  arrangementsOf,
+  groupLinks,
+} from "../../model/groups";
+import {
   type Comment,
   type ComparisonReview,
   isPlaceSeen,
@@ -64,6 +71,8 @@ export interface ComponentsStackProps {
   /** Every component of the versions the screen compares, and of the
    *  version the rows are held against. */
   components: Component[];
+  /** The groups the agent named, of the same versions. */
+  groups: ComponentGroup[];
   /** The repository's vocabulary, which gives each kind its colour. */
   kinds: ComponentKind[];
   /** The row the address names, which the rail describes. */
@@ -155,6 +164,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     enabled,
     rows,
     components,
+    groups,
     kinds,
     current,
     open,
@@ -488,6 +498,27 @@ export function ComponentsStack(props: ComponentsStackProps) {
   }, []);
 
   const [railOpen, setRailOpen] = useState(false);
+  // The reader's arrangement, or null for the agent's pieces, else roles.
+  const [arrangement, setArrangement] = useState<Arrangement | null>(null);
+  // The focused group, held with the row and arrangement it belongs to, so
+  // moving to another commit or arrangement lets it go.
+  const [focus, setFocus] = useState<{
+    row: string;
+    arrangement: Arrangement;
+    id: string;
+  } | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [only, setOnly] = useState(false);
+  // Escape lets the focus go, unless it is closing a peek first.
+  const peekOpen = peeked !== null;
+  useEffect(() => {
+    if (peekOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFocus(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [peekOpen]);
   const goTo = (target: Target, y: number | null = null, on = here) => {
     setPeeked(null);
     setLanding({
@@ -1476,6 +1507,27 @@ export function ComponentsStack(props: ComponentsStackProps) {
       });
     }
   }
+  const shownGroups = groups.filter(
+    (group) => group.commitId === shown?.commit.commitId,
+  );
+  const arrangements = arrangementsOf(shownGroups);
+  const arranging =
+    arrangement !== null && arrangements.includes(arrangement)
+      ? arrangement
+      : arrangements.includes("piece")
+        ? "piece"
+        : "role";
+  const arranged = arrange(
+    arranging,
+    entries.map((entry) => entry.component),
+    shownGroups,
+  );
+  const focused =
+    focus !== null &&
+    focus.row === shown?.key &&
+    focus.arrangement === arranging
+      ? (arranged.find((group) => group.id === focus.id) ?? null)
+      : null;
   const files =
     shown?.files.status === "ready"
       ? shown.files.data.map((file) => ({
@@ -1491,6 +1543,23 @@ export function ComponentsStack(props: ComponentsStackProps) {
     <>
       <div className="components-body" ref={body}>
         {enabled && <style>{kindColours(kinds)}</style>}
+        {enabled && focused !== null && (
+          // Every other component's lines and headings grey out, still
+          // there to read. A rule, as the reading bar is, so focusing never
+          // draws the diff again.
+          <style>{`${[".components-line", ".components-heading"]
+            .map(
+              (part) =>
+                `.components-main ${part}${focused.ids
+                  .map((id) =>
+                    part === ".components-line"
+                      ? `:not(.components-of--${ident(id)})`
+                      : `:not([data-components-id="${CSS.escape(id)}"])`,
+                  )
+                  .join("")}`,
+            )
+            .join(", ")} { opacity: 0.25; filter: grayscale(1); }`}</style>
+        )}
         {enabled && reading !== null && (
           // The place being read takes a solid bar. A rule rather than a
           // class on its lines, so moving it never draws the diff again.
@@ -1577,6 +1646,34 @@ export function ComponentsStack(props: ComponentsStackProps) {
                 if (share.first === null) return;
                 rememberHere();
                 goTo(toPlace(share.first, path));
+              }}
+              groups={{
+                arrangement: arranging,
+                arrangements,
+                groups: arranged,
+                links: groupLinks(
+                  arranged,
+                  references.flatMap(({ row, ref }) =>
+                    row.key === shown?.key && ref.from !== null
+                      ? [{ from: ref.from.component.id, to: ref.to.id }]
+                      : [],
+                  ),
+                ),
+                focus: focused?.id ?? null,
+                preview,
+                only,
+                onArrange: (next) => {
+                  setArrangement(next);
+                  setFocus(null);
+                },
+                onFocus: (id) =>
+                  setFocus(
+                    id === null || shown === undefined
+                      ? null
+                      : { row: shown.key, arrangement: arranging, id },
+                  ),
+                onPreview: setPreview,
+                onOnly: setOnly,
               }}
             />
           </aside>

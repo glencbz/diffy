@@ -4348,6 +4348,196 @@
 }
 /* ~/~ end */
 /* ~/~ begin <<docs/architecture/frontend/components.md#design-components>>[1] */
+@layer components {
+  .components-group--0 {
+    --group: hsl(205 45% 52%);
+  }
+  .components-group--1 {
+    --group: hsl(25 55% 52%);
+  }
+  .components-group--2 {
+    --group: hsl(145 40% 45%);
+  }
+  .components-group--3 {
+    --group: hsl(280 35% 58%);
+  }
+  .components-group--4 {
+    --group: hsl(340 45% 55%);
+  }
+  .components-group--5 {
+    --group: hsl(50 55% 45%);
+  }
+  .components-group--6 {
+    --group: hsl(180 40% 42%);
+  }
+  .components-group--7 {
+    --group: hsl(0 0% 55%);
+  }
+
+  .components-groups {
+    margin: 0 var(--space-2) var(--space-2);
+  }
+  .components-groups__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-2);
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+  }
+  .components-groups__arrange {
+    display: flex;
+    gap: 4px;
+    align-items: baseline;
+    color: var(--text-faint);
+  }
+  .components-groups__arrange select {
+    padding: 0;
+    border: 0;
+    border-bottom: 1px dotted var(--text-muted);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .components-groups__show {
+    display: inline-flex;
+    gap: 1px;
+    padding: 1px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .components-groups__show button {
+    padding: 0 6px;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-faint);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .components-groups__show button:hover {
+    color: var(--text);
+  }
+  .components-groups__show button[aria-pressed="true"] {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .components-groups__bar {
+    display: flex;
+    gap: 2px;
+    height: 16px;
+    margin-bottom: var(--space-1);
+  }
+  .components-groups__segment {
+    position: relative;
+    min-width: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--group) 28%, var(--surface));
+    overflow: hidden;
+    cursor: pointer;
+  }
+  /* The part the reader has put away. */
+  .components-groups__segment > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--group);
+  }
+  .components-groups__segment[aria-pressed="true"] {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+  .components-groups__legend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .components-groups__entry {
+    display: flex;
+    gap: 5px;
+    align-items: baseline;
+    padding: 1px 3px;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-family: system-ui, sans-serif;
+    text-align: left;
+    cursor: pointer;
+  }
+  .components-groups__entry:hover {
+    background: var(--surface-selected);
+  }
+  .components-groups__entry[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--group) 14%, transparent);
+    font-weight: 600;
+  }
+  .components-groups__swatch {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--group);
+  }
+  .components-groups__name {
+    flex: 1;
+  }
+  .components-groups__count {
+    color: var(--text-faint);
+    font-weight: normal;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Every description in one cell, so the slot is as tall as the longest. */
+  .components-groups__about {
+    display: grid;
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-family: system-ui, sans-serif;
+    line-height: 1.4;
+  }
+  .components-groups__about > div {
+    grid-area: 1 / 1;
+  }
+  .components-groups__about p {
+    margin: 0;
+  }
+  .components-groups__about p.components-groups__links {
+    margin-top: 2px;
+    color: var(--text-faint);
+  }
+  .components-groups__link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    text-decoration: underline 2px var(--group);
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .components-groups__link:hover {
+    color: var(--text);
+  }
+
+  .components-toc > li[class*="components-group--"] {
+    padding-left: 3px;
+    box-shadow: inset 3px 0 0 var(--group);
+  }
+  /* Another group's component while one is pointed at or focused. */
+  .components-toc--quiet {
+    opacity: 0.4;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/components.md#design-components>>[2] */
 @layer components-narrow {
   @media (max-width: 1000px) {
     .components-body {

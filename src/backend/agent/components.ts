@@ -2,6 +2,7 @@
 import * as z from "zod";
 import {
   type Component,
+  type ComponentGroup,
   ComponentKind,
   type ComponentMap,
   ComponentPlace,
@@ -68,6 +69,26 @@ const ComponentInput = z.object({
     ),
 });
 type ComponentInput = z.infer<typeof ComponentInput>;
+
+const GroupInput = z.object({
+  commit: z
+    .string()
+    .min(1)
+    .describe("the change id or commit id the group's components belong to"),
+  id: z
+    .string()
+    .min(1)
+    .describe("a short slug for the group, the same in every version"),
+  name: z
+    .string()
+    .min(1)
+    .describe("what the group is, in a few words, such as Stored replies"),
+  gist: z.string().default("").describe("what the group does, in a sentence"),
+  components: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe("the ids of this commit's components that make it"),
+});
 
 /** A file's changed lines on each side. */
 function changedLines(file: JjFileDiff) {
@@ -184,12 +205,18 @@ export function componentTools(
     tool({
       name: "write_components",
       description:
-        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
+        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one, and the groups those components form. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
       input: z.object({
         ...Target,
         components: z.array(ComponentInput).min(1),
+        groups: z
+          .array(GroupInput)
+          .default([])
+          .describe(
+            "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
+          ),
       }),
-      call: async ({ review, pull, components }, { origin }) => {
+      call: async ({ review, pull, components, groups }, { origin }) => {
         const kinds = store.read().document.componentKinds;
         const unknown = components.find(
           (input) =>
@@ -239,12 +266,43 @@ export function componentTools(
           }
         }
 
+        const placed = new Set<string>();
+        const named = new Set<string>();
+        const grouped = groups.map(({ commit, ...rest }): ComponentGroup => {
+          const commitId = commitNamed(target, commit).commitId;
+          const label = short(commitNamed(target, commit));
+          if (named.has(`${commitId}:${rest.id}`)) {
+            throw new ToolError(`${label} has two groups named ${rest.id}`);
+          }
+          named.add(`${commitId}:${rest.id}`);
+          for (const id of rest.components) {
+            if (
+              !resolved.some(
+                (component) =>
+                  component.commitId === commitId && component.id === id,
+              )
+            ) {
+              throw new ToolError(
+                `group ${rest.id} names ${id}, which is not a component of ${label}`,
+              );
+            }
+            if (placed.has(`${commitId}:${id}`)) {
+              throw new ToolError(
+                `${id} is in two groups of ${label}; a component is in one group at most`,
+              );
+            }
+            placed.add(`${commitId}:${id}`);
+          }
+          return { ...rest, commitId };
+        });
+
         const map: ComponentMap = {
           series: target.series,
           version: target.version,
           author: AGENT,
           writtenAt: new Date().toISOString(),
           components: resolved,
+          groups: grouped,
         };
         store.apply({ kind: "write-components", map });
         return [
@@ -296,6 +354,10 @@ export function componentTools(
             components: map.components.map(({ commitId, ...component }) => ({
               commit: names.get(commitId) ?? commitId,
               ...component,
+            })),
+            groups: map.groups.map(({ commitId, ...group }) => ({
+              commit: names.get(commitId) ?? commitId,
+              ...group,
             })),
           },
           null,

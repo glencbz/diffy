@@ -47,6 +47,7 @@ function map(version: string, ids: string[]): ComponentMap {
     author: "claude",
     writtenAt: "t",
     components: ids.map((id) => component(id)),
+    groups: [],
   };
 }
 
