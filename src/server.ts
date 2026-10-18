@@ -48,6 +48,7 @@ import {
   type RecentRepos,
   repoRoutes,
   type ServedRepo,
+  wrongRepo,
 } from "./backend/repo/repos";
 import {
   localCommits,
@@ -546,6 +547,7 @@ export function routes(served: ServedRepo, recent: RecentRepos) {
       [...reviewTools(store), ...componentTools(store)],
       INSTRUCTIONS,
       (req) => process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin,
+      (caller) => wrongRepo(served, caller),
     ),
   };
 }

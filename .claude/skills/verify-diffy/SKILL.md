@@ -200,8 +200,8 @@ removes it. When `src/cli.ts` changes how it builds the server, mirror it in
 `serve.ts`; `start` fails with the server's own error when the two drift. It runs the server inside the pinned `nix#runtime` shell, the
 same one `just run` uses, because difftastic is only on the `PATH` there; a
 server without it disables every file's `structural` view. Running the
-`diffy` command, `src/cli.ts`, would bind every interface on a port found by
-walking up from 3000, where a developer's own `just run` already sits.
+`diffy` command, `src/cli.ts`, would bind every interface on the user's own
+stored port, or hand the fixture to the diffy already running there.
 
 Both files are verification scaffolding under `.claude/`, deliberately outside
 Entangled's `docs/**/*.md` sources. Edit them directly; do not tangle them.
