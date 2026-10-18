@@ -201,6 +201,70 @@ describe("the component tools", () => {
     expect(written.isError).toBe(true);
     expect(written.text).toContain("moves to place 3");
   });
+
+  test("write groups and read them back", async () => {
+    // arrange
+    const group = {
+      commit: "aaaa",
+      id: "names",
+      name: "Louder names",
+      gist: "Every name says it louder.",
+      components: ["louder"],
+    };
+
+    // act
+    await call("write_components", {
+      pull: 7,
+      components: [LOUDER],
+      groups: [group],
+    });
+    const read = await call("read_components", { pull: 7 });
+
+    // assert
+    const { commit: _, ...stored } = group;
+    expect(store.read().document.componentMaps[0]?.groups).toEqual([
+      { ...stored, commitId: "aaaa1111" },
+    ]);
+    expect(JSON.parse(read.text).groups).toEqual([
+      { ...group, commit: "aaaa1111" },
+    ]);
+  });
+
+  test("refuse a group of a component the commit does not have", async () => {
+    // arrange
+    // act
+    const written = await call("write_components", {
+      pull: 7,
+      components: [LOUDER],
+      groups: [{ commit: "aaaa", id: "g", name: "G", components: ["quiet"] }],
+    });
+
+    // assert
+    expect(written.isError).toBe(true);
+    expect(written.text).toContain("not a component of aaaa1111");
+    expect(store.read().document.componentMaps).toEqual([]);
+  });
+
+  test("refuse a component in two groups", async () => {
+    // arrange
+    const twice = (id: string) => ({
+      commit: "aaaa",
+      id,
+      name: id,
+      components: ["louder"],
+    });
+
+    // act
+    const written = await call("write_components", {
+      pull: 7,
+      components: [LOUDER],
+      groups: [twice("a"), twice("b")],
+    });
+
+    // assert
+    expect(written.isError).toBe(true);
+    expect(written.text).toContain("louder is in two groups");
+  });
 });
 
 describe("the vocabulary tools", () => {
