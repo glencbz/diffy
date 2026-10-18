@@ -28,6 +28,7 @@ import {
   reviewComparison,
   reviewKey,
   reviewRows,
+  sortForgottenReviews,
 } from "./review";
 
 function logEntry(changeId: string, commitId: string): LogEntry {
@@ -1391,6 +1392,24 @@ describe("registered local reviews", () => {
       localSeries("other"),
     ]);
     expect(purged.pairings).toEqual([]);
+  });
+
+  test("sorts forgotten reviews by when they were deleted, newest first", () => {
+    // arrange
+    const document = applied(
+      kept(),
+      { kind: "forget-review", name: "x", at: "2026-10-01T00:00:00.000Z" },
+      { kind: "forget-review", name: "other", at: "2026-10-05T00:00:00.000Z" },
+    );
+
+    // act
+    const sorted = sortForgottenReviews(
+      document.localReviews,
+      "deleted-newest",
+    );
+
+    // assert
+    expect(sorted.map((review) => review.name)).toEqual(["other", "x"]);
   });
 });
 describe("localRowKey", () => {

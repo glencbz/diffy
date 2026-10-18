@@ -2,11 +2,13 @@
 import { useState } from "react";
 import { type LocalPlace, localHref, openLocal } from "../model/place";
 import {
+  type ForgottenReviewOrder,
   type LocalReview,
   type LocalReviewOrder,
   localReview,
   localRowKey,
   localSeries,
+  sortForgottenReviews,
   sortLocalReviews,
 } from "../model/review";
 import { localHistory } from "../model/series";
@@ -27,6 +29,8 @@ export function LocalReviews({
   onGo: (place: LocalPlace | null, visit?: Visit) => void;
 }) {
   const [order, setOrder] = useState<LocalReviewOrder>("modified-newest");
+  const [forgottenOrder, setForgottenOrder] =
+    useState<ForgottenReviewOrder>("deleted-newest");
 
   if (review.status === "loading") {
     return <Message>Loading local reviews...</Message>;
@@ -38,8 +42,11 @@ export function LocalReviews({
     ),
     order,
   );
-  const forgotten = review.document.localReviews.filter(
-    (local) => local.forgottenAt !== undefined,
+  const forgotten = sortForgottenReviews(
+    review.document.localReviews.filter(
+      (local) => local.forgottenAt !== undefined,
+    ),
+    forgottenOrder,
   );
   const found =
     place === null ? undefined : localReview(review.document, place.name);
@@ -66,6 +73,8 @@ export function LocalReviews({
           selected={open?.name ?? null}
           order={order}
           onOrder={setOrder}
+          forgottenOrder={forgottenOrder}
+          onForgottenOrder={setForgottenOrder}
           onSelect={(name) =>
             onGo(name === place?.name ? place : openLocal(name))
           }
