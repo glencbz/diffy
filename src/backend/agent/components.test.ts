@@ -79,6 +79,7 @@ async function call(
     async () => ({
       repo: { root: "/repo", store },
       link: (path) => `https://vm:4000${path}`,
+      now: () => new Date(),
     }),
   );
   const res = await route.POST(

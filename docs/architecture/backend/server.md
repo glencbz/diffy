@@ -66,6 +66,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import type { Host } from "./backend/host/host";
 import {
   AgentWorkspaces,
   type RecentRepos,
@@ -643,7 +644,7 @@ async function localJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export const localReviewsRoute = {
+export const localReviewsRoute = (now: () => Date) => ({
   POST: (req: Request, { root, store }: RepoContext) =>
     localJson(async () => {
       const asked = RegistrationBody.parse(await req.json().catch(() => ({})));
@@ -651,14 +652,14 @@ export const localReviewsRoute = {
         root,
         store.read().document,
         asked,
-        new Date().toISOString(),
+        now().toISOString(),
       );
       return {
         name,
         snapshot: store.apply({ kind: "register", name, version }),
       };
     }),
-};
+});
 
 export function handleLocalCommits(
   req: Request,
@@ -704,7 +705,7 @@ request list and history routes ask GitHub alone, so they need none.
 
 type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
 
-export function routes(served: ServedRepo, recent: RecentRepos) {
+export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
   // Every browser route reads the repository the reader is shown.
   const reader =
     (handle: InRepo) =>
@@ -718,12 +719,12 @@ export function routes(served: ServedRepo, recent: RecentRepos) {
       }
       return handle(req, repo);
     };
-  const agents = new AgentWorkspaces();
+  const agents = new AgentWorkspaces(host);
   const publicOrigin = (req: Request) =>
-    process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin;
+    host.publicUrl ?? new URL(req.url).origin;
   return {
     "/*": index,
-    ...repoRoutes(served, recent),
+    ...repoRoutes(host, served, recent),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": reader(handleLog),
     "/api/operations": reader(handleOperations),
@@ -742,14 +743,15 @@ export function routes(served: ServedRepo, recent: RecentRepos) {
       POST: reader(reviewRoute.POST),
     },
     "/api/review/changes": reviewChanges,
-    "/api/local/reviews": { POST: reader(localReviewsRoute.POST) },
+    "/api/local/reviews": { POST: reader(localReviewsRoute(host.now).POST) },
     "/api/local/commits": reader(handleLocalCommits),
     "/api/local/diff": reader(handleLocalDiff),
     "/api/local/size": reader(handleLocalSize),
     "/mcp": mcpRoute(
       [...reviewTools(), ...componentTools()],
       INSTRUCTIONS,
-      (req, caller) => agentContext(served, agents, publicOrigin(req), caller),
+      (req, caller) =>
+        agentContext(host, served, agents, publicOrigin(req), caller),
     ),
   };
 }
@@ -767,6 +769,7 @@ already.
 //| id: backend-server
 
 export async function agentContext(
+  host: Pick<Host, "now">,
   served: Pick<ServedRepo, "context">,
   agents: AgentWorkspaces,
   origin: string,
@@ -786,7 +789,11 @@ export async function agentContext(
   }
   const elsewhere = shown === null || !(await sameRepo(shown.root, repo.root));
   const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
-  return { repo, link: (path) => `${origin}${path}${query}` };
+  return {
+    repo,
+    link: (path) => `${origin}${path}${query}`,
+    now: host.now,
+  };
 }
 ```
 
@@ -803,6 +810,7 @@ import { $ } from "bun";
 import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { hostFrom } from "./backend/host/host";
 import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
@@ -828,6 +836,7 @@ import {
 /** The repository these tests read. */
 const ROOT = process.cwd();
 const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
+const HOST = { now: () => new Date() };
 
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
@@ -1269,7 +1278,7 @@ describe("the review route", () => {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const store = openReviewStore(join(dir, "r.sqlite"));
     const post = (body: unknown) =>
-      localReviewsRoute.POST(
+      localReviewsRoute(() => new Date()).POST(
         new Request("http://test/api/local/reviews", {
           method: "POST",
           body: JSON.stringify(body),
@@ -1718,9 +1727,9 @@ describe("agentContext", () => {
       root: reader.root,
       store: openReviewStore(join(dir, "reader.sqlite")),
     };
-    const agents = new AgentWorkspaces({ XDG_DATA_HOME: dir });
+    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
     const context = (caller: string | null) =>
-      agentContext({ context: () => shown }, agents, "http://vm", caller);
+      agentContext(HOST, { context: () => shown }, agents, "http://vm", caller);
 
     // act
     const elsewhere = await context(agent.second);
@@ -1753,10 +1762,11 @@ describe("agentContext", () => {
 
   test("fails a call from a path that is no workspace", async () => {
     // arrange
-    const agents = new AgentWorkspaces({ XDG_DATA_HOME: dir });
+    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
 
     // act
     const call = agentContext(
+      HOST,
       { context: () => null },
       agents,
       "http://vm",

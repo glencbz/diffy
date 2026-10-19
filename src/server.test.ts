@@ -7,6 +7,7 @@ import { $ } from "bun";
 import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { hostFrom } from "./backend/host/host";
 import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
@@ -32,6 +33,7 @@ import {
 /** The repository these tests read. */
 const ROOT = process.cwd();
 const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
+const HOST = { now: () => new Date() };
 
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
@@ -465,7 +467,7 @@ describe("the review route", () => {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const store = openReviewStore(join(dir, "r.sqlite"));
     const post = (body: unknown) =>
-      localReviewsRoute.POST(
+      localReviewsRoute(() => new Date()).POST(
         new Request("http://test/api/local/reviews", {
           method: "POST",
           body: JSON.stringify(body),
@@ -857,9 +859,9 @@ describe("agentContext", () => {
       root: reader.root,
       store: openReviewStore(join(dir, "reader.sqlite")),
     };
-    const agents = new AgentWorkspaces({ XDG_DATA_HOME: dir });
+    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
     const context = (caller: string | null) =>
-      agentContext({ context: () => shown }, agents, "http://vm", caller);
+      agentContext(HOST, { context: () => shown }, agents, "http://vm", caller);
 
     // act
     const elsewhere = await context(agent.second);
@@ -892,10 +894,11 @@ describe("agentContext", () => {
 
   test("fails a call from a path that is no workspace", async () => {
     // arrange
-    const agents = new AgentWorkspaces({ XDG_DATA_HOME: dir });
+    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
 
     // act
     const call = agentContext(
+      HOST,
       { context: () => null },
       agents,
       "http://vm",

@@ -219,7 +219,10 @@ export function componentTools(
             "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
           ),
       }),
-      call: async ({ review, pull, components, groups }, { repo, link }) => {
+      call: async (
+        { review, pull, components, groups },
+        { repo, link, now },
+      ) => {
         const { store } = repo;
         const sources = sourcesOf(repo);
         const kinds = store.read().document.componentKinds;
@@ -305,7 +308,7 @@ export function componentTools(
           series: target.series,
           version: target.version,
           author: AGENT,
-          writtenAt: new Date().toISOString(),
+          writtenAt: now().toISOString(),
           components: resolved,
           groups: grouped,
         };

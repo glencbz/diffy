@@ -3,14 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  findServer,
-  probe,
-  rollPort,
-  serverFilePath,
-  storedPort,
-  storePort,
-} from "./instance";
+import { findServer, probe, rollPort, storedPort, storePort } from "./instance";
 
 let dir: string;
 beforeEach(async () => {
@@ -18,10 +11,6 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
-});
-
-test("the state file lives under XDG_STATE_HOME", () => {
-  expect(serverFilePath({ XDG_STATE_HOME: "/s" })).toBe("/s/diffy/server.json");
 });
 
 test("a stored port reads back, and a missing or bad file is none", async () => {

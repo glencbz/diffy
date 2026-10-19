@@ -44,6 +44,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import type { Host } from "./backend/host/host";
 import {
   AgentWorkspaces,
   type RecentRepos,
@@ -522,7 +523,7 @@ async function localJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export const localReviewsRoute = {
+export const localReviewsRoute = (now: () => Date) => ({
   POST: (req: Request, { root, store }: RepoContext) =>
     localJson(async () => {
       const asked = RegistrationBody.parse(await req.json().catch(() => ({})));
@@ -530,14 +531,14 @@ export const localReviewsRoute = {
         root,
         store.read().document,
         asked,
-        new Date().toISOString(),
+        now().toISOString(),
       );
       return {
         name,
         snapshot: store.apply({ kind: "register", name, version }),
       };
     }),
-};
+});
 
 export function handleLocalCommits(
   req: Request,
@@ -573,7 +574,7 @@ export function handleLocalSize(
 
 type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
 
-export function routes(served: ServedRepo, recent: RecentRepos) {
+export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
   // Every browser route reads the repository the reader is shown.
   const reader =
     (handle: InRepo) =>
@@ -587,12 +588,12 @@ export function routes(served: ServedRepo, recent: RecentRepos) {
       }
       return handle(req, repo);
     };
-  const agents = new AgentWorkspaces();
+  const agents = new AgentWorkspaces(host);
   const publicOrigin = (req: Request) =>
-    process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin;
+    host.publicUrl ?? new URL(req.url).origin;
   return {
     "/*": index,
-    ...repoRoutes(served, recent),
+    ...repoRoutes(host, served, recent),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": reader(handleLog),
     "/api/operations": reader(handleOperations),
@@ -611,14 +612,15 @@ export function routes(served: ServedRepo, recent: RecentRepos) {
       POST: reader(reviewRoute.POST),
     },
     "/api/review/changes": reviewChanges,
-    "/api/local/reviews": { POST: reader(localReviewsRoute.POST) },
+    "/api/local/reviews": { POST: reader(localReviewsRoute(host.now).POST) },
     "/api/local/commits": reader(handleLocalCommits),
     "/api/local/diff": reader(handleLocalDiff),
     "/api/local/size": reader(handleLocalSize),
     "/mcp": mcpRoute(
       [...reviewTools(), ...componentTools()],
       INSTRUCTIONS,
-      (req, caller) => agentContext(served, agents, publicOrigin(req), caller),
+      (req, caller) =>
+        agentContext(host, served, agents, publicOrigin(req), caller),
     ),
   };
 }
@@ -626,6 +628,7 @@ export function routes(served: ServedRepo, recent: RecentRepos) {
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[13]
 
 export async function agentContext(
+  host: Pick<Host, "now">,
   served: Pick<ServedRepo, "context">,
   agents: AgentWorkspaces,
   origin: string,
@@ -645,6 +648,10 @@ export async function agentContext(
   }
   const elsewhere = shown === null || !(await sameRepo(shown.root, repo.root));
   const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
-  return { repo, link: (path) => `${origin}${path}${query}` };
+  return {
+    repo,
+    link: (path) => `${origin}${path}${query}`,
+    now: host.now,
+  };
 }
 // ~/~ end

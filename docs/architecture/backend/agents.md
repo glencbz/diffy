@@ -45,6 +45,7 @@ export interface ToolContext {
   repo: RepoContext;
   /** The link the reader opens a path of this server's at. */
   link: (path: string) => string;
+  now: () => Date;
 }
 
 export interface Tool<Input extends z.ZodObject = z.ZodObject> {
@@ -318,7 +319,8 @@ comparison with nothing in it and turn a reviewed review back to them.
 
 The link a tool hands back is for the reader, who opens it from another
 machine. `just serve` knows the address it prints and passes it on as
-`DIFFY_PUBLIC_URL`; anywhere else the link uses the address the agent called.
+`DIFFY_PUBLIC_URL`, which the [host](host.md) carries; anywhere else the
+link uses the address the agent called.
 
 ```ts
 //| id: backend-agent-review
@@ -464,14 +466,14 @@ export function reviewTools(): Tool[] {
           .optional()
           .describe("the commits to review, oldest to newest"),
       }),
-      call: async ({ name, revset }, { repo: { root, store }, link }) => {
+      call: async ({ name, revset }, { repo: { root, store }, link, now }) => {
         let version: LocalVersion;
         try {
           ({ version } = await resolveRegistration(
             root,
             store.read().document,
             { name, revset },
-            new Date().toISOString(),
+            now().toISOString(),
           ));
         } catch (error) {
           if (error instanceof RegistrationError || error instanceof JjError) {
@@ -655,7 +657,7 @@ export function reviewTools(): Tool[] {
       }),
       call: async (
         { name, change, path, line, side, body },
-        { repo: { root, store } },
+        { repo: { root, store }, now },
       ) => {
         const version = newest(store.read().document, name);
         const matches = (await commitsOf(root, version)).filter(
@@ -687,7 +689,7 @@ export function reviewTools(): Tool[] {
             commitId: entry.commitId,
             body,
             resolved: false,
-            createdAt: new Date().toISOString(),
+            createdAt: now().toISOString(),
             author: AGENT,
             replies: [],
             ...anchor,
@@ -707,7 +709,7 @@ export function reviewTools(): Tool[] {
           .describe("the id of the comment that starts the thread"),
         body: z.string().min(1),
       }),
-      call: async ({ id, body }, { repo: { store } }) => {
+      call: async ({ id, body }, { repo: { store }, now }) => {
         if (!store.read().document.comments.some((each) => each.id === id)) {
           throw new ToolError(`no comment has id ${id}`);
         }
@@ -718,7 +720,7 @@ export function reviewTools(): Tool[] {
           reply: {
             id: reply,
             body,
-            createdAt: new Date().toISOString(),
+            createdAt: now().toISOString(),
             author: AGENT,
           },
         });
@@ -1195,7 +1197,10 @@ export function componentTools(
             "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
           ),
       }),
-      call: async ({ review, pull, components, groups }, { repo, link }) => {
+      call: async (
+        { review, pull, components, groups },
+        { repo, link, now },
+      ) => {
         const { store } = repo;
         const sources = sourcesOf(repo);
         const kinds = store.read().document.componentKinds;
@@ -1281,7 +1286,7 @@ export function componentTools(
           series: target.series,
           version: target.version,
           author: AGENT,
-          writtenAt: new Date().toISOString(),
+          writtenAt: now().toISOString(),
           components: resolved,
           groups: grouped,
         };
@@ -1460,6 +1465,7 @@ beforeEach(async () => {
   route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
     repo,
     link: (path) => `https://vm:4000${path}`,
+    now: () => new Date(),
   }));
 });
 
@@ -1791,6 +1797,7 @@ async function call(
     async () => ({
       repo: { root: "/repo", store },
       link: (path) => `https://vm:4000${path}`,
+      now: () => new Date(),
     }),
   );
   const res = await route.POST(
@@ -2149,6 +2156,7 @@ beforeEach(() => {
   const route = mcpRoute([echo], "", async (_req, caller) => ({
     repo: { root: caller ?? "/reader", store },
     link: (path) => `http://reader${path}`,
+    now: () => new Date(),
   }));
   server = Bun.serve({ port: 0, routes: { "/mcp": route } });
   mcp = new URL("/mcp", server.url);

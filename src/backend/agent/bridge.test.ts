@@ -20,6 +20,7 @@ beforeEach(() => {
   const route = mcpRoute([echo], "", async (_req, caller) => ({
     repo: { root: caller ?? "/reader", store },
     link: (path) => `http://reader${path}`,
+    now: () => new Date(),
   }));
   server = Bun.serve({ port: 0, routes: { "/mcp": route } });
   mcp = new URL("/mcp", server.url);

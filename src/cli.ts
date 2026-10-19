@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { bridge } from "./backend/agent/bridge";
 import { difftDirectories } from "./backend/commit/difft";
+import { type Host, hostFrom } from "./backend/host/host";
 import {
   findServer,
   probe,
@@ -108,12 +109,15 @@ type Listening =
   | { kind: "bound"; server: Bun.Server<undefined> }
   | { kind: "running"; running: RunningServer };
 
-async function listenSticky(bind: Bind): Promise<Listening> {
-  let port = (await storedPort()) ?? rollPort();
+async function listenSticky(
+  bind: Bind,
+  serverFile: string,
+): Promise<Listening> {
+  let port = (await storedPort(serverFile)) ?? rollPort();
   for (let draws = 0; draws < 20; draws++) {
     const server = bind(port);
     if (server !== null) {
-      await storePort(port);
+      await storePort(port, serverFile);
       return { kind: "bound", server };
     }
     for (let waits = 0; waits < 20; waits++) {
@@ -148,6 +152,7 @@ async function handOff(running: RunningServer, start: Start, open: boolean) {
 }
 
 async function serve(
+  host: Host,
   path: string | undefined,
   choice: PortChoice,
   openAsked: boolean,
@@ -155,16 +160,22 @@ async function serve(
   // A run started by a script, a background start among them, has nobody
   // at a browser to open it for.
   const open = openAsked && process.stdout.isTTY === true;
-  const recent = await RecentRepos.at();
-  const start = await startingRepo(path, process.cwd(), await recent.read());
+  const serverFile = serverFilePath(host.stateDir);
+  const recent = RecentRepos.in(host.dataDir);
+  const start = await startingRepo(
+    path,
+    process.cwd(),
+    await recent.read(),
+    (each) => probeRepo(each, host.home),
+  );
   if (start.kind === "fail") fail(1, start.reason);
   if (choice.kind === "sticky") {
-    const running = await findServer();
+    const running = await findServer(serverFile);
     if (running !== null) return handOff(running, start, open);
   }
 
   let server: Bun.Server<undefined> | null = null;
-  const served = new ServedRepo(recent, (revision) =>
+  const served = new ServedRepo(host, recent, (revision) =>
     server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
   if (start.kind === "open") {
@@ -176,7 +187,7 @@ async function serve(
     try {
       return Bun.serve({
         port,
-        routes: routes(served, recent),
+        routes: routes(host, served, recent),
         websocket: reviewSocket,
       });
     } catch (error) {
@@ -187,7 +198,7 @@ async function serve(
   if (choice.kind === "given") {
     server = bind(choice.port) ?? fail(1, `port ${choice.port} is in use`);
   } else {
-    const listening = await listenSticky(bind);
+    const listening = await listenSticky(bind, serverFile);
     if (listening.kind === "running") {
       await handOff(listening.running, start, open);
       process.exit(0);
@@ -222,8 +233,8 @@ function openBrowser(url: URL) {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/cli.md#cli-module>>[3]
 
-async function startInBackground(): Promise<RunningServer> {
-  const log = join(dirname(serverFilePath()), "server.log");
+async function startInBackground(serverFile: string): Promise<RunningServer> {
+  const log = join(dirname(serverFile), "server.log");
   await mkdir(dirname(log), { recursive: true });
   const out = openSync(log, "a");
   // A compiled diffy is its own executable; under `bun run` the script is
@@ -235,14 +246,15 @@ async function startInBackground(): Promise<RunningServer> {
   }).unref();
   for (let tries = 0; tries < 100; tries++) {
     await Bun.sleep(100);
-    const running = await findServer();
+    const running = await findServer(serverFile);
     if (running !== null) return running;
   }
   throw new Error(`diffy did not start; its log is ${log}`);
 }
 
-async function mcp(url: string | undefined) {
-  const here = await probeRepo(process.cwd());
+async function mcp(host: Host, url: string | undefined) {
+  const serverFile = serverFilePath(host.stateDir);
+  const here = await probeRepo(process.cwd(), host.home);
   const given = url === undefined ? null : new URL("/mcp", url);
   await bridge(console, (line) => process.stdout.write(`${line}\n`), {
     workspace: here.kind === "jj" ? here.root : null,
@@ -250,12 +262,16 @@ async function mcp(url: string | undefined) {
       given ??
       new URL(
         "/mcp",
-        ((await findServer()) ?? (await startInBackground())).url,
+        (
+          (await findServer(serverFile)) ??
+          (await startInBackground(serverFile))
+        ).url,
       ),
   });
 }
 
 if (import.meta.main) {
+  const host = hostFrom(process.env);
   const command = parseCommand(Bun.argv.slice(2));
   switch (command.kind) {
     case "help":
@@ -265,10 +281,10 @@ if (import.meta.main) {
       fail(2, `${command.reason}\n${USAGE}`);
       break;
     case "serve":
-      await serve(command.path, command.port, command.open);
+      await serve(host, command.path, command.port, command.open);
       break;
     case "mcp":
-      await mcp(command.url);
+      await mcp(host, command.url);
       break;
     case "difft":
       process.stdout.write(

@@ -22,6 +22,7 @@ beforeEach(async () => {
   route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
     repo,
     link: (path) => `https://vm:4000${path}`,
+    now: () => new Date(),
   }));
 });
 

@@ -5,7 +5,8 @@ so a second browser, a second tab, or an agent can read and write it.
 
 ## One file per repository
 
-One SQLite file per repository under `$XDG_DATA_HOME/diffy/`, outside the
+One SQLite file per repository in the [host's](host.md) data directory,
+`$XDG_DATA_HOME/diffy/`, outside the
 repository because a file in the working copy would be snapshotted into
 whatever change is checked out. A repository is named by
 [the real path of its store](jj.md#finding-the-repository), so every workspace's
@@ -27,7 +28,6 @@ every write.
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   applyCommand,
@@ -48,18 +48,17 @@ export interface ReviewStore {
   close(): void;
 }
 
-/** The review store of the repository holding the workspace at `root`. */
+/** The review store, under `dataDir`, of the repository holding the
+ *  workspace at `root`. */
 export async function reviewStorePath(
   root: string,
-  env: Record<string, string | undefined> = process.env,
+  dataDir: string,
 ): Promise<string> {
   const repo = await jjRepoDir(root);
-  const dataHome = env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-  const dir = join(dataHome, "diffy");
-  await mkdir(dir, { recursive: true });
+  await mkdir(dataDir, { recursive: true });
   const name = basename(dirname(dirname(repo)));
   const hash = createHash("sha256").update(repo).digest("hex").slice(0, 16);
-  return join(dir, `${name}-${hash}.sqlite`);
+  return join(dataDir, `${name}-${hash}.sqlite`);
 }
 
 export function openReviewStore(path: string): ReviewStore {
@@ -169,11 +168,11 @@ once is harmless: the second finds nothing left to drop.
  *  once and every `everyMs` after, until the returned function is called. */
 export function purgeForgotten(
   store: ReviewStore,
+  now: () => Date,
   everyMs = 60 * 60 * 1000,
-  now: () => number = Date.now,
 ): () => void {
   const purge = () => {
-    const before = new Date(now() - KEEP_FORGOTTEN_MS).toISOString();
+    const before = new Date(now().getTime() - KEEP_FORGOTTEN_MS).toISOString();
     if (purgeable(store.read().document, before).length === 0) return;
     store.apply({ kind: "purge-forgotten", before });
   };
@@ -304,14 +303,12 @@ describe("reviewStorePath", () => {
   test("names a file under the data directory after the repository", async () => {
     // arrange
     // act
-    const path = await reviewStorePath(process.cwd(), { XDG_DATA_HOME: dir });
+    const path = await reviewStorePath(process.cwd(), join(dir, "diffy"));
 
     // assert
     expect(path.startsWith(join(dir, "diffy"))).toBe(true);
     expect(path).toMatch(/-[0-9a-f]{16}\.sqlite$/);
-    expect(await reviewStorePath(process.cwd(), { XDG_DATA_HOME: dir })).toBe(
-      path,
-    );
+    expect(await reviewStorePath(process.cwd(), join(dir, "diffy"))).toBe(path);
   });
 });
 
@@ -366,7 +363,7 @@ describe("purgeForgotten", () => {
     }
 
     // act
-    purgeForgotten(store, day, () => now)();
+    purgeForgotten(store, () => new Date(now), day)();
 
     // assert
     expect(
@@ -381,7 +378,7 @@ describe("purgeForgotten", () => {
     store.apply(forget("recent", 6));
 
     // act
-    purgeForgotten(store, day, () => now)();
+    purgeForgotten(store, () => new Date(now), day)();
 
     // assert
     expect(store.revision()).toBe(2);

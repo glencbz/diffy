@@ -2,7 +2,6 @@
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   applyCommand,
@@ -23,18 +22,17 @@ export interface ReviewStore {
   close(): void;
 }
 
-/** The review store of the repository holding the workspace at `root`. */
+/** The review store, under `dataDir`, of the repository holding the
+ *  workspace at `root`. */
 export async function reviewStorePath(
   root: string,
-  env: Record<string, string | undefined> = process.env,
+  dataDir: string,
 ): Promise<string> {
   const repo = await jjRepoDir(root);
-  const dataHome = env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-  const dir = join(dataHome, "diffy");
-  await mkdir(dir, { recursive: true });
+  await mkdir(dataDir, { recursive: true });
   const name = basename(dirname(dirname(repo)));
   const hash = createHash("sha256").update(repo).digest("hex").slice(0, 16);
-  return join(dir, `${name}-${hash}.sqlite`);
+  return join(dataDir, `${name}-${hash}.sqlite`);
 }
 
 export function openReviewStore(path: string): ReviewStore {
@@ -124,11 +122,11 @@ export function watchReview(
  *  once and every `everyMs` after, until the returned function is called. */
 export function purgeForgotten(
   store: ReviewStore,
+  now: () => Date,
   everyMs = 60 * 60 * 1000,
-  now: () => number = Date.now,
 ): () => void {
   const purge = () => {
-    const before = new Date(now() - KEEP_FORGOTTEN_MS).toISOString();
+    const before = new Date(now().getTime() - KEEP_FORGOTTEN_MS).toISOString();
     if (purgeable(store.read().document, before).length === 0) return;
     store.apply({ kind: "purge-forgotten", before });
   };

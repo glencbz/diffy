@@ -1,10 +1,10 @@
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[init]
 import { mkdir, readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
 import { jjRepoDir } from "../commit/jj";
+import type { Host } from "../host/host";
 import {
   openReviewStore,
   purgeForgotten,
@@ -28,6 +28,7 @@ export class ServedRepo {
   startedOutside: string | null = null;
 
   constructor(
+    private readonly host: Host,
     private readonly recent: RecentRepos,
     private readonly publish: (revision: number) => void,
   ) {}
@@ -42,10 +43,12 @@ export class ServedRepo {
   }
 
   async open(root: string, startedOutside: string | null = null) {
-    const store = openReviewStore(await reviewStorePath(root));
+    const store = openReviewStore(
+      await reviewStorePath(root, this.host.dataDir),
+    );
     this.#current?.stop();
     const stopWatch = watchReview(store, this.publish);
-    const stopPurge = purgeForgotten(store);
+    const stopPurge = purgeForgotten(store, this.host.now);
     this.#current = {
       context: { root, store },
       stop: () => {
@@ -55,7 +58,7 @@ export class ServedRepo {
       },
     };
     this.startedOutside = startedOutside;
-    await this.recent.opened(root, new Date().toISOString());
+    await this.recent.opened(root, this.host.now().toISOString());
   }
 }
 // ~/~ end
@@ -67,14 +70,14 @@ export type Probe =
   | { kind: "git"; root: string }
   | { kind: "none" };
 
-export function expandHome(path: string, home = homedir()): string {
+export function expandHome(path: string, home: string): string {
   if (path === "~") return home;
   if (path.startsWith("~/")) return join(home, path.slice(2));
   return resolve(path);
 }
 
-export async function probeRepo(path: string): Promise<Probe> {
-  const dir = expandHome(path);
+export async function probeRepo(path: string, home: string): Promise<Probe> {
+  const dir = expandHome(path, home);
   const isDir = await stat(dir).then(
     (found) => found.isDirectory(),
     () => false,
@@ -104,7 +107,7 @@ export async function startingRepo(
   given: string | undefined,
   cwd: string,
   recent: RecentEntry[],
-  probe: (path: string) => Promise<Probe> = probeRepo,
+  probe: (path: string) => Promise<Probe>,
 ): Promise<Start> {
   if (given !== undefined) {
     const found = await probe(given);
@@ -166,11 +169,8 @@ export function withRestored(
 export class RecentRepos {
   constructor(private readonly path: string) {}
 
-  static async at(
-    env: Record<string, string | undefined> = process.env,
-  ): Promise<RecentRepos> {
-    const dataHome = env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-    return new RecentRepos(join(dataHome, "diffy", "recent.json"));
+  static in(dataDir: string): RecentRepos {
+    return new RecentRepos(join(dataDir, "recent.json"));
   }
 
   async read(): Promise<RecentEntry[]> {
@@ -215,6 +215,7 @@ export interface RepoSummary {
 export async function summarize(
   root: string,
   openedAt: string | null,
+  dataDir: string,
 ): Promise<RepoSummary | null> {
   const log =
     await $`jj --ignore-working-copy log --no-graph -r @ -T ${"description.first_line()"}`
@@ -225,13 +226,13 @@ export async function summarize(
   return {
     root,
     workingCopy: log.stdout.toString().trim(),
-    reviews: await countReviews(root),
+    reviews: await countReviews(root, dataDir),
     openedAt,
   };
 }
 
-async function countReviews(root: string): Promise<number> {
-  const path = await reviewStorePath(root).catch(() => null);
+async function countReviews(root: string, dataDir: string): Promise<number> {
+  const path = await reviewStorePath(root, dataDir).catch(() => null);
   if (path === null || !(await Bun.file(path).exists())) return 0;
   const store = openReviewStore(path);
   try {
@@ -281,13 +282,18 @@ export async function findRepos(home: string, depth = 3): Promise<FoundRepo[]> {
 }
 
 const FIND_FOR_MS = 5 * 60 * 1000;
-let lastFind: { at: number; repos: Promise<FoundRepo[]> } | null = null;
 
-function foundUnderHome(): Promise<FoundRepo[]> {
-  if (lastFind === null || Date.now() - lastFind.at > FIND_FOR_MS) {
-    lastFind = { at: Date.now(), repos: findRepos(homedir()) };
-  }
-  return lastFind.repos;
+/** `findRepos` under the host's home, answered from the last walk for
+ *  five minutes. */
+function cachedFind(host: Host): () => Promise<FoundRepo[]> {
+  let last: { at: number; repos: Promise<FoundRepo[]> } | null = null;
+  return () => {
+    const now = host.now().getTime();
+    if (last === null || now - last.at > FIND_FOR_MS) {
+      last = { at: now, repos: findRepos(host.home) };
+    }
+    return last.repos;
+  };
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[6]
@@ -298,9 +304,7 @@ export class AgentWorkspaces {
   #contexts = new Map<string, Promise<RepoContext>>();
   #stores = new Map<string, ReviewStore>();
 
-  constructor(
-    private readonly env: Record<string, string | undefined> = process.env,
-  ) {}
+  constructor(private readonly host: Host) {}
 
   context(workspace: string): Promise<RepoContext> {
     let found = this.#contexts.get(workspace);
@@ -314,11 +318,11 @@ export class AgentWorkspaces {
   }
 
   async #open(workspace: string): Promise<RepoContext> {
-    const probe = await probeRepo(workspace);
+    const probe = await probeRepo(workspace, this.host.home);
     if (probe.kind !== "jj") {
       throw new Error(`no jj workspace at ${workspace}`);
     }
-    const path = await reviewStorePath(probe.root, this.env);
+    const path = await reviewStorePath(probe.root, this.host.dataDir);
     let store = this.#stores.get(path);
     if (store === undefined) {
       store = openReviewStore(path);
@@ -345,30 +349,40 @@ function refuse(reason: string): Response {
   return Response.json({ error: reason }, { status: 400 });
 }
 
-async function recentSummaries(recent: RecentRepos): Promise<RepoSummary[]> {
+async function recentSummaries(
+  recent: RecentRepos,
+  dataDir: string,
+): Promise<RepoSummary[]> {
   const summaries = await Promise.all(
-    (await recent.read()).map((entry) => summarize(entry.root, entry.openedAt)),
+    (await recent.read()).map((entry) =>
+      summarize(entry.root, entry.openedAt, dataDir),
+    ),
   );
   return summaries.filter(
     (summary): summary is RepoSummary => summary !== null,
   );
 }
 
-export function repoRoutes(served: ServedRepo, recent: RecentRepos) {
+export function repoRoutes(
+  host: Host,
+  served: ServedRepo,
+  recent: RecentRepos,
+) {
+  const foundUnderHome = cachedFind(host);
   return {
     "/api/repo": {
       GET: () =>
         Response.json({
           // How the per-user server's probe tells diffy from another program.
           diffy: 1,
-          home: homedir(),
+          home: host.home,
           current: served.root,
           startedOutside: served.startedOutside,
         }),
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
         if (!body.success) return refuse("expected { path }");
-        const found = await probeRepo(body.data.path);
+        const found = await probeRepo(body.data.path, host.home);
         if (found.kind !== "jj") {
           return refuse(`no jj repository at ${body.data.path}`);
         }
@@ -385,11 +399,12 @@ export function repoRoutes(served: ServedRepo, recent: RecentRepos) {
     "/api/repo/probe": async (req: Request) => {
       const path = new URL(req.url).searchParams.get("path") ?? "";
       return Response.json(
-        path === "" ? { kind: "none" } : await probeRepo(path),
+        path === "" ? { kind: "none" } : await probeRepo(path, host.home),
       );
     },
     "/api/repo/recent": {
-      GET: async () => Response.json(await recentSummaries(recent)),
+      GET: async () =>
+        Response.json(await recentSummaries(recent, host.dataDir)),
       DELETE: async (req: Request) => {
         const body = ForgetBody.safeParse(await req.json().catch(() => null));
         if (!body.success) return refuse("expected { root }");

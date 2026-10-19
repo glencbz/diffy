@@ -8,6 +8,7 @@ export interface ToolContext {
   repo: RepoContext;
   /** The link the reader opens a path of this server's at. */
   link: (path: string) => string;
+  now: () => Date;
 }
 
 export interface Tool<Input extends z.ZodObject = z.ZodObject> {
