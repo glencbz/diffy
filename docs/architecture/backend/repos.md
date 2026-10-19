@@ -29,6 +29,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
+import { jjRepoDir } from "../commit/jj";
 import {
   openReviewStore,
   purgeForgotten,
@@ -371,6 +372,40 @@ function foundUnderHome(): Promise<FoundRepo[]> {
 }
 ```
 
+## An agent in another repository
+
+An agent's tools write to the served repository's store, its reviews and its
+vocabulary of component kinds, so an agent working in one repository while
+the reader has switched diffy to another would write into the wrong one.
+[`diffy mcp`](agents.md#the-stdio-bridge) names the workspace it was started
+in, and a tool call from a workspace of another repository is refused with
+what to do. Workspaces of one repository share a store, so they are compared
+by [the repository behind them](jj.md), not by their roots.
+
+Switching to the agent's repository instead would keep the agent going, but
+would change what the reader's open tab shows, reviews and kinds alike,
+without the reader asking.
+
+```ts
+//| id: backend-repos
+
+/** Why a tool call from an agent in the workspace at `caller` cannot run
+ *  here, or null when it can. */
+export async function wrongRepo(
+  served: ServedRepo,
+  caller: string,
+): Promise<string | null> {
+  const current = served.root;
+  const switchTo = `Ask the reader to switch diffy to ${caller} (running \`diffy\` there does it), then call again.`;
+  if (current === null) return `diffy has no repository open. ${switchTo}`;
+  const [here, there] = await Promise.all(
+    [current, caller].map((root) => jjRepoDir(root).catch(() => null)),
+  );
+  if (here !== null && here === there) return null;
+  return `diffy is showing ${current}, not ${caller}, so this call would read and write that repository's reviews. ${switchTo}`;
+}
+```
+
 ## Routes
 
 `/api/repo` answers which repository is served and opens another; every
@@ -407,6 +442,8 @@ export function repoRoutes(served: ServedRepo, recent: RecentRepos) {
     "/api/repo": {
       GET: () =>
         Response.json({
+          // How the per-user server's probe tells diffy from another program.
+          diffy: 1,
           home: homedir(),
           current: served.root,
           startedOutside: served.startedOutside,

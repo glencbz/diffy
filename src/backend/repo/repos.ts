@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
+import { jjRepoDir } from "../commit/jj";
 import {
   openReviewStore,
   purgeForgotten,
@@ -294,6 +295,24 @@ function foundUnderHome(): Promise<FoundRepo[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[6]
 
+/** Why a tool call from an agent in the workspace at `caller` cannot run
+ *  here, or null when it can. */
+export async function wrongRepo(
+  served: ServedRepo,
+  caller: string,
+): Promise<string | null> {
+  const current = served.root;
+  const switchTo = `Ask the reader to switch diffy to ${caller} (running \`diffy\` there does it), then call again.`;
+  if (current === null) return `diffy has no repository open. ${switchTo}`;
+  const [here, there] = await Promise.all(
+    [current, caller].map((root) => jjRepoDir(root).catch(() => null)),
+  );
+  if (here !== null && here === there) return null;
+  return `diffy is showing ${current}, not ${caller}, so this call would read and write that repository's reviews. ${switchTo}`;
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[7]
+
 const OpenBody = z.object({ path: z.string().min(1) });
 const ForgetBody = z.object({ root: z.string().min(1) });
 
@@ -315,6 +334,8 @@ export function repoRoutes(served: ServedRepo, recent: RecentRepos) {
     "/api/repo": {
       GET: () =>
         Response.json({
+          // How the per-user server's probe tells diffy from another program.
+          diffy: 1,
           home: homedir(),
           current: served.root,
           startedOutside: served.startedOutside,

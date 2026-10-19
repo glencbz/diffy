@@ -8,18 +8,20 @@ about each other's writes.
 
 ## One server for every agent
 
-The route is served by diffy itself, so every agent session on the machine
-points at one URL and none runs a process of its own. The other option was a
-stdio server each session starts, but that is one more process per session,
-and it would either open the store behind the server's back or call the HTTP
-API from a second copy of the code. Served in place, the tools apply the same
-commands to the same store as `/api/review`.
+The route is served by diffy itself, so every agent on the machine reaches
+the same store the reader's browser writes, and the tools apply the same
+commands to it as `/api/review`. A tool server of each session's own would
+either open the store behind the server's back or call the HTTP API from a
+second copy of the code.
 
-The cost is that the server does not know the caller's workspace, so nothing
-can default to the caller's working copy. `register_review` asks for a name
-and reads the bookmark of that name, which an agent has by the time its work
-is ready, and [registration](local-reviews.md#registering-a-version) never
-reads the server's own working copy for a named review.
+An agent still runs a process of its own, but a thin one:
+[`diffy mcp`](#the-stdio-bridge) carries its messages to the server, so its
+config holds a command rather than the server's port, and the server learns
+which workspace the agent works in. That workspace only guards the call, it
+is never a default: `register_review` asks for a name and reads the bookmark
+of that name, which an agent has by the time its work is ready, and
+[registration](local-reviews.md#registering-a-version) never reads the
+server's own working copy for a named review.
 
 ## The protocol
 
@@ -144,10 +146,16 @@ async function answer(
   }
 }
 
+/** Where `diffy mcp` names the workspace its agent
+ *  runs in, URI-encoded since a path need not be ASCII. */
+export const CALLER_HEADER = "Diffy-Workspace";
+
 export function mcpRoute(
   tools: Tool[],
   instructions: string,
   origin: (req: Request) => string,
+  /** Why the agent in a named workspace may not call tools, or null. */
+  refusal: (caller: string) => Promise<string | null> = async () => null,
 ) {
   const refuse = () =>
     new Response("only POST", { status: 405, headers: { Allow: "POST" } });
@@ -172,6 +180,18 @@ export function mcpRoute(
       }
       const { id, method, params = {} } = message.data;
       if (id === undefined) return new Response(null, { status: 202 });
+      const caller = req.headers.get(CALLER_HEADER);
+      const refused =
+        method === "tools/call" && caller !== null
+          ? await refusal(decodeURIComponent(caller))
+          : null;
+      if (refused !== null) {
+        return Response.json({
+          jsonrpc: "2.0",
+          id,
+          result: { content: [{ type: "text", text: refused }], isError: true },
+        });
+      }
       const context = { origin: origin(req) };
       return Response.json({
         jsonrpc: "2.0",
@@ -180,6 +200,100 @@ export function mcpRoute(
       });
     },
   };
+}
+```
+
+## The stdio bridge
+
+`diffy mcp` speaks MCP's stdio transport to the agent, one JSON-RPC message
+per line, and posts each line to the server's `/mcp`. Claude Code starts it in
+the session's directory, so it names that jj workspace in every call, and
+[`mcpRoute`](#the-protocol) refuses a tool call from
+[another repository](repos.md#an-agent-in-another-repository) than the one
+served.
+
+It finds the [per-user server](instance.md) again whenever a post fails, so a
+server that restarted, even on a new port, is picked up without restarting
+the agent. With no server up, the [command line](cli.md#diffy-mcp) starts one
+in the background rather than failing: the link `register_review` hands back
+is the reader's way into the review, and it has to open. Messages are relayed
+as they come, so a slow call does not hold up the ones behind it; the answers
+carry their ids.
+
+```ts
+//| id: backend-agent-bridge
+//| file: src/backend/agent/bridge.ts
+import { CALLER_HEADER } from "./mcp";
+
+export interface BridgeOptions {
+  /** The jj workspace the agent runs in, or null outside one. */
+  workspace: string | null;
+  /** The server's `/mcp`, asked for again after a post to it fails. */
+  find: () => Promise<URL>;
+}
+
+export async function bridge(
+  lines: AsyncIterable<string>,
+  write: (line: string) => void,
+  { workspace, find }: BridgeOptions,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (workspace !== null) {
+    headers[CALLER_HEADER] = encodeURIComponent(workspace);
+  }
+
+  let target: Promise<URL> | null = null;
+  const post = async (body: string, retry: boolean): Promise<Response> => {
+    try {
+      target ??= find();
+      return await fetch(await target, { method: "POST", headers, body });
+    } catch (error) {
+      target = null;
+      if (!retry) throw error;
+      return post(body, false);
+    }
+  };
+
+  const relay = async (line: string) => {
+    const id = idOf(line);
+    try {
+      const res = await post(line, true);
+      if (res.status === 202) return;
+      if (!res.headers.get("Content-Type")?.includes("json")) {
+        throw new Error(`diffy answered ${res.status}`);
+      }
+      write(await res.text());
+    } catch (error) {
+      // A notification has no id to answer under.
+      if (id === null) return;
+      write(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32603, message: (error as Error).message },
+        }),
+      );
+    }
+  };
+
+  const inFlight = new Set<Promise<void>>();
+  for await (const line of lines) {
+    if (line.trim() === "") continue;
+    const relayed = relay(line).finally(() => inFlight.delete(relayed));
+    inFlight.add(relayed);
+  }
+  await Promise.all(inFlight);
+}
+
+function idOf(line: string): string | number | null {
+  try {
+    const { id } = JSON.parse(line) as { id?: unknown };
+    return typeof id === "string" || typeof id === "number" ? id : null;
+  } catch {
+    return null;
+  }
 }
 ```
 
@@ -1990,5 +2104,116 @@ describe("the vocabulary tools", () => {
     expect(read.text).toContain("no vocabulary");
     expect(written.isError).toBe(false);
   });
+});
+```
+
+The bridge's tests run it against a real `mcpRoute` with one made-up tool,
+since what they check is the relay, not the tools.
+
+```ts
+//| id: backend-agent-bridge-test
+//| file: src/backend/agent/bridge.test.ts
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import * as z from "zod";
+import { bridge } from "./bridge";
+import { mcpRoute, tool } from "./mcp";
+
+const echo = tool({
+  name: "echo",
+  description: "echo",
+  input: z.object({ text: z.string() }),
+  call: async ({ text }) => text,
+});
+
+let server: Bun.Server<undefined>;
+let mcp: URL;
+beforeEach(() => {
+  const route = mcpRoute(
+    [echo],
+    "",
+    () => "http://reader",
+    async (caller) => (caller === "/src/a" ? null : `not ${caller}`),
+  );
+  server = Bun.serve({ port: 0, routes: { "/mcp": route } });
+  mcp = new URL("/mcp", server.url);
+});
+afterEach(() => {
+  server.stop(true);
+});
+
+async function* linesOf(...messages: unknown[]) {
+  for (const message of messages) yield JSON.stringify(message);
+}
+
+interface Answer {
+  id: unknown;
+  result?: { content: { type: string; text: string }[]; isError?: boolean };
+  error?: { message: string };
+}
+
+async function relay(
+  workspace: string | null,
+  find: () => Promise<URL>,
+  ...messages: unknown[]
+) {
+  const written: Answer[] = [];
+  await bridge(linesOf(...messages), (line) => written.push(JSON.parse(line)), {
+    workspace,
+    find,
+  });
+  return written.sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+const callEcho = (id: number) => ({
+  jsonrpc: "2.0",
+  id,
+  method: "tools/call",
+  params: { name: "echo", arguments: { text: "hi" } },
+});
+
+test("answers each request and nothing for a notification", async () => {
+  const answers = await relay(
+    "/src/a",
+    async () => mcp,
+    { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    callEcho(2),
+  );
+  expect(answers.map((each) => each.id)).toEqual([1, 2]);
+  expect(answers[1]?.result?.content[0]?.text).toBe("hi");
+});
+
+test("names its workspace, so a call from another repository is refused", async () => {
+  const [refused] = await relay("/src/b", async () => mcp, callEcho(1));
+  expect(refused?.result).toEqual({
+    content: [{ type: "text", text: "not /src/b" }],
+    isError: true,
+  });
+  const [unnamed] = await relay(null, async () => mcp, callEcho(1));
+  expect(unnamed?.result?.isError).toBeUndefined();
+});
+
+test("finds the server again after a post fails", async () => {
+  const gone = Bun.serve({ port: 0, fetch: () => new Response() });
+  const stale = new URL("/mcp", gone.url);
+  gone.stop(true);
+  const found = [stale, mcp];
+  const [answer] = await relay(
+    "/src/a",
+    async () => found.shift() ?? mcp,
+    callEcho(1),
+  );
+  expect(answer?.result?.content[0]?.text).toBe("hi");
+});
+
+test("answers with an error when no server can be found", async () => {
+  const [answer] = await relay(
+    "/src/a",
+    async () => {
+      throw new Error("diffy did not start");
+    },
+    callEcho(1),
+  );
+  expect(answer?.error?.message).toBe("diffy did not start");
 });
 ```

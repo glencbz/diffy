@@ -110,10 +110,16 @@ async function answer(
   }
 }
 
+/** Where `diffy mcp` names the workspace its agent
+ *  runs in, URI-encoded since a path need not be ASCII. */
+export const CALLER_HEADER = "Diffy-Workspace";
+
 export function mcpRoute(
   tools: Tool[],
   instructions: string,
   origin: (req: Request) => string,
+  /** Why the agent in a named workspace may not call tools, or null. */
+  refusal: (caller: string) => Promise<string | null> = async () => null,
 ) {
   const refuse = () =>
     new Response("only POST", { status: 405, headers: { Allow: "POST" } });
@@ -138,6 +144,18 @@ export function mcpRoute(
       }
       const { id, method, params = {} } = message.data;
       if (id === undefined) return new Response(null, { status: 202 });
+      const caller = req.headers.get(CALLER_HEADER);
+      const refused =
+        method === "tools/call" && caller !== null
+          ? await refusal(decodeURIComponent(caller))
+          : null;
+      if (refused !== null) {
+        return Response.json({
+          jsonrpc: "2.0",
+          id,
+          result: { content: [{ type: "text", text: refused }], isError: true },
+        });
+      }
       const context = { origin: origin(req) };
       return Response.json({
         jsonrpc: "2.0",
