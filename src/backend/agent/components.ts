@@ -7,7 +7,9 @@ import {
   type ComponentMap,
   ComponentPlace,
   ComponentRole,
+  coloursOf,
   componentsTo,
+  KindColour,
 } from "../../frontend/model/components";
 import { readPatch } from "../../frontend/model/patch";
 import type { JjFileDiff } from "../commit/jj";
@@ -185,14 +187,16 @@ function unclaimed(files: JjFileDiff[], components: Component[]): string[] {
   });
 }
 
-/** The vocabulary, a kind to a line with how to tell it. */
+/** The vocabulary, a kind to a line with its colour and how to tell it. */
 function vocabulary(kinds: ComponentKind[]): string {
   if (kinds.length === 0) {
     return "this repository has no vocabulary, so a component can be of any kind";
   }
+  const colours = coloursOf(kinds);
   return kinds
     .map(
-      (kind) => `${kind.name}${kind.advice === "" ? "" : `: ${kind.advice}`}`,
+      (kind) =>
+        `${kind.name} (${colours.get(kind.name)})${kind.advice === "" ? "" : `: ${kind.advice}`}`,
     )
     .join("\n");
 }
@@ -375,17 +379,21 @@ export function componentTools(
     tool({
       name: "define_component_kind",
       description:
-        "Add a kind to this repository's vocabulary of component kinds, or replace the advice of one it has. The reader decides the vocabulary: define a kind when they ask for one. The first seven kinds each take a colour of their own, in order, and the rest are grey, so place a kind the reader will want told apart with before. Answers with the whole vocabulary.",
-      input: ComponentKind.extend({
+        "Add a kind to this repository's vocabulary of component kinds, or change the advice, colour or place of one it has. The reader decides the vocabulary: define a kind when they ask for one. A new kind needs a colour: take the one the reader names, or else one no other kind is drawn in, and tell the reader which. Answers with the whole vocabulary and each kind's colour.",
+      input: z.object({
         name: ComponentKind.shape.name.describe(
           "the kind, one lowercase word, such as controller",
         ),
         advice: z
           .string()
           .min(1)
+          .optional()
           .describe(
-            "how to tell a component of this kind from the others, written to the agent that will map a change",
+            "how to tell a component of this kind from the others, written to the agent that will map a change; a new kind needs it, and leaving it out keeps a kind's advice",
           ),
+        colour: KindColour.optional().describe(
+          "the colour it is drawn in; a new kind needs one, and leaving it out keeps a kind's colour",
+        ),
         before: z
           .string()
           .optional()
@@ -393,8 +401,16 @@ export function componentTools(
             "the kind to place it just before; without one a new kind goes last and a kind already there stays where it is",
           ),
       }),
-      call: async ({ name, advice, before }) => {
+      call: async ({ name, advice, colour, before }) => {
         const kinds = store.read().document.componentKinds;
+        const kept = kinds.find((kind) => kind.name === name);
+        const told = advice ?? kept?.advice;
+        const drawn = colour ?? kept?.colour;
+        if (kept === undefined && (told === undefined || drawn === undefined)) {
+          throw new ToolError(
+            `${name} is a new kind, so it needs advice and a colour. The colours taken are:\n${vocabulary(kinds)}`,
+          );
+        }
         if (
           before !== undefined &&
           !kinds.some((kind) => kind.name === before)
@@ -406,7 +422,8 @@ export function componentTools(
         const { document } = store.apply({
           kind: "define-kind",
           name,
-          advice,
+          advice: told ?? "",
+          ...(drawn === undefined ? {} : { colour: drawn }),
           before,
         });
         return vocabulary(document.componentKinds);
