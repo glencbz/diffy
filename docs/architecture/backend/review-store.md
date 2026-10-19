@@ -48,12 +48,12 @@ export interface ReviewStore {
   close(): void;
 }
 
-/** The review store of the repository at `cwd`, or of the one served. */
+/** The review store of the repository holding the workspace at `root`. */
 export async function reviewStorePath(
+  root: string,
   env: Record<string, string | undefined> = process.env,
-  cwd?: string,
 ): Promise<string> {
-  const repo = await jjRepoDir(cwd);
+  const repo = await jjRepoDir(root);
   const dataHome = env.XDG_DATA_HOME || join(homedir(), ".local", "share");
   const dir = join(dataHome, "diffy");
   await mkdir(dir, { recursive: true });
@@ -304,12 +304,14 @@ describe("reviewStorePath", () => {
   test("names a file under the data directory after the repository", async () => {
     // arrange
     // act
-    const path = await reviewStorePath({ XDG_DATA_HOME: dir });
+    const path = await reviewStorePath(process.cwd(), { XDG_DATA_HOME: dir });
 
     // assert
     expect(path.startsWith(join(dir, "diffy"))).toBe(true);
     expect(path).toMatch(/-[0-9a-f]{16}\.sqlite$/);
-    expect(await reviewStorePath({ XDG_DATA_HOME: dir })).toBe(path);
+    expect(await reviewStorePath(process.cwd(), { XDG_DATA_HOME: dir })).toBe(
+      path,
+    );
   });
 });
 

@@ -15,6 +15,9 @@ import {
   subjectIdentity,
 } from "./git";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 /** The oid `revision` names, as this repo's git store has it. */
 async function oidOf(revision: string): Promise<GitOid> {
   return GitOid.parse(
@@ -46,14 +49,14 @@ describe("gitHasCommit", () => {
 
     // act
     // assert
-    expect(await gitHasCommit(head)).toBe(true);
+    expect(await gitHasCommit(ROOT, head)).toBe(true);
   });
 
   test("answers false for an oid nothing has", async () => {
     // arrange
     // act
     // assert
-    expect(await gitHasCommit(MISSING)).toBe(false);
+    expect(await gitHasCommit(ROOT, MISSING)).toBe(false);
   });
 });
 
@@ -67,25 +70,25 @@ describe("gitForget", () => {
     await $`git update-ref ${`refs/diffy/${other}/${head}`} ${head}`.quiet();
 
     // act
-    const dropped = await gitForget(mine);
+    const dropped = await gitForget(ROOT, mine);
 
     // assert
     expect(dropped).toBe(1);
-    expect(await gitHasCommit(head)).toBe(true);
+    expect(await gitHasCommit(ROOT, head)).toBe(true);
     const listing = ["for-each-ref", "--format=%(refname)", "refs/diffy/"];
     const left = await $`git ${listing}`.quiet().text();
     expect(left).not.toContain(`refs/diffy/${mine}/`);
     expect(left).toContain(`refs/diffy/${other}/`);
 
     // cleanup
-    await gitForget(other);
+    await gitForget(ROOT, other);
   });
 
   test("reports nothing to drop for an untouched scope", async () => {
     // arrange
     // act
     // assert
-    expect(await gitForget(RefPath.parse("pull/999997"))).toBe(0);
+    expect(await gitForget(ROOT, RefPath.parse("pull/999997"))).toBe(0);
   });
 });
 
@@ -95,8 +98,8 @@ describe("gitMaterialize", () => {
     const head = await oidOf("HEAD");
 
     // act
-    const first = await gitMaterialize([pin(head)]);
-    const second = await gitMaterialize([pin(head)]);
+    const first = await gitMaterialize(ROOT, [pin(head)]);
+    const second = await gitMaterialize(ROOT, [pin(head)]);
 
     // assert
     expect(first as GitOid[]).toEqual([head]);
@@ -108,7 +111,7 @@ describe("gitMaterialize", () => {
     const [head, parent] = [await oidOf("HEAD"), await oidOf("HEAD~1")];
 
     // act
-    const oids = await gitMaterialize([pin(parent), pin(head)]);
+    const oids = await gitMaterialize(ROOT, [pin(parent), pin(head)]);
 
     // assert
     expect(oids as GitOid[]).toEqual([parent, head]);
@@ -119,11 +122,14 @@ describe("gitLog", () => {
   test("reads the commits the tip has and the base does not", async () => {
     // arrange
     const [soloBase, soloHead] = await soloCommit();
-    const [base, head] = await gitMaterialize([pin(soloBase), pin(soloHead)]);
+    const [base, head] = await gitMaterialize(ROOT, [
+      pin(soloBase),
+      pin(soloHead),
+    ]);
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
-    const commits = await gitLog({ from: base, to: head });
+    const commits = await gitLog(ROOT, { from: base, to: head });
 
     // assert
     expect(commits).toHaveLength(1);
@@ -136,11 +142,11 @@ describe("gitLog", () => {
 
   test("puts the tip first and honours the limit", async () => {
     // arrange
-    const [head] = await gitMaterialize([pin(await oidOf("HEAD"))]);
+    const [head] = await gitMaterialize(ROOT, [pin(await oidOf("HEAD"))]);
     if (head === undefined) throw new Error("no oid");
 
     // act
-    const commits = await gitLog({ to: head, limit: 3 });
+    const commits = await gitLog(ROOT, { to: head, limit: 3 });
 
     // assert
     expect(commits).toHaveLength(3);
@@ -297,11 +303,14 @@ async function divergedPair(): Promise<[GitOid, GitOid]> {
 describe("gitMergeBase", () => {
   test("finds the commit two diverged histories share", async () => {
     // arrange
-    const [left, right] = await gitMaterialize((await divergedPair()).map(pin));
+    const [left, right] = await gitMaterialize(
+      ROOT,
+      (await divergedPair()).map(pin),
+    );
     if (left === undefined || right === undefined) throw new Error("no oids");
 
     // act
-    const shared = await gitMergeBase(left, right);
+    const shared = await gitMergeBase(ROOT, left, right);
 
     // assert
     expect(shared).not.toBe(left);
@@ -312,12 +321,15 @@ describe("gitMergeBase", () => {
 
   test("answers the older commit when one is the other's ancestor", async () => {
     // arrange
-    const [base, head] = await gitMaterialize((await soloCommit()).map(pin));
+    const [base, head] = await gitMaterialize(
+      ROOT,
+      (await soloCommit()).map(pin),
+    );
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
     // assert
-    expect(await gitMergeBase(base, head)).toBe(base);
+    expect(await gitMergeBase(ROOT, base, head)).toBe(base);
   });
 });
 // ~/~ end
@@ -331,7 +343,7 @@ describe("gitBlob", () => {
     );
 
     // act
-    const text = await gitBlob(id);
+    const text = await gitBlob(ROOT, id);
 
     // assert
     expect(text).toBe(await $`git show HEAD:package.json`.quiet().text());
@@ -341,7 +353,7 @@ describe("gitBlob", () => {
     // arrange
     // act
     // assert
-    expect(await gitBlob(BlobId.parse("f".repeat(40)))).toBeNull();
+    expect(await gitBlob(ROOT, BlobId.parse("f".repeat(40)))).toBeNull();
   });
 });
 // ~/~ end

@@ -17,11 +17,14 @@ import {
   parseFileDiff,
 } from "./jj";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "all()" });
+    const entries = await jjLog(ROOT, { revset: "all()" });
 
     // assert
     expect(entries.length).toBeGreaterThan(0);
@@ -48,7 +51,7 @@ describe("jjLog", () => {
   test("marks the working copy and nothing else", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "all()" });
+    const entries = await jjLog(ROOT, { revset: "all()" });
 
     // assert
     const here = entries.filter((entry) =>
@@ -56,14 +59,14 @@ describe("jjLog", () => {
     );
     expect(here).toHaveLength(1);
     expect(here[0]?.commitId).toBe(
-      (await jjLog({ revset: "@" }))[0]?.commitId as string,
+      (await jjLog(ROOT, { revset: "@" }))[0]?.commitId as string,
     );
   });
 
   test("names the bookmarks pointing at a commit", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "bookmarks()" });
+    const entries = await jjLog(ROOT, { revset: "bookmarks()" });
 
     // assert
     expect(entries.length).toBeGreaterThan(0);
@@ -75,7 +78,7 @@ describe("jjLog", () => {
   test("respects the limit option", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "all()", limit: 1 });
+    const entries = await jjLog(ROOT, { revset: "all()", limit: 1 });
 
     // assert
     expect(entries).toHaveLength(1);
@@ -86,7 +89,7 @@ describe("jjLog", () => {
     // act
     // assert
     await expect(
-      jjLog({ revset: "no-such-revision-xyz" }),
+      jjLog(ROOT, { revset: "no-such-revision-xyz" }),
     ).rejects.toBeInstanceOf(JjError);
   });
 
@@ -95,7 +98,7 @@ describe("jjLog", () => {
     // act
     // assert
     await expect(
-      jjLog({ atOperation: "no-such-operation-xyz" }),
+      jjLog(ROOT, { atOperation: "no-such-operation-xyz" }),
     ).rejects.toBeInstanceOf(JjError);
   });
 });
@@ -107,7 +110,7 @@ describe("jjOpLog", () => {
   test("lists operations newest first, ending at the root operation", async () => {
     // arrange
     // act
-    const operations = await jjOpLog();
+    const operations = await jjOpLog(ROOT);
 
     // assert
     expect(operations.length).toBeGreaterThan(1);
@@ -118,7 +121,7 @@ describe("jjOpLog", () => {
   test("respects the limit option", async () => {
     // arrange
     // act
-    const operations = await jjOpLog({ limit: 1 });
+    const operations = await jjOpLog(ROOT, { limit: 1 });
 
     // assert
     expect(operations).toHaveLength(1);
@@ -129,7 +132,7 @@ describe("jjRepoDir", () => {
   test("names the store directory behind this workspace", async () => {
     // arrange
     // act
-    const dir = await jjRepoDir();
+    const dir = await jjRepoDir(ROOT);
 
     // assert
     expect(dir.endsWith("/.jj/repo")).toBe(true);
@@ -138,16 +141,13 @@ describe("jjRepoDir", () => {
 });
 
 describe("in a throwaway repository", () => {
-  /** Runs `body` with a fresh jj repository as the one being served. */
+  /** Runs `body` against a fresh jj repository. */
   async function inRepo(body: (dir: string) => Promise<void>) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-jj-"));
-    const served = process.cwd();
     try {
       await $`jj git init`.cwd(dir).quiet();
-      process.chdir(dir);
       await body(dir);
     } finally {
-      process.chdir(served);
       await rm(dir, { recursive: true, force: true });
     }
   }
@@ -159,8 +159,8 @@ describe("in a throwaway repository", () => {
       await $`jj --ignore-working-copy describe -m moved`.cwd(dir).quiet();
 
       // act
-      const [commit] = await jjLog({ revset: "@" });
-      const operations = await jjOpLog({ snapshot: true });
+      const [commit] = await jjLog(dir, { revset: "@" });
+      const operations = await jjOpLog(dir, { snapshot: true });
 
       // assert
       expect(commit?.description).toBe("moved\n");
@@ -173,8 +173,8 @@ describe("in a throwaway repository", () => {
       await Bun.write(join(dir, "a.txt"), "a\n");
 
       // act
-      const read = await jjOpLog();
-      const polled = await jjOpLog({ snapshot: true });
+      const read = await jjOpLog(dir);
+      const polled = await jjOpLog(dir, { snapshot: true });
 
       // assert
       expect(polled.length).toBe(read.length + 1);
@@ -315,7 +315,7 @@ describe("jjDiff", () => {
   test("parses the first commit as a set of added files", async () => {
     // arrange
     // act
-    const files = await jjDiff({ revision: "root()+" });
+    const files = await jjDiff(ROOT, { revision: "root()+" });
 
     // assert
     expect(files.length).toBeGreaterThan(0);
@@ -328,7 +328,7 @@ describe("jjDiff", () => {
   test("reads every modified file through difftastic as well", async () => {
     // arrange
     // act
-    const files = await jjDiff({ revision: "root()++" });
+    const files = await jjDiff(ROOT, { revision: "root()++" });
 
     // assert
     const modified = files.filter((file) => file.status === "modified");
@@ -348,12 +348,12 @@ describe("jjDiff", () => {
     // arrange
     // act
     // assert
-    expect(await jjDiff({ revision: "root()" })).toEqual([]);
+    expect(await jjDiff(ROOT, { revision: "root()" })).toEqual([]);
   });
 
   test("wraps an unresolvable revision in JjError", async () => {
     // arrange
-    const attempt = () => jjDiff({ revision: "no-such-revision-xyz" });
+    const attempt = () => jjDiff(ROOT, { revision: "no-such-revision-xyz" });
 
     // act
     // assert
@@ -366,7 +366,7 @@ describe("jjDiff", () => {
 
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
-  const [entry] = await jjLog({ revset, limit: 1 });
+  const [entry] = await jjLog(ROOT, { revset, limit: 1 });
   if (entry === undefined) throw new Error(`no commit matches ${revset}`);
   return entry.commitId;
 }
@@ -374,11 +374,11 @@ async function commitId(revset: string): Promise<string> {
 describe("jjCommits", () => {
   test("keys the requested commits by commit id", async () => {
     // arrange
-    const entries = await jjLog({ revset: "all()", limit: 3 });
+    const entries = await jjLog(ROOT, { revset: "all()", limit: 3 });
     const ids = entries.map((entry) => entry.commitId);
 
     // act
-    const found = await jjCommits(ids);
+    const found = await jjCommits(ROOT, ids);
 
     // assert
     expect([...found.keys()].sort()).toEqual([...ids].sort());
@@ -389,7 +389,7 @@ describe("jjCommits", () => {
     // arrange
     // act
     // assert
-    expect(await jjCommits([])).toEqual(new Map());
+    expect(await jjCommits(ROOT, [])).toEqual(new Map());
   });
 });
 
@@ -400,7 +400,7 @@ describe("jjInterdiff", () => {
 
     // act
     // assert
-    expect(await jjInterdiff({ from: id, to: id })).toEqual([]);
+    expect(await jjInterdiff(ROOT, { from: id, to: id })).toEqual([]);
   });
 
   test("reports the difference between two unrelated changes", async () => {
@@ -409,7 +409,7 @@ describe("jjInterdiff", () => {
     const to = await commitId("root()++");
 
     // act
-    const files = await jjInterdiff({ from, to });
+    const files = await jjInterdiff(ROOT, { from, to });
 
     // assert
     expect(files.length).toBeGreaterThan(0);
@@ -420,9 +420,9 @@ describe("jjInterdiff", () => {
 
   test("compares a commit from an old operation without --at-operation", async () => {
     // arrange
-    const operations = await jjOpLog();
+    const operations = await jjOpLog(ROOT);
     const oldest = operations.at(-1);
-    const [before] = await jjLog({
+    const [before] = await jjLog(ROOT, {
       revset: "all()",
       limit: 1,
       atOperation: oldest?.id,
@@ -430,7 +430,7 @@ describe("jjInterdiff", () => {
     if (before === undefined) throw new Error("no commit at the oldest op");
 
     // act
-    const files = await jjInterdiff({
+    const files = await jjInterdiff(ROOT, {
       from: before.commitId,
       to: await commitId("@"),
     });
@@ -449,10 +449,10 @@ describe("jjDiffBetween", () => {
     const to = await commitId("root()++");
 
     // act
-    const files = await jjDiffBetween({ from, to });
+    const files = await jjDiffBetween(ROOT, { from, to });
 
     // assert
-    expect(files).toEqual(await jjDiff({ revision: to }));
+    expect(files).toEqual(await jjDiff(ROOT, { revision: to }));
   });
 });
 // ~/~ end

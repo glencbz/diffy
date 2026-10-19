@@ -4,6 +4,9 @@ import { $ } from "bun";
 import { beforePaths, CompareError, compareFiles } from "./compare";
 import { GitOid } from "./git";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 async function oidOf(revision: string): Promise<GitOid> {
   return GitOid.parse(
     (await $`git rev-parse ${revision}`.quiet().text()).trim(),
@@ -20,6 +23,7 @@ describe("compareFiles", () => {
 
     // act
     const file = await compareFiles(
+      ROOT,
       { from: null, to },
       "package.json",
       "tsconfig.json",
@@ -42,7 +46,7 @@ describe("compareFiles", () => {
     const to = await oidOf("main");
 
     // act
-    const file = await compareFiles({ from, to }, "justfile", "justfile");
+    const file = await compareFiles(ROOT, { from, to }, "justfile", "justfile");
 
     // assert
     expect(file.oldBlob).toBe(
@@ -56,6 +60,7 @@ describe("compareFiles", () => {
 
     // act
     const compared = compareFiles(
+      ROOT,
       { from: null, to },
       "no/such/file.ts",
       "package.json",
@@ -72,7 +77,7 @@ describe("beforePaths", () => {
     const to = await oidOf("main");
 
     // act
-    const paths = await beforePaths({ from: null, to });
+    const paths = await beforePaths(ROOT, { from: null, to });
 
     // assert
     expect(paths).toContain("package.json");

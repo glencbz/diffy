@@ -2,7 +2,7 @@
 
 import * as z from "zod";
 import { componentTools } from "./backend/agent/components";
-import { mcpRoute } from "./backend/agent/mcp";
+import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
 import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
   beforePaths,
@@ -45,10 +45,12 @@ import {
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import {
+  AgentWorkspaces,
   type RecentRepos,
+  type RepoContext,
   repoRoutes,
   type ServedRepo,
-  wrongRepo,
+  sameRepo,
 } from "./backend/repo/repos";
 import {
   localCommits,
@@ -57,7 +59,6 @@ import {
   RegistrationError,
   resolveRegistration,
 } from "./backend/review/local";
-import type { ReviewStore } from "./backend/review/store";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
 import { ReviewCommand } from "./frontend/model/review";
@@ -74,31 +75,43 @@ async function jjJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export function handleLog(req: Request): Promise<Response> {
+export function handleLog(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const atOperation = params.get("op") ?? undefined;
   const revset = params.get("revset") ?? undefined;
-  return jjJson(() => jjLog({ revset, atOperation }));
+  return jjJson(() => jjLog(root, { revset, atOperation }));
 }
 
-export function handleOperations(): Promise<Response> {
+export function handleOperations(
+  _req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   // The one read that snapshots: live refresh sees an edit as an operation.
-  return jjJson(() => jjOpLog({ limit: 200, snapshot: true }));
+  return jjJson(() => jjOpLog(root, { limit: 200, snapshot: true }));
 }
 
-export function handleDiff(req: Request): Promise<Response> {
+export function handleDiff(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const revision = params.get("rev") ?? "@";
   const atOperation = params.get("op") ?? undefined;
   return jjJson(async () => ({
     revision,
-    files: await jjDiff({ revision, atOperation }),
+    files: await jjDiff(root, { revision, atOperation }),
   }));
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[1]
 
-export async function handleInterdiff(req: Request): Promise<Response> {
+export async function handleInterdiff(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const from = params.getAll("from");
   const to = params.getAll("to");
@@ -112,7 +125,7 @@ export async function handleInterdiff(req: Request): Promise<Response> {
 
   // Rows run concurrently, one jj process each.
   return jjJson(async () => {
-    const commits = await jjCommits([...from, ...to]);
+    const commits = await jjCommits(root, [...from, ...to]);
     const series = (ids: string[]): JjLogEntry[] =>
       ids.flatMap((id) => {
         const commit = commits.get(id);
@@ -123,7 +136,7 @@ export async function handleInterdiff(req: Request): Promise<Response> {
       rows: await Promise.all(
         alignSeries(series(from), series(to)).map(async (pair) => ({
           ...pair,
-          files: await pairFiles(pair),
+          files: await pairFiles(root, pair),
         })),
       ),
     };
@@ -131,20 +144,29 @@ export async function handleInterdiff(req: Request): Promise<Response> {
 }
 
 /** A paired row is an interdiff; a lone commit is just its own diff. */
-function pairFiles(pair: AlignedPair<JjLogEntry>): Promise<JjFileDiff[]> {
+function pairFiles(
+  root: string,
+  pair: AlignedPair<JjLogEntry>,
+): Promise<JjFileDiff[]> {
   if (pair.from !== null && pair.to !== null) {
-    return jjInterdiff({ from: pair.from.commitId, to: pair.to.commitId });
+    return jjInterdiff(root, {
+      from: pair.from.commitId,
+      to: pair.to.commitId,
+    });
   }
 
   const lone = pair.from ?? pair.to;
   return lone === null
     ? Promise.resolve([])
-    : jjDiff({ revision: lone.commitId });
+    : jjDiff(root, { revision: lone.commitId });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[2]
 
-export async function handleSource(req: Request): Promise<Response> {
+export async function handleSource(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const blob = BlobId.safeParse(params.get("blob"));
   const path = params.get("path");
@@ -156,7 +178,7 @@ export async function handleSource(req: Request): Promise<Response> {
     );
   }
 
-  const text = await gitBlob(blob.data);
+  const text = await gitBlob(root, blob.data);
   if (text === null) {
     return Response.json(
       { error: `no blob ${blob.data} in the object store` },
@@ -197,21 +219,27 @@ async function compareJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export function handleCompare(req: Request): Promise<Response> {
+export function handleCompare(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   return compareJson(async () => {
     const oldPath = z.string().min(1).parse(params.get("oldPath"));
     const newPath = z.string().min(1).parse(params.get("newPath"));
     return {
-      file: await compareFiles(compareSides(params), oldPath, newPath),
+      file: await compareFiles(root, compareSides(params), oldPath, newPath),
     };
   });
 }
 
-export function handleComparePaths(req: Request): Promise<Response> {
+export function handleComparePaths(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   return compareJson(async () => ({
-    paths: await beforePaths(compareSides(params)),
+    paths: await beforePaths(root, compareSides(params)),
   }));
 }
 // ~/~ end
@@ -240,9 +268,12 @@ async function githubJson(build: () => Promise<unknown>): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
 
-export function handleGithubRepo(): Promise<Response> {
+export function handleGithubRepo(
+  _req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   return githubJson(async () => {
-    const { owner, name } = await originRepo();
+    const { owner, name } = await originRepo(root);
     return { repo: `${owner}/${name}` };
   });
 }
@@ -280,7 +311,10 @@ export function handleGithubPullHistory(req: Request): Promise<Response> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
-export function handleGithubPullCommits(req: Request): Promise<Response> {
+export function handleGithubPullCommits(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
 
   return githubJson(async () => {
@@ -291,7 +325,7 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
     const history = await githubPullRequestHistory(repo, number);
     const state = pullStateAt(history, head);
 
-    const [base, tip] = await gitMaterialize(pullPins(history, state));
+    const [base, tip] = await gitMaterialize(root, pullPins(history, state));
     // One witness per oid asked; noUncheckedIndexedAccess cannot know.
     if (base === undefined || tip === undefined) {
       throw new Error("gitMaterialize returned fewer oids than asked");
@@ -301,15 +335,18 @@ export function handleGithubPullCommits(req: Request): Promise<Response> {
       head,
       version: state.version,
       base: history.baseRefOid,
-      commits: await gitLog({ from: base, to: tip, limit: 200 }),
+      commits: await gitLog(root, { from: base, to: tip, limit: 200 }),
     };
   });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
 
-export function handleGithubPullDiff(req: Request): Promise<Response> {
-  return pullDiffResponse(new URL(req.url).searchParams, ghCliGraphQL);
+export function handleGithubPullDiff(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
+  return pullDiffResponse(root, new URL(req.url).searchParams, ghCliGraphQL);
 }
 
 /** `from=base`, or `from=<oid>`. Nothing 40 hex characters long reads as `base`. */
@@ -321,6 +358,7 @@ type PullBaseline = z.infer<typeof PullBaselineParam>;
 
 /** Exported for tests: the pull request diff route, with its transport given. */
 export function pullDiffResponse(
+  root: string,
   params: URLSearchParams,
   gh: GitHubGraphQL,
 ): Promise<Response> {
@@ -337,7 +375,7 @@ export function pullDiffResponse(
     return {
       from,
       to,
-      files: await pullDiffFiles(history, toState, from, scope),
+      files: await pullDiffFiles(root, history, toState, from, scope),
     };
   });
 }
@@ -375,14 +413,15 @@ function parseDiffScope(params: URLSearchParams): DiffScope {
 
 /** The diff a scope asks for, once materialization already ran. */
 function diffForScope(
+  root: string,
   scope: DiffScope,
   heads: () => Promise<JjFileDiff[]>,
 ): Promise<JjFileDiff[]> {
   switch (scope.kind) {
     case "commit":
-      return jjDiff({ revision: scope.commit });
+      return jjDiff(root, { revision: scope.commit });
     case "pair":
-      return jjInterdiff({ from: scope.from, to: scope.to });
+      return jjInterdiff(root, { from: scope.from, to: scope.to });
     case "heads":
       return heads();
   }
@@ -390,6 +429,7 @@ function diffForScope(
 
 /** The diff a baseline asks for, fetching what that comparison needs. */
 async function pullDiffFiles(
+  root: string,
   history: PullRequestHistory,
   toState: PullRequestState,
   from: PullBaseline,
@@ -398,42 +438,44 @@ async function pullDiffFiles(
   if (from.kind === "version") {
     const fromState = pullStateAt(history, from.head);
     await gitMaterialize(
+      root,
       [fromState, toState].flatMap((state) => pullPins(history, state)),
     );
-    return diffForScope(scope, () =>
-      jjInterdiff({ from: fromState.head, to: toState.head }),
+    return diffForScope(root, scope, () =>
+      jjInterdiff(root, { from: fromState.head, to: toState.head }),
     );
   }
 
-  const [base, head] = await gitMaterialize(pullPins(history, toState));
+  const [base, head] = await gitMaterialize(root, pullPins(history, toState));
   if (base === undefined || head === undefined) {
     throw new Error("gitMaterialize returned fewer oids than asked");
   }
 
-  return diffForScope(scope, async () =>
-    jjDiffBetween({ from: await gitMergeBase(base, head), to: head }),
+  return diffForScope(root, scope, async () =>
+    jjDiffBetween(root, {
+      from: await gitMergeBase(root, base, head),
+      to: head,
+    }),
   );
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
 
-export function reviewRoute(store: ReviewStore) {
-  return {
-    GET: () => Response.json(store.read()),
-    POST: async (req: Request) => {
-      const command = ReviewCommand.safeParse(
-        await req.json().catch(() => undefined),
+export const reviewRoute = {
+  GET: (_req: Request, { store }: RepoContext) => Response.json(store.read()),
+  POST: async (req: Request, { store }: RepoContext) => {
+    const command = ReviewCommand.safeParse(
+      await req.json().catch(() => undefined),
+    );
+    if (!command.success) {
+      return Response.json(
+        { error: z.prettifyError(command.error) },
+        { status: 400 },
       );
-      if (!command.success) {
-        return Response.json(
-          { error: z.prettifyError(command.error) },
-          { status: 400 },
-        );
-      }
-      return Response.json(store.apply(command.data));
-    },
-  };
-}
+    }
+    return Response.json(store.apply(command.data));
+  },
+};
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
 
@@ -480,75 +522,129 @@ async function localJson(build: () => Promise<unknown>): Promise<Response> {
   }
 }
 
-export function localReviewsRoute(store: ReviewStore) {
-  return {
-    POST: (req: Request) =>
-      localJson(async () => {
-        const asked = RegistrationBody.parse(
-          await req.json().catch(() => ({})),
-        );
-        const { name, version } = await resolveRegistration(
-          store.read().document,
-          asked,
-          new Date().toISOString(),
-        );
-        return {
-          name,
-          snapshot: store.apply({ kind: "register", name, version }),
-        };
-      }),
-  };
-}
+export const localReviewsRoute = {
+  POST: (req: Request, { root, store }: RepoContext) =>
+    localJson(async () => {
+      const asked = RegistrationBody.parse(await req.json().catch(() => ({})));
+      const { name, version } = await resolveRegistration(
+        root,
+        store.read().document,
+        asked,
+        new Date().toISOString(),
+      );
+      return {
+        name,
+        snapshot: store.apply({ kind: "register", name, version }),
+      };
+    }),
+};
 
-export function handleLocalCommits(req: Request): Promise<Response> {
+export function handleLocalCommits(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const ids = new URL(req.url).searchParams.getAll("id");
-  return localJson(() => localCommits(ids));
+  return localJson(() => localCommits(root, ids));
 }
 
-export function handleLocalDiff(req: Request): Promise<Response> {
+export function handleLocalDiff(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const params = new URL(req.url).searchParams;
   return localJson(async () => ({
-    files: await localDiff(params.get("fromCommit"), params.get("toCommit")),
+    files: await localDiff(
+      root,
+      params.get("fromCommit"),
+      params.get("toCommit"),
+    ),
   }));
 }
 
-export function handleLocalSize(req: Request): Promise<Response> {
+export function handleLocalSize(
+  req: Request,
+  { root }: RepoContext,
+): Promise<Response> {
   const ids = new URL(req.url).searchParams.getAll("id");
-  return localJson(async () => ({ files: await localSize(ids) }));
+  return localJson(async () => ({ files: await localSize(root, ids) }));
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[12]
 
+type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
+
 export function routes(served: ServedRepo, recent: RecentRepos) {
-  const store = served.store;
+  // Every browser route reads the repository the reader is shown.
+  const reader =
+    (handle: InRepo) =>
+    (req: Request): Response | Promise<Response> => {
+      const repo = served.context();
+      if (repo === null) {
+        return Response.json(
+          { error: "no repository is open" },
+          { status: 409 },
+        );
+      }
+      return handle(req, repo);
+    };
+  const agents = new AgentWorkspaces();
+  const publicOrigin = (req: Request) =>
+    process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin;
   return {
     "/*": index,
     ...repoRoutes(served, recent),
     "/api/*": () => new Response("Not found", { status: 404 }),
-    "/api/log": handleLog,
-    "/api/operations": handleOperations,
-    "/api/diff": handleDiff,
-    "/api/interdiff": handleInterdiff,
-    "/api/source": handleSource,
-    "/api/compare": handleCompare,
-    "/api/compare/paths": handleComparePaths,
-    "/api/github/repo": handleGithubRepo,
+    "/api/log": reader(handleLog),
+    "/api/operations": reader(handleOperations),
+    "/api/diff": reader(handleDiff),
+    "/api/interdiff": reader(handleInterdiff),
+    "/api/source": reader(handleSource),
+    "/api/compare": reader(handleCompare),
+    "/api/compare/paths": reader(handleComparePaths),
+    "/api/github/repo": reader(handleGithubRepo),
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,
-    "/api/github/pull/commits": handleGithubPullCommits,
-    "/api/github/pull/diff": handleGithubPullDiff,
-    "/api/review": reviewRoute(store),
+    "/api/github/pull/commits": reader(handleGithubPullCommits),
+    "/api/github/pull/diff": reader(handleGithubPullDiff),
+    "/api/review": {
+      GET: reader(reviewRoute.GET),
+      POST: reader(reviewRoute.POST),
+    },
     "/api/review/changes": reviewChanges,
-    "/api/local/reviews": localReviewsRoute(store),
-    "/api/local/commits": handleLocalCommits,
-    "/api/local/diff": handleLocalDiff,
-    "/api/local/size": handleLocalSize,
+    "/api/local/reviews": { POST: reader(localReviewsRoute.POST) },
+    "/api/local/commits": reader(handleLocalCommits),
+    "/api/local/diff": reader(handleLocalDiff),
+    "/api/local/size": reader(handleLocalSize),
     "/mcp": mcpRoute(
-      [...reviewTools(store), ...componentTools(store)],
+      [...reviewTools(), ...componentTools()],
       INSTRUCTIONS,
-      (req) => process.env.DIFFY_PUBLIC_URL ?? new URL(req.url).origin,
-      (caller) => wrongRepo(served, caller),
+      (req, caller) => agentContext(served, agents, publicOrigin(req), caller),
     ),
   };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[13]
+
+export async function agentContext(
+  served: Pick<ServedRepo, "context">,
+  agents: AgentWorkspaces,
+  origin: string,
+  caller: string | null,
+): Promise<ToolContext> {
+  const shown = served.context();
+  const repo =
+    caller === null
+      ? shown
+      : await agents.context(caller).catch((error: Error) => {
+          throw new ToolError(error.message);
+        });
+  if (repo === null) {
+    throw new ToolError(
+      "diffy has no repository open, and the agent named no workspace",
+    );
+  }
+  const elsewhere = shown === null || !(await sameRepo(shown.root, repo.root));
+  const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
+  return { repo, link: (path) => `${origin}${path}${query}` };
 }
 // ~/~ end

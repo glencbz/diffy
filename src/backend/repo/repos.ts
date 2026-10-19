@@ -13,10 +13,16 @@ import {
   watchReview,
 } from "../review/store";
 
-/** The repository being served and its review store. */
+/** One workspace a request reads and writes: where its jj and git
+ *  commands run, and its repository's review store. */
+export interface RepoContext {
+  root: string;
+  store: ReviewStore;
+}
+
+/** The repository the reader is shown, which every browser route reads. */
 export class ServedRepo {
-  #current: { root: string; store: ReviewStore; stop: () => void } | null =
-    null;
+  #current: { context: RepoContext; stop: () => void } | null = null;
   /** Where the run started, while diffy serves a repository from the recent
    *  list in its place. */
   startedOutside: string | null = null;
@@ -27,18 +33,21 @@ export class ServedRepo {
   ) {}
 
   get root(): string | null {
-    return this.#current?.root ?? null;
+    return this.#current?.context.root ?? null;
+  }
+
+  /** The reader's context, or null before a repository is open. */
+  context(): RepoContext | null {
+    return this.#current?.context ?? null;
   }
 
   async open(root: string, startedOutside: string | null = null) {
-    process.chdir(root);
-    const store = openReviewStore(await reviewStorePath());
+    const store = openReviewStore(await reviewStorePath(root));
     this.#current?.stop();
     const stopWatch = watchReview(store, this.publish);
     const stopPurge = purgeForgotten(store);
     this.#current = {
-      root,
-      store,
+      context: { root, store },
       stop: () => {
         stopWatch();
         stopPurge();
@@ -47,18 +56,6 @@ export class ServedRepo {
     };
     this.startedOutside = startedOutside;
     await this.recent.opened(root, new Date().toISOString());
-  }
-
-  readonly store: ReviewStore = {
-    read: () => this.#store().read(),
-    apply: (command) => this.#store().apply(command),
-    revision: () => this.#store().revision(),
-    close: () => this.#current?.stop(),
-  };
-
-  #store(): ReviewStore {
-    if (this.#current === null) throw new Error("no repository is open");
-    return this.#current.store;
   }
 }
 // ~/~ end
@@ -234,7 +231,7 @@ export async function summarize(
 }
 
 async function countReviews(root: string): Promise<number> {
-  const path = await reviewStorePath(process.env, root).catch(() => null);
+  const path = await reviewStorePath(root).catch(() => null);
   if (path === null || !(await Bun.file(path).exists())) return 0;
   const store = openReviewStore(path);
   try {
@@ -295,20 +292,48 @@ function foundUnderHome(): Promise<FoundRepo[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[6]
 
-/** Why a tool call from an agent in the workspace at `caller` cannot run
- *  here, or null when it can. */
-export async function wrongRepo(
-  served: ServedRepo,
-  caller: string,
-): Promise<string | null> {
-  const current = served.root;
-  const switchTo = `Ask the reader to switch diffy to ${caller} (running \`diffy\` there does it), then call again.`;
-  if (current === null) return `diffy has no repository open. ${switchTo}`;
+/** The context of each workspace an agent calls from, opened on its first
+ *  call and kept for the run. Workspaces of one repository share a store. */
+export class AgentWorkspaces {
+  #contexts = new Map<string, Promise<RepoContext>>();
+  #stores = new Map<string, ReviewStore>();
+
+  constructor(
+    private readonly env: Record<string, string | undefined> = process.env,
+  ) {}
+
+  context(workspace: string): Promise<RepoContext> {
+    let found = this.#contexts.get(workspace);
+    if (found === undefined) {
+      found = this.#open(workspace);
+      this.#contexts.set(workspace, found);
+      // A path that is not a workspace yet may become one.
+      found.catch(() => this.#contexts.delete(workspace));
+    }
+    return found;
+  }
+
+  async #open(workspace: string): Promise<RepoContext> {
+    const probe = await probeRepo(workspace);
+    if (probe.kind !== "jj") {
+      throw new Error(`no jj workspace at ${workspace}`);
+    }
+    const path = await reviewStorePath(probe.root, this.env);
+    let store = this.#stores.get(path);
+    if (store === undefined) {
+      store = openReviewStore(path);
+      this.#stores.set(path, store);
+    }
+    return { root: probe.root, store };
+  }
+}
+
+/** Whether two workspaces belong to one repository. */
+export async function sameRepo(a: string, b: string): Promise<boolean> {
   const [here, there] = await Promise.all(
-    [current, caller].map((root) => jjRepoDir(root).catch(() => null)),
+    [a, b].map((root) => jjRepoDir(root).catch(() => null)),
   );
-  if (here !== null && here === there) return null;
-  return `diffy is showing ${current}, not ${caller}, so this call would read and write that repository's reviews. ${switchTo}`;
+  return here !== null && here === there;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[7]

@@ -23,20 +23,18 @@ function cleanStderr(stderr: string): string {
 }
 
 interface RunJjOptions {
-  /** Where to run jj; the repository being served when left out. */
-  cwd?: string;
   /** Snapshot the working copy first, as a bare `jj` command does. */
   snapshot?: boolean;
 }
 
 async function runJj(
+  root: string,
   args: string[],
-  { cwd, snapshot = false }: RunJjOptions = {},
+  { snapshot = false }: RunJjOptions = {},
 ): Promise<string> {
   const flags = snapshot ? [] : ["--ignore-working-copy"];
   try {
-    const run = $`jj ${flags} ${args}`.quiet();
-    return await (cwd === undefined ? run : run.cwd(cwd)).text();
+    return await $`jj ${flags} ${args}`.cwd(root).quiet().text();
   } catch (error) {
     if (error instanceof $.ShellError) {
       const message =
@@ -154,7 +152,10 @@ function refsOf(entry: JjLogEntryWire): CommitRef[] {
   ];
 }
 
-export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
+export async function jjLog(
+  root: string,
+  options: JjLogOptions = {},
+): Promise<JjLogEntry[]> {
   const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
@@ -162,7 +163,7 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
     args.push("--at-operation", options.atOperation);
   }
 
-  const output = await runJj(args);
+  const output = await runJj(root, args);
 
   return output
     .split("\n")
@@ -188,13 +189,14 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 
 /** Look up specific commits by id, keyed by commit id. */
 export async function jjCommits(
+  root: string,
   commitIds: string[],
 ): Promise<Map<string, JjLogEntry>> {
   if (commitIds.length === 0) return new Map();
 
   // Keyed, because jj answers a revset in topological order, not the order
   // asked. An unknown id fails the whole call.
-  const entries = await jjLog({ revset: commitIds.join("|") });
+  const entries = await jjLog(root, { revset: commitIds.join("|") });
   return new Map(entries.map((entry) => [entry.commitId, entry]));
 }
 // ~/~ end
@@ -226,18 +228,19 @@ export interface JjOpLogOptions {
 const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
 
 export async function jjOpLog(
+  root: string,
   options: JjOpLogOptions = {},
 ): Promise<JjOpLogEntry[]> {
   const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
   if (options.limit !== undefined) args.push("-n", String(options.limit));
 
-  const output = await runJj(args, { snapshot: options.snapshot }).catch(
+  const output = await runJj(root, args, { snapshot: options.snapshot }).catch(
     (error: unknown) => {
       if (
         error instanceof JjError &&
         /working copy is stale/.test(error.message)
       )
-        return runJj(args);
+        return runJj(root, args);
       throw error;
     },
   );
@@ -258,10 +261,10 @@ export async function jjOpLog(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[4]
 
-/** The real path of the repository store behind the workspace at `cwd`,
- *  the same for every workspace of one repository. */
-export async function jjRepoDir(cwd?: string): Promise<string> {
-  const root = (await runJj(["workspace", "root"], { cwd })).trim();
+/** The real path of the repository store behind the workspace holding
+ *  `dir`, the same for every workspace of one repository. */
+export async function jjRepoDir(dir: string): Promise<string> {
+  const root = (await runJj(dir, ["workspace", "root"])).trim();
   const dotJj = join(root, ".jj");
   const repo = join(dotJj, "repo");
   const target = (await stat(repo)).isFile()
@@ -299,14 +302,17 @@ export interface JjDiffOptions {
   atOperation?: string;
 }
 
-export function jjDiff(options: JjDiffOptions = {}): Promise<JjFileDiff[]> {
+export function jjDiff(
+  root: string,
+  options: JjDiffOptions = {},
+): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
   const args = ["diff", "-r", revision];
   if (options.atOperation !== undefined) {
     args.push("--at-operation", options.atOperation);
   }
 
-  return diffFiles(args);
+  return diffFiles(root, args);
 }
 
 const DIFF_HEADER = /^diff --git .*$/gm;
@@ -321,10 +327,10 @@ function splitFileDiffs(diff: string): string[] {
 
 /** Run a jj diff command both ways, one file at a time: as a `git`-format
  *  patch, and through difftastic. */
-async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
+async function diffFiles(root: string, args: string[]): Promise<JjFileDiff[]> {
   const [patch, structural] = await Promise.all([
-    runJj([...args, "--git", "--color=never"]),
-    structuralDiffs(args),
+    runJj(root, [...args, "--git", "--color=never"]),
+    structuralDiffs(root, args),
   ]);
 
   return splitFileDiffs(patch).map((text) => {
@@ -344,9 +350,10 @@ const DIFFY = import.meta.dir.startsWith("/$bunfs/")
 /** Every changed file as difftastic reads it, by path, or why there is
  *  nothing to read. */
 async function structuralDiffs(
+  root: string,
   args: string[],
 ): Promise<Record<string, StructuralDiff> | string> {
-  const output = await runJj([
+  const output = await runJj(root, [
     ...args,
     "--tool",
     "diffy-difft",
@@ -473,9 +480,16 @@ export interface JjInterdiffOptions {
 }
 
 export function jjInterdiff(
+  root: string,
   options: JjInterdiffOptions,
 ): Promise<JjFileDiff[]> {
-  return diffFiles(["interdiff", "--from", options.from, "--to", options.to]);
+  return diffFiles(root, [
+    "interdiff",
+    "--from",
+    options.from,
+    "--to",
+    options.to,
+  ]);
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[9]
@@ -488,8 +502,9 @@ export interface JjDiffBetweenOptions {
 }
 
 export function jjDiffBetween(
+  root: string,
   options: JjDiffBetweenOptions,
 ): Promise<JjFileDiff[]> {
-  return diffFiles(["diff", "--from", options.from, "--to", options.to]);
+  return diffFiles(root, ["diff", "--from", options.from, "--to", options.to]);
 }
 // ~/~ end

@@ -5,6 +5,10 @@ jj is a revset, so a non-zero exit becomes a `JjError` carrying jj's message,
 which routes answer as a 400; anything else, such as jj missing from `PATH`,
 propagates as a 500.
 
+Every function takes the root of the workspace it runs jj in, which the
+caller's [`RepoContext`](repos.md#a-repository-per-request) supplies, so
+nothing here depends on the process's working directory.
+
 Every call passes `--ignore-working-copy`, so reading the repository never
 snapshots the working copy. A snapshot writes an operation, so the concurrent
 reads one page fires would each race to record one, and a workspace whose
@@ -40,20 +44,18 @@ function cleanStderr(stderr: string): string {
 }
 
 interface RunJjOptions {
-  /** Where to run jj; the repository being served when left out. */
-  cwd?: string;
   /** Snapshot the working copy first, as a bare `jj` command does. */
   snapshot?: boolean;
 }
 
 async function runJj(
+  root: string,
   args: string[],
-  { cwd, snapshot = false }: RunJjOptions = {},
+  { snapshot = false }: RunJjOptions = {},
 ): Promise<string> {
   const flags = snapshot ? [] : ["--ignore-working-copy"];
   try {
-    const run = $`jj ${flags} ${args}`.quiet();
-    return await (cwd === undefined ? run : run.cwd(cwd)).text();
+    return await $`jj ${flags} ${args}`.cwd(root).quiet().text();
   } catch (error) {
     if (error instanceof $.ShellError) {
       const message =
@@ -190,7 +192,10 @@ function refsOf(entry: JjLogEntryWire): CommitRef[] {
   ];
 }
 
-export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
+export async function jjLog(
+  root: string,
+  options: JjLogOptions = {},
+): Promise<JjLogEntry[]> {
   const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
@@ -198,7 +203,7 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
     args.push("--at-operation", options.atOperation);
   }
 
-  const output = await runJj(args);
+  const output = await runJj(root, args);
 
   return output
     .split("\n")
@@ -228,13 +233,14 @@ export async function jjLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
 
 /** Look up specific commits by id, keyed by commit id. */
 export async function jjCommits(
+  root: string,
   commitIds: string[],
 ): Promise<Map<string, JjLogEntry>> {
   if (commitIds.length === 0) return new Map();
 
   // Keyed, because jj answers a revset in topological order, not the order
   // asked. An unknown id fails the whole call.
-  const entries = await jjLog({ revset: commitIds.join("|") });
+  const entries = await jjLog(root, { revset: commitIds.join("|") });
   return new Map(entries.map((entry) => [entry.commitId, entry]));
 }
 ```
@@ -246,7 +252,7 @@ export async function jjCommits(
 has no command line, so `args` is `""` there.
 
 A caller that polls for change asks for a `snapshot`, so a file edit in the
-served workspace shows up as a new operation. A stale working copy refuses
+workspace shows up as a new operation. A stale working copy refuses
 the snapshot, and the poll falls back to the operations as they stand rather
 than failing: diffy reads the repository, and bringing a workspace up to date
 is its owner's call.
@@ -284,18 +290,19 @@ export interface JjOpLogOptions {
 const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
 
 export async function jjOpLog(
+  root: string,
   options: JjOpLogOptions = {},
 ): Promise<JjOpLogEntry[]> {
   const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
   if (options.limit !== undefined) args.push("-n", String(options.limit));
 
-  const output = await runJj(args, { snapshot: options.snapshot }).catch(
+  const output = await runJj(root, args, { snapshot: options.snapshot }).catch(
     (error: unknown) => {
       if (
         error instanceof JjError &&
         /working copy is stale/.test(error.message)
       )
-        return runJj(args);
+        return runJj(root, args);
       throw error;
     },
   );
@@ -320,16 +327,15 @@ export async function jjOpLog(
 Every workspace of a repository shares one store. In the workspace that made
 the repository `.jj/repo` is the store; in any other it is a file holding a
 relative path to it. `jjRepoDir` follows that and resolves a real path, so
-every workspace names the same directory. It reads the served repository
-unless given another workspace's root.
+every workspace names the same directory.
 
 ```ts
 //| id: jj-module
 
-/** The real path of the repository store behind the workspace at `cwd`,
- *  the same for every workspace of one repository. */
-export async function jjRepoDir(cwd?: string): Promise<string> {
-  const root = (await runJj(["workspace", "root"], { cwd })).trim();
+/** The real path of the repository store behind the workspace holding
+ *  `dir`, the same for every workspace of one repository. */
+export async function jjRepoDir(dir: string): Promise<string> {
+  const root = (await runJj(dir, ["workspace", "root"])).trim();
   const dotJj = join(root, ".jj");
   const repo = join(dotJj, "repo");
   const target = (await stat(repo)).isFile()
@@ -375,14 +381,17 @@ export interface JjDiffOptions {
   atOperation?: string;
 }
 
-export function jjDiff(options: JjDiffOptions = {}): Promise<JjFileDiff[]> {
+export function jjDiff(
+  root: string,
+  options: JjDiffOptions = {},
+): Promise<JjFileDiff[]> {
   const revision = options.revision ?? "@";
   const args = ["diff", "-r", revision];
   if (options.atOperation !== undefined) {
     args.push("--at-operation", options.atOperation);
   }
 
-  return diffFiles(args);
+  return diffFiles(root, args);
 }
 
 const DIFF_HEADER = /^diff --git .*$/gm;
@@ -397,10 +406,10 @@ function splitFileDiffs(diff: string): string[] {
 
 /** Run a jj diff command both ways, one file at a time: as a `git`-format
  *  patch, and through difftastic. */
-async function diffFiles(args: string[]): Promise<JjFileDiff[]> {
+async function diffFiles(root: string, args: string[]): Promise<JjFileDiff[]> {
   const [patch, structural] = await Promise.all([
-    runJj([...args, "--git", "--color=never"]),
-    structuralDiffs(args),
+    runJj(root, [...args, "--git", "--color=never"]),
+    structuralDiffs(root, args),
   ]);
 
   return splitFileDiffs(patch).map((text) => {
@@ -429,9 +438,10 @@ const DIFFY = import.meta.dir.startsWith("/$bunfs/")
 /** Every changed file as difftastic reads it, by path, or why there is
  *  nothing to read. */
 async function structuralDiffs(
+  root: string,
   args: string[],
 ): Promise<Record<string, StructuralDiff> | string> {
-  const output = await runJj([
+  const output = await runJj(root, [
     ...args,
     "--tool",
     "diffy-difft",
@@ -578,11 +588,14 @@ import {
   parseFileDiff,
 } from "./jj";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 describe("jjLog", () => {
   test("lists every commit, including the root", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "all()" });
+    const entries = await jjLog(ROOT, { revset: "all()" });
 
     // assert
     expect(entries.length).toBeGreaterThan(0);
@@ -609,7 +622,7 @@ describe("jjLog", () => {
   test("marks the working copy and nothing else", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "all()" });
+    const entries = await jjLog(ROOT, { revset: "all()" });
 
     // assert
     const here = entries.filter((entry) =>
@@ -617,14 +630,14 @@ describe("jjLog", () => {
     );
     expect(here).toHaveLength(1);
     expect(here[0]?.commitId).toBe(
-      (await jjLog({ revset: "@" }))[0]?.commitId as string,
+      (await jjLog(ROOT, { revset: "@" }))[0]?.commitId as string,
     );
   });
 
   test("names the bookmarks pointing at a commit", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "bookmarks()" });
+    const entries = await jjLog(ROOT, { revset: "bookmarks()" });
 
     // assert
     expect(entries.length).toBeGreaterThan(0);
@@ -636,7 +649,7 @@ describe("jjLog", () => {
   test("respects the limit option", async () => {
     // arrange
     // act
-    const entries = await jjLog({ revset: "all()", limit: 1 });
+    const entries = await jjLog(ROOT, { revset: "all()", limit: 1 });
 
     // assert
     expect(entries).toHaveLength(1);
@@ -647,7 +660,7 @@ describe("jjLog", () => {
     // act
     // assert
     await expect(
-      jjLog({ revset: "no-such-revision-xyz" }),
+      jjLog(ROOT, { revset: "no-such-revision-xyz" }),
     ).rejects.toBeInstanceOf(JjError);
   });
 
@@ -656,7 +669,7 @@ describe("jjLog", () => {
     // act
     // assert
     await expect(
-      jjLog({ atOperation: "no-such-operation-xyz" }),
+      jjLog(ROOT, { atOperation: "no-such-operation-xyz" }),
     ).rejects.toBeInstanceOf(JjError);
   });
 });
@@ -668,7 +681,7 @@ describe("jjOpLog", () => {
   test("lists operations newest first, ending at the root operation", async () => {
     // arrange
     // act
-    const operations = await jjOpLog();
+    const operations = await jjOpLog(ROOT);
 
     // assert
     expect(operations.length).toBeGreaterThan(1);
@@ -679,7 +692,7 @@ describe("jjOpLog", () => {
   test("respects the limit option", async () => {
     // arrange
     // act
-    const operations = await jjOpLog({ limit: 1 });
+    const operations = await jjOpLog(ROOT, { limit: 1 });
 
     // assert
     expect(operations).toHaveLength(1);
@@ -690,7 +703,7 @@ describe("jjRepoDir", () => {
   test("names the store directory behind this workspace", async () => {
     // arrange
     // act
-    const dir = await jjRepoDir();
+    const dir = await jjRepoDir(ROOT);
 
     // assert
     expect(dir.endsWith("/.jj/repo")).toBe(true);
@@ -699,16 +712,13 @@ describe("jjRepoDir", () => {
 });
 
 describe("in a throwaway repository", () => {
-  /** Runs `body` with a fresh jj repository as the one being served. */
+  /** Runs `body` against a fresh jj repository. */
   async function inRepo(body: (dir: string) => Promise<void>) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-jj-"));
-    const served = process.cwd();
     try {
       await $`jj git init`.cwd(dir).quiet();
-      process.chdir(dir);
       await body(dir);
     } finally {
-      process.chdir(served);
       await rm(dir, { recursive: true, force: true });
     }
   }
@@ -720,8 +730,8 @@ describe("in a throwaway repository", () => {
       await $`jj --ignore-working-copy describe -m moved`.cwd(dir).quiet();
 
       // act
-      const [commit] = await jjLog({ revset: "@" });
-      const operations = await jjOpLog({ snapshot: true });
+      const [commit] = await jjLog(dir, { revset: "@" });
+      const operations = await jjOpLog(dir, { snapshot: true });
 
       // assert
       expect(commit?.description).toBe("moved\n");
@@ -734,8 +744,8 @@ describe("in a throwaway repository", () => {
       await Bun.write(join(dir, "a.txt"), "a\n");
 
       // act
-      const read = await jjOpLog();
-      const polled = await jjOpLog({ snapshot: true });
+      const read = await jjOpLog(dir);
+      const polled = await jjOpLog(dir, { snapshot: true });
 
       // assert
       expect(polled.length).toBe(read.length + 1);
@@ -880,7 +890,7 @@ describe("jjDiff", () => {
   test("parses the first commit as a set of added files", async () => {
     // arrange
     // act
-    const files = await jjDiff({ revision: "root()+" });
+    const files = await jjDiff(ROOT, { revision: "root()+" });
 
     // assert
     expect(files.length).toBeGreaterThan(0);
@@ -893,7 +903,7 @@ describe("jjDiff", () => {
   test("reads every modified file through difftastic as well", async () => {
     // arrange
     // act
-    const files = await jjDiff({ revision: "root()++" });
+    const files = await jjDiff(ROOT, { revision: "root()++" });
 
     // assert
     const modified = files.filter((file) => file.status === "modified");
@@ -913,12 +923,12 @@ describe("jjDiff", () => {
     // arrange
     // act
     // assert
-    expect(await jjDiff({ revision: "root()" })).toEqual([]);
+    expect(await jjDiff(ROOT, { revision: "root()" })).toEqual([]);
   });
 
   test("wraps an unresolvable revision in JjError", async () => {
     // arrange
-    const attempt = () => jjDiff({ revision: "no-such-revision-xyz" });
+    const attempt = () => jjDiff(ROOT, { revision: "no-such-revision-xyz" });
 
     // act
     // assert
@@ -949,9 +959,16 @@ export interface JjInterdiffOptions {
 }
 
 export function jjInterdiff(
+  root: string,
   options: JjInterdiffOptions,
 ): Promise<JjFileDiff[]> {
-  return diffFiles(["interdiff", "--from", options.from, "--to", options.to]);
+  return diffFiles(root, [
+    "interdiff",
+    "--from",
+    options.from,
+    "--to",
+    options.to,
+  ]);
 }
 ```
 
@@ -971,9 +988,10 @@ export interface JjDiffBetweenOptions {
 }
 
 export function jjDiffBetween(
+  root: string,
   options: JjDiffBetweenOptions,
 ): Promise<JjFileDiff[]> {
-  return diffFiles(["diff", "--from", options.from, "--to", options.to]);
+  return diffFiles(root, ["diff", "--from", options.from, "--to", options.to]);
 }
 ```
 
@@ -988,7 +1006,7 @@ operation against the current view, passing no operation.
 
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
-  const [entry] = await jjLog({ revset, limit: 1 });
+  const [entry] = await jjLog(ROOT, { revset, limit: 1 });
   if (entry === undefined) throw new Error(`no commit matches ${revset}`);
   return entry.commitId;
 }
@@ -996,11 +1014,11 @@ async function commitId(revset: string): Promise<string> {
 describe("jjCommits", () => {
   test("keys the requested commits by commit id", async () => {
     // arrange
-    const entries = await jjLog({ revset: "all()", limit: 3 });
+    const entries = await jjLog(ROOT, { revset: "all()", limit: 3 });
     const ids = entries.map((entry) => entry.commitId);
 
     // act
-    const found = await jjCommits(ids);
+    const found = await jjCommits(ROOT, ids);
 
     // assert
     expect([...found.keys()].sort()).toEqual([...ids].sort());
@@ -1011,7 +1029,7 @@ describe("jjCommits", () => {
     // arrange
     // act
     // assert
-    expect(await jjCommits([])).toEqual(new Map());
+    expect(await jjCommits(ROOT, [])).toEqual(new Map());
   });
 });
 
@@ -1022,7 +1040,7 @@ describe("jjInterdiff", () => {
 
     // act
     // assert
-    expect(await jjInterdiff({ from: id, to: id })).toEqual([]);
+    expect(await jjInterdiff(ROOT, { from: id, to: id })).toEqual([]);
   });
 
   test("reports the difference between two unrelated changes", async () => {
@@ -1031,7 +1049,7 @@ describe("jjInterdiff", () => {
     const to = await commitId("root()++");
 
     // act
-    const files = await jjInterdiff({ from, to });
+    const files = await jjInterdiff(ROOT, { from, to });
 
     // assert
     expect(files.length).toBeGreaterThan(0);
@@ -1042,9 +1060,9 @@ describe("jjInterdiff", () => {
 
   test("compares a commit from an old operation without --at-operation", async () => {
     // arrange
-    const operations = await jjOpLog();
+    const operations = await jjOpLog(ROOT);
     const oldest = operations.at(-1);
-    const [before] = await jjLog({
+    const [before] = await jjLog(ROOT, {
       revset: "all()",
       limit: 1,
       atOperation: oldest?.id,
@@ -1052,7 +1070,7 @@ describe("jjInterdiff", () => {
     if (before === undefined) throw new Error("no commit at the oldest op");
 
     // act
-    const files = await jjInterdiff({
+    const files = await jjInterdiff(ROOT, {
       from: before.commitId,
       to: await commitId("@"),
     });
@@ -1076,10 +1094,10 @@ describe("jjDiffBetween", () => {
     const to = await commitId("root()++");
 
     // act
-    const files = await jjDiffBetween({ from, to });
+    const files = await jjDiffBetween(ROOT, { from, to });
 
     // assert
-    expect(files).toEqual(await jjDiff({ revision: to }));
+    expect(files).toEqual(await jjDiff(ROOT, { revision: to }));
   });
 });
 ```

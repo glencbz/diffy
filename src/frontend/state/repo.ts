@@ -38,6 +38,19 @@ function failed(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Serve the repository a link names in `?repo=`, then load the link
+ *  without it. True when the page is reloading. */
+async function openLinked(current: string | null): Promise<boolean> {
+  const url = new URL(location.href);
+  const linked = url.searchParams.get("repo");
+  if (linked === null) return false;
+  url.searchParams.delete("repo");
+  // A repository that will not open leaves the reader where they were.
+  if (linked !== current) await openRepo(linked).catch(() => undefined);
+  location.replace(url);
+  return true;
+}
+
 export function useServedRepo(): RepoHandle {
   const [served, setServed] = useState<AsyncState<ServedRepo>>({
     status: "loading",
@@ -48,8 +61,9 @@ export function useServedRepo(): RepoHandle {
     let cancelled = false;
     const load = () =>
       fetchServedRepo().then(
-        (next) => {
+        async (next) => {
           if (cancelled) return;
+          if (shown === undefined && (await openLinked(next.current))) return;
           if (shown !== undefined && next.current !== shown) {
             location.assign("/");
             return;

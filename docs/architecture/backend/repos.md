@@ -1,25 +1,24 @@
 # Choosing the repository
 
-diffy serves one repository at a time, and the reader can switch it from the
-browser. This module decides which repository a run starts in, remembers the
-ones the reader opened, finds others under the home directory, and swaps the
-served one in place. The [command line](cli.md) starts it; the
-[server](server.md) mounts its routes.
+diffy shows the reader one repository at a time, and the reader can switch it
+from the browser. This module decides which repository a run starts in,
+remembers the ones the reader opened, finds others under the home directory,
+and hands each request the repository it runs in. The
+[command line](cli.md) starts it; the [server](server.md) mounts its routes.
 
-## Serving one repository at a time
+## A repository per request
 
-Every route shells out to `jj` or `git` in the working directory, so switching
-is `process.chdir` plus reopening that repository's
-[review store](review-store.md). Passing a repository root to every jj and git
-call would let each browser tab read a different repository, but it would
-thread a parameter through every backend module for a reader who works in one
-repository at a time. A request in flight while the reader switches can read
-the new repository; the browser reloads on a switch, so it never shows that
-answer.
+Every jj and git call takes the workspace root it runs in, and every route
+and agent tool is handed a `RepoContext`: that root and its repository's
+[review store](review-store.md). The browser's routes get the reader's
+context from `ServedRepo`, and an agent's tool calls get the context of the
+workspace the agent works in, so the two can be in different repositories.
+Changing the process's working directory on a switch would spare every
+backend function its root, but would put the reader and every agent in
+whatever repository was switched to last.
 
-`ServedRepo.store` is a `ReviewStore` that forwards to the current
-repository's store, so the review routes and the agent tools keep the one
-store they were built with across a switch.
+A request in flight while the reader switches keeps the context it started
+with; the browser reloads on a switch, so it never shows that answer.
 
 ```ts
 //| id: backend-repos
@@ -38,10 +37,16 @@ import {
   watchReview,
 } from "../review/store";
 
-/** The repository being served and its review store. */
+/** One workspace a request reads and writes: where its jj and git
+ *  commands run, and its repository's review store. */
+export interface RepoContext {
+  root: string;
+  store: ReviewStore;
+}
+
+/** The repository the reader is shown, which every browser route reads. */
 export class ServedRepo {
-  #current: { root: string; store: ReviewStore; stop: () => void } | null =
-    null;
+  #current: { context: RepoContext; stop: () => void } | null = null;
   /** Where the run started, while diffy serves a repository from the recent
    *  list in its place. */
   startedOutside: string | null = null;
@@ -52,18 +57,21 @@ export class ServedRepo {
   ) {}
 
   get root(): string | null {
-    return this.#current?.root ?? null;
+    return this.#current?.context.root ?? null;
+  }
+
+  /** The reader's context, or null before a repository is open. */
+  context(): RepoContext | null {
+    return this.#current?.context ?? null;
   }
 
   async open(root: string, startedOutside: string | null = null) {
-    process.chdir(root);
-    const store = openReviewStore(await reviewStorePath());
+    const store = openReviewStore(await reviewStorePath(root));
     this.#current?.stop();
     const stopWatch = watchReview(store, this.publish);
     const stopPurge = purgeForgotten(store);
     this.#current = {
-      root,
-      store,
+      context: { root, store },
       stop: () => {
         stopWatch();
         stopPurge();
@@ -72,18 +80,6 @@ export class ServedRepo {
     };
     this.startedOutside = startedOutside;
     await this.recent.opened(root, new Date().toISOString());
-  }
-
-  readonly store: ReviewStore = {
-    read: () => this.#store().read(),
-    apply: (command) => this.#store().apply(command),
-    revision: () => this.#store().revision(),
-    close: () => this.#current?.stop(),
-  };
-
-  #store(): ReviewStore {
-    if (this.#current === null) throw new Error("no repository is open");
-    return this.#current.store;
   }
 }
 ```
@@ -302,7 +298,7 @@ export async function summarize(
 }
 
 async function countReviews(root: string): Promise<number> {
-  const path = await reviewStorePath(process.env, root).catch(() => null);
+  const path = await reviewStorePath(root).catch(() => null);
   if (path === null || !(await Bun.file(path).exists())) return 0;
   const store = openReviewStore(path);
   try {
@@ -374,35 +370,66 @@ function foundUnderHome(): Promise<FoundRepo[]> {
 
 ## An agent in another repository
 
-An agent's tools write to the served repository's store, its reviews and its
-vocabulary of component kinds, so an agent working in one repository while
-the reader has switched diffy to another would write into the wrong one.
-[`diffy mcp`](agents.md#the-stdio-bridge) names the workspace it was started
-in, and a tool call from a workspace of another repository is refused with
-what to do. Workspaces of one repository share a store, so they are compared
-by [the repository behind them](jj.md), not by their roots.
+[`diffy mcp`](agents.md#the-stdio-bridge) names the workspace its agent was
+started in, and `AgentWorkspaces` opens that workspace's context on its first
+call and keeps it for the run. Workspaces of one repository share a store, so
+a store is kept by its path, which [the repository behind
+them](jj.md) decides, not by the workspace root. An agent that names no
+workspace works in the reader's repository.
 
-Switching to the agent's repository instead would keep the agent going, but
-would change what the reader's open tab shows, reviews and kinds alike,
-without the reader asking.
+The reader's own store is opened apart from the agents' and closed on a
+switch; two handles on one file are safe, since every diffy server already
+writes the same stores. Refusing a call from another repository than the
+reader's would keep one store per run, but would stop an agent whenever the
+reader looked elsewhere, and switching the reader to the agent's repository
+would change their open tab without their asking. `sameRepo` tells the
+[server](server.md#routes) when a link should carry the agent's repository.
 
 ```ts
 //| id: backend-repos
 
-/** Why a tool call from an agent in the workspace at `caller` cannot run
- *  here, or null when it can. */
-export async function wrongRepo(
-  served: ServedRepo,
-  caller: string,
-): Promise<string | null> {
-  const current = served.root;
-  const switchTo = `Ask the reader to switch diffy to ${caller} (running \`diffy\` there does it), then call again.`;
-  if (current === null) return `diffy has no repository open. ${switchTo}`;
+/** The context of each workspace an agent calls from, opened on its first
+ *  call and kept for the run. Workspaces of one repository share a store. */
+export class AgentWorkspaces {
+  #contexts = new Map<string, Promise<RepoContext>>();
+  #stores = new Map<string, ReviewStore>();
+
+  constructor(
+    private readonly env: Record<string, string | undefined> = process.env,
+  ) {}
+
+  context(workspace: string): Promise<RepoContext> {
+    let found = this.#contexts.get(workspace);
+    if (found === undefined) {
+      found = this.#open(workspace);
+      this.#contexts.set(workspace, found);
+      // A path that is not a workspace yet may become one.
+      found.catch(() => this.#contexts.delete(workspace));
+    }
+    return found;
+  }
+
+  async #open(workspace: string): Promise<RepoContext> {
+    const probe = await probeRepo(workspace);
+    if (probe.kind !== "jj") {
+      throw new Error(`no jj workspace at ${workspace}`);
+    }
+    const path = await reviewStorePath(probe.root, this.env);
+    let store = this.#stores.get(path);
+    if (store === undefined) {
+      store = openReviewStore(path);
+      this.#stores.set(path, store);
+    }
+    return { root: probe.root, store };
+  }
+}
+
+/** Whether two workspaces belong to one repository. */
+export async function sameRepo(a: string, b: string): Promise<boolean> {
   const [here, there] = await Promise.all(
-    [current, caller].map((root) => jjRepoDir(root).catch(() => null)),
+    [a, b].map((root) => jjRepoDir(root).catch(() => null)),
   );
-  if (here !== null && here === there) return null;
-  return `diffy is showing ${current}, not ${caller}, so this call would read and write that repository's reviews. ${switchTo}`;
+  return here !== null && here === there;
 }
 ```
 

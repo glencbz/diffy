@@ -66,9 +66,10 @@ export class RegistrationError extends Error {
 }
 
 async function bookmarkBelowWorkingCopy(
+  root: string,
   operation: string,
 ): Promise<string | null> {
-  const [entry] = await jjLog({
+  const [entry] = await jjLog(root, {
     revset: "heads(::@ & bookmarks())",
     atOperation: operation,
     limit: 1,
@@ -82,13 +83,14 @@ async function bookmarkBelowWorkingCopy(
 /** The registration `asked` stands for, with each default filled in, or
  *  null where the repository cannot supply one. */
 export async function registrationDefaults(
+  root: string,
   document: ReviewDocument,
   asked: Registration,
 ): Promise<{ name: string | null; revset: string | null; operation: string }> {
-  const [current] = await jjOpLog({ limit: 1 });
+  const [current] = await jjOpLog(root, { limit: 1 });
   if (current === undefined) throw new Error("jj reported no operations");
   const operation = asked.operation ?? current.id;
-  const bookmark = await bookmarkBelowWorkingCopy(operation);
+  const bookmark = await bookmarkBelowWorkingCopy(root, operation);
   const name = asked.name ?? bookmark;
   const last =
     name === null ? undefined : localReview(document, name)?.versions.at(-1);
@@ -102,11 +104,13 @@ export async function registrationDefaults(
 
 /** The version `asked` registers, under the name it goes by. */
 export async function resolveRegistration(
+  root: string,
   document: ReviewDocument,
   asked: Registration,
   at: string,
 ): Promise<{ name: string; version: LocalVersion }> {
   const { name, revset, operation } = await registrationDefaults(
+    root,
     document,
     asked,
   );
@@ -115,7 +119,7 @@ export async function resolveRegistration(
       "no bookmark sits at or below the working copy, so give the review a name and a revset",
     );
   }
-  const commits = await jjLog({ revset, atOperation: operation });
+  const commits = await jjLog(root, { revset, atOperation: operation });
   if (commits.length === 0) {
     throw new RegistrationError(`${revset} names no commits`);
   }
@@ -131,8 +135,11 @@ export async function resolveRegistration(
 }
 
 /** The commits `ids` name, in that order, in a pull request's shape. */
-export async function localCommits(ids: string[]): Promise<GitCommit[]> {
-  const found = await jjCommits(ids);
+export async function localCommits(
+  root: string,
+  ids: string[],
+): Promise<GitCommit[]> {
+  const found = await jjCommits(root, ids);
   return ids.flatMap((id) => {
     const entry = found.get(id);
     if (entry === undefined) return [];
@@ -152,19 +159,20 @@ export async function localCommits(ids: string[]): Promise<GitCommit[]> {
 /** One row's comparison: the interdiff of two commits, or one commit's own
  *  diff. */
 export function localDiff(
+  root: string,
   from: string | null,
   to: string | null,
 ): Promise<JjFileDiff[]> {
-  if (from !== null && to !== null) return jjInterdiff({ from, to });
+  if (from !== null && to !== null) return jjInterdiff(root, { from, to });
   const lone = from ?? to;
-  return lone === null ? Promise.resolve([]) : jjDiff({ revision: lone });
+  return lone === null ? Promise.resolve([]) : jjDiff(root, { revision: lone });
 }
 
 /** A whole version against what it was built on: one diff from the parents
  *  of its roots to its heads. jj refuses a set with a gap in it, and the
  *  screen shows that error in place of a size. */
-export function localSize(ids: string[]): Promise<JjFileDiff[]> {
-  return jjDiff({ revision: ids.join("|") });
+export function localSize(root: string, ids: string[]): Promise<JjFileDiff[]> {
+  return jjDiff(root, { revision: ids.join("|") });
 }
 ```
 
@@ -189,8 +197,11 @@ import {
   resolveRegistration,
 } from "./local";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 async function tipCommit(): Promise<string> {
-  const [entry] = await jjLog({ revset: "latest(::trunk() ~ empty())" });
+  const [entry] = await jjLog(ROOT, { revset: "latest(::trunk() ~ empty())" });
   if (entry === undefined) throw new Error("no history");
   return entry.commitId;
 }
@@ -203,6 +214,7 @@ describe("resolveRegistration", () => {
 
     // act
     const { name, version } = await resolveRegistration(
+      ROOT,
       EMPTY_REVIEW,
       asked,
       "now",
@@ -220,6 +232,7 @@ describe("resolveRegistration", () => {
     // arrange
     // act
     const attempt = resolveRegistration(
+      ROOT,
       EMPTY_REVIEW,
       { name: "t", revset: "none()" },
       "now",
@@ -245,7 +258,7 @@ describe("registrationDefaults", () => {
     });
 
     // act
-    const defaults = await registrationDefaults(document, { name: "t" });
+    const defaults = await registrationDefaults(ROOT, document, { name: "t" });
 
     // assert
     expect(defaults.revset).toBe("trunk()");
@@ -254,7 +267,7 @@ describe("registrationDefaults", () => {
   test("reads a new name as the bookmark of that name", async () => {
     // arrange
     // act
-    const defaults = await registrationDefaults(EMPTY_REVIEW, {
+    const defaults = await registrationDefaults(ROOT, EMPTY_REVIEW, {
       name: "my-branch",
     });
 
@@ -268,11 +281,11 @@ describe("reading a version", () => {
   test("reads commits in the order asked, with their change ids", async () => {
     // arrange
     const tip = "latest(::trunk() ~ empty())";
-    const entries = await jjLog({ revset: `${tip}- | ${tip}` });
+    const entries = await jjLog(ROOT, { revset: `${tip}- | ${tip}` });
     const ids = entries.map((entry) => entry.commitId).reverse();
 
     // act
-    const commits = await localCommits(ids);
+    const commits = await localCommits(ROOT, ids);
 
     // assert
     expect(commits.map((commit) => commit.commitId).join()).toBe(ids.join());
@@ -282,15 +295,15 @@ describe("reading a version", () => {
   test("diffs a lone commit, a pair, and a whole version", async () => {
     // arrange
     const tip = "latest(::trunk() ~ empty())";
-    const [newer, older] = (await jjLog({ revset: `${tip} | ${tip}-` })).map(
-      (entry) => entry.commitId,
-    );
+    const [newer, older] = (
+      await jjLog(ROOT, { revset: `${tip} | ${tip}-` })
+    ).map((entry) => entry.commitId);
     if (newer === undefined || older === undefined) throw new Error("history");
 
     // act
-    const lone = await localDiff(null, newer);
-    const pair = await localDiff(older, newer);
-    const whole = await localSize([older, newer]);
+    const lone = await localDiff(ROOT, null, newer);
+    const pair = await localDiff(ROOT, older, newer);
+    const whole = await localSize(ROOT, [older, newer]);
 
     // assert
     expect(lone.length).toBeGreaterThan(0);

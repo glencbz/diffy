@@ -171,9 +171,9 @@ export function parseRemoteUrl(url: string): RepoRef | null {
   return RepoRef.parse({ owner: match[1], name: match[2] });
 }
 
-/** The repository the working directory's `origin` remote names. */
-export async function originRepo(): Promise<RepoRef> {
-  const got = await $`git remote get-url origin`.quiet().nothrow();
+/** The repository the `origin` remote of the workspace at `root` names. */
+export async function originRepo(root: string): Promise<RepoRef> {
+  const got = await $`git remote get-url origin`.cwd(root).quiet().nothrow();
   const url = got.stdout.toString().trim();
   const repo = got.exitCode === 0 ? parseRemoteUrl(url) : null;
   if (repo === null) {

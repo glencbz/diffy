@@ -9,6 +9,9 @@ GitHub: API metadata can go stale, an object in the store cannot.
 so readers such as `gitLog` cannot be reached without the presence check. A
 runtime check in every reader would be forgotten in one of them.
 
+Every function takes the workspace root to run git in, as the
+[jj backend](jj.md) does.
+
 ```ts
 //| id: git-module
 //| file: src/backend/commit/git.ts
@@ -75,10 +78,13 @@ export interface GitCommit {
 //| id: git-module
 
 /** Whether the object store already holds `oid` as a commit. Never hits the network. */
-export async function gitHasCommit(oid: GitOid): Promise<boolean> {
+export async function gitHasCommit(
+  root: string,
+  oid: GitOid,
+): Promise<boolean> {
   // ^{commit} makes a present tree or blob id answer no.
   const spec = `${oid}^{commit}`;
-  const result = await $`git cat-file -e ${spec}`.quiet().nothrow();
+  const result = await $`git cat-file -e ${spec}`.cwd(root).quiet().nothrow();
   return result.exitCode === 0;
 }
 ```
@@ -99,9 +105,11 @@ gets no pin, and a lost one is fetched again on the next view.
 //| id: git-module
 
 /** Pins whose object the store does not hold, one per distinct oid. */
-async function absentPins(pins: GitPin[]): Promise<GitPin[]> {
+async function absentPins(root: string, pins: GitPin[]): Promise<GitPin[]> {
   const unique = [...new Map(pins.map((pin) => [pin.oid, pin])).values()];
-  const present = await Promise.all(unique.map((pin) => gitHasCommit(pin.oid)));
+  const present = await Promise.all(
+    unique.map((pin) => gitHasCommit(root, pin.oid)),
+  );
   return unique.filter((_, index) => present[index] === false);
 }
 
@@ -110,21 +118,23 @@ async function absentPins(pins: GitPin[]): Promise<GitPin[]> {
  * return each one as a `LocalOid` in the order asked.
  */
 export async function gitMaterialize(
+  root: string,
   pins: GitPin[],
   remote = "origin",
 ): Promise<LocalOid[]> {
   // One fetch for every missing oid; a repeat view fetches nothing.
-  const missing = await absentPins(pins);
+  const missing = await absentPins(root, pins);
 
   if (missing.length > 0) {
     const refspecs = missing.map((pin) => `${pin.oid}:refs/diffy/${pin.at}`);
     const fetch = await $`git fetch --no-tags ${remote} ${refspecs}`
+      .cwd(root)
       .quiet()
       .nothrow();
 
     // git fetch can exit zero having declined a refspec, so the store
     // itself is the only trustworthy report.
-    const stillMissing = await absentPins(missing);
+    const stillMissing = await absentPins(root, missing);
     if (stillMissing.length > 0) {
       const said = fetch.stderr.toString().trim();
       const lost = stillMissing.map((pin) => pin.oid).join(", ");
@@ -139,9 +149,12 @@ export async function gitMaterialize(
 }
 
 /** Drop the pins under a path, so `git gc` can reclaim what nothing else holds. */
-export async function gitForget(prefix: RefPath): Promise<number> {
+export async function gitForget(
+  root: string,
+  prefix: RefPath,
+): Promise<number> {
   const args = ["for-each-ref", "--format=%(refname)", `refs/diffy/${prefix}/`];
-  const listed = await $`git ${args}`.quiet().nothrow();
+  const listed = await $`git ${args}`.cwd(root).quiet().nothrow();
   if (listed.exitCode !== 0) {
     throw new GitError(
       listed.stderr.toString().trim() ||
@@ -157,7 +170,10 @@ export async function gitForget(prefix: RefPath): Promise<number> {
   if (refs.length === 0) return 0;
 
   const script = Buffer.from(refs.map((ref) => `delete ${ref}\n`).join(""));
-  const dropped = await $`git update-ref --stdin < ${script}`.quiet().nothrow();
+  const dropped = await $`git update-ref --stdin < ${script}`
+    .cwd(root)
+    .quiet()
+    .nothrow();
   if (dropped.exitCode !== 0) {
     throw new GitError(
       dropped.stderr.toString().trim() ||
@@ -194,12 +210,15 @@ export interface GitLogRange {
 const LOG_FORMAT = "%H%x1f%P%x1f%an%x1f%aI%x1f%B";
 
 /** Read commits from the local store, newest first, matching `jj log` order. */
-export async function gitLog(range: GitLogRange): Promise<GitCommit[]> {
+export async function gitLog(
+  root: string,
+  range: GitLogRange,
+): Promise<GitCommit[]> {
   const args = ["log", "--no-color", "-z", `--format=${LOG_FORMAT}`];
   if (range.limit !== undefined) args.push("-n", String(range.limit));
   args.push(range.from === undefined ? range.to : `${range.from}..${range.to}`);
 
-  const result = await $`git ${args}`.quiet().nothrow();
+  const result = await $`git ${args}`.cwd(root).quiet().nothrow();
   if (result.exitCode !== 0) {
     const said = result.stderr.toString().trim();
     throw new GitError(
@@ -272,6 +291,9 @@ import {
   subjectIdentity,
 } from "./git";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 /** The oid `revision` names, as this repo's git store has it. */
 async function oidOf(revision: string): Promise<GitOid> {
   return GitOid.parse(
@@ -303,14 +325,14 @@ describe("gitHasCommit", () => {
 
     // act
     // assert
-    expect(await gitHasCommit(head)).toBe(true);
+    expect(await gitHasCommit(ROOT, head)).toBe(true);
   });
 
   test("answers false for an oid nothing has", async () => {
     // arrange
     // act
     // assert
-    expect(await gitHasCommit(MISSING)).toBe(false);
+    expect(await gitHasCommit(ROOT, MISSING)).toBe(false);
   });
 });
 
@@ -324,25 +346,25 @@ describe("gitForget", () => {
     await $`git update-ref ${`refs/diffy/${other}/${head}`} ${head}`.quiet();
 
     // act
-    const dropped = await gitForget(mine);
+    const dropped = await gitForget(ROOT, mine);
 
     // assert
     expect(dropped).toBe(1);
-    expect(await gitHasCommit(head)).toBe(true);
+    expect(await gitHasCommit(ROOT, head)).toBe(true);
     const listing = ["for-each-ref", "--format=%(refname)", "refs/diffy/"];
     const left = await $`git ${listing}`.quiet().text();
     expect(left).not.toContain(`refs/diffy/${mine}/`);
     expect(left).toContain(`refs/diffy/${other}/`);
 
     // cleanup
-    await gitForget(other);
+    await gitForget(ROOT, other);
   });
 
   test("reports nothing to drop for an untouched scope", async () => {
     // arrange
     // act
     // assert
-    expect(await gitForget(RefPath.parse("pull/999997"))).toBe(0);
+    expect(await gitForget(ROOT, RefPath.parse("pull/999997"))).toBe(0);
   });
 });
 
@@ -352,8 +374,8 @@ describe("gitMaterialize", () => {
     const head = await oidOf("HEAD");
 
     // act
-    const first = await gitMaterialize([pin(head)]);
-    const second = await gitMaterialize([pin(head)]);
+    const first = await gitMaterialize(ROOT, [pin(head)]);
+    const second = await gitMaterialize(ROOT, [pin(head)]);
 
     // assert
     expect(first as GitOid[]).toEqual([head]);
@@ -365,7 +387,7 @@ describe("gitMaterialize", () => {
     const [head, parent] = [await oidOf("HEAD"), await oidOf("HEAD~1")];
 
     // act
-    const oids = await gitMaterialize([pin(parent), pin(head)]);
+    const oids = await gitMaterialize(ROOT, [pin(parent), pin(head)]);
 
     // assert
     expect(oids as GitOid[]).toEqual([parent, head]);
@@ -376,11 +398,14 @@ describe("gitLog", () => {
   test("reads the commits the tip has and the base does not", async () => {
     // arrange
     const [soloBase, soloHead] = await soloCommit();
-    const [base, head] = await gitMaterialize([pin(soloBase), pin(soloHead)]);
+    const [base, head] = await gitMaterialize(ROOT, [
+      pin(soloBase),
+      pin(soloHead),
+    ]);
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
-    const commits = await gitLog({ from: base, to: head });
+    const commits = await gitLog(ROOT, { from: base, to: head });
 
     // assert
     expect(commits).toHaveLength(1);
@@ -393,11 +418,11 @@ describe("gitLog", () => {
 
   test("puts the tip first and honours the limit", async () => {
     // arrange
-    const [head] = await gitMaterialize([pin(await oidOf("HEAD"))]);
+    const [head] = await gitMaterialize(ROOT, [pin(await oidOf("HEAD"))]);
     if (head === undefined) throw new Error("no oid");
 
     // act
-    const commits = await gitLog({ to: head, limit: 3 });
+    const commits = await gitLog(ROOT, { to: head, limit: 3 });
 
     // assert
     expect(commits).toHaveLength(3);
@@ -540,10 +565,11 @@ commits as the branch's work, reversed.
 
 /** The commit two heads share, which is where a branch and its base diverged. */
 export async function gitMergeBase(
+  root: string,
   a: LocalOid,
   b: LocalOid,
 ): Promise<LocalOid> {
-  const result = await $`git merge-base ${a} ${b}`.quiet().nothrow();
+  const result = await $`git merge-base ${a} ${b}`.cwd(root).quiet().nothrow();
   const shared = result.text().trim();
 
   // No common ancestor is exit 1 with nothing on either stream.
@@ -593,11 +619,14 @@ async function divergedPair(): Promise<[GitOid, GitOid]> {
 describe("gitMergeBase", () => {
   test("finds the commit two diverged histories share", async () => {
     // arrange
-    const [left, right] = await gitMaterialize((await divergedPair()).map(pin));
+    const [left, right] = await gitMaterialize(
+      ROOT,
+      (await divergedPair()).map(pin),
+    );
     if (left === undefined || right === undefined) throw new Error("no oids");
 
     // act
-    const shared = await gitMergeBase(left, right);
+    const shared = await gitMergeBase(ROOT, left, right);
 
     // assert
     expect(shared).not.toBe(left);
@@ -608,12 +637,15 @@ describe("gitMergeBase", () => {
 
   test("answers the older commit when one is the other's ancestor", async () => {
     // arrange
-    const [base, head] = await gitMaterialize((await soloCommit()).map(pin));
+    const [base, head] = await gitMaterialize(
+      ROOT,
+      (await soloCommit()).map(pin),
+    );
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
     // assert
-    expect(await gitMergeBase(base, head)).toBe(base);
+    expect(await gitMergeBase(ROOT, base, head)).toBe(base);
   });
 });
 ```
@@ -636,8 +668,11 @@ export const BlobId = z
 export type BlobId = z.infer<typeof BlobId>;
 
 /** A blob's contents as text, or null when the store has no one blob by that id. */
-export async function gitBlob(id: BlobId): Promise<string | null> {
-  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
+export async function gitBlob(
+  root: string,
+  id: BlobId,
+): Promise<string | null> {
+  const result = await $`git cat-file blob ${id}`.cwd(root).quiet().nothrow();
   return result.exitCode === 0 ? result.text() : null;
 }
 ```
@@ -655,7 +690,7 @@ describe("gitBlob", () => {
     );
 
     // act
-    const text = await gitBlob(id);
+    const text = await gitBlob(ROOT, id);
 
     // assert
     expect(text).toBe(await $`git show HEAD:package.json`.quiet().text());
@@ -665,7 +700,7 @@ describe("gitBlob", () => {
     // arrange
     // act
     // assert
-    expect(await gitBlob(BlobId.parse("f".repeat(40)))).toBeNull();
+    expect(await gitBlob(ROOT, BlobId.parse("f".repeat(40)))).toBeNull();
   });
 });
 ```

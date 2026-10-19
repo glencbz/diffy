@@ -14,7 +14,7 @@ import {
   pullPins,
 } from "../commit/github";
 import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
-import type { ReviewStore } from "../review/store";
+import type { RepoContext } from "../repo/repos";
 import { ToolError } from "./mcp";
 
 /** A commit as a tool names it to the agent. A pull request's commits
@@ -52,7 +52,7 @@ function subject(description: string): string {
   return description.split("\n")[0] || "(no description)";
 }
 
-export function liveSources(store: ReviewStore): SeriesSources {
+export function liveSources({ root, store }: RepoContext): SeriesSources {
   return {
     local: async (name) => {
       const review = localReview(store.read().document, name);
@@ -60,7 +60,7 @@ export function liveSources(store: ReviewStore): SeriesSources {
       if (review === undefined || version === undefined) {
         throw new ToolError(`no local review is named ${name}`);
       }
-      const found = await jjCommits(version.commits);
+      const found = await jjCommits(root, version.commits);
       return {
         series: localSeries(name),
         version: String(review.versions.length),
@@ -82,7 +82,7 @@ export function liveSources(store: ReviewStore): SeriesSources {
       };
     },
     pull: async (number) => {
-      const { owner, name } = await originRepo();
+      const { owner, name } = await originRepo(root);
       const repo = `${owner}/${name}`;
       const history = await githubPullRequestHistory(
         { owner, name },
@@ -90,11 +90,11 @@ export function liveSources(store: ReviewStore): SeriesSources {
       );
       const state = history.states.at(-1);
       if (state === undefined) throw new ToolError(`#${number} has no head`);
-      const [base, tip] = await gitMaterialize(pullPins(history, state));
+      const [base, tip] = await gitMaterialize(root, pullPins(history, state));
       if (base === undefined || tip === undefined) {
         throw new Error("gitMaterialize returned fewer oids than asked");
       }
-      const commits = await gitLog({ from: base, to: tip, limit: 200 });
+      const commits = await gitLog(root, { from: base, to: tip, limit: 200 });
       return {
         series: pullSeries(repo, number),
         version: state.head,
@@ -108,7 +108,7 @@ export function liveSources(store: ReviewStore): SeriesSources {
         })),
       };
     },
-    diff: (commitId) => jjDiff({ revision: commitId }),
+    diff: (commitId) => jjDiff(root, { revision: commitId }),
   };
 }
 

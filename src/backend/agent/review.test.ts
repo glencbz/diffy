@@ -8,6 +8,9 @@ import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";
 import { INSTRUCTIONS, reviewTools } from "./review";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 let dir: string;
 let store: ReviewStore;
 let route: ReturnType<typeof mcpRoute>;
@@ -15,7 +18,11 @@ let route: ReturnType<typeof mcpRoute>;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "diffy-agent-"));
   store = openReviewStore(join(dir, "r.sqlite"));
-  route = mcpRoute(reviewTools(store), INSTRUCTIONS, () => "https://vm:4000");
+  const repo = { root: ROOT, store };
+  route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
+    repo,
+    link: (path) => `https://vm:4000${path}`,
+  }));
 });
 
 afterEach(async () => {
@@ -110,7 +117,7 @@ describe("the protocol", () => {
 describe("the review tools", () => {
   test("registers a review, comments on it, and reads the comment back", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     const registered = await call("register_review", {
       name: "t",
@@ -146,7 +153,7 @@ describe("the review tools", () => {
 
   test("leaves a resolved comment out of the unresolved ones", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     await call("register_review", { name: "t", revset: TIP });
     const added = await call("add_comment", {
@@ -170,7 +177,7 @@ describe("the review tools", () => {
 
   test("hands the turn over when the reader marks the newest version", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     // v1 is written at an operation of its own, since the tool registering
     // v2 reads the live repo and a test cannot make a new operation in it.
@@ -220,7 +227,7 @@ describe("the review tools", () => {
 
   test("threads a reply under the reader's comment", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     await call("register_review", { name: "t", revset: TIP });
     const added = await call("add_comment", {

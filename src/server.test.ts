@@ -1,13 +1,16 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
+  agentContext,
   handleCompare,
   handleComparePaths,
   handleDiff,
@@ -26,9 +29,13 @@ import {
   reviewSocket,
 } from "./server";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
+
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
-  const [entry] = await jjLog({ revset, limit: 1 });
+  const [entry] = await jjLog(ROOT, { revset, limit: 1 });
   if (entry === undefined) throw new Error(`no commit matches ${revset}`);
   return entry.commitId;
 }
@@ -37,7 +44,7 @@ describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
     // arrange
     // act
-    const res = await handleLog(new Request("http://test/api/log"));
+    const res = await handleLog(new Request("http://test/api/log"), REPO);
     const body = (await res.json()) as unknown[];
 
     // assert
@@ -49,7 +56,10 @@ describe("handleLog", () => {
   test("reads only what a revset names", async () => {
     // arrange
     // act
-    const res = await handleLog(new Request("http://test/api/log?revset=@"));
+    const res = await handleLog(
+      new Request("http://test/api/log?revset=@"),
+      REPO,
+    );
     const body = (await res.json()) as unknown[];
 
     // assert
@@ -62,6 +72,7 @@ describe("handleLog", () => {
     // act
     const res = await handleLog(
       new Request("http://test/api/log?op=no-such-op-xyz"),
+      REPO,
     );
     const body = (await res.json()) as { error: string };
 
@@ -75,7 +86,7 @@ describe("handleOperations", () => {
   test("returns the operation log as a non-empty array", async () => {
     // arrange
     // act
-    const res = await handleOperations();
+    const res = await handleOperations(new Request("http://test/"), REPO);
     const body = (await res.json()) as unknown[];
 
     // assert
@@ -91,6 +102,7 @@ describe("handleDiff", () => {
     // act
     const res = await handleDiff(
       new Request("http://test/api/diff?rev=root()%2B"),
+      REPO,
     );
 
     // assert
@@ -103,7 +115,7 @@ describe("handleDiff", () => {
   test("defaults the revision to @", async () => {
     // arrange
     // act
-    const res = await handleDiff(new Request("http://test/api/diff"));
+    const res = await handleDiff(new Request("http://test/api/diff"), REPO);
     const body = (await res.json()) as { revision: string };
 
     // assert
@@ -116,6 +128,7 @@ describe("handleDiff", () => {
     // act
     const res = await handleDiff(
       new Request("http://test/api/diff?rev=no-such-xyz"),
+      REPO,
     );
     const body = (await res.json()) as { error: string };
 
@@ -129,6 +142,7 @@ describe("handleSource", () => {
   const source = (params: Record<string, string>) =>
     handleSource(
       new Request(`http://test/api/source?${new URLSearchParams(params)}`),
+      REPO,
     );
 
   test("answers a blob's lines, highlighted as its path says", async () => {
@@ -168,9 +182,10 @@ describe("handleSource", () => {
 
 describe("the compare routes", () => {
   const get = (
-    handler: (req: Request) => Promise<Response>,
+    handler: (req: Request, repo: RepoContext) => Promise<Response>,
     params: Record<string, string>,
-  ) => handler(new Request(`http://test/?${new URLSearchParams(params)}`));
+  ) =>
+    handler(new Request(`http://test/?${new URLSearchParams(params)}`), REPO);
 
   test("answers one file diffed against another path", async () => {
     // arrange
@@ -226,7 +241,7 @@ describe("handleInterdiff", () => {
   }
 
   async function rowsFor(params: [string, string][]) {
-    const res = await handleInterdiff(request(params));
+    const res = await handleInterdiff(request(params), REPO);
     const body = (await res.json()) as {
       rows: {
         from: { commitId: string } | null;
@@ -258,7 +273,7 @@ describe("handleInterdiff", () => {
 
   test("lines up a series against itself, one row per commit", async () => {
     // arrange
-    const ids = (await jjLog({ revset: "root()+::", limit: 3 })).map(
+    const ids = (await jjLog(ROOT, { revset: "root()+::", limit: 3 })).map(
       (entry) => entry.commitId,
     );
     const params: [string, string][] = [
@@ -296,7 +311,7 @@ describe("handleInterdiff", () => {
   test("reports a request with no commits as 400", async () => {
     // arrange
     // act
-    const res = await handleInterdiff(request([]));
+    const res = await handleInterdiff(request([]), REPO);
     const body = (await res.json()) as { error: string };
 
     // assert
@@ -312,6 +327,7 @@ describe("handleInterdiff", () => {
         ["from", "no-such-xyz"],
         ["to", "@"],
       ]),
+      REPO,
     );
     const body = (await res.json()) as { error: string };
 
@@ -367,7 +383,7 @@ describe("the GitHub routes", () => {
       "http://test/api/github/pull/commits?repo=glencbz/diffy&number=9&head=nope";
 
     // act
-    const res = await handleGithubPullCommits(new Request(url));
+    const res = await handleGithubPullCommits(new Request(url), REPO);
     const body = (await res.json()) as { error: string };
 
     // assert
@@ -379,12 +395,19 @@ describe("the GitHub routes", () => {
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[2]
 
 describe("the review route", () => {
-  async function withStore(
-    run: (route: ReturnType<typeof reviewRoute>) => Promise<void>,
-  ) {
+  interface Route {
+    GET: () => Response;
+    POST: (req: Request) => Promise<Response>;
+  }
+
+  async function withStore(run: (route: Route) => Promise<void>) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const repo = { root: ROOT, store: openReviewStore(join(dir, "r.sqlite")) };
     try {
-      await run(reviewRoute(openReviewStore(join(dir, "r.sqlite"))));
+      await run({
+        GET: () => reviewRoute.GET(new Request("http://test/"), repo),
+        POST: (req) => reviewRoute.POST(req, repo),
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -441,13 +464,13 @@ describe("the review route", () => {
     // arrange
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const store = openReviewStore(join(dir, "r.sqlite"));
-    const route = localReviewsRoute(store);
     const post = (body: unknown) =>
-      route.POST(
+      localReviewsRoute.POST(
         new Request("http://test/api/local/reviews", {
           method: "POST",
           body: JSON.stringify(body),
         }),
+        { root: ROOT, store },
       );
 
     try {
@@ -563,10 +586,10 @@ describe("pullDiffResponse", () => {
     head: string;
     mergeBase: string;
   }> {
-    for (const merge of await jjLog({ revset: "merges() & ::trunk()" })) {
+    for (const merge of await jjLog(ROOT, { revset: "merges() & ::trunk()" })) {
       const [left, right] = merge.parents;
       if (left === undefined || right === undefined) continue;
-      const [shared] = await jjLog({
+      const [shared] = await jjLog(ROOT, {
         revset: `heads(::${left} & ::${right})`,
         limit: 1,
       });
@@ -578,7 +601,7 @@ describe("pullDiffResponse", () => {
         [left, right],
         [right, left],
       ] as [string, string][]) {
-        const [moved] = await jjLog({
+        const [moved] = await jjLog(ROOT, {
           revset: `(${mergeBase}..${base}) ~ empty()`,
           limit: 1,
         });
@@ -608,6 +631,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: earlier, to: later }),
       stubHistory(base, heads),
     );
@@ -618,7 +642,7 @@ describe("pullDiffResponse", () => {
     expect(answer.from).toEqual({ kind: "version", head: earlier });
     expect(answer.to).toBe(later);
     expect(answer.files).toEqual(
-      await jjInterdiff({ from: earlier, to: later }),
+      await jjInterdiff(ROOT, { from: earlier, to: later }),
     );
     expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
   });
@@ -630,6 +654,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: earlier, to: later, fromCommit: base, toCommit: earlier }),
       stubHistory(base, heads),
     );
@@ -638,10 +663,10 @@ describe("pullDiffResponse", () => {
     // assert
     expect(res.status).toBe(200);
     expect(answer.files).toEqual(
-      await jjInterdiff({ from: base, to: earlier }),
+      await jjInterdiff(ROOT, { from: base, to: earlier }),
     );
     expect(answer.files).not.toEqual(
-      await jjInterdiff({ from: earlier, to: later }),
+      await jjInterdiff(ROOT, { from: earlier, to: later }),
     );
   });
 
@@ -652,6 +677,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: earlier, to: later, toCommit: earlier }),
       stubHistory(base, heads),
     );
@@ -659,9 +685,9 @@ describe("pullDiffResponse", () => {
 
     // assert
     expect(res.status).toBe(200);
-    expect(answer.files).toEqual(await jjDiff({ revision: earlier }));
+    expect(answer.files).toEqual(await jjDiff(ROOT, { revision: earlier }));
     expect(answer.files).not.toEqual(
-      await jjInterdiff({ from: earlier, to: later }),
+      await jjInterdiff(ROOT, { from: earlier, to: later }),
     );
   });
 
@@ -672,6 +698,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: earlier, to: later, toCommit: "nope" }),
       unreachable,
     );
@@ -684,7 +711,11 @@ describe("pullDiffResponse", () => {
   test("reports a head that is not a 40-hex oid as 400, before asking GitHub", async () => {
     // arrange
     // act
-    const res = await pullDiffResponse(query({ to: "nope" }), unreachable);
+    const res = await pullDiffResponse(
+      ROOT,
+      query({ to: "nope" }),
+      unreachable,
+    );
 
     // assert
     expect(res.status).toBe(400);
@@ -697,6 +728,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: "nope", to: heads[1] as string }),
       unreachable,
     );
@@ -711,6 +743,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ to: heads[1] as string }),
       unreachable,
     );
@@ -726,6 +759,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: "base", to: later }),
       stubHistory(base, heads),
     );
@@ -735,7 +769,7 @@ describe("pullDiffResponse", () => {
     expect(res.status).toBe(200);
     expect(answer.from).toEqual({ kind: "base" });
     expect(answer.files).toEqual(
-      await jjDiffBetween({ from: base, to: later }),
+      await jjDiffBetween(ROOT, { from: base, to: later }),
     );
   });
 
@@ -745,6 +779,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: "base", to: head }),
       stubHistory(base, [head]),
     );
@@ -753,7 +788,7 @@ describe("pullDiffResponse", () => {
     // assert
     expect(res.status).toBe(200);
     expect(answer.files).toEqual(
-      await jjDiffBetween({ from: mergeBase, to: head }),
+      await jjDiffBetween(ROOT, { from: mergeBase, to: head }),
     );
     const fromBase = await $`jj diff --name-only --from ${base} --to ${head}`
       .quiet()
@@ -769,6 +804,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: heads[0] as string, to: "base" }),
       unreachable,
     );
@@ -784,6 +820,7 @@ describe("pullDiffResponse", () => {
 
     // act
     const res = await pullDiffResponse(
+      ROOT,
       query({ from: heads[0] as string, to: stranger }),
       stubHistory(base, heads),
     );
@@ -791,6 +828,82 @@ describe("pullDiffResponse", () => {
     // assert
     expect(res.status).toBe(404);
     expect((await body(res)).error).toMatch(/never had head/);
+  });
+});
+
+describe("agentContext", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "diffy-agents-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** A fresh jj repository, and a second workspace of it. */
+  async function repoWithWorkspace(name: string) {
+    const root = join(dir, name);
+    await $`jj git init ${root}`.quiet();
+    const second = join(dir, `${name}-ws`);
+    await $`jj workspace add ${second}`.cwd(root).quiet();
+    return { root, second };
+  }
+
+  test("runs a named workspace's call there, and links the reader to it", async () => {
+    // arrange
+    const reader = await repoWithWorkspace("reader");
+    const agent = await repoWithWorkspace("agent");
+    const shown = {
+      root: reader.root,
+      store: openReviewStore(join(dir, "reader.sqlite")),
+    };
+    const agents = new AgentWorkspaces({ XDG_DATA_HOME: dir });
+    const context = (caller: string | null) =>
+      agentContext({ context: () => shown }, agents, "http://vm", caller);
+
+    // act
+    const elsewhere = await context(agent.second);
+    const sibling = await context(reader.second);
+    const unnamed = await context(null);
+    elsewhere.repo.store.apply({
+      kind: "set-seen",
+      comparison: {
+        reviewKey: "change:a",
+        fromCommitId: null,
+        toCommitId: "a",
+      },
+      seen: true,
+      at: "2026-10-19T09:00:00.000Z",
+    });
+
+    // assert
+    expect(elsewhere.repo.root).toBe(agent.second);
+    expect(elsewhere.link("/reviews/x")).toBe(
+      `http://vm/reviews/x?repo=${encodeURIComponent(agent.second)}`,
+    );
+    expect(sibling.repo.root).toBe(reader.second);
+    expect(sibling.link("/reviews/x")).toBe("http://vm/reviews/x");
+    expect(unnamed.repo).toBe(shown);
+    expect((await context(agent.root)).repo.store).toBe(elsewhere.repo.store);
+    // The agent's write went to its own repository's store.
+    expect(shown.store.revision()).toBe(0);
+    expect((await context(agent.root)).repo.store.revision()).toBe(1);
+  });
+
+  test("fails a call from a path that is no workspace", async () => {
+    // arrange
+    const agents = new AgentWorkspaces({ XDG_DATA_HOME: dir });
+
+    // act
+    const call = agentContext(
+      { context: () => null },
+      agents,
+      "http://vm",
+      dir,
+    );
+
+    // assert
+    await expect(call).rejects.toBeInstanceOf(ToolError);
   });
 });
 // ~/~ end
