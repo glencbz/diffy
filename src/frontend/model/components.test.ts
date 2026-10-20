@@ -21,6 +21,7 @@ import {
   runStarts,
   sameFold,
   sameRun,
+  seriesComponents,
   withComponents,
   withKind,
   wordAdded,
@@ -66,6 +67,29 @@ describe("component maps", () => {
       "b",
     );
     expect(componentsTo(rewritten, "local:r", "3")).toBeUndefined();
+  });
+
+  test("keeps a commit two versions share once, from the version on screen", () => {
+    // arrange
+    const v1 = map("1", ["a", "b"]);
+    const v2 = {
+      ...map("2", ["a"]),
+      components: [{ ...component("a"), name: "renamed" }],
+      groups: [
+        { commitId: "c1", id: "g", name: "g", gist: "", components: ["a"] },
+      ],
+    };
+    const maps = [{ ...v1, groups: v2.groups }, v2];
+
+    // act
+    const { components, groups } = seriesComponents(maps, "local:r", ["2"]);
+
+    // assert
+    expect(components.map((each) => [each.id, each.name])).toEqual([
+      ["a", "renamed"],
+      ["b", "b"],
+    ]);
+    expect(groups).toHaveLength(1);
   });
 });
 
