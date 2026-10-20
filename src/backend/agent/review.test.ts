@@ -18,7 +18,7 @@ let route: ReturnType<typeof mcpRoute>;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "diffy-agent-"));
   store = openReviewStore(join(dir, "r.sqlite"));
-  const repo = { root: ROOT, store };
+  const repo = { root: ROOT, store, topic: "t" };
   route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
     repo,
     link: (path) => `https://vm:4000${path}`,

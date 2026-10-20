@@ -1136,7 +1136,7 @@ async function call(args: Record<string, unknown>) {
     runTools(EvidenceStore.in(join(dir, "data")), FAKE, () => PULL),
     INSTRUCTIONS,
     async () => ({
-      repo: { root: "/repo", store },
+      repo: { root: "/repo", store, topic: "t" },
       link: (path) => `https://vm:4000${path}`,
       wait: (name) => `diffy wait ${name}`,
       now: () => new Date("2026-10-25T00:00:00Z"),

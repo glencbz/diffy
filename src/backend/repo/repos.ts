@@ -3,7 +3,6 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
-import { jjRepoDir } from "../commit/jj";
 import type { Host } from "../host/host";
 import {
   openReviewStore,
@@ -18,44 +17,29 @@ import {
 export interface RepoContext {
   root: string;
   store: ReviewStore;
+  /** What the store's revisions are published under, the same for every
+   *  workspace of one repository. */
+  topic: string;
 }
 
-/** The repository the reader is shown, which every browser route reads. */
-export class ServedRepo {
-  #current: { context: RepoContext; stop: () => void } | null = null;
+/** The repository a tab opens on when its address names none: the one the
+ *  reader opened last. */
+export class DefaultRepo {
+  #root: string | null = null;
 
   constructor(
     private readonly host: Host,
     /** The list each repository opened here joins, or null for a server
      *  that leaves the reader's list alone. */
     private readonly recent: RecentRepos | null,
-    private readonly publish: (revision: number) => void,
   ) {}
 
   get root(): string | null {
-    return this.#current?.context.root ?? null;
-  }
-
-  /** The reader's context, or null before a repository is open. */
-  context(): RepoContext | null {
-    return this.#current?.context ?? null;
+    return this.#root;
   }
 
   async open(root: string) {
-    const store = openReviewStore(
-      await reviewStorePath(root, this.host.dataDir),
-    );
-    this.#current?.stop();
-    const stopWatch = watchReview(store, this.publish);
-    const stopPurge = purgeForgotten(store, this.host.now);
-    this.#current = {
-      context: { root, store },
-      stop: () => {
-        stopWatch();
-        stopPurge();
-        store.close();
-      },
-    };
+    this.#root = root;
     await this.recent?.opened(root, this.host.now().toISOString());
   }
 }
@@ -289,13 +273,17 @@ function cachedFind(host: Host): () => Promise<FoundRepo[]> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[6]
 
-/** The context of each workspace an agent calls from, opened on its first
- *  call and kept for the run. Workspaces of one repository share a store. */
-export class AgentWorkspaces {
+/** The context of every workspace a tab or an agent names, opened on its
+ *  first use and kept for the run. Workspaces of one repository share a
+ *  store, and each store is watched once. */
+export class Workspaces {
   #contexts = new Map<string, Promise<RepoContext>>();
   #stores = new Map<string, ReviewStore>();
 
-  constructor(private readonly host: Host) {}
+  constructor(
+    private readonly host: Host,
+    private readonly publish: (topic: string, revision: number) => void,
+  ) {}
 
   context(workspace: string): Promise<RepoContext> {
     let found = this.#contexts.get(workspace);
@@ -318,17 +306,11 @@ export class AgentWorkspaces {
     if (store === undefined) {
       store = openReviewStore(path);
       this.#stores.set(path, store);
+      watchReview(store, (revision) => this.publish(path, revision));
+      purgeForgotten(store, this.host.now);
     }
-    return { root: probe.root, store };
+    return { root: probe.root, store, topic: path };
   }
-}
-
-/** Whether two workspaces belong to one repository. */
-export async function sameRepo(a: string, b: string): Promise<boolean> {
-  const [here, there] = await Promise.all(
-    [a, b].map((root) => jjRepoDir(root).catch(() => null)),
-  );
-  return here !== null && here === there;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[7]
@@ -356,7 +338,7 @@ async function recentSummaries(
 
 export function repoRoutes(
   host: Host,
-  served: ServedRepo,
+  defaultRepo: DefaultRepo,
   recent: RecentRepos,
 ) {
   const foundUnderHome = cachedFind(host);
@@ -367,7 +349,7 @@ export function repoRoutes(
           // How the per-user server's probe tells diffy from another program.
           diffy: 1,
           home: host.home,
-          current: served.root,
+          current: defaultRepo.root,
         }),
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
@@ -376,7 +358,7 @@ export function repoRoutes(
         if (found.kind !== "jj") {
           return refuse(`no jj repository at ${body.data.path}`);
         }
-        await served.open(found.root);
+        await defaultRepo.open(found.root);
         return Response.json({ root: found.root });
       },
     },

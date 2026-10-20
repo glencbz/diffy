@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { GitOid } from "./history";
-import { type Place, readPlace, writePlace } from "./place";
+import { type Place, readPlace, readRepo, withRepo, writePlace } from "./place";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -174,6 +174,21 @@ describe("writePlace", () => {
     });
 
     expect(address).toBe(`/pulls/7/commits/${oid("c")}/files/src/a.ts#L3`);
+  });
+});
+
+describe("the tab's repository", () => {
+  test("rides beside the place without changing it", () => {
+    // arrange
+    const address = withRepo("/reviews/x?from=2#L4", "/src/a b");
+
+    // act
+    const place = at(address);
+
+    // assert
+    expect(readRepo(new URL(address, "http://diffy"))).toBe("/src/a b");
+    expect(place).toEqual(at("/reviews/x?from=2#L4"));
+    expect(withRepo("/", null)).toBe("/");
   });
 });
 // ~/~ end

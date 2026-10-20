@@ -18,13 +18,14 @@ import {
   storePort,
 } from "./backend/instance/instance";
 import {
+  DefaultRepo,
   probeRepo,
   RecentRepos,
-  ServedRepo,
   type Start,
   startingRepo,
+  Workspaces,
 } from "./backend/repo/repos";
-import { REVIEW_TOPIC, routes, type SocketData, sockets } from "./server";
+import { routes, type SocketData, sockets } from "./server";
 
 const USAGE = `usage: diffy [<path>] [--port <n>] [--no-open]
        diffy mcp [--url <server>]
@@ -209,17 +210,19 @@ async function serve(
   const listeners = new AgentListeners();
   // A server on a port of its own is a side server, such as a preview, and
   // what it opens is not what the reader was last working on.
-  const served = new ServedRepo(
+  const defaultRepo = new DefaultRepo(
     host,
     choice.kind === "sticky" ? recent : null,
-    (revision) => server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
-  if (start.kind === "open") await served.open(start.root);
+  if (start.kind === "open") await defaultRepo.open(start.root);
+  const workspaces = new Workspaces(host, (topic, revision) =>
+    server?.publish(topic, JSON.stringify({ revision })),
+  );
   const bind: Bind = (port) => {
     try {
       return Bun.serve({
         port,
-        routes: routes(host, served, recent, listeners),
+        routes: routes(host, defaultRepo, recent, workspaces, listeners),
         websocket: sockets(listeners),
       });
     } catch (error) {

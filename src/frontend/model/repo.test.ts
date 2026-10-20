@@ -1,6 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/repos.md#frontend-model-repo-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { isPathQuery, matchesQuery, pathParts, since, tildePath } from "./repo";
+import {
+  inWorkspace,
+  isPathQuery,
+  matchesQuery,
+  pathParts,
+  since,
+  tildePath,
+} from "./repo";
 
 describe("tildePath", () => {
   test("writes the home directory as ~", () => {
@@ -40,6 +47,15 @@ describe("since", () => {
     expect(since("2026-10-14T09:00:00Z", now)).toBe("3h ago");
     expect(since("2026-10-11T12:00:00Z", now)).toBe("3d ago");
     expect(since("2026-08-01T12:00:00Z", now)).toBe("2mo ago");
+  });
+});
+
+describe("inWorkspace", () => {
+  test("names the workspace beside the query a route already has", () => {
+    expect(inWorkspace("/api/log", "/w")).toBe("/api/log?workspace=%2Fw");
+    expect(inWorkspace("/api/log?op=1", "/w")).toBe(
+      "/api/log?op=1&workspace=%2Fw",
+    );
   });
 });
 // ~/~ end

@@ -9,16 +9,18 @@ and hands each request the repository it runs in. The
 ## A repository per request
 
 Every jj and git call takes the workspace root it runs in, and every route
-and agent tool is handed a `RepoContext`: that root and its repository's
-[review store](review-store.md). The browser's routes get the reader's
-context from `ServedRepo`, and an agent's tool calls get the context of the
-workspace the agent works in, so the two can be in different repositories.
+and agent tool is handed a `RepoContext`: that root, its repository's
+[review store](review-store.md), and the topic the store's changes are
+announced under. A browser request names its tab's workspace, an agent's
+call names the agent's, and `Workspaces` turns either into a context, so two
+tabs, a phone and an agent can each be in a repository of their own.
 Changing the process's working directory on a switch would spare every
-backend function its root, but would put the reader and every agent in
-whatever repository was switched to last.
+backend function its root, but would put everyone in whatever repository
+was switched to last.
 
-A request in flight while the reader switches keeps the context it started
-with; the browser reloads on a switch, so it never shows that answer.
+`DefaultRepo` is only what a tab that names no repository opens on: the one
+the reader opened last. Opening a repository in one tab moves it, and leaves
+every tab already open where it was.
 
 ```ts
 //| id: backend-repos
@@ -27,7 +29,6 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
-import { jjRepoDir } from "../commit/jj";
 import type { Host } from "../host/host";
 import {
   openReviewStore,
@@ -42,44 +43,29 @@ import {
 export interface RepoContext {
   root: string;
   store: ReviewStore;
+  /** What the store's revisions are published under, the same for every
+   *  workspace of one repository. */
+  topic: string;
 }
 
-/** The repository the reader is shown, which every browser route reads. */
-export class ServedRepo {
-  #current: { context: RepoContext; stop: () => void } | null = null;
+/** The repository a tab opens on when its address names none: the one the
+ *  reader opened last. */
+export class DefaultRepo {
+  #root: string | null = null;
 
   constructor(
     private readonly host: Host,
     /** The list each repository opened here joins, or null for a server
      *  that leaves the reader's list alone. */
     private readonly recent: RecentRepos | null,
-    private readonly publish: (revision: number) => void,
   ) {}
 
   get root(): string | null {
-    return this.#current?.context.root ?? null;
-  }
-
-  /** The reader's context, or null before a repository is open. */
-  context(): RepoContext | null {
-    return this.#current?.context ?? null;
+    return this.#root;
   }
 
   async open(root: string) {
-    const store = openReviewStore(
-      await reviewStorePath(root, this.host.dataDir),
-    );
-    this.#current?.stop();
-    const stopWatch = watchReview(store, this.publish);
-    const stopPurge = purgeForgotten(store, this.host.now);
-    this.#current = {
-      context: { root, store },
-      stop: () => {
-        stopWatch();
-        stopPurge();
-        store.close();
-      },
-    };
+    this.#root = root;
     await this.recent?.opened(root, this.host.now().toISOString());
   }
 }
@@ -365,33 +351,35 @@ function cachedFind(host: Host): () => Promise<FoundRepo[]> {
 }
 ```
 
-## An agent in another repository
+## Opening a workspace
 
-[`diffy mcp`](agents.md#the-stdio-bridge) names the workspace its agent was
-started in, and `AgentWorkspaces` opens that workspace's context on its first
-call and keeps it for the run. Workspaces of one repository share a store, so
-a store is kept by its path, which [the repository behind
-them](jj.md) decides, not by the workspace root. An agent that names no
-workspace works in the reader's repository.
+`Workspaces` opens a workspace's context the first time a tab or an
+[agent](agents.md#the-stdio-bridge) names it, and keeps it for the run.
+Workspaces of one repository share a store, so a store is kept by its path,
+which [the repository behind them](jj.md) decides, not by the workspace root.
+Each store is watched and purged once, however many tabs read it, and its
+path is the topic its revisions are announced under, so a tab hears about
+its own repository's writes and no other's.
 
-The reader's own store is opened apart from the agents' and closed on a
-switch; two handles on one file are safe, since every diffy server already
-writes the same stores. Refusing a call from another repository than the
-reader's would keep one store per run, but would stop an agent whenever the
-reader looked elsewhere, and switching the reader to the agent's repository
-would change their open tab without their asking. `sameRepo` tells the
-[server](server.md#routes) when a link should carry the agent's repository.
+Refusing a call from another repository than the reader's would keep one
+store per run, but would stop an agent whenever the reader looked elsewhere,
+and switching the reader to the agent's repository would change their open
+tab without their asking.
 
 ```ts
 //| id: backend-repos
 
-/** The context of each workspace an agent calls from, opened on its first
- *  call and kept for the run. Workspaces of one repository share a store. */
-export class AgentWorkspaces {
+/** The context of every workspace a tab or an agent names, opened on its
+ *  first use and kept for the run. Workspaces of one repository share a
+ *  store, and each store is watched once. */
+export class Workspaces {
   #contexts = new Map<string, Promise<RepoContext>>();
   #stores = new Map<string, ReviewStore>();
 
-  constructor(private readonly host: Host) {}
+  constructor(
+    private readonly host: Host,
+    private readonly publish: (topic: string, revision: number) => void,
+  ) {}
 
   context(workspace: string): Promise<RepoContext> {
     let found = this.#contexts.get(workspace);
@@ -414,17 +402,11 @@ export class AgentWorkspaces {
     if (store === undefined) {
       store = openReviewStore(path);
       this.#stores.set(path, store);
+      watchReview(store, (revision) => this.publish(path, revision));
+      purgeForgotten(store, this.host.now);
     }
-    return { root: probe.root, store };
+    return { root: probe.root, store, topic: path };
   }
-}
-
-/** Whether two workspaces belong to one repository. */
-export async function sameRepo(a: string, b: string): Promise<boolean> {
-  const [here, there] = await Promise.all(
-    [a, b].map((root) => jjRepoDir(root).catch(() => null)),
-  );
-  return here !== null && here === there;
 }
 ```
 
@@ -463,7 +445,7 @@ async function recentSummaries(
 
 export function repoRoutes(
   host: Host,
-  served: ServedRepo,
+  defaultRepo: DefaultRepo,
   recent: RecentRepos,
 ) {
   const foundUnderHome = cachedFind(host);
@@ -474,7 +456,7 @@ export function repoRoutes(
           // How the per-user server's probe tells diffy from another program.
           diffy: 1,
           home: host.home,
-          current: served.root,
+          current: defaultRepo.root,
         }),
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
@@ -483,7 +465,7 @@ export function repoRoutes(
         if (found.kind !== "jj") {
           return refuse(`no jj repository at ${body.data.path}`);
         }
-        await served.open(found.root);
+        await defaultRepo.open(found.root);
         return Response.json({ root: found.root });
       },
     },

@@ -79,6 +79,19 @@ export function tabPlace(tab: Place["tab"]): Place {
 /** The parts of a URL a place is read from. `window.location` is one. */
 export type Address = Pick<URL, "pathname" | "search" | "hash">;
 
+/** The repository a tab is in, which its address names beside the place. */
+export function readRepo({ search }: Pick<Address, "search">): string | null {
+  return new URLSearchParams(search).get("repo");
+}
+
+/** `address` with the tab's repository named in it. */
+export function withRepo(address: string, repo: string | null): string {
+  if (repo === null) return address;
+  const url = new URL(address, "http://diffy");
+  url.searchParams.set("repo", repo);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 export function readPlace(address: Address): Place {
   const [tab, ...rest] = address.pathname.split("/").filter((s) => s !== "");
   if (tab === "settings") return { tab: "settings" };

@@ -206,7 +206,7 @@ export function mcpRoute(
 `diffy mcp` speaks MCP's stdio transport to the agent, one JSON-RPC message
 per line, and posts each line to the server's `/mcp`. Claude Code starts it in
 the session's directory, so it names that jj workspace in every call, and
-each tool call [runs in it](repos.md#an-agent-in-another-repository), whatever
+each tool call [runs in it](repos.md#opening-a-workspace), whatever
 repository the reader is looking at.
 
 It finds the [per-user server](instance.md) again whenever a post fails, so a
@@ -1690,7 +1690,7 @@ let route: ReturnType<typeof mcpRoute>;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "diffy-agent-"));
   store = openReviewStore(join(dir, "r.sqlite"));
-  const repo = { root: ROOT, store };
+  const repo = { root: ROOT, store, topic: "t" };
   route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
     repo,
     link: (path) => `https://vm:4000${path}`,
@@ -2133,7 +2133,7 @@ async function call(
     componentTools(() => PULL),
     INSTRUCTIONS,
     async () => ({
-      repo: { root: "/repo", store },
+      repo: { root: "/repo", store, topic: "t" },
       link: (path) => `https://vm:4000${path}`,
       wait: (name) => `diffy wait ${name}`,
       now: () => new Date(),
@@ -2493,7 +2493,7 @@ let server: Bun.Server<undefined>;
 let mcp: URL;
 beforeEach(() => {
   const route = mcpRoute([echo], "", async (_req, caller) => ({
-    repo: { root: caller ?? "/reader", store },
+    repo: { root: caller ?? "/reader", store, topic: "t" },
     link: (path) => `http://reader${path}`,
     wait: (name) => `diffy wait ${name}`,
     now: () => new Date(),
