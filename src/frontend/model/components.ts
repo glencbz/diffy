@@ -217,6 +217,37 @@ export function withComponents(
     map,
   ];
 }
+
+/** The components and groups of a series' maps, the versions in `first`
+ *  ahead of the rest. A commit two versions share is in both maps, so each
+ *  of its components and groups is kept once, from the version first in
+ *  that order. */
+export function seriesComponents(
+  maps: ComponentMap[],
+  series: string,
+  first: string[],
+): { components: Component[]; groups: ComponentGroup[] } {
+  const rank = (map: ComponentMap) => {
+    const at = first.indexOf(map.version);
+    return at === -1 ? first.length : at;
+  };
+  const ordered = maps
+    .filter((map) => map.series === series)
+    .sort((a, b) => rank(a) - rank(b));
+  const once = <T extends { commitId: string; id: string }>(all: T[]) => {
+    const seen = new Set<string>();
+    return all.filter((each) => {
+      const key = `${each.commitId}|${each.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  return {
+    components: once(ordered.flatMap((map) => map.components)),
+    groups: once(ordered.flatMap((map) => map.groups)),
+  };
+}
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-model-components>>[1]
 /** The tree one side of a row's diff counts lines of, as a component names

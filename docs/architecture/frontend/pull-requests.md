@@ -688,7 +688,11 @@ import {
 } from "react";
 import type { AsyncState } from "../model/asyncState";
 import { compareAsks, withCompared } from "../model/compared";
-import { componentsTo, DEFAULT_KINDS } from "../model/components";
+import {
+  componentsTo,
+  DEFAULT_KINDS,
+  seriesComponents,
+} from "../model/components";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
@@ -994,26 +998,12 @@ export function SeriesReview({
   const maps = review.status === "ready" ? review.document.componentMaps : [];
   const toMap = componentsTo(maps, series, to);
   const componentsOn = toMap !== undefined && display.components === "shown";
-  // Every version's components, the ones on screen first. Held across
-  // renders, since the view keys its layer on them.
+  // Every version's components and groups, the ones on screen first. Held
+  // across renders, since the view keys its layer on them.
   const fromId = from.kind === "version" ? from.id : null;
-  const components = useMemo(() => {
-    const fromVersion =
-      fromId === null ? undefined : componentsTo(maps, series, fromId);
-    return [
-      ...(componentsTo(maps, series, to)?.components ?? []),
-      ...(fromVersion?.components ?? []),
-      ...versions.flatMap((version) =>
-        version.id === to || version.id === fromVersion?.version
-          ? []
-          : (componentsTo(maps, series, version.id)?.components ?? []),
-      ),
-    ];
-  }, [maps, series, to, fromId, versions]);
-  // Their groups, held the same way.
-  const groups = useMemo(
-    () => maps.flatMap((map) => (map.series === series ? map.groups : [])),
-    [maps, series],
+  const { components, groups } = useMemo(
+    () => seriesComponents(maps, series, fromId === null ? [to] : [to, fromId]),
+    [maps, series, to, fromId],
   );
   const counterparts = useCounterpart({
     source,
