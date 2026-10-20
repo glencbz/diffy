@@ -18,8 +18,6 @@ export interface ServedRepo {
   home: string;
   /** The workspace root being served, or null before the reader picks one. */
   current: string | null;
-  /** Where the run started, while diffy serves a recent repository instead. */
-  startedOutside: string | null;
 }
 
 export interface RepoSummary {
@@ -163,7 +161,6 @@ import {
   useState,
 } from "react";
 import {
-  dismissRepoNotice,
   fetchFoundRepos,
   fetchRecentRepos,
   fetchServedRepo,
@@ -186,7 +183,6 @@ export interface RepoHandle {
   served: AsyncState<ServedRepo>;
   /** Serve the repository at `path` and start over in it, or answer why not. */
   open: (path: string) => Promise<string | null>;
-  dismissNotice: () => void;
 }
 
 function failed(error: unknown): string {
@@ -255,19 +251,7 @@ export function useServedRepo(): RepoHandle {
     }
   }, []);
 
-  const dismissNotice = useCallback(() => {
-    setServed((now) =>
-      now.status === "ready"
-        ? { status: "ready", data: { ...now.data, startedOutside: null } }
-        : now,
-    );
-    void dismissRepoNotice();
-  }, []);
-
-  return useMemo(
-    () => ({ served, open, dismissNotice }),
-    [served, open, dismissNotice],
-  );
+  return useMemo(() => ({ served, open }), [served, open]);
 }
 
 export const RepoContext = createContext<RepoHandle | null>(null);
@@ -647,13 +631,10 @@ export function RepoList({
 ## Repo switcher
 
 The switcher is the first thing in the tab bar and names the served
-repository by its folder, with the folders above it beside. Its popover and
-the notice are fixed to the viewport under the button, because the tab bar
-scrolls sideways on a phone and would clip anything positioned inside it.
-`Ctrl+O` opens it from anywhere.
-
-When diffy fell back to a recent repository, the notice points at the
-switcher, the one place to go if that was the wrong guess.
+repository by its folder, with the folders above it beside. Its popover is
+fixed to the viewport under the button, because the tab bar scrolls sideways
+on a phone and would clip anything positioned inside it. `Ctrl+O` opens it
+from anywhere.
 
 ```tsx
 //| id: frontend-view-repo-switcher
@@ -671,18 +652,14 @@ import { pathParts, tildePath } from "../model/repo";
 export function RepoSwitcher({
   home,
   current,
-  startedOutside,
   open,
   onOpenChange,
-  onDismissNotice,
   children,
 }: {
   home: string;
   current: string;
-  startedOutside: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDismissNotice: () => void;
   /** The picker, drawn in the popover while it is open. */
   children: ReactNode;
 }) {
@@ -743,23 +720,6 @@ export function RepoSwitcher({
       {open && (
         <div className="repo-switcher__popover" role="dialog" style={below}>
           {children}
-        </div>
-      )}
-      {!open && startedOutside !== null && (
-        <div className="repo-switcher__notice" role="status" style={below}>
-          <span>
-            diffy started in <code>{tildePath(startedOutside, home)}</code>,
-            which is not a jj repository, so it opened <b>{shown.name}</b>, the
-            one used last.
-          </span>
-          <span className="repo-switcher__notice-actions">
-            <button type="button" onClick={() => onOpenChange(true)}>
-              Pick another
-            </button>
-            <button type="button" onClick={onDismissNotice}>
-              OK
-            </button>
-          </span>
         </div>
       )}
     </div>
@@ -832,17 +792,15 @@ export function RepoMenu() {
   const repo = useRepoContext();
   const [open, setOpen] = useState(false);
   if (repo.served.status !== "ready") return null;
-  const { home, current, startedOutside } = repo.served.data;
+  const { home, current } = repo.served.data;
   if (current === null) return null;
 
   return (
     <RepoSwitcher
       home={home}
       current={current}
-      startedOutside={startedOutside}
       open={open}
       onOpenChange={setOpen}
-      onDismissNotice={repo.dismissNotice}
     >
       <RepoPicker
         home={home}
@@ -862,29 +820,15 @@ With nothing served, `App` draws this screen in place of the tabs.
 //| id: frontend-screen-open-repo
 //| file: src/frontend/screens/OpenRepoScreen.tsx
 import { RepoPicker } from "../controllers/RepoPicker";
-import { tildePath } from "../model/repo";
 
-export function OpenRepoScreen({
-  home,
-  startedOutside,
-}: {
-  home: string;
-  startedOutside: string | null;
-}) {
+export function OpenRepoScreen({ home }: { home: string }) {
   return (
     <div className="open-repo">
       <div className="open-repo__card">
         <h1>Open a repository</h1>
         <p>
-          {startedOutside === null ? (
-            "diffy is not serving a repository."
-          ) : (
-            <>
-              diffy started in <code>{tildePath(startedOutside, home)}</code>,
-              which is not inside a jj repository.
-            </>
-          )}{" "}
-          Pick one, or type a path. Next time diffy opens the one used last.
+          diffy is not serving a repository. Pick one, or type a path. Next time
+          diffy opens the one used last.
         </p>
         <RepoPicker home={home} current={null} />
       </div>
@@ -931,8 +875,7 @@ export function OpenRepoScreen({
     color: var(--text-faint);
   }
 
-  .repo-switcher__popover,
-  .repo-switcher__notice {
+  .repo-switcher__popover {
     position: fixed;
     z-index: 50;
     width: min(560px, calc(100vw - 2 * var(--space-4)));
@@ -940,27 +883,6 @@ export function OpenRepoScreen({
     border: 1px solid var(--border);
     border-radius: var(--radius-large);
     box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
-  }
-
-  .repo-switcher__notice {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-    padding: var(--space-4) var(--space-5);
-    line-height: 1.5;
-    background: var(--review-unseen-surface);
-  }
-
-  .repo-switcher__notice-actions {
-    display: flex;
-    gap: var(--space-4);
-    margin-left: auto;
-  }
-
-  .repo-switcher__notice button {
-    font: inherit;
-    cursor: pointer;
   }
 
   .repo-list {

@@ -446,8 +446,7 @@
     color: var(--text-faint);
   }
 
-  .repo-switcher__popover,
-  .repo-switcher__notice {
+  .repo-switcher__popover {
     position: fixed;
     z-index: 50;
     width: min(560px, calc(100vw - 2 * var(--space-4)));
@@ -455,27 +454,6 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-large);
     box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
-  }
-
-  .repo-switcher__notice {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-    padding: var(--space-4) var(--space-5);
-    line-height: 1.5;
-    background: var(--review-unseen-surface);
-  }
-
-  .repo-switcher__notice-actions {
-    display: flex;
-    gap: var(--space-4);
-    margin-left: auto;
-  }
-
-  .repo-switcher__notice button {
-    font: inherit;
-    cursor: pointer;
   }
 
   .repo-list {

@@ -3,8 +3,6 @@ export interface ServedRepo {
   home: string;
   /** The workspace root being served, or null before the reader picks one. */
   current: string | null;
-  /** Where the run started, while diffy serves a recent repository instead. */
-  startedOutside: string | null;
 }
 
 export interface RepoSummary {

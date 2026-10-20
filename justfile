@@ -38,9 +38,9 @@ nix_runtime := "nix --extra-experimental-features 'nix-command flakes' develop p
 # ~/~ end
 
 # ~/~ begin <<docs/architecture/backend/server.md#just-bun>>[init]
-# Run the app
+# Run the app on this workspace
 @run port="3000":
-  {{nix_runtime}} bun run src/cli.ts --port {{port}}
+  {{nix_runtime}} bun run src/cli.ts . --port {{port}}
 
 # ~/~ end
 

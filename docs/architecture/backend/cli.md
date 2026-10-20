@@ -8,18 +8,19 @@ one place that reads the environment: it builds the [host](host.md) once and
 hands it to everything it starts.
 
 ```sh
-cd ~/src/some-repo
-diffy              # serves some-repo on this user's port, and opens it
-cd ~/src/other
-diffy              # switches the running diffy to other, and opens it
+diffy              # opens this user's diffy, on the repository used last
+diffy .            # switches it to the repository here, and opens it
+diffy ~/src/third  # switches it to third, from anywhere
 diffy --no-open    # the same without the browser
-diffy --port 4100  # a second server on 4100, or fails if 4100 is taken
-diffy ~/src/third  # serves third, from anywhere
-cd ~/Downloads
-diffy              # serves the repository opened most recently
+diffy . --port 4100  # a second server on 4100, or fails if 4100 is taken
 diffy mcp          # the agent's end of MCP, for Claude Code to start
 diffy wait t       # exits when the reader submits the review t
 ```
+
+Where `diffy` is typed never picks the repository. diffy is one app for the
+whole machine, and a repository that followed the shell would change under
+the reader every time they ran it from another folder, agents' background
+starts included.
 
 Claude Code is pointed at diffy once per user:
 
@@ -161,7 +162,7 @@ function parseWait(argv: string[]): Command {
 
 A run without `--port` first looks for [this user's server](instance.md). If
 one is up, the run hands off to it and exits: it switches that server to the
-repository asked for and opens the browser there, so running `diffy` again is
+path given, if any, and opens the browser there, so running `diffy` again is
 how a reader gets back to the page whose port they never learned. Otherwise
 it binds the stored port, or draws one, and stores what it bound.
 
@@ -171,13 +172,10 @@ The run waits briefly for diffy to answer there and hands off if it does, and
 only draws a new port when it does not. Drawing at once would leave two
 servers, each on a port of its own, and only one of them in the state file.
 
-`--port` runs never read or write the state file. They are the way to serve a
-second repository beside the first, and the dev setup's way to serve one
-workspace per port.
-
-A repository the run fell back on from the recent list does not switch a
-running server: that server is already showing a repository, and a fallback
-is not a choice the reader made.
+`--port` runs never read or write the state file, and never add to the
+[recent list](repos.md#the-recent-list). They are the way to serve a second
+repository beside the first, and the dev setup's way to serve one workspace
+per port, so what they open is not what the reader was working on.
 
 ```ts
 //| id: cli-module
@@ -214,12 +212,15 @@ async function listenSticky(
   fail(1, "found no free port");
 }
 
-async function handOff(running: RunningServer, start: Start, open: boolean) {
-  if (
-    start.kind === "open" &&
-    start.startedOutside === null &&
-    start.root !== running.current
-  ) {
+/** Hand a run over to the server already up. Only a path on the command
+ *  line switches it; a bare `diffy` shows what it serves. */
+async function handOff(
+  running: RunningServer,
+  start: Start,
+  given: boolean,
+  open: boolean,
+) {
+  if (given && start.kind === "open" && start.root !== running.current) {
     const res = await fetch(new URL("/api/repo", running.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -246,28 +247,27 @@ async function serve(
   const open = openAsked && process.stdout.isTTY === true;
   const serverFile = serverFilePath(host.stateDir);
   const recent = RecentRepos.in(host.dataDir);
-  const start = await startingRepo(
-    path,
-    process.cwd(),
-    await recent.read(),
-    (each) => probeRepo(each, host.home),
+  const start = await startingRepo(path, await recent.read(), (each) =>
+    probeRepo(each, host.home),
   );
   if (start.kind === "fail") fail(1, start.reason);
   if (choice.kind === "sticky") {
     const running = await findServer(serverFile);
-    if (running !== null) return handOff(running, start, open);
+    if (running !== null) {
+      return handOff(running, start, path !== undefined, open);
+    }
   }
 
   let server: Bun.Server<SocketData> | null = null;
   const listeners = new AgentListeners();
-  const served = new ServedRepo(host, recent, (revision) =>
-    server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+  // A server on a port of its own is a side server, such as a preview, and
+  // what it opens is not what the reader was last working on.
+  const served = new ServedRepo(
+    host,
+    choice.kind === "sticky" ? recent : null,
+    (revision) => server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
-  if (start.kind === "open") {
-    await served.open(start.root, start.startedOutside);
-  } else {
-    served.startedOutside = start.startedOutside;
-  }
+  if (start.kind === "open") await served.open(start.root);
   const bind: Bind = (port) => {
     try {
       return Bun.serve({
@@ -285,7 +285,7 @@ async function serve(
   } else {
     const listening = await listenSticky(bind, serverFile);
     if (listening.kind === "running") {
-      await handOff(listening.running, start, open);
+      await handOff(listening.running, start, path !== undefined, open);
       process.exit(0);
     }
     server = listening.server;
@@ -295,7 +295,7 @@ async function serve(
   console.log(
     start.kind === "open"
       ? `diffy serving ${start.root} at ${server.url}`
-      : `diffy at ${server.url}: ${start.startedOutside} is not a jj repository, pick one there`,
+      : `diffy at ${server.url}: no repository yet, pick one there`,
   );
   if (open) openBrowser(server.url);
 }

@@ -23,13 +23,12 @@ export interface RepoContext {
 /** The repository the reader is shown, which every browser route reads. */
 export class ServedRepo {
   #current: { context: RepoContext; stop: () => void } | null = null;
-  /** Where the run started, while diffy serves a repository from the recent
-   *  list in its place. */
-  startedOutside: string | null = null;
 
   constructor(
     private readonly host: Host,
-    private readonly recent: RecentRepos,
+    /** The list each repository opened here joins, or null for a server
+     *  that leaves the reader's list alone. */
+    private readonly recent: RecentRepos | null,
     private readonly publish: (revision: number) => void,
   ) {}
 
@@ -42,7 +41,7 @@ export class ServedRepo {
     return this.#current?.context ?? null;
   }
 
-  async open(root: string, startedOutside: string | null = null) {
+  async open(root: string) {
     const store = openReviewStore(
       await reviewStorePath(root, this.host.dataDir),
     );
@@ -57,8 +56,7 @@ export class ServedRepo {
         store.close();
       },
     };
-    this.startedOutside = startedOutside;
-    await this.recent.opened(root, this.host.now().toISOString());
+    await this.recent?.opened(root, this.host.now().toISOString());
   }
 }
 // ~/~ end
@@ -99,13 +97,12 @@ export async function probeRepo(path: string, home: string): Promise<Probe> {
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[2]
 
 export type Start =
-  | { kind: "open"; root: string; startedOutside: string | null }
-  | { kind: "choose"; startedOutside: string }
+  | { kind: "open"; root: string }
+  | { kind: "choose" }
   | { kind: "fail"; reason: string };
 
 export async function startingRepo(
   given: string | undefined,
-  cwd: string,
   recent: RecentEntry[],
   probe: (path: string) => Promise<Probe>,
 ): Promise<Start> {
@@ -113,7 +110,7 @@ export async function startingRepo(
     const found = await probe(given);
     switch (found.kind) {
       case "jj":
-        return { kind: "open", root: found.root, startedOutside: null };
+        return { kind: "open", root: found.root };
       case "git":
         return {
           kind: "fail",
@@ -123,17 +120,11 @@ export async function startingRepo(
         return { kind: "fail", reason: `no jj repository at ${given}` };
     }
   }
-  const here = await probe(cwd);
-  if (here.kind === "jj") {
-    return { kind: "open", root: here.root, startedOutside: null };
-  }
   for (const entry of recent) {
     const found = await probe(entry.root);
-    if (found.kind === "jj") {
-      return { kind: "open", root: found.root, startedOutside: cwd };
-    }
+    if (found.kind === "jj") return { kind: "open", root: found.root };
   }
-  return { kind: "choose", startedOutside: cwd };
+  return { kind: "choose" };
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[3]
@@ -377,7 +368,6 @@ export function repoRoutes(
           diffy: 1,
           home: host.home,
           current: served.root,
-          startedOutside: served.startedOutside,
         }),
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
@@ -388,12 +378,6 @@ export function repoRoutes(
         }
         await served.open(found.root);
         return Response.json({ root: found.root });
-      },
-    },
-    "/api/repo/notice": {
-      DELETE: () => {
-        served.startedOutside = null;
-        return Response.json({});
       },
     },
     "/api/repo/probe": async (req: Request) => {
