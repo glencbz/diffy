@@ -29,10 +29,7 @@ function served(repo: ReturnType<typeof useServedRepo>["served"]) {
       );
     case "ready":
       return repo.data.current === null ? (
-        <OpenRepoScreen
-          home={repo.data.home}
-          startedOutside={repo.data.startedOutside}
-        />
+        <OpenRepoScreen home={repo.data.home} />
       ) : (
         <Screens />
       );

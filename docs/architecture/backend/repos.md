@@ -47,13 +47,12 @@ export interface RepoContext {
 /** The repository the reader is shown, which every browser route reads. */
 export class ServedRepo {
   #current: { context: RepoContext; stop: () => void } | null = null;
-  /** Where the run started, while diffy serves a repository from the recent
-   *  list in its place. */
-  startedOutside: string | null = null;
 
   constructor(
     private readonly host: Host,
-    private readonly recent: RecentRepos,
+    /** The list each repository opened here joins, or null for a server
+     *  that leaves the reader's list alone. */
+    private readonly recent: RecentRepos | null,
     private readonly publish: (revision: number) => void,
   ) {}
 
@@ -66,7 +65,7 @@ export class ServedRepo {
     return this.#current?.context ?? null;
   }
 
-  async open(root: string, startedOutside: string | null = null) {
+  async open(root: string) {
     const store = openReviewStore(
       await reviewStorePath(root, this.host.dataDir),
     );
@@ -81,15 +80,14 @@ export class ServedRepo {
         store.close();
       },
     };
-    this.startedOutside = startedOutside;
-    await this.recent.opened(root, this.host.now().toISOString());
+    await this.recent?.opened(root, this.host.now().toISOString());
   }
 }
 ```
 
 ## Probing a path
 
-A path the reader typed or a run was started in is a jj workspace, a Git
+A path the reader typed or named on the command line is a jj workspace, a Git
 repository jj has not been set up in, or neither. The Git case is told apart
 so the picker can say what to run rather than calling the folder empty.
 `--ignore-working-copy` keeps a probe from snapshotting a repository the reader
@@ -134,22 +132,20 @@ export async function probeRepo(path: string, home: string): Promise<Probe> {
 ## Where a run starts
 
 A path on the command line is held to, and one that is not a jj workspace
-ends the run. Without one, diffy serves the workspace it was started in, as it
-always has; started anywhere else it serves the repository opened most
-recently that still exists, and says so. With none of those it starts with no
-repository and the browser asks for one.
+ends the run. Without one, diffy serves the repository the reader opened
+last that still exists, wherever the run was started. With none it starts with
+no repository and the browser asks for one.
 
 ```ts
 //| id: backend-repos
 
 export type Start =
-  | { kind: "open"; root: string; startedOutside: string | null }
-  | { kind: "choose"; startedOutside: string }
+  | { kind: "open"; root: string }
+  | { kind: "choose" }
   | { kind: "fail"; reason: string };
 
 export async function startingRepo(
   given: string | undefined,
-  cwd: string,
   recent: RecentEntry[],
   probe: (path: string) => Promise<Probe>,
 ): Promise<Start> {
@@ -157,7 +153,7 @@ export async function startingRepo(
     const found = await probe(given);
     switch (found.kind) {
       case "jj":
-        return { kind: "open", root: found.root, startedOutside: null };
+        return { kind: "open", root: found.root };
       case "git":
         return {
           kind: "fail",
@@ -167,17 +163,11 @@ export async function startingRepo(
         return { kind: "fail", reason: `no jj repository at ${given}` };
     }
   }
-  const here = await probe(cwd);
-  if (here.kind === "jj") {
-    return { kind: "open", root: here.root, startedOutside: null };
-  }
   for (const entry of recent) {
     const found = await probe(entry.root);
-    if (found.kind === "jj") {
-      return { kind: "open", root: found.root, startedOutside: cwd };
-    }
+    if (found.kind === "jj") return { kind: "open", root: found.root };
   }
-  return { kind: "choose", startedOutside: cwd };
+  return { kind: "choose" };
 }
 ```
 
@@ -185,9 +175,10 @@ export async function startingRepo(
 
 The repositories the reader opened live in `recent.json` beside the review
 stores, newest first, one entry per workspace root, so two workspaces of one
-repository are two entries. Every diffy run reads and writes the same file;
-two runs opening a repository at the same moment can lose one entry, which
-the next open puts back. A file that does not parse reads as empty rather
+repository are two entries. Only [this user's server](cli.md#the-sticky-port)
+adds to it, so its newest entry is the repository the reader was last working
+in. Two runs opening a repository at the same moment can lose one entry,
+which the next open puts back. A file that does not parse reads as empty rather
 than stopping the run.
 
 Forgetting an entry answers with what it removed, so the browser can put it
@@ -446,9 +437,6 @@ recent list runs jj once per entry, and the walk can take seconds the first
 time. The home directory comes with the served repository so the browser can
 write paths with `~`.
 
-Dismissing the notice that diffy fell back to a recent repository clears it
-for every browser, since it is about the run rather than one screen.
-
 ```ts
 //| id: backend-repos
 
@@ -487,7 +475,6 @@ export function repoRoutes(
           diffy: 1,
           home: host.home,
           current: served.root,
-          startedOutside: served.startedOutside,
         }),
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
@@ -498,12 +485,6 @@ export function repoRoutes(
         }
         await served.open(found.root);
         return Response.json({ root: found.root });
-      },
-    },
-    "/api/repo/notice": {
-      DELETE: () => {
-        served.startedOutside = null;
-        return Response.json({});
       },
     },
     "/api/repo/probe": async (req: Request) => {
@@ -587,39 +568,25 @@ describe("startingRepo", () => {
       "~/a": { kind: "jj", root: "/home/me/a" },
       "~/g": { kind: "git", root: "/home/me/g" },
     });
-    expect(await startingRepo("~/a", "/tmp", recent, probe)).toEqual({
+    expect(await startingRepo("~/a", recent, probe)).toEqual({
       kind: "open",
       root: "/home/me/a",
-      startedOutside: null,
     });
-    expect((await startingRepo("~/g", "/tmp", recent, probe)).kind).toBe(
-      "fail",
-    );
-    expect((await startingRepo("~/n", "/tmp", recent, probe)).kind).toBe(
-      "fail",
-    );
+    expect((await startingRepo("~/g", recent, probe)).kind).toBe("fail");
+    expect((await startingRepo("~/n", recent, probe)).kind).toBe("fail");
   });
 
-  test("serves the workspace it started in", async () => {
-    const probe = probes({ "/work/a/src": { kind: "jj", root: "/work/a" } });
-    expect(await startingRepo(undefined, "/work/a/src", recent, probe)).toEqual(
-      { kind: "open", root: "/work/a", startedOutside: null },
-    );
-  });
-
-  test("started elsewhere, serves the newest recent one that exists", async () => {
+  test("without a path, serves the newest recent one that exists", async () => {
     const probe = probes({ "/work/b": { kind: "jj", root: "/work/b" } });
-    expect(await startingRepo(undefined, "/tmp", recent, probe)).toEqual({
+    expect(await startingRepo(undefined, recent, probe)).toEqual({
       kind: "open",
       root: "/work/b",
-      startedOutside: "/tmp",
     });
   });
 
   test("with nothing to serve, asks", async () => {
-    expect(await startingRepo(undefined, "/tmp", recent, probes({}))).toEqual({
+    expect(await startingRepo(undefined, recent, probes({}))).toEqual({
       kind: "choose",
-      startedOutside: "/tmp",
     });
   });
 });
