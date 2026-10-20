@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchOperations } from "../api";
 import { type LocalHistory, pick, withOperations } from "../model/localHistory";
+import { useWorkspace } from "./repo";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -14,6 +15,7 @@ export interface LocalHistoryHandle {
 }
 
 export function useLocalHistory(): LocalHistoryHandle {
+  const workspace = useWorkspace();
   const [history, setHistory] = useState<LocalHistory>({ status: "loading" });
   const polling = useRef(false);
 
@@ -24,7 +26,7 @@ export function useLocalHistory(): LocalHistoryHandle {
       if (polling.current) return;
       polling.current = true;
       try {
-        const operations = await fetchOperations();
+        const operations = await fetchOperations(workspace);
         if (!cancelled) {
           setHistory((current) => withOperations(current, operations));
         }
@@ -55,7 +57,7 @@ export function useLocalHistory(): LocalHistoryHandle {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [workspace]);
 
   function pickOperation(side: LocalSideName, operationId: string | null) {
     setHistory((current) => {

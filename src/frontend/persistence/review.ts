@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-persistence-review>>[init]
 import * as z from "zod";
+import { inWorkspace } from "../model/repo";
 import { type ReviewCommand, ReviewSnapshot } from "../model/review";
 
 const ErrorAnswer = z.object({ error: z.string() });
@@ -18,14 +19,15 @@ async function snapshotOf(res: Response): Promise<ReviewSnapshot> {
   return ReviewSnapshot.parse(body);
 }
 
-/** The review document as the server keeps it. */
-export const reviewStore = {
+/** The review document of the repository behind `workspace`, as the server
+ *  keeps it. */
+export const reviewStoreIn = (workspace: string) => ({
   async load(): Promise<ReviewSnapshot> {
-    return snapshotOf(await fetch("/api/review"));
+    return snapshotOf(await fetch(inWorkspace("/api/review", workspace)));
   },
   async send(command: ReviewCommand): Promise<ReviewSnapshot> {
     return snapshotOf(
-      await fetch("/api/review", {
+      await fetch(inWorkspace("/api/review", workspace), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(command),
@@ -39,7 +41,10 @@ export const reviewStore = {
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
-    const url = new URL("/api/review/changes", location.href);
+    const url = new URL(
+      inWorkspace("/api/review/changes", workspace),
+      location.href,
+    );
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
 
     const connect = () => {
@@ -61,7 +66,7 @@ export const reviewStore = {
       socket?.close();
     };
   },
-};
+});
 
 const Change = z.object({ revision: z.number().int() });
 // ~/~ end

@@ -18,7 +18,7 @@ let server: Bun.Server<undefined>;
 let mcp: URL;
 beforeEach(() => {
   const route = mcpRoute([echo], "", async (_req, caller) => ({
-    repo: { root: caller ?? "/reader", store },
+    repo: { root: caller ?? "/reader", store, topic: "t" },
     link: (path) => `http://reader${path}`,
     now: () => new Date(),
   }));

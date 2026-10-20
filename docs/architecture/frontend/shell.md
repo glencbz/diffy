@@ -45,7 +45,7 @@ createRoot(container).render(<App />);
 
 ## App
 
-`App` first waits for the [repository being served](repos.md#holding-the-served-repository),
+`App` first waits for the [tab's repository](repos.md#holding-the-tabs-repository),
 and with none draws the screen that asks for one. Past that, it reads the
 open screen from the [address](address.md) through
 `usePlace`; the `switch` over `place.tab` is the routing table. What belongs to

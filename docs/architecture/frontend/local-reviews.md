@@ -825,9 +825,10 @@ transport call, here so the controller does not reach past `state/`.
 ```ts
 //| id: frontend-state-registration
 //| file: src/frontend/state/registration.ts
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchLog, registerLocalReview } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import { useWorkspace } from "./repo";
 
 const SETTLE_MS = 300;
 
@@ -836,6 +837,7 @@ export function useRevsetMatch(
   operation: string,
   revset: string | null,
 ): AsyncState<string[]> | null {
+  const workspace = useWorkspace();
   const [match, setMatch] = useState<AsyncState<string[]> | null>(null);
 
   useEffect(() => {
@@ -846,7 +848,7 @@ export function useRevsetMatch(
     let live = true;
     const timer = setTimeout(() => {
       setMatch({ status: "loading" });
-      fetchLog(operation, revset).then(
+      fetchLog(workspace, operation, revset).then(
         (log) =>
           live &&
           setMatch({
@@ -865,7 +867,7 @@ export function useRevsetMatch(
       live = false;
       clearTimeout(timer);
     };
-  }, [operation, revset]);
+  }, [workspace, operation, revset]);
 
   return match;
 }
@@ -873,24 +875,34 @@ export function useRevsetMatch(
 /** The commit id `trunk()` names at `operation`, or null until it is known
  *  or if jj will not say. Either way the strip can still name the ticks. */
 export function useTrunk(operation: string): string | null {
+  const workspace = useWorkspace();
   const [trunk, setTrunk] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
     setTrunk(null);
-    fetchLog(operation, "trunk()").then(
+    fetchLog(workspace, operation, "trunk()").then(
       ([commit]) => live && setTrunk(commit?.commitId ?? null),
       () => live && setTrunk(null),
     );
     return () => {
       live = false;
     };
-  }, [operation]);
+  }, [workspace, operation]);
 
   return trunk;
 }
 
-export const register = registerLocalReview;
+/** Registers a version of a local review in this tab's repository. */
+export function useRegister(): (
+  asked: Parameters<typeof registerLocalReview>[1],
+) => Promise<string> {
+  const workspace = useWorkspace();
+  return useCallback(
+    (asked) => registerLocalReview(workspace, asked),
+    [workspace],
+  );
+}
 ```
 
 ### The strip
@@ -908,7 +920,7 @@ import { useEffect, useRef, useState } from "react";
 import { localReview } from "../model/review";
 import { reviewNameFor, revsetFor } from "../model/revset";
 import { useCommits } from "../state/commits";
-import { register, useRevsetMatch, useTrunk } from "../state/registration";
+import { useRegister, useRevsetMatch, useTrunk } from "../state/registration";
 import { useReviewContext } from "../state/review";
 import { RegisterStrip } from "../views/RegisterStrip";
 
@@ -927,6 +939,7 @@ export function RegisterReview({
 }) {
   const log = useCommits({ kind: "jj", operation });
   const review = useReviewContext();
+  const register = useRegister();
   const [typed, setTyped] = useState<string | null>(null);
   const [named, setNamed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

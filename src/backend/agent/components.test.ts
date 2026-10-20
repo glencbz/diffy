@@ -77,7 +77,7 @@ async function call(
     componentTools(() => PULL),
     INSTRUCTIONS,
     async () => ({
-      repo: { root: "/repo", store },
+      repo: { root: "/repo", store, topic: "t" },
       link: (path) => `https://vm:4000${path}`,
       now: () => new Date(),
     }),

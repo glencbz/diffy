@@ -1,6 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-state-place>>[init]
 import { useCallback, useEffect, useState } from "react";
-import { type Place, readPlace, writePlace } from "../model/place";
+import {
+  type Place,
+  readPlace,
+  readRepo,
+  withRepo,
+  writePlace,
+} from "../model/place";
 
 /** Whether a move leaves a step behind for back, or rewrites the one the
  *  reader is on. */
@@ -17,7 +23,8 @@ export function usePlace(): [Place, (next: Place, visit?: Visit) => void] {
 
   const go = useCallback((next: Place, visit: Visit = "push") => {
     const { pathname, search, hash } = window.location;
-    const address = writePlace(next);
+    // The tab stays in its repository wherever it goes.
+    const address = withRepo(writePlace(next), readRepo(window.location));
     // Re-clicking the current place leaves no step for back to spend.
     if (address !== `${pathname}${search}${hash}`) {
       if (visit === "push") window.history.pushState(null, "", address);

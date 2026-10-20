@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/repos.md#frontend-model-repo>>[init]
 export interface ServedRepo {
   home: string;
-  /** The workspace root being served, or null before the reader picks one. */
+  /** The workspace this tab reads, or null before the reader picks one. */
   current: string | null;
 }
 
@@ -64,5 +64,13 @@ export function since(at: string, now: number): string {
   if (elapsed < DAY) return `${Math.floor(elapsed / HOUR)}h ago`;
   if (elapsed < 30 * DAY) return `${Math.floor(elapsed / DAY)}d ago`;
   return `${Math.floor(elapsed / (30 * DAY))}mo ago`;
+}
+/** `url` naming the workspace a request reads, for the routes that read
+ *  one. */
+export function inWorkspace(url: string, workspace: string): string {
+  const [path, query = ""] = url.split("?");
+  const params = new URLSearchParams(query);
+  params.set("workspace", workspace);
+  return `${path}?${params}`;
 }
 // ~/~ end
