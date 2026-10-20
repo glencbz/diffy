@@ -58,19 +58,24 @@ export interface GitCommit {
 // ~/~ begin <<docs/architecture/backend/git.md#git-module>>[1]
 
 /** Whether the object store already holds `oid` as a commit. Never hits the network. */
-export async function gitHasCommit(oid: GitOid): Promise<boolean> {
+export async function gitHasCommit(
+  root: string,
+  oid: GitOid,
+): Promise<boolean> {
   // ^{commit} makes a present tree or blob id answer no.
   const spec = `${oid}^{commit}`;
-  const result = await $`git cat-file -e ${spec}`.quiet().nothrow();
+  const result = await $`git cat-file -e ${spec}`.cwd(root).quiet().nothrow();
   return result.exitCode === 0;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/git.md#git-module>>[2]
 
 /** Pins whose object the store does not hold, one per distinct oid. */
-async function absentPins(pins: GitPin[]): Promise<GitPin[]> {
+async function absentPins(root: string, pins: GitPin[]): Promise<GitPin[]> {
   const unique = [...new Map(pins.map((pin) => [pin.oid, pin])).values()];
-  const present = await Promise.all(unique.map((pin) => gitHasCommit(pin.oid)));
+  const present = await Promise.all(
+    unique.map((pin) => gitHasCommit(root, pin.oid)),
+  );
   return unique.filter((_, index) => present[index] === false);
 }
 
@@ -79,21 +84,23 @@ async function absentPins(pins: GitPin[]): Promise<GitPin[]> {
  * return each one as a `LocalOid` in the order asked.
  */
 export async function gitMaterialize(
+  root: string,
   pins: GitPin[],
   remote = "origin",
 ): Promise<LocalOid[]> {
   // One fetch for every missing oid; a repeat view fetches nothing.
-  const missing = await absentPins(pins);
+  const missing = await absentPins(root, pins);
 
   if (missing.length > 0) {
     const refspecs = missing.map((pin) => `${pin.oid}:refs/diffy/${pin.at}`);
     const fetch = await $`git fetch --no-tags ${remote} ${refspecs}`
+      .cwd(root)
       .quiet()
       .nothrow();
 
     // git fetch can exit zero having declined a refspec, so the store
     // itself is the only trustworthy report.
-    const stillMissing = await absentPins(missing);
+    const stillMissing = await absentPins(root, missing);
     if (stillMissing.length > 0) {
       const said = fetch.stderr.toString().trim();
       const lost = stillMissing.map((pin) => pin.oid).join(", ");
@@ -108,9 +115,12 @@ export async function gitMaterialize(
 }
 
 /** Drop the pins under a path, so `git gc` can reclaim what nothing else holds. */
-export async function gitForget(prefix: RefPath): Promise<number> {
+export async function gitForget(
+  root: string,
+  prefix: RefPath,
+): Promise<number> {
   const args = ["for-each-ref", "--format=%(refname)", `refs/diffy/${prefix}/`];
-  const listed = await $`git ${args}`.quiet().nothrow();
+  const listed = await $`git ${args}`.cwd(root).quiet().nothrow();
   if (listed.exitCode !== 0) {
     throw new GitError(
       listed.stderr.toString().trim() ||
@@ -126,7 +136,10 @@ export async function gitForget(prefix: RefPath): Promise<number> {
   if (refs.length === 0) return 0;
 
   const script = Buffer.from(refs.map((ref) => `delete ${ref}\n`).join(""));
-  const dropped = await $`git update-ref --stdin < ${script}`.quiet().nothrow();
+  const dropped = await $`git update-ref --stdin < ${script}`
+    .cwd(root)
+    .quiet()
+    .nothrow();
   if (dropped.exitCode !== 0) {
     throw new GitError(
       dropped.stderr.toString().trim() ||
@@ -150,12 +163,15 @@ export interface GitLogRange {
 const LOG_FORMAT = "%H%x1f%P%x1f%an%x1f%aI%x1f%B";
 
 /** Read commits from the local store, newest first, matching `jj log` order. */
-export async function gitLog(range: GitLogRange): Promise<GitCommit[]> {
+export async function gitLog(
+  root: string,
+  range: GitLogRange,
+): Promise<GitCommit[]> {
   const args = ["log", "--no-color", "-z", `--format=${LOG_FORMAT}`];
   if (range.limit !== undefined) args.push("-n", String(range.limit));
   args.push(range.from === undefined ? range.to : `${range.from}..${range.to}`);
 
-  const result = await $`git ${args}`.quiet().nothrow();
+  const result = await $`git ${args}`.cwd(root).quiet().nothrow();
   if (result.exitCode !== 0) {
     const said = result.stderr.toString().trim();
     throw new GitError(
@@ -206,10 +222,11 @@ export function parseLogRecord(record: string): GitCommit {
 
 /** The commit two heads share, which is where a branch and its base diverged. */
 export async function gitMergeBase(
+  root: string,
   a: LocalOid,
   b: LocalOid,
 ): Promise<LocalOid> {
-  const result = await $`git merge-base ${a} ${b}`.quiet().nothrow();
+  const result = await $`git merge-base ${a} ${b}`.cwd(root).quiet().nothrow();
   const shared = result.text().trim();
 
   // No common ancestor is exit 1 with nothing on either stream.
@@ -234,8 +251,11 @@ export const BlobId = z
 export type BlobId = z.infer<typeof BlobId>;
 
 /** A blob's contents as text, or null when the store has no one blob by that id. */
-export async function gitBlob(id: BlobId): Promise<string | null> {
-  const result = await $`git cat-file blob ${id}`.quiet().nothrow();
+export async function gitBlob(
+  root: string,
+  id: BlobId,
+): Promise<string | null> {
+  const result = await $`git cat-file blob ${id}`.cwd(root).quiet().nothrow();
   return result.exitCode === 0 ? result.text() : null;
 }
 // ~/~ end

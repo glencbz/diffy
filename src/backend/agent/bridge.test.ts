@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-bridge-test>>[init]
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as z from "zod";
+import { openReviewStore } from "../review/store";
 import { bridge } from "./bridge";
 import { mcpRoute, tool } from "./mcp";
 
@@ -8,18 +9,19 @@ const echo = tool({
   name: "echo",
   description: "echo",
   input: z.object({ text: z.string() }),
-  call: async ({ text }) => text,
+  call: async ({ text }, { repo }) => `${text} from ${repo.root}`,
 });
+
+const store = openReviewStore(":memory:");
 
 let server: Bun.Server<undefined>;
 let mcp: URL;
 beforeEach(() => {
-  const route = mcpRoute(
-    [echo],
-    "",
-    () => "http://reader",
-    async (caller) => (caller === "/src/a" ? null : `not ${caller}`),
-  );
+  const route = mcpRoute([echo], "", async (_req, caller) => ({
+    repo: { root: caller ?? "/reader", store },
+    link: (path) => `http://reader${path}`,
+    now: () => new Date(),
+  }));
   server = Bun.serve({ port: 0, routes: { "/mcp": route } });
   mcp = new URL("/mcp", server.url);
 });
@@ -66,17 +68,14 @@ test("answers each request and nothing for a notification", async () => {
     callEcho(2),
   );
   expect(answers.map((each) => each.id)).toEqual([1, 2]);
-  expect(answers[1]?.result?.content[0]?.text).toBe("hi");
+  expect(answers[1]?.result?.content[0]?.text).toBe("hi from /src/a");
 });
 
-test("names its workspace, so a call from another repository is refused", async () => {
-  const [refused] = await relay("/src/b", async () => mcp, callEcho(1));
-  expect(refused?.result).toEqual({
-    content: [{ type: "text", text: "not /src/b" }],
-    isError: true,
-  });
+test("names its workspace, so each call runs in it", async () => {
+  const [named] = await relay("/src/b", async () => mcp, callEcho(1));
+  expect(named?.result?.content[0]?.text).toBe("hi from /src/b");
   const [unnamed] = await relay(null, async () => mcp, callEcho(1));
-  expect(unnamed?.result?.isError).toBeUndefined();
+  expect(unnamed?.result?.content[0]?.text).toBe("hi from /reader");
 });
 
 test("finds the server again after a post fails", async () => {
@@ -89,7 +88,7 @@ test("finds the server again after a post fails", async () => {
     async () => found.shift() ?? mcp,
     callEcho(1),
   );
-  expect(answer?.result?.content[0]?.text).toBe("hi");
+  expect(answer?.result?.content[0]?.text).toBe("hi from /src/a");
 });
 
 test("answers with an error when no server can be found", async () => {

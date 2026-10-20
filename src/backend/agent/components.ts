@@ -13,7 +13,7 @@ import {
 } from "../../frontend/model/components";
 import { readPatch } from "../../frontend/model/patch";
 import type { JjFileDiff } from "../commit/jj";
-import type { ReviewStore } from "../review/store";
+import type { RepoContext } from "../repo/repos";
 import { type Tool, ToolError, tool } from "./mcp";
 import { AGENT } from "./review";
 import {
@@ -202,8 +202,7 @@ function vocabulary(kinds: ComponentKind[]): string {
 }
 
 export function componentTools(
-  store: ReviewStore,
-  sources: SeriesSources = liveSources(store),
+  sourcesOf: (repo: RepoContext) => SeriesSources = liveSources,
 ): Tool[] {
   return [
     tool({
@@ -220,7 +219,12 @@ export function componentTools(
             "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
           ),
       }),
-      call: async ({ review, pull, components, groups }, { origin }) => {
+      call: async (
+        { review, pull, components, groups },
+        { repo, link, now },
+      ) => {
+        const { store } = repo;
+        const sources = sourcesOf(repo);
         const kinds = store.read().document.componentKinds;
         const unknown = components.find(
           (input) =>
@@ -304,13 +308,13 @@ export function componentTools(
           series: target.series,
           version: target.version,
           author: AGENT,
-          writtenAt: new Date().toISOString(),
+          writtenAt: now().toISOString(),
           components: resolved,
           groups: grouped,
         };
         store.apply({ kind: "write-components", map });
         return [
-          `${origin}${target.path}`,
+          link(target.path),
           `the components of ${target.label}: ${resolved.length} over ${new Set(resolved.map((component) => component.commitId)).size} of ${target.commits.length} commits`,
           ...(missed.length === 0
             ? ["every changed line belongs to a component"]
@@ -329,8 +333,9 @@ export function componentTools(
           .optional()
           .describe("an older version to read instead, such as v1"),
       }),
-      call: async ({ review, pull, version }) => {
-        const target = await targetOf(sources, { review, pull });
+      call: async ({ review, pull, version }, { repo }) => {
+        const { store } = repo;
+        const target = await targetOf(sourcesOf(repo), { review, pull });
         const asked =
           version === undefined
             ? target.version
@@ -374,7 +379,8 @@ export function componentTools(
       description:
         "Read this repository's vocabulary of component kinds, each with advice on how to tell a component of that kind. Read it before writing a component map, and use only these kinds.",
       input: z.object({}),
-      call: async () => vocabulary(store.read().document.componentKinds),
+      call: async (_input, { repo: { store } }) =>
+        vocabulary(store.read().document.componentKinds),
     }),
     tool({
       name: "define_component_kind",
@@ -401,7 +407,7 @@ export function componentTools(
             "the kind to place it just before; without one a new kind goes last and a kind already there stays where it is",
           ),
       }),
-      call: async ({ name, advice, colour, before }) => {
+      call: async ({ name, advice, colour, before }, { repo: { store } }) => {
         const kinds = store.read().document.componentKinds;
         const kept = kinds.find((kind) => kind.name === name);
         const told = advice ?? kept?.advice;
@@ -434,7 +440,7 @@ export function componentTools(
       description:
         "Remove a kind from this repository's vocabulary of component kinds, when the reader asks. Maps already written keep it, drawn grey. Answers with the whole vocabulary.",
       input: z.object({ name: z.string().min(1) }),
-      call: async ({ name }) => {
+      call: async ({ name }, { repo: { store } }) => {
         const kinds = store.read().document.componentKinds;
         if (!kinds.some((kind) => kind.name === name)) {
           throw new ToolError(

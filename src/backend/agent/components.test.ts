@@ -74,9 +74,13 @@ async function call(
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
   const route = mcpRoute(
-    componentTools(store, PULL),
+    componentTools(() => PULL),
     INSTRUCTIONS,
-    () => "https://vm:4000",
+    async () => ({
+      repo: { root: "/repo", store },
+      link: (path) => `https://vm:4000${path}`,
+      now: () => new Date(),
+    }),
   );
   const res = await route.POST(
     new Request("http://localhost/mcp", {

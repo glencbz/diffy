@@ -1,10 +1,14 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-mcp>>[init]
 import * as z from "zod";
+import type { RepoContext } from "../repo/repos";
 
 /** What a tool sees of the request that called it. */
 export interface ToolContext {
-  /** Where the reader opens a path of this server's. */
-  origin: string;
+  /** The workspace the calling agent works in. */
+  repo: RepoContext;
+  /** The link the reader opens a path of this server's at. */
+  link: (path: string) => string;
+  now: () => Date;
 }
 
 export interface Tool<Input extends z.ZodObject = z.ZodObject> {
@@ -53,7 +57,7 @@ async function answer(
   params: Record<string, unknown>,
   tools: Tool[],
   instructions: string,
-  context: ToolContext,
+  context: () => Promise<ToolContext>,
 ): Promise<Answer> {
   switch (method) {
     case "initialize": {
@@ -93,7 +97,7 @@ async function answer(
       const input = found.input.safeParse(call.data.arguments);
       try {
         if (!input.success) throw new ToolError(z.prettifyError(input.error));
-        const text = await found.call(input.data, context);
+        const text = await found.call(input.data, await context());
         return { result: { content: [{ type: "text", text }] } };
       } catch (error) {
         if (!(error instanceof ToolError)) throw error;
@@ -117,9 +121,9 @@ export const CALLER_HEADER = "Diffy-Workspace";
 export function mcpRoute(
   tools: Tool[],
   instructions: string,
-  origin: (req: Request) => string,
-  /** Why the agent in a named workspace may not call tools, or null. */
-  refusal: (caller: string) => Promise<string | null> = async () => null,
+  /** The context a call runs in, from its request and the workspace the
+   *  caller named. A thrown `ToolError` fails the call. */
+  context: (req: Request, caller: string | null) => Promise<ToolContext>,
 ) {
   const refuse = () =>
     new Response("only POST", { status: 405, headers: { Allow: "POST" } });
@@ -145,22 +149,13 @@ export function mcpRoute(
       const { id, method, params = {} } = message.data;
       if (id === undefined) return new Response(null, { status: 202 });
       const caller = req.headers.get(CALLER_HEADER);
-      const refused =
-        method === "tools/call" && caller !== null
-          ? await refusal(decodeURIComponent(caller))
-          : null;
-      if (refused !== null) {
-        return Response.json({
-          jsonrpc: "2.0",
-          id,
-          result: { content: [{ type: "text", text: refused }], isError: true },
-        });
-      }
-      const context = { origin: origin(req) };
+      const named = caller === null ? null : decodeURIComponent(caller);
       return Response.json({
         jsonrpc: "2.0",
         id,
-        ...(await answer(method, params, tools, instructions, context)),
+        ...(await answer(method, params, tools, instructions, () =>
+          context(req, named),
+        )),
       });
     },
   };

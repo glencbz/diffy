@@ -17,11 +17,12 @@ second copy of the code.
 An agent still runs a process of its own, but a thin one:
 [`diffy mcp`](#the-stdio-bridge) carries its messages to the server, so its
 config holds a command rather than the server's port, and the server learns
-which workspace the agent works in. That workspace only guards the call, it
-is never a default: `register_review` asks for a name and reads the bookmark
-of that name, which an agent has by the time its work is ready, and
-[registration](local-reviews.md#registering-a-version) never reads the
-server's own working copy for a named review.
+which workspace the agent works in. Its tools read and write that
+workspace's repository and store, and the reader's browser keeps its own.
+`register_review` still asks for a name and reads the bookmark of that name,
+which an agent has by the time its work is ready, since
+[registration](local-reviews.md#registering-a-version) reads a working copy
+only for a review with no name.
 
 ## The protocol
 
@@ -36,11 +37,15 @@ among them, for the three methods a tool server needs.
 //| id: backend-agent-mcp
 //| file: src/backend/agent/mcp.ts
 import * as z from "zod";
+import type { RepoContext } from "../repo/repos";
 
 /** What a tool sees of the request that called it. */
 export interface ToolContext {
-  /** Where the reader opens a path of this server's. */
-  origin: string;
+  /** The workspace the calling agent works in. */
+  repo: RepoContext;
+  /** The link the reader opens a path of this server's at. */
+  link: (path: string) => string;
+  now: () => Date;
 }
 
 export interface Tool<Input extends z.ZodObject = z.ZodObject> {
@@ -89,7 +94,7 @@ async function answer(
   params: Record<string, unknown>,
   tools: Tool[],
   instructions: string,
-  context: ToolContext,
+  context: () => Promise<ToolContext>,
 ): Promise<Answer> {
   switch (method) {
     case "initialize": {
@@ -129,7 +134,7 @@ async function answer(
       const input = found.input.safeParse(call.data.arguments);
       try {
         if (!input.success) throw new ToolError(z.prettifyError(input.error));
-        const text = await found.call(input.data, context);
+        const text = await found.call(input.data, await context());
         return { result: { content: [{ type: "text", text }] } };
       } catch (error) {
         if (!(error instanceof ToolError)) throw error;
@@ -153,9 +158,9 @@ export const CALLER_HEADER = "Diffy-Workspace";
 export function mcpRoute(
   tools: Tool[],
   instructions: string,
-  origin: (req: Request) => string,
-  /** Why the agent in a named workspace may not call tools, or null. */
-  refusal: (caller: string) => Promise<string | null> = async () => null,
+  /** The context a call runs in, from its request and the workspace the
+   *  caller named. A thrown `ToolError` fails the call. */
+  context: (req: Request, caller: string | null) => Promise<ToolContext>,
 ) {
   const refuse = () =>
     new Response("only POST", { status: 405, headers: { Allow: "POST" } });
@@ -181,22 +186,13 @@ export function mcpRoute(
       const { id, method, params = {} } = message.data;
       if (id === undefined) return new Response(null, { status: 202 });
       const caller = req.headers.get(CALLER_HEADER);
-      const refused =
-        method === "tools/call" && caller !== null
-          ? await refusal(decodeURIComponent(caller))
-          : null;
-      if (refused !== null) {
-        return Response.json({
-          jsonrpc: "2.0",
-          id,
-          result: { content: [{ type: "text", text: refused }], isError: true },
-        });
-      }
-      const context = { origin: origin(req) };
+      const named = caller === null ? null : decodeURIComponent(caller);
       return Response.json({
         jsonrpc: "2.0",
         id,
-        ...(await answer(method, params, tools, instructions, context)),
+        ...(await answer(method, params, tools, instructions, () =>
+          context(req, named),
+        )),
       });
     },
   };
@@ -208,9 +204,8 @@ export function mcpRoute(
 `diffy mcp` speaks MCP's stdio transport to the agent, one JSON-RPC message
 per line, and posts each line to the server's `/mcp`. Claude Code starts it in
 the session's directory, so it names that jj workspace in every call, and
-[`mcpRoute`](#the-protocol) refuses a tool call from
-[another repository](repos.md#an-agent-in-another-repository) than the one
-served.
+each tool call [runs in it](repos.md#an-agent-in-another-repository), whatever
+repository the reader is looking at.
 
 It finds the [per-user server](instance.md) again whenever a post fails, so a
 server that restarted, even on a new port, is picked up without restarting
@@ -324,7 +319,8 @@ comparison with nothing in it and turn a reviewed review back to them.
 
 The link a tool hands back is for the reader, who opens it from another
 machine. `just serve` knows the address it prints and passes it on as
-`DIFFY_PUBLIC_URL`; anywhere else the link uses the address the agent called.
+`DIFFY_PUBLIC_URL`, which the [host](host.md) carries; anywhere else the
+link uses the address the agent called.
 
 ```ts
 //| id: backend-agent-review
@@ -341,7 +337,6 @@ import {
 } from "../../frontend/model/review";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
-import type { ReviewStore } from "../review/store";
 import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
@@ -393,13 +388,14 @@ type Since = "new" | "same" | "rewritten";
  *  changes `earlier` had that this version no longer does. A rewritten
  *  commit is hidden but still resolves by its full id. */
 async function compare(
+  root: string,
   version: LocalVersion,
   earlier: LocalVersion | undefined,
 ): Promise<{
   changes: { entry: JjLogEntry; since: Since | null }[];
   dropped: JjLogEntry[];
 }> {
-  const found = await jjCommits([
+  const found = await jjCommits(root, [
     ...new Set([...version.commits, ...(earlier?.commits ?? [])]),
   ]);
   const pick = (ids: string[]) => ids.flatMap((id) => found.get(id) ?? []);
@@ -425,16 +421,19 @@ async function compare(
   };
 }
 
-function link(origin: string, name: string): string {
-  return `${origin}/reviews/${encodeURIComponent(name)}`;
+function reviewPath(name: string): string {
+  return `/reviews/${encodeURIComponent(name)}`;
 }
 
 function subject(entry: JjLogEntry): string {
   return entry.description.split("\n")[0] || "(no description)";
 }
 
-async function commitsOf(version: LocalVersion): Promise<JjLogEntry[]> {
-  const found = await jjCommits(version.commits);
+async function commitsOf(
+  root: string,
+  version: LocalVersion,
+): Promise<JjLogEntry[]> {
+  const found = await jjCommits(root, version.commits);
   return version.commits.flatMap((id) => found.get(id) ?? []);
 }
 
@@ -451,7 +450,7 @@ function where(anchor: Anchor): string {
 
 const Name = z.string().min(1).describe("the local review's name");
 
-export function reviewTools(store: ReviewStore): Tool[] {
+export function reviewTools(): Tool[] {
   return [
     tool({
       name: "register_review",
@@ -467,13 +466,14 @@ export function reviewTools(store: ReviewStore): Tool[] {
           .optional()
           .describe("the commits to review, oldest to newest"),
       }),
-      call: async ({ name, revset }, { origin }) => {
+      call: async ({ name, revset }, { repo: { root, store }, link, now }) => {
         let version: LocalVersion;
         try {
           ({ version } = await resolveRegistration(
+            root,
             store.read().document,
             { name, revset },
-            new Date().toISOString(),
+            now().toISOString(),
           ));
         } catch (error) {
           if (error instanceof RegistrationError || error instanceof JjError) {
@@ -488,7 +488,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
           previous !== undefined &&
           previous.commits.join() === version.commits.join()
         ) {
-          return `${link(origin, name)}\nv${before?.versions.length} already has these commits, so nothing was registered`;
+          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered`;
         }
         store.apply({ kind: "register", name, version });
         // Counted after the write: re-registering at the newest version's
@@ -496,9 +496,9 @@ export function reviewTools(store: ReviewStore): Tool[] {
         const number = reviewNamed(store.read().document, name).versions.length;
         const replaced = number === before?.versions.length;
         const earlier = replaced ? previous : before?.versions[number - 2];
-        const { changes, dropped } = await compare(version, earlier);
+        const { changes, dropped } = await compare(root, version, earlier);
         return [
-          link(origin, name),
+          link(reviewPath(name)),
           replaced
             ? `v${number}, replacing the v${number} read at the same operation:`
             : earlier === undefined
@@ -520,13 +520,13 @@ export function reviewTools(store: ReviewStore): Tool[] {
       description:
         "List the local reviews, each with its newest version, whose turn it is, and its link.",
       input: z.object({}),
-      call: async (_input, { origin }) => {
+      call: async (_input, { repo: { store }, link }) => {
         const { document } = store.read();
         const lines = document.localReviews
           .filter((review) => review.forgottenAt === undefined)
           .map(
             (review) =>
-              `${review.name}: ${turnPhrase(turnOf(document, review))}, ${link(origin, review.name)}`,
+              `${review.name}: ${turnPhrase(turnOf(document, review))}, ${link(reviewPath(review.name))}`,
           );
         return lines.length === 0 ? "no local reviews" : lines.join("\n");
       },
@@ -536,12 +536,13 @@ export function reviewTools(store: ReviewStore): Tool[] {
       description:
         "Say whose turn a local review is, as JSON: the reader's until they mark its newest version reviewed, then yours. Lists the versions the reader marked reviewed, and for each change of the newest version how it stands against the last reviewed version (new, same or rewritten), whether the reader marked it seen, and how many unresolved comments it has.",
       input: z.object({ name: Name }),
-      call: async ({ name }, { origin }) => {
+      call: async ({ name }, { repo: { root, store }, link }) => {
         const { document } = store.read();
         const review = reviewNamed(document, name);
         const turn = turnOf(document, review);
         const version = review.versions[turn.newest - 1] as LocalVersion;
         const { changes, dropped } = await compare(
+          root,
           version,
           turn.reviewed === null
             ? undefined
@@ -558,7 +559,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
             turn: turn.turn,
             status: turnPhrase(turn),
             newest: `v${turn.newest}`,
-            link: link(origin, name),
+            link: link(reviewPath(name)),
             reviewed: reviewedIn(document, localSeries(name)).map((mark) => ({
               version: `v${mark.version}`,
               at: mark.reviewedAt,
@@ -595,10 +596,10 @@ export function reviewTools(store: ReviewStore): Tool[] {
         name: Name,
         unresolvedOnly: z.boolean().default(true),
       }),
-      call: async ({ name, unresolvedOnly }) => {
+      call: async ({ name, unresolvedOnly }, { repo: { root, store } }) => {
         const { document } = store.read();
         const version = newest(document, name);
-        const commits = await commitsOf(version);
+        const commits = await commitsOf(root, version);
         const byKey = new Map(
           commits.flatMap((entry) => [
             [`change:${entry.changeId}`, entry],
@@ -654,9 +655,12 @@ export function reviewTools(store: ReviewStore): Tool[] {
           .describe("before for a line the commit removes"),
         body: z.string().min(1),
       }),
-      call: async ({ name, change, path, line, side, body }) => {
+      call: async (
+        { name, change, path, line, side, body },
+        { repo: { root, store }, now },
+      ) => {
         const version = newest(store.read().document, name);
-        const matches = (await commitsOf(version)).filter(
+        const matches = (await commitsOf(root, version)).filter(
           (entry) =>
             entry.changeId.startsWith(change) ||
             entry.commitId.startsWith(change),
@@ -685,7 +689,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
             commitId: entry.commitId,
             body,
             resolved: false,
-            createdAt: new Date().toISOString(),
+            createdAt: now().toISOString(),
             author: AGENT,
             replies: [],
             ...anchor,
@@ -705,7 +709,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
           .describe("the id of the comment that starts the thread"),
         body: z.string().min(1),
       }),
-      call: async ({ id, body }) => {
+      call: async ({ id, body }, { repo: { store }, now }) => {
         if (!store.read().document.comments.some((each) => each.id === id)) {
           throw new ToolError(`no comment has id ${id}`);
         }
@@ -716,7 +720,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
           reply: {
             id: reply,
             body,
-            createdAt: new Date().toISOString(),
+            createdAt: now().toISOString(),
             author: AGENT,
           },
         });
@@ -730,7 +734,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
         id: z.string().min(1),
         resolved: z.boolean().default(true),
       }),
-      call: async ({ id, resolved }) => {
+      call: async ({ id, resolved }, { repo: { store } }) => {
         if (!store.read().document.comments.some((each) => each.id === id)) {
           throw new ToolError(`no comment has id ${id}`);
         }
@@ -769,7 +773,7 @@ import {
   pullPins,
 } from "../commit/github";
 import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
-import type { ReviewStore } from "../review/store";
+import type { RepoContext } from "../repo/repos";
 import { ToolError } from "./mcp";
 
 /** A commit as a tool names it to the agent. A pull request's commits
@@ -807,7 +811,7 @@ function subject(description: string): string {
   return description.split("\n")[0] || "(no description)";
 }
 
-export function liveSources(store: ReviewStore): SeriesSources {
+export function liveSources({ root, store }: RepoContext): SeriesSources {
   return {
     local: async (name) => {
       const review = localReview(store.read().document, name);
@@ -815,7 +819,7 @@ export function liveSources(store: ReviewStore): SeriesSources {
       if (review === undefined || version === undefined) {
         throw new ToolError(`no local review is named ${name}`);
       }
-      const found = await jjCommits(version.commits);
+      const found = await jjCommits(root, version.commits);
       return {
         series: localSeries(name),
         version: String(review.versions.length),
@@ -837,7 +841,7 @@ export function liveSources(store: ReviewStore): SeriesSources {
       };
     },
     pull: async (number) => {
-      const { owner, name } = await originRepo();
+      const { owner, name } = await originRepo(root);
       const repo = `${owner}/${name}`;
       const history = await githubPullRequestHistory(
         { owner, name },
@@ -845,11 +849,11 @@ export function liveSources(store: ReviewStore): SeriesSources {
       );
       const state = history.states.at(-1);
       if (state === undefined) throw new ToolError(`#${number} has no head`);
-      const [base, tip] = await gitMaterialize(pullPins(history, state));
+      const [base, tip] = await gitMaterialize(root, pullPins(history, state));
       if (base === undefined || tip === undefined) {
         throw new Error("gitMaterialize returned fewer oids than asked");
       }
-      const commits = await gitLog({ from: base, to: tip, limit: 200 });
+      const commits = await gitLog(root, { from: base, to: tip, limit: 200 });
       return {
         series: pullSeries(repo, number),
         version: state.head,
@@ -863,7 +867,7 @@ export function liveSources(store: ReviewStore): SeriesSources {
         })),
       };
     },
-    diff: (commitId) => jjDiff({ revision: commitId }),
+    diff: (commitId) => jjDiff(root, { revision: commitId }),
   };
 }
 
@@ -987,7 +991,7 @@ import {
 } from "../../frontend/model/components";
 import { readPatch } from "../../frontend/model/patch";
 import type { JjFileDiff } from "../commit/jj";
-import type { ReviewStore } from "../review/store";
+import type { RepoContext } from "../repo/repos";
 import { type Tool, ToolError, tool } from "./mcp";
 import { AGENT } from "./review";
 import {
@@ -1176,8 +1180,7 @@ function vocabulary(kinds: ComponentKind[]): string {
 }
 
 export function componentTools(
-  store: ReviewStore,
-  sources: SeriesSources = liveSources(store),
+  sourcesOf: (repo: RepoContext) => SeriesSources = liveSources,
 ): Tool[] {
   return [
     tool({
@@ -1194,7 +1197,12 @@ export function componentTools(
             "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
           ),
       }),
-      call: async ({ review, pull, components, groups }, { origin }) => {
+      call: async (
+        { review, pull, components, groups },
+        { repo, link, now },
+      ) => {
+        const { store } = repo;
+        const sources = sourcesOf(repo);
         const kinds = store.read().document.componentKinds;
         const unknown = components.find(
           (input) =>
@@ -1278,13 +1286,13 @@ export function componentTools(
           series: target.series,
           version: target.version,
           author: AGENT,
-          writtenAt: new Date().toISOString(),
+          writtenAt: now().toISOString(),
           components: resolved,
           groups: grouped,
         };
         store.apply({ kind: "write-components", map });
         return [
-          `${origin}${target.path}`,
+          link(target.path),
           `the components of ${target.label}: ${resolved.length} over ${new Set(resolved.map((component) => component.commitId)).size} of ${target.commits.length} commits`,
           ...(missed.length === 0
             ? ["every changed line belongs to a component"]
@@ -1303,8 +1311,9 @@ export function componentTools(
           .optional()
           .describe("an older version to read instead, such as v1"),
       }),
-      call: async ({ review, pull, version }) => {
-        const target = await targetOf(sources, { review, pull });
+      call: async ({ review, pull, version }, { repo }) => {
+        const { store } = repo;
+        const target = await targetOf(sourcesOf(repo), { review, pull });
         const asked =
           version === undefined
             ? target.version
@@ -1348,7 +1357,8 @@ export function componentTools(
       description:
         "Read this repository's vocabulary of component kinds, each with advice on how to tell a component of that kind. Read it before writing a component map, and use only these kinds.",
       input: z.object({}),
-      call: async () => vocabulary(store.read().document.componentKinds),
+      call: async (_input, { repo: { store } }) =>
+        vocabulary(store.read().document.componentKinds),
     }),
     tool({
       name: "define_component_kind",
@@ -1375,7 +1385,7 @@ export function componentTools(
             "the kind to place it just before; without one a new kind goes last and a kind already there stays where it is",
           ),
       }),
-      call: async ({ name, advice, colour, before }) => {
+      call: async ({ name, advice, colour, before }, { repo: { store } }) => {
         const kinds = store.read().document.componentKinds;
         const kept = kinds.find((kind) => kind.name === name);
         const told = advice ?? kept?.advice;
@@ -1408,7 +1418,7 @@ export function componentTools(
       description:
         "Remove a kind from this repository's vocabulary of component kinds, when the reader asks. Maps already written keep it, drawn grey. Answers with the whole vocabulary.",
       input: z.object({ name: z.string().min(1) }),
-      call: async ({ name }) => {
+      call: async ({ name }, { repo: { store } }) => {
         const kinds = store.read().document.componentKinds;
         if (!kinds.some((kind) => kind.name === name)) {
           throw new ToolError(
@@ -1441,6 +1451,9 @@ import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";
 import { INSTRUCTIONS, reviewTools } from "./review";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 let dir: string;
 let store: ReviewStore;
 let route: ReturnType<typeof mcpRoute>;
@@ -1448,7 +1461,12 @@ let route: ReturnType<typeof mcpRoute>;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "diffy-agent-"));
   store = openReviewStore(join(dir, "r.sqlite"));
-  route = mcpRoute(reviewTools(store), INSTRUCTIONS, () => "https://vm:4000");
+  const repo = { root: ROOT, store };
+  route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
+    repo,
+    link: (path) => `https://vm:4000${path}`,
+    now: () => new Date(),
+  }));
 });
 
 afterEach(async () => {
@@ -1543,7 +1561,7 @@ describe("the protocol", () => {
 describe("the review tools", () => {
   test("registers a review, comments on it, and reads the comment back", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     const registered = await call("register_review", {
       name: "t",
@@ -1579,7 +1597,7 @@ describe("the review tools", () => {
 
   test("leaves a resolved comment out of the unresolved ones", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     await call("register_review", { name: "t", revset: TIP });
     const added = await call("add_comment", {
@@ -1603,7 +1621,7 @@ describe("the review tools", () => {
 
   test("hands the turn over when the reader marks the newest version", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     // v1 is written at an operation of its own, since the tool registering
     // v2 reads the live repo and a test cannot make a new operation in it.
@@ -1653,7 +1671,7 @@ describe("the review tools", () => {
 
   test("threads a reply under the reader's comment", async () => {
     // arrange
-    const [tip] = await jjLog({ revset: TIP });
+    const [tip] = await jjLog(ROOT, { revset: TIP });
     if (tip === undefined) throw new Error("no history");
     await call("register_review", { name: "t", revset: TIP });
     const added = await call("add_comment", {
@@ -1774,9 +1792,13 @@ async function call(
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
   const route = mcpRoute(
-    componentTools(store, PULL),
+    componentTools(() => PULL),
     INSTRUCTIONS,
-    () => "https://vm:4000",
+    async () => ({
+      repo: { root: "/repo", store },
+      link: (path) => `https://vm:4000${path}`,
+      now: () => new Date(),
+    }),
   );
   const res = await route.POST(
     new Request("http://localhost/mcp", {
@@ -2115,6 +2137,7 @@ since what they check is the relay, not the tools.
 //| file: src/backend/agent/bridge.test.ts
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as z from "zod";
+import { openReviewStore } from "../review/store";
 import { bridge } from "./bridge";
 import { mcpRoute, tool } from "./mcp";
 
@@ -2122,18 +2145,19 @@ const echo = tool({
   name: "echo",
   description: "echo",
   input: z.object({ text: z.string() }),
-  call: async ({ text }) => text,
+  call: async ({ text }, { repo }) => `${text} from ${repo.root}`,
 });
+
+const store = openReviewStore(":memory:");
 
 let server: Bun.Server<undefined>;
 let mcp: URL;
 beforeEach(() => {
-  const route = mcpRoute(
-    [echo],
-    "",
-    () => "http://reader",
-    async (caller) => (caller === "/src/a" ? null : `not ${caller}`),
-  );
+  const route = mcpRoute([echo], "", async (_req, caller) => ({
+    repo: { root: caller ?? "/reader", store },
+    link: (path) => `http://reader${path}`,
+    now: () => new Date(),
+  }));
   server = Bun.serve({ port: 0, routes: { "/mcp": route } });
   mcp = new URL("/mcp", server.url);
 });
@@ -2180,17 +2204,14 @@ test("answers each request and nothing for a notification", async () => {
     callEcho(2),
   );
   expect(answers.map((each) => each.id)).toEqual([1, 2]);
-  expect(answers[1]?.result?.content[0]?.text).toBe("hi");
+  expect(answers[1]?.result?.content[0]?.text).toBe("hi from /src/a");
 });
 
-test("names its workspace, so a call from another repository is refused", async () => {
-  const [refused] = await relay("/src/b", async () => mcp, callEcho(1));
-  expect(refused?.result).toEqual({
-    content: [{ type: "text", text: "not /src/b" }],
-    isError: true,
-  });
+test("names its workspace, so each call runs in it", async () => {
+  const [named] = await relay("/src/b", async () => mcp, callEcho(1));
+  expect(named?.result?.content[0]?.text).toBe("hi from /src/b");
   const [unnamed] = await relay(null, async () => mcp, callEcho(1));
-  expect(unnamed?.result?.isError).toBeUndefined();
+  expect(unnamed?.result?.content[0]?.text).toBe("hi from /reader");
 });
 
 test("finds the server again after a post fails", async () => {
@@ -2203,7 +2224,7 @@ test("finds the server again after a post fails", async () => {
     async () => found.shift() ?? mcp,
     callEcho(1),
   );
-  expect(answer?.result?.content[0]?.text).toBe("hi");
+  expect(answer?.result?.content[0]?.text).toBe("hi from /src/a");
 });
 
 test("answers with an error when no server can be found", async () => {

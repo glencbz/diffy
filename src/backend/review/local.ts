@@ -30,9 +30,10 @@ export class RegistrationError extends Error {
 }
 
 async function bookmarkBelowWorkingCopy(
+  root: string,
   operation: string,
 ): Promise<string | null> {
-  const [entry] = await jjLog({
+  const [entry] = await jjLog(root, {
     revset: "heads(::@ & bookmarks())",
     atOperation: operation,
     limit: 1,
@@ -46,13 +47,14 @@ async function bookmarkBelowWorkingCopy(
 /** The registration `asked` stands for, with each default filled in, or
  *  null where the repository cannot supply one. */
 export async function registrationDefaults(
+  root: string,
   document: ReviewDocument,
   asked: Registration,
 ): Promise<{ name: string | null; revset: string | null; operation: string }> {
-  const [current] = await jjOpLog({ limit: 1 });
+  const [current] = await jjOpLog(root, { limit: 1 });
   if (current === undefined) throw new Error("jj reported no operations");
   const operation = asked.operation ?? current.id;
-  const bookmark = await bookmarkBelowWorkingCopy(operation);
+  const bookmark = await bookmarkBelowWorkingCopy(root, operation);
   const name = asked.name ?? bookmark;
   const last =
     name === null ? undefined : localReview(document, name)?.versions.at(-1);
@@ -66,11 +68,13 @@ export async function registrationDefaults(
 
 /** The version `asked` registers, under the name it goes by. */
 export async function resolveRegistration(
+  root: string,
   document: ReviewDocument,
   asked: Registration,
   at: string,
 ): Promise<{ name: string; version: LocalVersion }> {
   const { name, revset, operation } = await registrationDefaults(
+    root,
     document,
     asked,
   );
@@ -79,7 +83,7 @@ export async function resolveRegistration(
       "no bookmark sits at or below the working copy, so give the review a name and a revset",
     );
   }
-  const commits = await jjLog({ revset, atOperation: operation });
+  const commits = await jjLog(root, { revset, atOperation: operation });
   if (commits.length === 0) {
     throw new RegistrationError(`${revset} names no commits`);
   }
@@ -95,8 +99,11 @@ export async function resolveRegistration(
 }
 
 /** The commits `ids` name, in that order, in a pull request's shape. */
-export async function localCommits(ids: string[]): Promise<GitCommit[]> {
-  const found = await jjCommits(ids);
+export async function localCommits(
+  root: string,
+  ids: string[],
+): Promise<GitCommit[]> {
+  const found = await jjCommits(root, ids);
   return ids.flatMap((id) => {
     const entry = found.get(id);
     if (entry === undefined) return [];
@@ -116,18 +123,19 @@ export async function localCommits(ids: string[]): Promise<GitCommit[]> {
 /** One row's comparison: the interdiff of two commits, or one commit's own
  *  diff. */
 export function localDiff(
+  root: string,
   from: string | null,
   to: string | null,
 ): Promise<JjFileDiff[]> {
-  if (from !== null && to !== null) return jjInterdiff({ from, to });
+  if (from !== null && to !== null) return jjInterdiff(root, { from, to });
   const lone = from ?? to;
-  return lone === null ? Promise.resolve([]) : jjDiff({ revision: lone });
+  return lone === null ? Promise.resolve([]) : jjDiff(root, { revision: lone });
 }
 
 /** A whole version against what it was built on: one diff from the parents
  *  of its roots to its heads. jj refuses a set with a gap in it, and the
  *  screen shows that error in place of a size. */
-export function localSize(ids: string[]): Promise<JjFileDiff[]> {
-  return jjDiff({ revision: ids.join("|") });
+export function localSize(root: string, ids: string[]): Promise<JjFileDiff[]> {
+  return jjDiff(root, { revision: ids.join("|") });
 }
 // ~/~ end

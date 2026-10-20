@@ -11,8 +11,11 @@ import {
   resolveRegistration,
 } from "./local";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 async function tipCommit(): Promise<string> {
-  const [entry] = await jjLog({ revset: "latest(::trunk() ~ empty())" });
+  const [entry] = await jjLog(ROOT, { revset: "latest(::trunk() ~ empty())" });
   if (entry === undefined) throw new Error("no history");
   return entry.commitId;
 }
@@ -25,6 +28,7 @@ describe("resolveRegistration", () => {
 
     // act
     const { name, version } = await resolveRegistration(
+      ROOT,
       EMPTY_REVIEW,
       asked,
       "now",
@@ -42,6 +46,7 @@ describe("resolveRegistration", () => {
     // arrange
     // act
     const attempt = resolveRegistration(
+      ROOT,
       EMPTY_REVIEW,
       { name: "t", revset: "none()" },
       "now",
@@ -67,7 +72,7 @@ describe("registrationDefaults", () => {
     });
 
     // act
-    const defaults = await registrationDefaults(document, { name: "t" });
+    const defaults = await registrationDefaults(ROOT, document, { name: "t" });
 
     // assert
     expect(defaults.revset).toBe("trunk()");
@@ -76,7 +81,7 @@ describe("registrationDefaults", () => {
   test("reads a new name as the bookmark of that name", async () => {
     // arrange
     // act
-    const defaults = await registrationDefaults(EMPTY_REVIEW, {
+    const defaults = await registrationDefaults(ROOT, EMPTY_REVIEW, {
       name: "my-branch",
     });
 
@@ -90,11 +95,11 @@ describe("reading a version", () => {
   test("reads commits in the order asked, with their change ids", async () => {
     // arrange
     const tip = "latest(::trunk() ~ empty())";
-    const entries = await jjLog({ revset: `${tip}- | ${tip}` });
+    const entries = await jjLog(ROOT, { revset: `${tip}- | ${tip}` });
     const ids = entries.map((entry) => entry.commitId).reverse();
 
     // act
-    const commits = await localCommits(ids);
+    const commits = await localCommits(ROOT, ids);
 
     // assert
     expect(commits.map((commit) => commit.commitId).join()).toBe(ids.join());
@@ -104,15 +109,15 @@ describe("reading a version", () => {
   test("diffs a lone commit, a pair, and a whole version", async () => {
     // arrange
     const tip = "latest(::trunk() ~ empty())";
-    const [newer, older] = (await jjLog({ revset: `${tip} | ${tip}-` })).map(
-      (entry) => entry.commitId,
-    );
+    const [newer, older] = (
+      await jjLog(ROOT, { revset: `${tip} | ${tip}-` })
+    ).map((entry) => entry.commitId);
     if (newer === undefined || older === undefined) throw new Error("history");
 
     // act
-    const lone = await localDiff(null, newer);
-    const pair = await localDiff(older, newer);
-    const whole = await localSize([older, newer]);
+    const lone = await localDiff(ROOT, null, newer);
+    const pair = await localDiff(ROOT, older, newer);
+    const whole = await localSize(ROOT, [older, newer]);
 
     // assert
     expect(lone.length).toBeGreaterThan(0);

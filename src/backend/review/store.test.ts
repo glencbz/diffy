@@ -112,12 +112,12 @@ describe("reviewStorePath", () => {
   test("names a file under the data directory after the repository", async () => {
     // arrange
     // act
-    const path = await reviewStorePath({ XDG_DATA_HOME: dir });
+    const path = await reviewStorePath(process.cwd(), join(dir, "diffy"));
 
     // assert
     expect(path.startsWith(join(dir, "diffy"))).toBe(true);
     expect(path).toMatch(/-[0-9a-f]{16}\.sqlite$/);
-    expect(await reviewStorePath({ XDG_DATA_HOME: dir })).toBe(path);
+    expect(await reviewStorePath(process.cwd(), join(dir, "diffy"))).toBe(path);
   });
 });
 
@@ -172,7 +172,7 @@ describe("purgeForgotten", () => {
     }
 
     // act
-    purgeForgotten(store, day, () => now)();
+    purgeForgotten(store, () => new Date(now), day)();
 
     // assert
     expect(
@@ -187,7 +187,7 @@ describe("purgeForgotten", () => {
     store.apply(forget("recent", 6));
 
     // act
-    purgeForgotten(store, day, () => now)();
+    purgeForgotten(store, () => new Date(now), day)();
 
     // assert
     expect(store.revision()).toBe(2);

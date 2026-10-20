@@ -47,22 +47,27 @@ export interface CompareSides {
 
 /** The commit a row's before side is read from, or null for a root commit's
  *  own diff, whose before side is empty. */
-async function beforeCommit({
-  from,
-  to,
-}: CompareSides): Promise<string | null> {
+async function beforeCommit(
+  root: string,
+  { from, to }: CompareSides,
+): Promise<string | null> {
   if (from !== null) return from;
   const parent = await $`git rev-parse --verify --quiet ${`${to}^`}`
+    .cwd(root)
     .quiet()
     .nothrow();
   return parent.exitCode === 0 ? parent.text().trim() : null;
 }
 
 /** Every file in the before side's tree. */
-export async function beforePaths(sides: CompareSides): Promise<string[]> {
-  const commit = await beforeCommit(sides);
+export async function beforePaths(
+  root: string,
+  sides: CompareSides,
+): Promise<string[]> {
+  const commit = await beforeCommit(root, sides);
   if (commit === null) return [];
   const listed = await $`git ls-tree -r -z --full-tree --name-only ${commit}`
+    .cwd(root)
     .quiet()
     .nothrow();
   if (listed.exitCode !== 0) {
@@ -74,8 +79,13 @@ export async function beforePaths(sides: CompareSides): Promise<string[]> {
     .filter((path) => path !== "");
 }
 
-async function blobAt(commit: string, path: string): Promise<string> {
+async function blobAt(
+  root: string,
+  commit: string,
+  path: string,
+): Promise<string> {
   const found = await $`git rev-parse --verify --quiet ${`${commit}:${path}`}`
+    .cwd(root)
     .quiet()
     .nothrow();
   if (found.exitCode !== 0) {
@@ -86,20 +96,22 @@ async function blobAt(commit: string, path: string): Promise<string> {
 
 /** `oldPath` on the before side against `newPath` on the after side. */
 export async function compareFiles(
+  root: string,
   sides: CompareSides,
   oldPath: string,
   newPath: string,
 ): Promise<JjFileDiff> {
-  const before = await beforeCommit(sides);
+  const before = await beforeCommit(root, sides);
   if (before === null) {
     throw new CompareError("a root commit has nothing before it to compare");
   }
   const [oldBlob, newBlob] = await Promise.all([
-    blobAt(before, oldPath),
-    blobAt(sides.to, newPath),
+    blobAt(root, before, oldPath),
+    blobAt(root, sides.to, newPath),
   ]);
 
   const diff = await $`git diff --no-color --no-ext-diff ${oldBlob} ${newBlob}`
+    .cwd(root)
     .quiet()
     .text();
   const binary = /^Binary files /m.test(diff);
@@ -121,13 +133,14 @@ export async function compareFiles(
     ...parseFileDiff(patch + body),
     structural: binary
       ? { kind: "unavailable", reason: "binary file" }
-      : await structural(oldBlob, oldPath, newBlob, newPath),
+      : await structural(root, oldBlob, oldPath, newBlob, newPath),
   };
 }
 
 /** Difftastic picks a language by file name, so each blob is written out
  *  under its own. */
 async function structural(
+  root: string,
   oldBlob: string,
   oldPath: string,
   newBlob: string,
@@ -139,8 +152,14 @@ async function structural(
     const right = join(dir, "after", basename(newPath));
     await Promise.all([mkdir(join(dir, "before")), mkdir(join(dir, "after"))]);
     await Promise.all([
-      Bun.write(left, await $`git cat-file blob ${oldBlob}`.quiet().blob()),
-      Bun.write(right, await $`git cat-file blob ${newBlob}`.quiet().blob()),
+      Bun.write(
+        left,
+        await $`git cat-file blob ${oldBlob}`.cwd(root).quiet().blob(),
+      ),
+      Bun.write(
+        right,
+        await $`git cat-file blob ${newBlob}`.cwd(root).quiet().blob(),
+      ),
     ]);
     return await difftFile(left, right);
   } finally {
@@ -161,6 +180,9 @@ import { $ } from "bun";
 import { beforePaths, CompareError, compareFiles } from "./compare";
 import { GitOid } from "./git";
 
+/** The repository these tests read. */
+const ROOT = process.cwd();
+
 async function oidOf(revision: string): Promise<GitOid> {
   return GitOid.parse(
     (await $`git rev-parse ${revision}`.quiet().text()).trim(),
@@ -177,6 +199,7 @@ describe("compareFiles", () => {
 
     // act
     const file = await compareFiles(
+      ROOT,
       { from: null, to },
       "package.json",
       "tsconfig.json",
@@ -199,7 +222,7 @@ describe("compareFiles", () => {
     const to = await oidOf("main");
 
     // act
-    const file = await compareFiles({ from, to }, "justfile", "justfile");
+    const file = await compareFiles(ROOT, { from, to }, "justfile", "justfile");
 
     // assert
     expect(file.oldBlob).toBe(
@@ -213,6 +236,7 @@ describe("compareFiles", () => {
 
     // act
     const compared = compareFiles(
+      ROOT,
       { from: null, to },
       "no/such/file.ts",
       "package.json",
@@ -229,7 +253,7 @@ describe("beforePaths", () => {
     const to = await oidOf("main");
 
     // act
-    const paths = await beforePaths({ from: null, to });
+    const paths = await beforePaths(ROOT, { from: null, to });
 
     // assert
     expect(paths).toContain("package.json");

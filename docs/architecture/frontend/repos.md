@@ -146,6 +146,11 @@ phone left on one repository catches up when the reader looks at it. Pushing
 the switch over the review socket would also reach a tab in view, but the
 reader is looking at one screen at a time.
 
+A link an agent hands the reader names its repository in `?repo=` when the
+reader is shown another one. The first answer opens that repository, then
+loads the link without the parameter, so a reload or a shared address does
+not switch the repository again.
+
 ```tsx
 //| id: frontend-state-repo
 //| file: src/frontend/state/repo.ts
@@ -188,6 +193,19 @@ function failed(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Serve the repository a link names in `?repo=`, then load the link
+ *  without it. True when the page is reloading. */
+async function openLinked(current: string | null): Promise<boolean> {
+  const url = new URL(location.href);
+  const linked = url.searchParams.get("repo");
+  if (linked === null) return false;
+  url.searchParams.delete("repo");
+  // A repository that will not open leaves the reader where they were.
+  if (linked !== current) await openRepo(linked).catch(() => undefined);
+  location.replace(url);
+  return true;
+}
+
 export function useServedRepo(): RepoHandle {
   const [served, setServed] = useState<AsyncState<ServedRepo>>({
     status: "loading",
@@ -198,8 +216,9 @@ export function useServedRepo(): RepoHandle {
     let cancelled = false;
     const load = () =>
       fetchServedRepo().then(
-        (next) => {
+        async (next) => {
           if (cancelled) return;
+          if (shown === undefined && (await openLinked(next.current))) return;
           if (shown !== undefined && next.current !== shown) {
             location.assign("/");
             return;

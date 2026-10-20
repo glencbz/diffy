@@ -11,7 +11,6 @@ import {
 } from "../../frontend/model/review";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
-import type { ReviewStore } from "../review/store";
 import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
@@ -63,13 +62,14 @@ type Since = "new" | "same" | "rewritten";
  *  changes `earlier` had that this version no longer does. A rewritten
  *  commit is hidden but still resolves by its full id. */
 async function compare(
+  root: string,
   version: LocalVersion,
   earlier: LocalVersion | undefined,
 ): Promise<{
   changes: { entry: JjLogEntry; since: Since | null }[];
   dropped: JjLogEntry[];
 }> {
-  const found = await jjCommits([
+  const found = await jjCommits(root, [
     ...new Set([...version.commits, ...(earlier?.commits ?? [])]),
   ]);
   const pick = (ids: string[]) => ids.flatMap((id) => found.get(id) ?? []);
@@ -95,16 +95,19 @@ async function compare(
   };
 }
 
-function link(origin: string, name: string): string {
-  return `${origin}/reviews/${encodeURIComponent(name)}`;
+function reviewPath(name: string): string {
+  return `/reviews/${encodeURIComponent(name)}`;
 }
 
 function subject(entry: JjLogEntry): string {
   return entry.description.split("\n")[0] || "(no description)";
 }
 
-async function commitsOf(version: LocalVersion): Promise<JjLogEntry[]> {
-  const found = await jjCommits(version.commits);
+async function commitsOf(
+  root: string,
+  version: LocalVersion,
+): Promise<JjLogEntry[]> {
+  const found = await jjCommits(root, version.commits);
   return version.commits.flatMap((id) => found.get(id) ?? []);
 }
 
@@ -121,7 +124,7 @@ function where(anchor: Anchor): string {
 
 const Name = z.string().min(1).describe("the local review's name");
 
-export function reviewTools(store: ReviewStore): Tool[] {
+export function reviewTools(): Tool[] {
   return [
     tool({
       name: "register_review",
@@ -137,13 +140,14 @@ export function reviewTools(store: ReviewStore): Tool[] {
           .optional()
           .describe("the commits to review, oldest to newest"),
       }),
-      call: async ({ name, revset }, { origin }) => {
+      call: async ({ name, revset }, { repo: { root, store }, link, now }) => {
         let version: LocalVersion;
         try {
           ({ version } = await resolveRegistration(
+            root,
             store.read().document,
             { name, revset },
-            new Date().toISOString(),
+            now().toISOString(),
           ));
         } catch (error) {
           if (error instanceof RegistrationError || error instanceof JjError) {
@@ -158,7 +162,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
           previous !== undefined &&
           previous.commits.join() === version.commits.join()
         ) {
-          return `${link(origin, name)}\nv${before?.versions.length} already has these commits, so nothing was registered`;
+          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered`;
         }
         store.apply({ kind: "register", name, version });
         // Counted after the write: re-registering at the newest version's
@@ -166,9 +170,9 @@ export function reviewTools(store: ReviewStore): Tool[] {
         const number = reviewNamed(store.read().document, name).versions.length;
         const replaced = number === before?.versions.length;
         const earlier = replaced ? previous : before?.versions[number - 2];
-        const { changes, dropped } = await compare(version, earlier);
+        const { changes, dropped } = await compare(root, version, earlier);
         return [
-          link(origin, name),
+          link(reviewPath(name)),
           replaced
             ? `v${number}, replacing the v${number} read at the same operation:`
             : earlier === undefined
@@ -190,13 +194,13 @@ export function reviewTools(store: ReviewStore): Tool[] {
       description:
         "List the local reviews, each with its newest version, whose turn it is, and its link.",
       input: z.object({}),
-      call: async (_input, { origin }) => {
+      call: async (_input, { repo: { store }, link }) => {
         const { document } = store.read();
         const lines = document.localReviews
           .filter((review) => review.forgottenAt === undefined)
           .map(
             (review) =>
-              `${review.name}: ${turnPhrase(turnOf(document, review))}, ${link(origin, review.name)}`,
+              `${review.name}: ${turnPhrase(turnOf(document, review))}, ${link(reviewPath(review.name))}`,
           );
         return lines.length === 0 ? "no local reviews" : lines.join("\n");
       },
@@ -206,12 +210,13 @@ export function reviewTools(store: ReviewStore): Tool[] {
       description:
         "Say whose turn a local review is, as JSON: the reader's until they mark its newest version reviewed, then yours. Lists the versions the reader marked reviewed, and for each change of the newest version how it stands against the last reviewed version (new, same or rewritten), whether the reader marked it seen, and how many unresolved comments it has.",
       input: z.object({ name: Name }),
-      call: async ({ name }, { origin }) => {
+      call: async ({ name }, { repo: { root, store }, link }) => {
         const { document } = store.read();
         const review = reviewNamed(document, name);
         const turn = turnOf(document, review);
         const version = review.versions[turn.newest - 1] as LocalVersion;
         const { changes, dropped } = await compare(
+          root,
           version,
           turn.reviewed === null
             ? undefined
@@ -228,7 +233,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
             turn: turn.turn,
             status: turnPhrase(turn),
             newest: `v${turn.newest}`,
-            link: link(origin, name),
+            link: link(reviewPath(name)),
             reviewed: reviewedIn(document, localSeries(name)).map((mark) => ({
               version: `v${mark.version}`,
               at: mark.reviewedAt,
@@ -265,10 +270,10 @@ export function reviewTools(store: ReviewStore): Tool[] {
         name: Name,
         unresolvedOnly: z.boolean().default(true),
       }),
-      call: async ({ name, unresolvedOnly }) => {
+      call: async ({ name, unresolvedOnly }, { repo: { root, store } }) => {
         const { document } = store.read();
         const version = newest(document, name);
-        const commits = await commitsOf(version);
+        const commits = await commitsOf(root, version);
         const byKey = new Map(
           commits.flatMap((entry) => [
             [`change:${entry.changeId}`, entry],
@@ -324,9 +329,12 @@ export function reviewTools(store: ReviewStore): Tool[] {
           .describe("before for a line the commit removes"),
         body: z.string().min(1),
       }),
-      call: async ({ name, change, path, line, side, body }) => {
+      call: async (
+        { name, change, path, line, side, body },
+        { repo: { root, store }, now },
+      ) => {
         const version = newest(store.read().document, name);
-        const matches = (await commitsOf(version)).filter(
+        const matches = (await commitsOf(root, version)).filter(
           (entry) =>
             entry.changeId.startsWith(change) ||
             entry.commitId.startsWith(change),
@@ -355,7 +363,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
             commitId: entry.commitId,
             body,
             resolved: false,
-            createdAt: new Date().toISOString(),
+            createdAt: now().toISOString(),
             author: AGENT,
             replies: [],
             ...anchor,
@@ -375,7 +383,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
           .describe("the id of the comment that starts the thread"),
         body: z.string().min(1),
       }),
-      call: async ({ id, body }) => {
+      call: async ({ id, body }, { repo: { store }, now }) => {
         if (!store.read().document.comments.some((each) => each.id === id)) {
           throw new ToolError(`no comment has id ${id}`);
         }
@@ -386,7 +394,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
           reply: {
             id: reply,
             body,
-            createdAt: new Date().toISOString(),
+            createdAt: now().toISOString(),
             author: AGENT,
           },
         });
@@ -400,7 +408,7 @@ export function reviewTools(store: ReviewStore): Tool[] {
         id: z.string().min(1),
         resolved: z.boolean().default(true),
       }),
-      call: async ({ id, resolved }) => {
+      call: async ({ id, resolved }, { repo: { store } }) => {
         if (!store.read().document.comments.some((each) => each.id === id)) {
           throw new ToolError(`no comment has id ${id}`);
         }

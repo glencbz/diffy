@@ -25,22 +25,16 @@ new one.
 ```ts
 //| id: backend-instance
 //| file: src/backend/instance/instance.ts
-import { homedir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod";
 
 const ServerFile = z.object({ port: z.number().int() });
 
-export function serverFilePath(
-  env: Record<string, string | undefined> = process.env,
-): string {
-  const stateHome = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
-  return join(stateHome, "diffy", "server.json");
+export function serverFilePath(stateDir: string): string {
+  return join(stateDir, "server.json");
 }
 
-export async function storedPort(
-  path = serverFilePath(),
-): Promise<number | null> {
+export async function storedPort(path: string): Promise<number | null> {
   const parsed = ServerFile.safeParse(
     await Bun.file(path)
       .json()
@@ -49,7 +43,7 @@ export async function storedPort(
   return parsed.success ? parsed.data.port : null;
 }
 
-export async function storePort(port: number, path = serverFilePath()) {
+export async function storePort(port: number, path: string) {
   await Bun.write(path, `${JSON.stringify({ port })}\n`);
 }
 
@@ -95,9 +89,7 @@ export async function probe(port: number): Promise<RunningServer | null> {
 }
 
 /** The per-user server, if one is up. */
-export async function findServer(
-  path = serverFilePath(),
-): Promise<RunningServer | null> {
+export async function findServer(path: string): Promise<RunningServer | null> {
   const port = await storedPort(path);
   return port === null ? null : probe(port);
 }
@@ -112,14 +104,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  findServer,
-  probe,
-  rollPort,
-  serverFilePath,
-  storedPort,
-  storePort,
-} from "./instance";
+import { findServer, probe, rollPort, storedPort, storePort } from "./instance";
 
 let dir: string;
 beforeEach(async () => {
@@ -127,10 +112,6 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
-});
-
-test("the state file lives under XDG_STATE_HOME", () => {
-  expect(serverFilePath({ XDG_STATE_HOME: "/s" })).toBe("/s/diffy/server.json");
 });
 
 test("a stored port reads back, and a missing or bad file is none", async () => {
