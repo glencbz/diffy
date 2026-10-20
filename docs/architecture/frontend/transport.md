@@ -501,7 +501,7 @@ const pullDiffResponse = z.object({
   files: z.array(fileDiff),
 });
 
-/** The repository the server was started in, as `owner/name`. */
+/** The GitHub repository behind the one served, as `owner/name`. */
 export async function fetchRepo(): Promise<string> {
   const body = z
     .object({ repo: z.string() })
@@ -737,7 +737,6 @@ arrives as its `error` message, which the picker shows as it is.
 const servedRepo = z.object({
   home: z.string(),
   current: z.string().nullable(),
-  startedOutside: z.string().nullable(),
 });
 const repoSummary = z.object({
   root: z.string(),
@@ -816,9 +815,5 @@ export async function forgetRecentRepo(
 
 export async function restoreRecentRepo(entry: RecentEntry): Promise<void> {
   await sendJson("PUT", "/api/repo/recent", entry);
-}
-
-export async function dismissRepoNotice(): Promise<void> {
-  await sendJson("DELETE", "/api/repo/notice", {});
 }
 ```
