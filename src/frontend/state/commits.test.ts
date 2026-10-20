@@ -40,11 +40,11 @@ describe("commitsFrom", () => {
     const asked = serve(entries);
 
     // act
-    const commits = await commitsFrom({ kind: "jj", operation: null });
+    const commits = await commitsFrom("/w", { kind: "jj", operation: null });
 
     // assert
     expect(commits).toEqual(entries);
-    expect(asked).toEqual(["/api/log"]);
+    expect(asked).toEqual(["/api/log?workspace=%2Fw"]);
   });
 
   test("reads a jj source at the operation it names", async () => {
@@ -52,10 +52,10 @@ describe("commitsFrom", () => {
     const asked = serve([]);
 
     // act
-    await commitsFrom({ kind: "jj", operation: "0a1b2c" });
+    await commitsFrom("/w", { kind: "jj", operation: "0a1b2c" });
 
     // assert
-    expect(asked).toEqual(["/api/log?op=0a1b2c"]);
+    expect(asked).toEqual(["/api/log?op=0a1b2c&workspace=%2Fw"]);
   });
 
   test("reads a pull source out of that head's commits", async () => {
@@ -77,7 +77,7 @@ describe("commitsFrom", () => {
     });
 
     // act
-    const commits = await commitsFrom({
+    const commits = await commitsFrom("/w", {
       kind: "pull",
       repo: "glencbz/diffy",
       number: 9,
@@ -98,7 +98,7 @@ describe("commitsFrom", () => {
       },
     ]);
     expect(asked[0]).toBe(
-      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}`,
+      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}&workspace=%2Fw`,
     );
   });
 });

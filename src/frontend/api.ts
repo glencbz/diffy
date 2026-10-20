@@ -16,12 +16,13 @@ import type {
   PullHistory,
   PullSummary,
 } from "./model/pull";
-import type {
-  FoundRepo,
-  RecentEntry,
-  RepoProbe,
-  RepoSummary,
-  ServedRepo,
+import {
+  type FoundRepo,
+  inWorkspace,
+  type RecentEntry,
+  type RepoProbe,
+  type RepoSummary,
+  type ServedRepo,
 } from "./model/repo";
 import type { SourceFile } from "./model/source";
 
@@ -156,15 +157,23 @@ async function getJson(url: string, label: string): Promise<unknown> {
   return body;
 }
 
-export async function fetchOperations(): Promise<OpLogEntry[]> {
+export async function fetchOperations(
+  workspace: string,
+): Promise<OpLogEntry[]> {
   return z
     .array(opLogEntry)
-    .parse(await getJson("/api/operations", "GET /api/operations"));
+    .parse(
+      await getJson(
+        inWorkspace("/api/operations", workspace),
+        "GET /api/operations",
+      ),
+    );
 }
 
 /** The log at `atOperation`, or, given a `revset`, only what it names
  *  there. */
 export async function fetchLog(
+  workspace: string,
   atOperation?: string,
   revset?: string,
 ): Promise<LogEntry[]> {
@@ -174,10 +183,13 @@ export async function fetchLog(
   const query = params.size > 0 ? `?${params}` : "";
   return z
     .array(logEntry)
-    .parse(await getJson(`/api/log${query}`, "GET /api/log"));
+    .parse(
+      await getJson(inWorkspace(`/api/log${query}`, workspace), "GET /api/log"),
+    );
 }
 
 export async function fetchInterdiff(
+  workspace: string,
   from: string[],
   to: string[],
 ): Promise<InterdiffResponse> {
@@ -185,7 +197,10 @@ export async function fetchInterdiff(
   for (const commitId of from) params.append("from", commitId);
   for (const commitId of to) params.append("to", commitId);
   return interdiffResponse.parse(
-    await getJson(`/api/interdiff?${params}`, "GET /api/interdiff"),
+    await getJson(
+      inWorkspace(`/api/interdiff?${params}`, workspace),
+      "GET /api/interdiff",
+    ),
   );
 }
 // ~/~ end
@@ -208,6 +223,7 @@ const pullCommitsResponse = z.object({
 });
 
 export async function fetchPullCommits(
+  workspace: string,
   repo: string,
   number: number,
   head: GitOid,
@@ -215,7 +231,7 @@ export async function fetchPullCommits(
   const params = new URLSearchParams({ repo, number: String(number), head });
   return pullCommitsResponse.parse(
     await getJson(
-      `/api/github/pull/commits?${params}`,
+      inWorkspace(`/api/github/pull/commits?${params}`, workspace),
       "GET /api/github/pull/commits",
     ),
   );
@@ -264,10 +280,15 @@ const pullDiffResponse = z.object({
 });
 
 /** The GitHub repository behind the one served, as `owner/name`. */
-export async function fetchRepo(): Promise<string> {
+export async function fetchRepo(workspace: string): Promise<string> {
   const body = z
     .object({ repo: z.string() })
-    .parse(await getJson("/api/github/repo", "GET /api/github/repo"));
+    .parse(
+      await getJson(
+        inWorkspace("/api/github/repo", workspace),
+        "GET /api/github/repo",
+      ),
+    );
   return body.repo;
 }
 
@@ -296,6 +317,7 @@ export async function fetchPullHistory(
   );
 }
 export async function fetchPullDiff(
+  workspace: string,
   repo: string,
   number: number,
   to: GitOid,
@@ -316,7 +338,7 @@ export async function fetchPullDiff(
   }
   return pullDiffResponse.parse(
     await getJson(
-      `/api/github/pull/diff?${params}`,
+      inWorkspace(`/api/github/pull/diff?${params}`, workspace),
       "GET /api/github/pull/diff",
     ),
   );
@@ -347,12 +369,16 @@ const sourceFile = z.object({
 });
 
 export async function fetchSource(
+  workspace: string,
   blob: string,
   path: string,
 ): Promise<SourceFile> {
   const params = new URLSearchParams({ blob, path });
   return sourceFile.parse(
-    await getJson(`/api/source?${params}`, "GET /api/source"),
+    await getJson(
+      inWorkspace(`/api/source?${params}`, workspace),
+      "GET /api/source",
+    ),
   );
 }
 // ~/~ end
@@ -360,7 +386,10 @@ export async function fetchSource(
 
 /** `ask.newPath` on the row's after side, read against `ask.oldPath` on its
  *  before side. */
-export async function fetchCompared(ask: CompareAsk): Promise<FileDiff> {
+export async function fetchCompared(
+  workspace: string,
+  ask: CompareAsk,
+): Promise<FileDiff> {
   const params = new URLSearchParams({
     toCommit: ask.toCommit,
     oldPath: ask.oldPath,
@@ -369,7 +398,12 @@ export async function fetchCompared(ask: CompareAsk): Promise<FileDiff> {
   if (ask.fromCommit !== null) params.set("fromCommit", ask.fromCommit);
   const { file } = z
     .object({ file: fileDiff })
-    .parse(await getJson(`/api/compare?${params}`, "GET /api/compare"));
+    .parse(
+      await getJson(
+        inWorkspace(`/api/compare?${params}`, workspace),
+        "GET /api/compare",
+      ),
+    );
   if ("path" in file) {
     throw new Error(`GET /api/compare answered a ${file.status} file`);
   }
@@ -378,6 +412,7 @@ export async function fetchCompared(ask: CompareAsk): Promise<FileDiff> {
 
 /** Every path on a row's before side. */
 export async function fetchBeforePaths(
+  workspace: string,
   fromCommit: string | null,
   toCommit: string,
 ): Promise<string[]> {
@@ -386,19 +421,28 @@ export async function fetchBeforePaths(
   return z
     .object({ paths: z.array(z.string()) })
     .parse(
-      await getJson(`/api/compare/paths?${params}`, "GET /api/compare/paths"),
+      await getJson(
+        inWorkspace(`/api/compare/paths?${params}`, workspace),
+        "GET /api/compare/paths",
+      ),
     ).paths;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
 
 /** The commits `ids` name, in that order. */
-export async function fetchLocalCommits(ids: string[]): Promise<GitCommit[]> {
+export async function fetchLocalCommits(
+  workspace: string,
+  ids: string[],
+): Promise<GitCommit[]> {
   const params = new URLSearchParams(ids.map((id) => ["id", id]));
   return z
     .array(gitCommit)
     .parse(
-      await getJson(`/api/local/commits?${params}`, "GET /api/local/commits"),
+      await getJson(
+        inWorkspace(`/api/local/commits?${params}`, workspace),
+        "GET /api/local/commits",
+      ),
     );
 }
 
@@ -406,6 +450,7 @@ const filesResponse = z.object({ files: z.array(fileDiff) });
 
 /** One row of a local review: two commits' interdiff, or one's own diff. */
 export async function fetchLocalDiff(
+  workspace: string,
   fromCommit: string | null,
   toCommit: string | null,
 ): Promise<FileDiff[]> {
@@ -413,17 +458,20 @@ export async function fetchLocalDiff(
   if (fromCommit !== null) params.set("fromCommit", fromCommit);
   if (toCommit !== null) params.set("toCommit", toCommit);
   const body = await getJson(
-    `/api/local/diff?${params}`,
+    inWorkspace(`/api/local/diff?${params}`, workspace),
     "GET /api/local/diff",
   );
   return filesResponse.parse(body).files;
 }
 
 /** Everything the commits `ids` change together. */
-export async function fetchLocalSize(ids: string[]): Promise<FileDiff[]> {
+export async function fetchLocalSize(
+  workspace: string,
+  ids: string[],
+): Promise<FileDiff[]> {
   const params = new URLSearchParams(ids.map((id) => ["id", id]));
   const body = await getJson(
-    `/api/local/size?${params}`,
+    inWorkspace(`/api/local/size?${params}`, workspace),
     "GET /api/local/size",
   );
   return filesResponse.parse(body).files;
@@ -434,12 +482,15 @@ export async function fetchLocalSize(ids: string[]): Promise<FileDiff[]> {
 /** Register a version of a local review at `operation`, and answer the name
  *  it went under. The review document announces the change to every open
  *  screen. */
-export async function registerLocalReview(asked: {
-  name: string;
-  revset: string;
-  operation: string;
-}): Promise<string> {
-  const res = await fetch("/api/local/reviews", {
+export async function registerLocalReview(
+  workspace: string,
+  asked: {
+    name: string;
+    revset: string;
+    operation: string;
+  },
+): Promise<string> {
+  const res = await fetch(inWorkspace("/api/local/reviews", workspace), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(asked),

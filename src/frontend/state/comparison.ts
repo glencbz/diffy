@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchInterdiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { InterdiffRow } from "../model/diff";
+import { useWorkspace } from "./repo";
 
 /** What the diff panel is being asked for. */
 export interface Comparison {
@@ -13,6 +14,7 @@ export interface Comparison {
 export function useComparison(
   question: Comparison,
 ): AsyncState<InterdiffRow[]> | null {
+  const workspace = useWorkspace();
   const [state, setState] = useState<AsyncState<InterdiffRow[]> | null>(null);
   const key =
     question.from.length === 0 && question.to.length === 0
@@ -28,7 +30,7 @@ export function useComparison(
     let live = true;
     setState((now) => (now?.status === "ready" ? now : { status: "loading" }));
     const { from, to } = JSON.parse(key) as Comparison;
-    fetchInterdiff(from, to)
+    fetchInterdiff(workspace, from, to)
       .then(({ rows }) => {
         if (live) setState({ status: "ready", data: rows });
       })
@@ -38,7 +40,7 @@ export function useComparison(
     return () => {
       live = false;
     };
-  }, [key]);
+  }, [workspace, key]);
 
   return state;
 }

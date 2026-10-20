@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchPulls, fetchRepo } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { PullSummary } from "../model/pull";
+import { useWorkspace } from "./repo";
 
 export interface RepoPulls {
   /** `owner/name`, as the server read it off `origin`. */
@@ -11,13 +12,14 @@ export interface RepoPulls {
 }
 
 export function usePulls(): AsyncState<RepoPulls> {
+  const workspace = useWorkspace();
   const [state, setState] = useState<AsyncState<RepoPulls>>({
     status: "loading",
   });
 
   useEffect(() => {
     let live = true;
-    fetchRepo()
+    fetchRepo(workspace)
       .then(async (repo) => ({ repo, pulls: await fetchPulls(repo, "all") }))
       .then((data) => {
         if (live) setState({ status: "ready", data });
@@ -28,7 +30,7 @@ export function usePulls(): AsyncState<RepoPulls> {
     return () => {
       live = false;
     };
-  }, []);
+  }, [workspace]);
 
   return state;
 }

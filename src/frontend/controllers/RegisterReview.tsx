@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { localReview } from "../model/review";
 import { reviewNameFor, revsetFor } from "../model/revset";
 import { useCommits } from "../state/commits";
-import { register, useRevsetMatch, useTrunk } from "../state/registration";
+import { useRegister, useRevsetMatch, useTrunk } from "../state/registration";
 import { useReviewContext } from "../state/review";
 import { RegisterStrip } from "../views/RegisterStrip";
 
@@ -22,6 +22,7 @@ export function RegisterReview({
 }) {
   const log = useCommits({ kind: "jj", operation });
   const review = useReviewContext();
+  const register = useRegister();
   const [typed, setTyped] = useState<string | null>(null);
   const [named, setNamed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

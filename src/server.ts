@@ -47,12 +47,11 @@ import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import type { Host } from "./backend/host/host";
 import { LayoutStore, layoutRoutes } from "./backend/layouts/layouts";
 import {
-  AgentWorkspaces,
+  type DefaultRepo,
   type RecentRepos,
   type RepoContext,
   repoRoutes,
-  type ServedRepo,
-  sameRepo,
+  type Workspaces,
 } from "./backend/repo/repos";
 import {
   localCommits,
@@ -481,19 +480,23 @@ export const reviewRoute = {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
 
-export const REVIEW_TOPIC = "review";
+/** What a review socket listens to: its repository's store. */
+export interface ReviewSocket {
+  topic: string;
+}
 
 export function reviewChanges(
   req: Request,
-  server: Bun.Server<undefined>,
+  server: Bun.Server<ReviewSocket>,
+  { topic }: RepoContext,
 ): Response | undefined {
-  if (server.upgrade(req)) return undefined;
+  if (server.upgrade(req, { data: { topic } })) return undefined;
   return Response.json({ error: "expected a WebSocket" }, { status: 400 });
 }
 
-export const reviewSocket: Bun.WebSocketHandler<undefined> = {
+export const reviewSocket: Bun.WebSocketHandler<ReviewSocket> = {
   open(ws) {
-    ws.subscribe(REVIEW_TOPIC);
+    ws.subscribe(ws.data.topic);
   },
   message() {},
 };
@@ -573,56 +576,78 @@ export function handleLocalSize(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[12]
 
+/** The workspace a browser request names in `?workspace=`, or the
+ *  default repository's when it names none. A Response is the refusal. */
+async function requested(
+  req: Request,
+  defaultRepo: DefaultRepo,
+  workspaces: Workspaces,
+): Promise<RepoContext | Response> {
+  const named =
+    new URL(req.url).searchParams.get("workspace") ?? defaultRepo.root;
+  if (named === null) {
+    return Response.json({ error: "no repository is open" }, { status: 409 });
+  }
+  return workspaces
+    .context(named)
+    .catch((error: Error) =>
+      Response.json({ error: error.message }, { status: 404 }),
+    );
+}
+
 type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
 
-export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
-  // Every browser route reads the repository the reader is shown.
-  const reader =
+export function routes(
+  host: Host,
+  defaultRepo: DefaultRepo,
+  recent: RecentRepos,
+  workspaces: Workspaces,
+) {
+  const inRepo =
     (handle: InRepo) =>
-    (req: Request): Response | Promise<Response> => {
-      const repo = served.context();
-      if (repo === null) {
-        return Response.json(
-          { error: "no repository is open" },
-          { status: 409 },
-        );
-      }
-      return handle(req, repo);
+    async (req: Request): Promise<Response> => {
+      const repo = await requested(req, defaultRepo, workspaces);
+      return repo instanceof Response ? repo : handle(req, repo);
     };
-  const agents = new AgentWorkspaces(host);
   const publicOrigin = (req: Request) =>
     host.publicUrl ?? new URL(req.url).origin;
   return {
     "/*": index,
-    ...repoRoutes(host, served, recent),
+    ...repoRoutes(host, defaultRepo, recent),
     ...layoutRoutes(LayoutStore.in(host.dataDir)),
     "/api/*": () => new Response("Not found", { status: 404 }),
-    "/api/log": reader(handleLog),
-    "/api/operations": reader(handleOperations),
-    "/api/diff": reader(handleDiff),
-    "/api/interdiff": reader(handleInterdiff),
-    "/api/source": reader(handleSource),
-    "/api/compare": reader(handleCompare),
-    "/api/compare/paths": reader(handleComparePaths),
-    "/api/github/repo": reader(handleGithubRepo),
+    "/api/log": inRepo(handleLog),
+    "/api/operations": inRepo(handleOperations),
+    "/api/diff": inRepo(handleDiff),
+    "/api/interdiff": inRepo(handleInterdiff),
+    "/api/source": inRepo(handleSource),
+    "/api/compare": inRepo(handleCompare),
+    "/api/compare/paths": inRepo(handleComparePaths),
+    "/api/github/repo": inRepo(handleGithubRepo),
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,
-    "/api/github/pull/commits": reader(handleGithubPullCommits),
-    "/api/github/pull/diff": reader(handleGithubPullDiff),
+    "/api/github/pull/commits": inRepo(handleGithubPullCommits),
+    "/api/github/pull/diff": inRepo(handleGithubPullDiff),
     "/api/review": {
-      GET: reader(reviewRoute.GET),
-      POST: reader(reviewRoute.POST),
+      GET: inRepo(reviewRoute.GET),
+      POST: inRepo(reviewRoute.POST),
     },
-    "/api/review/changes": reviewChanges,
-    "/api/local/reviews": { POST: reader(localReviewsRoute(host.now).POST) },
-    "/api/local/commits": reader(handleLocalCommits),
-    "/api/local/diff": reader(handleLocalDiff),
-    "/api/local/size": reader(handleLocalSize),
+    "/api/review/changes": async (
+      req: Request,
+      server: Bun.Server<ReviewSocket>,
+    ) => {
+      const repo = await requested(req, defaultRepo, workspaces);
+      return repo instanceof Response ? repo : reviewChanges(req, server, repo);
+    },
+    "/api/local/reviews": { POST: inRepo(localReviewsRoute(host.now).POST) },
+    "/api/local/commits": inRepo(handleLocalCommits),
+    "/api/local/diff": inRepo(handleLocalDiff),
+    "/api/local/size": inRepo(handleLocalSize),
     "/mcp": mcpRoute(
       [...reviewTools(), ...componentTools()],
       INSTRUCTIONS,
       (req, caller) =>
-        agentContext(host, served, agents, publicOrigin(req), caller),
+        agentContext(host, defaultRepo, workspaces, publicOrigin(req), caller),
     ),
   };
 }
@@ -631,25 +656,21 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
 
 export async function agentContext(
   host: Pick<Host, "now">,
-  served: Pick<ServedRepo, "context">,
-  agents: AgentWorkspaces,
+  defaultRepo: Pick<DefaultRepo, "root">,
+  workspaces: Pick<Workspaces, "context">,
   origin: string,
   caller: string | null,
 ): Promise<ToolContext> {
-  const shown = served.context();
-  const repo =
-    caller === null
-      ? shown
-      : await agents.context(caller).catch((error: Error) => {
-          throw new ToolError(error.message);
-        });
-  if (repo === null) {
+  const named = caller ?? defaultRepo.root;
+  if (named === null) {
     throw new ToolError(
       "diffy has no repository open, and the agent named no workspace",
     );
   }
-  const elsewhere = shown === null || !(await sameRepo(shown.root, repo.root));
-  const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
+  const repo = await workspaces.context(named).catch((error: Error) => {
+    throw new ToolError(error.message);
+  });
+  const query = `?repo=${encodeURIComponent(repo.root)}`;
   return {
     repo,
     link: (path) => `${origin}${path}${query}`,

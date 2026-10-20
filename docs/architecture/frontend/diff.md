@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { fetchInterdiff } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { InterdiffRow } from "../model/diff";
+import { useWorkspace } from "./repo";
 
 /** What the diff panel is being asked for. */
 export interface Comparison {
@@ -28,6 +29,7 @@ export interface Comparison {
 export function useComparison(
   question: Comparison,
 ): AsyncState<InterdiffRow[]> | null {
+  const workspace = useWorkspace();
   const [state, setState] = useState<AsyncState<InterdiffRow[]> | null>(null);
   const key =
     question.from.length === 0 && question.to.length === 0
@@ -43,7 +45,7 @@ export function useComparison(
     let live = true;
     setState((now) => (now?.status === "ready" ? now : { status: "loading" }));
     const { from, to } = JSON.parse(key) as Comparison;
-    fetchInterdiff(from, to)
+    fetchInterdiff(workspace, from, to)
       .then(({ rows }) => {
         if (live) setState({ status: "ready", data: rows });
       })
@@ -53,7 +55,7 @@ export function useComparison(
     return () => {
       live = false;
     };
-  }, [key]);
+  }, [workspace, key]);
 
   return state;
 }
@@ -3107,12 +3109,14 @@ import {
   compareKey,
 } from "../model/compared";
 import type { FileDiff } from "../model/diff";
+import { useWorkspace } from "./repo";
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 export function useCompared(asks: CompareAsk[]): ComparedLookup {
+  const workspace = useWorkspace();
   const [loaded, setLoaded] = useState<
     ReadonlyMap<string, AsyncState<FileDiff>>
   >(() => new Map());
@@ -3128,12 +3132,12 @@ export function useCompared(asks: CompareAsk[]): ComparedLookup {
       const put = (state: AsyncState<FileDiff>) =>
         setLoaded((now) => new Map(now).set(key, state));
       put({ status: "loading" });
-      fetchCompared(ask).then(
+      fetchCompared(workspace, ask).then(
         (file) => put({ status: "ready", data: file }),
         (error: unknown) => put({ status: "error", message: messageOf(error) }),
       );
     }
-  }, [wanted]);
+  }, [workspace, wanted]);
 
   return useCallback((ask) => loaded.get(compareKey(ask)) ?? null, [loaded]);
 }
@@ -3143,24 +3147,28 @@ function keyOf(fromCommit: string | null, toCommit: string): string {
 }
 
 export function useBeforePaths(): BeforePaths {
+  const workspace = useWorkspace();
   const [loaded, setLoaded] = useState<
     ReadonlyMap<string, AsyncState<string[]>>
   >(() => new Map());
   const asked = useRef(new Set<string>());
 
-  const want = useCallback((fromCommit: string | null, toCommit: string) => {
-    const key = keyOf(fromCommit, toCommit);
-    if (asked.current.has(key)) return;
-    asked.current.add(key);
+  const want = useCallback(
+    (fromCommit: string | null, toCommit: string) => {
+      const key = keyOf(fromCommit, toCommit);
+      if (asked.current.has(key)) return;
+      asked.current.add(key);
 
-    const put = (state: AsyncState<string[]>) =>
-      setLoaded((now) => new Map(now).set(key, state));
-    put({ status: "loading" });
-    fetchBeforePaths(fromCommit, toCommit).then(
-      (paths) => put({ status: "ready", data: paths }),
-      (error: unknown) => put({ status: "error", message: messageOf(error) }),
-    );
-  }, []);
+      const put = (state: AsyncState<string[]>) =>
+        setLoaded((now) => new Map(now).set(key, state));
+      put({ status: "loading" });
+      fetchBeforePaths(workspace, fromCommit, toCommit).then(
+        (paths) => put({ status: "ready", data: paths }),
+        (error: unknown) => put({ status: "error", message: messageOf(error) }),
+      );
+    },
+    [workspace],
+  );
 
   const get = useCallback(
     (fromCommit: string | null, toCommit: string) =>

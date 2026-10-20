@@ -17,13 +17,14 @@ import {
   storePort,
 } from "./backend/instance/instance";
 import {
+  DefaultRepo,
   probeRepo,
   RecentRepos,
-  ServedRepo,
   type Start,
   startingRepo,
+  Workspaces,
 } from "./backend/repo/repos";
-import { REVIEW_TOPIC, reviewSocket, routes } from "./server";
+import { type ReviewSocket, reviewSocket, routes } from "./server";
 
 const USAGE = `usage: diffy [<path>] [--port <n>] [--no-open]
        diffy mcp [--url <server>]`;
@@ -103,10 +104,10 @@ function fail(status: number, message: string): never {
   process.exit(status);
 }
 
-type Bind = (port: number) => Bun.Server<undefined> | null;
+type Bind = (port: number) => Bun.Server<ReviewSocket> | null;
 
 type Listening =
-  | { kind: "bound"; server: Bun.Server<undefined> }
+  | { kind: "bound"; server: Bun.Server<ReviewSocket> }
   | { kind: "running"; running: RunningServer };
 
 async function listenSticky(
@@ -176,20 +177,22 @@ async function serve(
     }
   }
 
-  let server: Bun.Server<undefined> | null = null;
+  let server: Bun.Server<ReviewSocket> | null = null;
   // A server on a port of its own is a side server, such as a preview, and
   // what it opens is not what the reader was last working on.
-  const served = new ServedRepo(
+  const defaultRepo = new DefaultRepo(
     host,
     choice.kind === "sticky" ? recent : null,
-    (revision) => server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
-  if (start.kind === "open") await served.open(start.root);
+  if (start.kind === "open") await defaultRepo.open(start.root);
+  const workspaces = new Workspaces(host, (topic, revision) =>
+    server?.publish(topic, JSON.stringify({ revision })),
+  );
   const bind: Bind = (port) => {
     try {
       return Bun.serve({
         port,
-        routes: routes(host, served, recent),
+        routes: routes(host, defaultRepo, recent, workspaces),
         websocket: reviewSocket,
       });
     } catch (error) {

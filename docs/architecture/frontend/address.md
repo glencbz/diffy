@@ -111,10 +111,27 @@ export function tabPlace(tab: Place["tab"]): Place {
 Reading and writing are inverses on every place the type can hold. Reading
 treats the address as untrusted input.
 
+The address also names the [tab's repository](repos.md#holding-the-tabs-repository)
+in `?repo=`, beside the place rather than in it. Every place would otherwise
+carry a field no screen reads, and `usePlace` keeps it on every move instead.
+
 ```ts
 //| id: frontend-model-place
 /** The parts of a URL a place is read from. `window.location` is one. */
 export type Address = Pick<URL, "pathname" | "search" | "hash">;
+
+/** The repository a tab is in, which its address names beside the place. */
+export function readRepo({ search }: Pick<Address, "search">): string | null {
+  return new URLSearchParams(search).get("repo");
+}
+
+/** `address` with the tab's repository named in it. */
+export function withRepo(address: string, repo: string | null): string {
+  if (repo === null) return address;
+  const url = new URL(address, "http://diffy");
+  url.searchParams.set("repo", repo);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 export function readPlace(address: Address): Place {
   const [tab, ...rest] = address.pathname.split("/").filter((s) => s !== "");
@@ -249,7 +266,13 @@ the scroll and returns to the place the reader came from.
 //| id: frontend-state-place
 //| file: src/frontend/state/place.ts
 import { useCallback, useEffect, useState } from "react";
-import { type Place, readPlace, writePlace } from "../model/place";
+import {
+  type Place,
+  readPlace,
+  readRepo,
+  withRepo,
+  writePlace,
+} from "../model/place";
 
 /** Whether a move leaves a step behind for back, or rewrites the one the
  *  reader is on. */
@@ -266,7 +289,8 @@ export function usePlace(): [Place, (next: Place, visit?: Visit) => void] {
 
   const go = useCallback((next: Place, visit: Visit = "push") => {
     const { pathname, search, hash } = window.location;
-    const address = writePlace(next);
+    // The tab stays in its repository wherever it goes.
+    const address = withRepo(writePlace(next), readRepo(window.location));
     // Re-clicking the current place leaves no step for back to spend.
     if (address !== `${pathname}${search}${hash}`) {
       if (visit === "push") window.history.pushState(null, "", address);
@@ -307,7 +331,7 @@ export function useArrivals(): number {
 //| file: src/frontend/model/place.test.ts
 import { describe, expect, test } from "bun:test";
 import { GitOid } from "./history";
-import { type Place, readPlace, writePlace } from "./place";
+import { type Place, readPlace, readRepo, withRepo, writePlace } from "./place";
 
 function oid(ch: string): GitOid {
   return GitOid.parse(ch.repeat(40));
@@ -480,6 +504,21 @@ describe("writePlace", () => {
     });
 
     expect(address).toBe(`/pulls/7/commits/${oid("c")}/files/src/a.ts#L3`);
+  });
+});
+
+describe("the tab's repository", () => {
+  test("rides beside the place without changing it", () => {
+    // arrange
+    const address = withRepo("/reviews/x?from=2#L4", "/src/a b");
+
+    // act
+    const place = at(address);
+
+    // assert
+    expect(readRepo(new URL(address, "http://diffy"))).toBe("/src/a b");
+    expect(place).toEqual(at("/reviews/x?from=2#L4"));
+    expect(withRepo("/", null)).toBe("/");
   });
 });
 ```

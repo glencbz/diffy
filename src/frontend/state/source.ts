@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSource } from "../api";
 import type { FileDiff } from "../model/diff";
 import type { SourceFile, SourceLookup } from "../model/source";
+import { useWorkspace } from "./repo";
 
 interface Side {
   blob: string;
@@ -27,6 +28,7 @@ function sidesOf(files: FileDiff[]): Side[] {
 }
 
 export function useSources(files: FileDiff[]): SourceLookup {
+  const workspace = useWorkspace();
   const [loaded, setLoaded] = useState<ReadonlyMap<string, SourceFile>>(
     () => new Map(),
   );
@@ -39,12 +41,12 @@ export function useSources(files: FileDiff[]): SourceLookup {
       if (asked.current.has(key)) continue;
       asked.current.add(key);
 
-      fetchSource(side.blob, side.path).then(
+      fetchSource(workspace, side.blob, side.path).then(
         (source) => setLoaded((now) => new Map(now).set(key, source)),
         () => {},
       );
     }
-  }, [wanted]);
+  }, [workspace, wanted]);
 
   return useCallback(
     (blob, path) => loaded.get(sideKey({ blob, path })) ?? null,
