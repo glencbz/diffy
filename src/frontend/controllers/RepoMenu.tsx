@@ -8,17 +8,15 @@ export function RepoMenu() {
   const repo = useRepoContext();
   const [open, setOpen] = useState(false);
   if (repo.served.status !== "ready") return null;
-  const { home, current, startedOutside } = repo.served.data;
+  const { home, current } = repo.served.data;
   if (current === null) return null;
 
   return (
     <RepoSwitcher
       home={home}
       current={current}
-      startedOutside={startedOutside}
       open={open}
       onOpenChange={setOpen}
-      onDismissNotice={repo.dismissNotice}
     >
       <RepoPicker
         home={home}

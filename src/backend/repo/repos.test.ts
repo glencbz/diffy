@@ -44,39 +44,25 @@ describe("startingRepo", () => {
       "~/a": { kind: "jj", root: "/home/me/a" },
       "~/g": { kind: "git", root: "/home/me/g" },
     });
-    expect(await startingRepo("~/a", "/tmp", recent, probe)).toEqual({
+    expect(await startingRepo("~/a", recent, probe)).toEqual({
       kind: "open",
       root: "/home/me/a",
-      startedOutside: null,
     });
-    expect((await startingRepo("~/g", "/tmp", recent, probe)).kind).toBe(
-      "fail",
-    );
-    expect((await startingRepo("~/n", "/tmp", recent, probe)).kind).toBe(
-      "fail",
-    );
+    expect((await startingRepo("~/g", recent, probe)).kind).toBe("fail");
+    expect((await startingRepo("~/n", recent, probe)).kind).toBe("fail");
   });
 
-  test("serves the workspace it started in", async () => {
-    const probe = probes({ "/work/a/src": { kind: "jj", root: "/work/a" } });
-    expect(await startingRepo(undefined, "/work/a/src", recent, probe)).toEqual(
-      { kind: "open", root: "/work/a", startedOutside: null },
-    );
-  });
-
-  test("started elsewhere, serves the newest recent one that exists", async () => {
+  test("without a path, serves the newest recent one that exists", async () => {
     const probe = probes({ "/work/b": { kind: "jj", root: "/work/b" } });
-    expect(await startingRepo(undefined, "/tmp", recent, probe)).toEqual({
+    expect(await startingRepo(undefined, recent, probe)).toEqual({
       kind: "open",
       root: "/work/b",
-      startedOutside: "/tmp",
     });
   });
 
   test("with nothing to serve, asks", async () => {
-    expect(await startingRepo(undefined, "/tmp", recent, probes({}))).toEqual({
+    expect(await startingRepo(undefined, recent, probes({}))).toEqual({
       kind: "choose",
-      startedOutside: "/tmp",
     });
   });
 });
