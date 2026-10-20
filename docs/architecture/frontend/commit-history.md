@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { fetchLocalCommits, fetchLog, fetchPullCommits } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { GitCommit, LogEntry, Source } from "../model/history";
+import { useWorkspace } from "./repo";
 
 function asLogEntry(commit: GitCommit, changeId: string | null): LogEntry {
   return {
@@ -30,13 +31,16 @@ function asLogEntry(commit: GitCommit, changeId: string | null): LogEntry {
 }
 
 /** The commits a source names. The one place a `Source` decides anything. */
-export async function commitsFrom(source: Source): Promise<LogEntry[]> {
+export async function commitsFrom(
+  workspace: string,
+  source: Source,
+): Promise<LogEntry[]> {
   if (source.kind === "jj") {
-    return fetchLog(source.operation ?? undefined);
+    return fetchLog(workspace, source.operation ?? undefined);
   }
 
   if (source.kind === "local") {
-    const commits = await fetchLocalCommits(source.commits);
+    const commits = await fetchLocalCommits(workspace, source.commits);
     return commits
       .map((commit) => asLogEntry(commit, commit.changeId))
       .reverse();
@@ -46,6 +50,7 @@ export async function commitsFrom(source: Source): Promise<LogEntry[]> {
   // LogEntry is what the graph prints as the commit's id, so it stays empty.
   // The pairing reads the identity off the GitCommit instead.
   const { commits } = await fetchPullCommits(
+    workspace,
     source.repo,
     source.number,
     source.head,
@@ -53,7 +58,7 @@ export async function commitsFrom(source: Source): Promise<LogEntry[]> {
   return commits.map((commit) => asLogEntry(commit, null));
 }
 
-/** Logs already read, by source JSON, oldest read first. */
+/** Logs already read, by workspace and source JSON, oldest read first. */
 const kept = new Map<string, LogEntry[]>();
 const KEPT_LOGS = 32;
 
@@ -80,16 +85,17 @@ function keptState(key: string): AsyncState<LogEntry[]> {
 export function useCommits(source: Source): AsyncState<LogEntry[]> {
   // A source is a fresh object every render; depend on its JSON and read the
   // source back out of it, so the dependency list cannot drift from the body.
-  const key = JSON.stringify(source);
+  const workspace = useWorkspace();
+  const key = JSON.stringify([workspace, source]);
   const [state, setState] = useState(() => keptState(key));
 
   useEffect(() => {
-    const source = JSON.parse(key) as Source;
+    const [workspace, source] = JSON.parse(key) as [string, Source];
     const now = keptState(key);
     setState(now);
     if (now.status === "ready") return;
     let live = true;
-    commitsFrom(source)
+    commitsFrom(workspace, source)
       .then((data) => {
         if (keepable(source)) keep(key, data);
         if (live) setState({ status: "ready", data });
@@ -160,11 +166,11 @@ describe("commitsFrom", () => {
     const asked = serve(entries);
 
     // act
-    const commits = await commitsFrom({ kind: "jj", operation: null });
+    const commits = await commitsFrom("/w", { kind: "jj", operation: null });
 
     // assert
     expect(commits).toEqual(entries);
-    expect(asked).toEqual(["/api/log"]);
+    expect(asked).toEqual(["/api/log?workspace=%2Fw"]);
   });
 
   test("reads a jj source at the operation it names", async () => {
@@ -172,10 +178,10 @@ describe("commitsFrom", () => {
     const asked = serve([]);
 
     // act
-    await commitsFrom({ kind: "jj", operation: "0a1b2c" });
+    await commitsFrom("/w", { kind: "jj", operation: "0a1b2c" });
 
     // assert
-    expect(asked).toEqual(["/api/log?op=0a1b2c"]);
+    expect(asked).toEqual(["/api/log?op=0a1b2c&workspace=%2Fw"]);
   });
 
   test("reads a pull source out of that head's commits", async () => {
@@ -197,7 +203,7 @@ describe("commitsFrom", () => {
     });
 
     // act
-    const commits = await commitsFrom({
+    const commits = await commitsFrom("/w", {
       kind: "pull",
       repo: "glencbz/diffy",
       number: 9,
@@ -218,7 +224,7 @@ describe("commitsFrom", () => {
       },
     ]);
     expect(asked[0]).toBe(
-      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}`,
+      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}&workspace=%2Fw`,
     );
   });
 });

@@ -24,7 +24,8 @@ import {
   type ReviewSnapshot,
 } from "../model/review";
 import { clearLegacyReview, legacyReview } from "../persistence/legacyReview";
-import { reviewStore } from "../persistence/review";
+import { reviewStoreIn } from "../persistence/review";
+import { useWorkspace } from "./repo";
 
 /** The review document and what a screen can do with it. Only a document
  *  the server has answered with can be changed, so `actions` exists only
@@ -57,6 +58,8 @@ export function useReview(): ReviewHandle {
   const [pending, setPending] = useState<Pending[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
   const nextId = useRef(0);
+  const workspace = useWorkspace();
+  const reviewStore = useMemo(() => reviewStoreIn(workspace), [workspace]);
 
   // Answers can arrive out of order, and an older one would undo a newer
   // one's command on screen, so only a higher revision replaces what is held.
@@ -86,7 +89,7 @@ export function useReview(): ReviewHandle {
     return () => {
       cancelled = true;
     };
-  }, [accept]);
+  }, [accept, reviewStore]);
 
   // Another writer's change reaches this screen as an announced revision.
   // One this screen already holds needs no read.
@@ -99,7 +102,7 @@ export function useReview(): ReviewHandle {
         if (revision !== null && revision <= heldRef.current) return;
         reviewStore.load().then(accept, () => {});
       }),
-    [accept],
+    [accept, reviewStore],
   );
 
   const actions = useMemo<ReviewActions>(() => {
@@ -174,7 +177,7 @@ export function useReview(): ReviewHandle {
       forgetReview: (name) => send({ kind: "forget-review", name, at: now() }),
       restoreReview: (name) => send({ kind: "restore-review", name }),
     };
-  }, [accept]);
+  }, [accept, reviewStore]);
 
   const dismissFailure = useCallback(() => setFailure(null), []);
   const shared = { failure, dismissFailure };
