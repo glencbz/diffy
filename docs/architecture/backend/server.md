@@ -6,9 +6,9 @@ A just rule runs the backend:
 
 ```just
 #| id: just-bun
-# Run the app
+# Run the app on this workspace
 @run port="3000":
-  {{nix_runtime}} bun run src/cli.ts --port {{port}}
+  {{nix_runtime}} bun run src/cli.ts . --port {{port}}
 
 ```
 
