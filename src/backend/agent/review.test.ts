@@ -73,6 +73,7 @@ describe("the protocol", () => {
     expect(list.result.tools.map((each) => each.name)).toEqual([
       "register_review",
       "list_reviews",
+      "delete_review",
       "review_status",
       "read_comments",
       "add_comment",
@@ -253,6 +254,29 @@ describe("the review tools", () => {
       }),
     ]);
     expect(missing).toEqual({ text: "no comment has id nope", isError: true });
+  });
+
+  test("deletes a review so the reader can restore it", async () => {
+    // arrange
+    await call("register_review", { name: "t", revset: TIP });
+
+    // act
+    const deleted = await call("delete_review", { name: "t" });
+    const listed = await call("list_reviews", {});
+    const again = await call("delete_review", { name: "t" });
+    store.apply({ kind: "restore-review", name: "t" });
+    const restored = await call("list_reviews", {});
+    const missing = await call("delete_review", { name: "nope" });
+
+    // assert
+    expect(deleted.text).toStartWith("deleted t; the reader can restore it");
+    expect(listed.text).toBe("no local reviews");
+    expect(again.text).toBe("t was already deleted");
+    expect(restored.text).toStartWith("t: ");
+    expect(missing).toEqual({
+      text: "no local review is named nope",
+      isError: true,
+    });
   });
 
   test("tells the agent what it got wrong as a failed call", async () => {

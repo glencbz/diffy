@@ -2,6 +2,7 @@
 import * as z from "zod";
 import {
   type Anchor,
+  KEEP_FORGOTTEN_MS,
   type LocalReview,
   type LocalVersion,
   localReview,
@@ -203,6 +204,22 @@ export function reviewTools(): Tool[] {
               `${review.name}: ${turnPhrase(turnOf(document, review))}, ${link(reviewPath(review.name))}`,
           );
         return lines.length === 0 ? "no local reviews" : lines.join("\n");
+      },
+    }),
+    tool({
+      name: "delete_review",
+      description:
+        "Delete a local review, as the reader's delete does: it leaves the list, and the reader can restore it from the deleted reviews until it is purged. Registering it again restores it too.",
+      input: z.object({ name: Name }),
+      call: async ({ name }, { repo: { store }, now }) => {
+        const review = reviewNamed(store.read().document, name);
+        if (review.forgottenAt !== undefined) {
+          return `${name} was already deleted`;
+        }
+        const at = now();
+        store.apply({ kind: "forget-review", name, at: at.toISOString() });
+        const until = new Date(at.getTime() + KEEP_FORGOTTEN_MS);
+        return `deleted ${name}; the reader can restore it until ${until.toISOString()}`;
       },
     }),
     tool({
