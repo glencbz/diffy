@@ -24,8 +24,13 @@ for every jj-backed route.
 
 import * as z from "zod";
 import { componentTools } from "./backend/agent/components";
+import {
+  type AgentListeners,
+  type Heard,
+  LISTEN_PATH,
+} from "./backend/agent/listeners";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
-import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
+import { INSTRUCTIONS, reviewTools, turnOf } from "./backend/agent/review";
 import {
   beforePaths,
   CompareError,
@@ -85,7 +90,12 @@ import {
 } from "./backend/review/local";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
-import { ReviewCommand } from "./frontend/model/review";
+import {
+  localReview,
+  localSeries,
+  ReviewCommand,
+  type ReviewDocument,
+} from "./frontend/model/review";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {
@@ -564,9 +574,9 @@ A bad body is a 400 naming what is wrong, for writers other than the browser.
 ```ts
 //| id: backend-server
 
-export const reviewRoute = {
+export const reviewRoute = (listeners: Pick<AgentListeners, "submitted">) => ({
   GET: (_req: Request, { store }: RepoContext) => Response.json(store.read()),
-  POST: async (req: Request, { store }: RepoContext) => {
+  POST: async (req: Request, { root, store }: RepoContext) => {
     const command = ReviewCommand.safeParse(
       await req.json().catch(() => undefined),
     );
@@ -576,34 +586,137 @@ export const reviewRoute = {
         { status: 400 },
       );
     }
-    return Response.json(store.apply(command.data));
+    const document = store.apply(command.data);
+    const submit = submittedBy(command.data, document.document);
+    if (submit !== null) {
+      // The reader is not kept waiting on the agents' workspaces.
+      void listeners.submitted(root, submit.name, submit.version);
+    }
+    return Response.json(document);
   },
-};
+});
+
+/** The local review a command submits: a mark of its newest version. */
+function submittedBy(
+  command: ReviewCommand,
+  document: ReviewDocument,
+): { name: string; version: number } | null {
+  if (command.kind !== "mark-reviewed") return null;
+  const review = document.localReviews.find(
+    (each) => localSeries(each.name) === command.series,
+  );
+  const version = Number(command.version);
+  if (review === undefined || version !== review.versions.length) return null;
+  return { name: review.name, version };
+}
 ```
 
 `/api/review/changes` is a WebSocket on which every open screen hears
 `{ "revision": n }` when the [store](review-store.md#telling-screens-about-changes)
 moves. Writes still go through `POST`, so there is one way to write.
+`LISTEN_PATH` is the socket an agent
+[waits on the reader at](agents.md#telling-an-agent-the-reader-submitted).
+It reads the review as the upgrade is asked for, so a review already
+submitted, or one that does not exist, is answered as soon as the socket
+opens.
 
 ```ts
 //| id: backend-server
 
 export const REVIEW_TOPIC = "review";
 
+/** Who is at the other end of a socket: a screen, or an agent
+ *  [waiting for the reader to submit](agents.md#telling-an-agent-the-reader-submitted),
+ *  and what it hears at once when there is nothing to wait for. */
+export type SocketData =
+  | { kind: "screen" }
+  | {
+      kind: "agent";
+      root: string;
+      review: string;
+      now: Heard | null;
+      stop?: () => void;
+    };
+
 export function reviewChanges(
   req: Request,
-  server: Bun.Server<undefined>,
+  server: Bun.Server<SocketData>,
 ): Response | undefined {
-  if (server.upgrade(req)) return undefined;
+  if (server.upgrade(req, { data: { kind: "screen" } })) return undefined;
   return Response.json({ error: "expected a WebSocket" }, { status: 400 });
 }
 
-export const reviewSocket: Bun.WebSocketHandler<undefined> = {
-  open(ws) {
-    ws.subscribe(REVIEW_TOPIC);
-  },
-  message() {},
-};
+/** `LISTEN_PATH`, for the agent in `workspace` waiting on `review`. */
+export function agentListen(
+  context: (workspace: string) => Promise<RepoContext>,
+) {
+  return async (req: Request, server: Bun.Server<SocketData>) => {
+    const asked = new URL(req.url).searchParams;
+    const workspace = asked.get("workspace");
+    const review = asked.get("review");
+    if (workspace === null || review === null) {
+      return Response.json(
+        { error: "name a workspace and a review" },
+        { status: 400 },
+      );
+    }
+    const data = await waiting(context, workspace, review);
+    if (server.upgrade(req, { data })) return undefined;
+    return Response.json({ error: "expected a WebSocket" }, { status: 400 });
+  };
+}
+
+async function waiting(
+  context: (workspace: string) => Promise<RepoContext>,
+  workspace: string,
+  review: string,
+): Promise<SocketData> {
+  const at = (now: Heard | null, root = workspace): SocketData => ({
+    kind: "agent",
+    root,
+    review,
+    now,
+  });
+  let repo: RepoContext;
+  try {
+    repo = await context(workspace);
+  } catch (error) {
+    return at({ error: (error as Error).message });
+  }
+  const { document } = repo.store.read();
+  const named = localReview(document, review);
+  if (named === undefined || named.versions.length === 0) {
+    return at({ error: `no local review is named ${review}` });
+  }
+  const { turn, newest } = turnOf(document, named);
+  return at(turn === "agent" ? { review, version: newest } : null, repo.root);
+}
+
+export function sockets(
+  listeners: AgentListeners,
+): Bun.WebSocketHandler<SocketData> {
+  return {
+    open(ws) {
+      if (ws.data.kind === "screen") {
+        ws.subscribe(REVIEW_TOPIC);
+        return;
+      }
+      if (ws.data.now !== null) {
+        ws.send(JSON.stringify(ws.data.now));
+        return;
+      }
+      ws.data.stop = listeners.add({
+        root: ws.data.root,
+        review: ws.data.review,
+        send: (line) => ws.send(line),
+      });
+    },
+    close(ws) {
+      if (ws.data.kind === "agent") ws.data.stop?.();
+    },
+    message() {},
+  };
+}
 ```
 
 ### Local reviews
@@ -706,7 +819,12 @@ request list and history routes ask GitHub alone, so they need none.
 
 type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
 
-export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
+export function routes(
+  host: Host,
+  served: ServedRepo,
+  recent: RecentRepos,
+  listeners: AgentListeners,
+) {
   // Every browser route reads the repository the reader is shown.
   const reader =
     (handle: InRepo) =>
@@ -723,6 +841,10 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
   const agents = new AgentWorkspaces(host);
   const publicOrigin = (req: Request) =>
     host.publicUrl ?? new URL(req.url).origin;
+  const origins = (req: Request) => ({
+    reader: publicOrigin(req),
+    agent: new URL(req.url).origin,
+  });
   return {
     "/*": index,
     ...repoRoutes(host, served, recent),
@@ -741,8 +863,8 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
     "/api/github/pull/commits": reader(handleGithubPullCommits),
     "/api/github/pull/diff": reader(handleGithubPullDiff),
     "/api/review": {
-      GET: reader(reviewRoute.GET),
-      POST: reader(reviewRoute.POST),
+      GET: reader(reviewRoute(listeners).GET),
+      POST: reader(reviewRoute(listeners).POST),
     },
     "/api/review/changes": reviewChanges,
     "/api/local/reviews": { POST: reader(localReviewsRoute(host.now).POST) },
@@ -752,9 +874,9 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
     "/mcp": mcpRoute(
       [...reviewTools(), ...componentTools()],
       INSTRUCTIONS,
-      (req, caller) =>
-        agentContext(host, served, agents, publicOrigin(req), caller),
+      (req, caller) => agentContext(host, served, agents, origins(req), caller),
     ),
+    [LISTEN_PATH]: agentListen((workspace) => agents.context(workspace)),
   };
 }
 ```
@@ -771,10 +893,10 @@ already.
 //| id: backend-server
 
 export async function agentContext(
-  host: Pick<Host, "now">,
+  host: Pick<Host, "now" | "diffy">,
   served: Pick<ServedRepo, "context">,
   agents: AgentWorkspaces,
-  origin: string,
+  origins: { reader: string; agent: string },
   caller: string | null,
 ): Promise<ToolContext> {
   const shown = served.context();
@@ -793,9 +915,19 @@ export async function agentContext(
   const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
   return {
     repo,
-    link: (path) => `${origin}${path}${query}`,
+    link: (path) => `${origins.reader}${path}${query}`,
+    wait: (name) =>
+      [...host.diffy, "wait", name, "--url", origins.agent]
+        .map(shellWord)
+        .join(" "),
     now: host.now,
   };
+}
+
+function shellWord(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word)
+    ? word
+    : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 ```
 
@@ -809,6 +941,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import {
+  AgentListeners,
+  LISTEN_PATH,
+  waitFor,
+} from "./backend/agent/listeners";
 import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
@@ -817,6 +954,7 @@ import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
   agentContext,
+  agentListen,
   handleCompare,
   handleComparePaths,
   handleDiff,
@@ -832,13 +970,14 @@ import {
   REVIEW_TOPIC,
   reviewChanges,
   reviewRoute,
-  reviewSocket,
+  sockets,
 } from "./server";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
 const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
-const HOST = { now: () => new Date() };
+const HOST = { now: () => new Date(), diffy: ["diffy"] };
+const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
@@ -1215,14 +1354,26 @@ describe("the review route", () => {
     POST: (req: Request) => Promise<Response>;
   }
 
-  async function withStore(run: (route: Route) => Promise<void>) {
+  async function withStore(
+    run: (route: Route, submits: unknown[][]) => Promise<void>,
+  ) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const repo = { root: ROOT, store: openReviewStore(join(dir, "r.sqlite")) };
+    const submits: unknown[][] = [];
+    const route = reviewRoute({
+      submitted: async (...args) => {
+        submits.push(args);
+        return 0;
+      },
+    });
     try {
-      await run({
-        GET: () => reviewRoute.GET(new Request("http://test/"), repo),
-        POST: (req) => reviewRoute.POST(req, repo),
-      });
+      await run(
+        {
+          GET: () => route.GET(new Request("http://test/"), repo),
+          POST: (req) => route.POST(req, repo),
+        },
+        submits,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1258,6 +1409,37 @@ describe("the review route", () => {
       expect(await res.json()).toEqual(read);
       expect(read.revision).toBe(1);
       expect(read.document.marks).toHaveLength(1);
+    }));
+
+  test("tells agents only of a mark on a local review's newest version", () =>
+    withStore(async (route, submits) => {
+      // arrange
+      for (const commit of ["a", "b"]) {
+        const version = {
+          operation: `op-${commit}`,
+          revset: "t",
+          commits: [commit],
+          registeredAt: "2026-10-22T09:00:00.000Z",
+        };
+        await route.POST(post({ kind: "register", name: "t", version }));
+      }
+      const mark = (series: string, version: string) =>
+        route.POST(
+          post({
+            kind: "mark-reviewed",
+            series,
+            version,
+            at: "2026-10-22T10:00:00.000Z",
+          }),
+        );
+
+      // act
+      await mark("local:t", "1");
+      await mark("pull:o/r#1", "abc");
+      await mark("local:t", "2");
+
+      // assert
+      expect(submits).toEqual([[ROOT, "t", 2]]);
     }));
 
   test("reports a body that is not a command as 400 and writes nothing", () =>
@@ -1314,7 +1496,7 @@ describe("the review route", () => {
     const server = Bun.serve({
       port: 0,
       routes: { "/api/review/changes": reviewChanges },
-      websocket: reviewSocket,
+      websocket: sockets(new AgentListeners()),
     });
     const stop = watchReview(
       store,
@@ -1340,6 +1522,64 @@ describe("the review route", () => {
     } finally {
       socket.close();
       stop();
+      server.stop(true);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("tells a waiting agent of a submit, and a late one at once", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    const listeners = new AgentListeners();
+    const server = Bun.serve({
+      port: 0,
+      routes: {
+        [LISTEN_PATH]: agentListen(async (workspace) => {
+          if (workspace !== ROOT) {
+            throw new Error(`no workspace at ${workspace}`);
+          }
+          return { root: ROOT, store };
+        }),
+      },
+      websocket: sockets(listeners),
+    });
+    const wait = (review: string, workspace = ROOT) =>
+      waitFor(review, workspace, async () => new URL("/mcp", server.url), 10);
+    store.apply({
+      kind: "register",
+      name: "t",
+      version: {
+        operation: "op",
+        revset: "t",
+        commits: ["a"],
+        registeredAt: "2026-10-24T09:00:00.000Z",
+      },
+    });
+
+    try {
+      // act
+      const waited = wait("t");
+      // The route tells the listeners once the reader's mark is written.
+      while ((await listeners.submitted(ROOT, "t", 1)) === 0) {
+        await Bun.sleep(10);
+      }
+      store.apply({
+        kind: "mark-reviewed",
+        series: "local:t",
+        version: "1",
+        at: "2026-10-24T10:00:00.000Z",
+      });
+      const late = await wait("t");
+      const missing = await wait("u");
+      const stranger = await wait("t", "/nowhere");
+
+      // assert
+      expect(await waited).toEqual({ review: "t", version: 1 });
+      expect(late).toEqual({ review: "t", version: 1 });
+      expect(missing).toEqual({ error: "no local review is named u" });
+      expect(stranger).toEqual({ error: "no workspace at /nowhere" });
+    } finally {
       server.stop(true);
       await rm(dir, { recursive: true, force: true });
     }
@@ -1731,7 +1971,7 @@ describe("agentContext", () => {
     };
     const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
     const context = (caller: string | null) =>
-      agentContext(HOST, { context: () => shown }, agents, "http://vm", caller);
+      agentContext(HOST, { context: () => shown }, agents, ORIGINS, caller);
 
     // act
     const elsewhere = await context(agent.second);
@@ -1755,6 +1995,9 @@ describe("agentContext", () => {
     );
     expect(sibling.repo.root).toBe(reader.second);
     expect(sibling.link("/reviews/x")).toBe("http://vm/reviews/x");
+    expect(sibling.wait("my t")).toBe(
+      "diffy wait 'my t' --url http://localhost:4000",
+    );
     expect(unnamed.repo).toBe(shown);
     expect((await context(agent.root)).repo.store).toBe(elsewhere.repo.store);
     // The agent's write went to its own repository's store.
@@ -1771,7 +2014,7 @@ describe("agentContext", () => {
       HOST,
       { context: () => null },
       agents,
-      "http://vm",
+      ORIGINS,
       dir,
     );
 

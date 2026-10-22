@@ -12,6 +12,8 @@ export interface Host {
   /** Where the reader opens this server, when a proxy puts it somewhere
    *  other than the address a request came in on. */
   publicUrl: string | null;
+  /** The command that runs this diffy again, before its arguments. */
+  diffy: string[];
   now: () => Date;
 }
 
@@ -27,6 +29,11 @@ export function hostFrom(
       "diffy",
     ),
     publicUrl: env.DIFFY_PUBLIC_URL || null,
+    // A compiled diffy is its own executable; under `bun run` the script is
+    // an argument.
+    diffy: Bun.main.startsWith("/$bunfs/")
+      ? [process.execPath]
+      : [process.execPath, Bun.main],
     now: () => new Date(),
   };
 }

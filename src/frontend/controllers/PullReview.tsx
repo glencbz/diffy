@@ -48,6 +48,7 @@ export function PullReview({
     history,
     header: <PullHeader pull={pull} />,
     wholeLabel: "whole pull request",
+    markLabel: { mark: "Mark reviewed at", marked: "Reviewed at" },
     keyOf: (document, before, after) =>
       pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
     lane: (id) => ({ kind: "pull", repo, number, head: GitOid.parse(id) }),

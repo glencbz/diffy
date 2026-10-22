@@ -2,8 +2,13 @@
 
 import * as z from "zod";
 import { componentTools } from "./backend/agent/components";
+import {
+  type AgentListeners,
+  type Heard,
+  LISTEN_PATH,
+} from "./backend/agent/listeners";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
-import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
+import { INSTRUCTIONS, reviewTools, turnOf } from "./backend/agent/review";
 import {
   beforePaths,
   CompareError,
@@ -63,7 +68,12 @@ import {
 } from "./backend/review/local";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
-import { ReviewCommand } from "./frontend/model/review";
+import {
+  localReview,
+  localSeries,
+  ReviewCommand,
+  type ReviewDocument,
+} from "./frontend/model/review";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {
@@ -463,9 +473,9 @@ async function pullDiffFiles(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
 
-export const reviewRoute = {
+export const reviewRoute = (listeners: Pick<AgentListeners, "submitted">) => ({
   GET: (_req: Request, { store }: RepoContext) => Response.json(store.read()),
-  POST: async (req: Request, { store }: RepoContext) => {
+  POST: async (req: Request, { root, store }: RepoContext) => {
     const command = ReviewCommand.safeParse(
       await req.json().catch(() => undefined),
     );
@@ -475,28 +485,126 @@ export const reviewRoute = {
         { status: 400 },
       );
     }
-    return Response.json(store.apply(command.data));
+    const document = store.apply(command.data);
+    const submit = submittedBy(command.data, document.document);
+    if (submit !== null) {
+      // The reader is not kept waiting on the agents' workspaces.
+      void listeners.submitted(root, submit.name, submit.version);
+    }
+    return Response.json(document);
   },
-};
+});
+
+/** The local review a command submits: a mark of its newest version. */
+function submittedBy(
+  command: ReviewCommand,
+  document: ReviewDocument,
+): { name: string; version: number } | null {
+  if (command.kind !== "mark-reviewed") return null;
+  const review = document.localReviews.find(
+    (each) => localSeries(each.name) === command.series,
+  );
+  const version = Number(command.version);
+  if (review === undefined || version !== review.versions.length) return null;
+  return { name: review.name, version };
+}
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
 
 export const REVIEW_TOPIC = "review";
 
+/** Who is at the other end of a socket: a screen, or an agent
+ *  [waiting for the reader to submit](agents.md#telling-an-agent-the-reader-submitted),
+ *  and what it hears at once when there is nothing to wait for. */
+export type SocketData =
+  | { kind: "screen" }
+  | {
+      kind: "agent";
+      root: string;
+      review: string;
+      now: Heard | null;
+      stop?: () => void;
+    };
+
 export function reviewChanges(
   req: Request,
-  server: Bun.Server<undefined>,
+  server: Bun.Server<SocketData>,
 ): Response | undefined {
-  if (server.upgrade(req)) return undefined;
+  if (server.upgrade(req, { data: { kind: "screen" } })) return undefined;
   return Response.json({ error: "expected a WebSocket" }, { status: 400 });
 }
 
-export const reviewSocket: Bun.WebSocketHandler<undefined> = {
-  open(ws) {
-    ws.subscribe(REVIEW_TOPIC);
-  },
-  message() {},
-};
+/** `LISTEN_PATH`, for the agent in `workspace` waiting on `review`. */
+export function agentListen(
+  context: (workspace: string) => Promise<RepoContext>,
+) {
+  return async (req: Request, server: Bun.Server<SocketData>) => {
+    const asked = new URL(req.url).searchParams;
+    const workspace = asked.get("workspace");
+    const review = asked.get("review");
+    if (workspace === null || review === null) {
+      return Response.json(
+        { error: "name a workspace and a review" },
+        { status: 400 },
+      );
+    }
+    const data = await waiting(context, workspace, review);
+    if (server.upgrade(req, { data })) return undefined;
+    return Response.json({ error: "expected a WebSocket" }, { status: 400 });
+  };
+}
+
+async function waiting(
+  context: (workspace: string) => Promise<RepoContext>,
+  workspace: string,
+  review: string,
+): Promise<SocketData> {
+  const at = (now: Heard | null, root = workspace): SocketData => ({
+    kind: "agent",
+    root,
+    review,
+    now,
+  });
+  let repo: RepoContext;
+  try {
+    repo = await context(workspace);
+  } catch (error) {
+    return at({ error: (error as Error).message });
+  }
+  const { document } = repo.store.read();
+  const named = localReview(document, review);
+  if (named === undefined || named.versions.length === 0) {
+    return at({ error: `no local review is named ${review}` });
+  }
+  const { turn, newest } = turnOf(document, named);
+  return at(turn === "agent" ? { review, version: newest } : null, repo.root);
+}
+
+export function sockets(
+  listeners: AgentListeners,
+): Bun.WebSocketHandler<SocketData> {
+  return {
+    open(ws) {
+      if (ws.data.kind === "screen") {
+        ws.subscribe(REVIEW_TOPIC);
+        return;
+      }
+      if (ws.data.now !== null) {
+        ws.send(JSON.stringify(ws.data.now));
+        return;
+      }
+      ws.data.stop = listeners.add({
+        root: ws.data.root,
+        review: ws.data.review,
+        send: (line) => ws.send(line),
+      });
+    },
+    close(ws) {
+      if (ws.data.kind === "agent") ws.data.stop?.();
+    },
+    message() {},
+  };
+}
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[11]
 
@@ -575,7 +683,12 @@ export function handleLocalSize(
 
 type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
 
-export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
+export function routes(
+  host: Host,
+  served: ServedRepo,
+  recent: RecentRepos,
+  listeners: AgentListeners,
+) {
   // Every browser route reads the repository the reader is shown.
   const reader =
     (handle: InRepo) =>
@@ -592,6 +705,10 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
   const agents = new AgentWorkspaces(host);
   const publicOrigin = (req: Request) =>
     host.publicUrl ?? new URL(req.url).origin;
+  const origins = (req: Request) => ({
+    reader: publicOrigin(req),
+    agent: new URL(req.url).origin,
+  });
   return {
     "/*": index,
     ...repoRoutes(host, served, recent),
@@ -610,8 +727,8 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
     "/api/github/pull/commits": reader(handleGithubPullCommits),
     "/api/github/pull/diff": reader(handleGithubPullDiff),
     "/api/review": {
-      GET: reader(reviewRoute.GET),
-      POST: reader(reviewRoute.POST),
+      GET: reader(reviewRoute(listeners).GET),
+      POST: reader(reviewRoute(listeners).POST),
     },
     "/api/review/changes": reviewChanges,
     "/api/local/reviews": { POST: reader(localReviewsRoute(host.now).POST) },
@@ -621,19 +738,19 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
     "/mcp": mcpRoute(
       [...reviewTools(), ...componentTools()],
       INSTRUCTIONS,
-      (req, caller) =>
-        agentContext(host, served, agents, publicOrigin(req), caller),
+      (req, caller) => agentContext(host, served, agents, origins(req), caller),
     ),
+    [LISTEN_PATH]: agentListen((workspace) => agents.context(workspace)),
   };
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[13]
 
 export async function agentContext(
-  host: Pick<Host, "now">,
+  host: Pick<Host, "now" | "diffy">,
   served: Pick<ServedRepo, "context">,
   agents: AgentWorkspaces,
-  origin: string,
+  origins: { reader: string; agent: string },
   caller: string | null,
 ): Promise<ToolContext> {
   const shown = served.context();
@@ -652,8 +769,18 @@ export async function agentContext(
   const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
   return {
     repo,
-    link: (path) => `${origin}${path}${query}`,
+    link: (path) => `${origins.reader}${path}${query}`,
+    wait: (name) =>
+      [...host.diffy, "wait", name, "--url", origins.agent]
+        .map(shellWord)
+        .join(" "),
     now: host.now,
   };
+}
+
+function shellWord(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word)
+    ? word
+    : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 // ~/~ end

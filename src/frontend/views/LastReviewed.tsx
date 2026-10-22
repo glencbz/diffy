@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-last-reviewed>>[init]
 import {
+  type MarkLabel,
   type SeriesBaseline,
   type SeriesVersion,
   type VersionMark,
@@ -12,6 +13,7 @@ export function LastReviewed({
   from,
   to,
   mark,
+  markLabel,
   wholeLabel,
   onWhole,
 }: {
@@ -21,6 +23,7 @@ export function LastReviewed({
   to: string;
   /** The after version's mark. */
   mark: VersionMark;
+  markLabel: MarkLabel;
   /** What reading the newest version whole is called: `the whole pull
    *  request`. */
   wholeLabel: string;
@@ -55,17 +58,29 @@ export function LastReviewed({
           lists, so it opens whole.
         </p>
       ) : null}
-      <MarkButton mark={mark} name={versionName(versions, to)} />
+      <MarkButton
+        mark={mark}
+        label={markLabel}
+        name={versionName(versions, to)}
+      />
     </div>
   );
 }
 
-function MarkButton({ mark, name }: { mark: VersionMark; name: string }) {
+function MarkButton({
+  mark,
+  label,
+  name,
+}: {
+  mark: VersionMark;
+  label: MarkLabel;
+  name: string;
+}) {
   switch (mark.kind) {
     case "marked":
       return (
         <button type="button" className="last-reviewed__action" disabled>
-          {`Reviewed at ${name}`}
+          {`${label.marked} ${name}`}
         </button>
       );
     case "unmarked":
@@ -75,7 +90,7 @@ function MarkButton({ mark, name }: { mark: VersionMark; name: string }) {
           className="last-reviewed__action"
           onClick={mark.onMark}
         >
-          {`Mark reviewed at ${name}`}
+          {`${label.mark} ${name}`}
         </button>
       );
     case "unavailable":

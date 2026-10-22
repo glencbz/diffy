@@ -221,6 +221,7 @@ function LocalReviewScreen({
       </header>
     ),
     wholeLabel: "whole review",
+    markLabel: { mark: "Submit review of", marked: "Submitted" },
     keyOf: (_document, before, after) => localRowKey(before, after),
     lane: (id) => ({
       kind: "local",

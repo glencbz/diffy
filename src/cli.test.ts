@@ -65,6 +65,16 @@ test("mcp takes an optional server URL", () => {
   expect(parseCommand(["mcp", "--port", "1"]).kind).toBe("usage-error");
 });
 
+test("wait takes one review and an optional server URL", () => {
+  expect(parseCommand(["wait", "t"])).toEqual({ kind: "wait", review: "t" });
+  expect(parseCommand(["wait", "t", "--url", "http://localhost:4000"])).toEqual(
+    { kind: "wait", review: "t", url: "http://localhost:4000" },
+  );
+  expect(parseCommand(["wait"]).kind).toBe("usage-error");
+  expect(parseCommand(["wait", "t", "u"]).kind).toBe("usage-error");
+  expect(parseCommand(["wait", "t", "--url", "nope"]).kind).toBe("usage-error");
+});
+
 test("--help asks for the usage", () => {
   expect(parseCommand(["--help"])).toEqual({ kind: "help" });
 });

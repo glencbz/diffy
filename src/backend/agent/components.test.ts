@@ -79,6 +79,7 @@ async function call(
     async () => ({
       repo: { root: "/repo", store },
       link: (path) => `https://vm:4000${path}`,
+      wait: (name) => `diffy wait ${name}`,
       now: () => new Date(),
     }),
   );

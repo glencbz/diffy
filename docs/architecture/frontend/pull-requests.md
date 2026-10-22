@@ -241,8 +241,11 @@ describe("lastReviewed", () => {
 ```
 
 `LastReviewed` names the head last reviewed when the comparison starts there
-and ends on the latest, says when that head is gone, and holds the "Mark
-reviewed" button for the after end. Marking pins the comparison into the
+and ends on the latest, says when that head is gone, and holds the button
+that marks the after end reviewed. A local review calls it **Submit review**,
+since marking its newest version is what
+[tells the agent](../backend/agents.md#telling-an-agent-the-reader-submitted)
+the comments are ready. Marking pins the comparison into the
 address, or the default would jump to the whole pull request as soon as the
 latest head is marked.
 
@@ -250,6 +253,7 @@ latest head is marked.
 //| id: frontend-view-last-reviewed
 //| file: src/frontend/views/LastReviewed.tsx
 import {
+  type MarkLabel,
   type SeriesBaseline,
   type SeriesVersion,
   type VersionMark,
@@ -262,6 +266,7 @@ export function LastReviewed({
   from,
   to,
   mark,
+  markLabel,
   wholeLabel,
   onWhole,
 }: {
@@ -271,6 +276,7 @@ export function LastReviewed({
   to: string;
   /** The after version's mark. */
   mark: VersionMark;
+  markLabel: MarkLabel;
   /** What reading the newest version whole is called: `the whole pull
    *  request`. */
   wholeLabel: string;
@@ -305,17 +311,29 @@ export function LastReviewed({
           lists, so it opens whole.
         </p>
       ) : null}
-      <MarkButton mark={mark} name={versionName(versions, to)} />
+      <MarkButton
+        mark={mark}
+        label={markLabel}
+        name={versionName(versions, to)}
+      />
     </div>
   );
 }
 
-function MarkButton({ mark, name }: { mark: VersionMark; name: string }) {
+function MarkButton({
+  mark,
+  label,
+  name,
+}: {
+  mark: VersionMark;
+  label: MarkLabel;
+  name: string;
+}) {
   switch (mark.kind) {
     case "marked":
       return (
         <button type="button" className="last-reviewed__action" disabled>
-          {`Reviewed at ${name}`}
+          {`${label.marked} ${name}`}
         </button>
       );
     case "unmarked":
@@ -325,7 +343,7 @@ function MarkButton({ mark, name }: { mark: VersionMark; name: string }) {
           className="last-reviewed__action"
           onClick={mark.onMark}
         >
-          {`Mark reviewed at ${name}`}
+          {`${label.mark} ${name}`}
         </button>
       );
     case "unavailable":
@@ -707,6 +725,7 @@ import {
   reviewedIn,
 } from "../model/review";
 import {
+  type MarkLabel,
   rowAsk,
   type SeriesHistory,
   type SeriesSource,
@@ -898,6 +917,7 @@ export interface SeriesScreen {
   header: ReactNode;
   /** What the whole of one version is called: `whole pull request`. */
   wholeLabel: string;
+  markLabel: MarkLabel;
   /** The key a row comparing these two commits is filed under. */
   keyOf: (
     document: ReviewDocument,
@@ -1241,6 +1261,7 @@ export function SeriesReview({
                     }
                   : { kind: "unavailable" }
             }
+            markLabel={screen.markLabel}
             wholeLabel={`the ${screen.wholeLabel}`}
             onWhole={() =>
               onGo({ from: { kind: "base" }, to: newest, spot: null })
@@ -1431,6 +1452,7 @@ export function PullReview({
     history,
     header: <PullHeader pull={pull} />,
     wholeLabel: "whole pull request",
+    markLabel: { mark: "Mark reviewed at", marked: "Reviewed at" },
     keyOf: (document, before, after) =>
       pullRowKey(document, before?.commitId ?? null, after?.commitId ?? null),
     lane: (id) => ({ kind: "pull", repo, number, head: GitOid.parse(id) }),
