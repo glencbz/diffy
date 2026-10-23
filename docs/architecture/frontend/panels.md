@@ -1597,40 +1597,32 @@ export function LeafView({
 What is still to build, in order. Each step is a pull request that moves its
 part of this list into the sections above.
 
-**Drawing on the code.** Panels mark lines through the code's layer
-(`StackLayer` and `LineDecor`) rather than `<style>` rules, so a new panel
-can light the lines it cares about.
+**Viewer.** Images first, compared before and after by side, swipe, fade or
+difference, with boxes that link to their components; then video, with
+time as a location and spans of a clip as places. A filmstrip under the
+shot picks among every capture of the commit. The captures it shows are the
+[evidence](../backend/evidence.md) agents attach.
 
-**Evidence.** Captures, recordings and runs join the component map as a
-list keyed by kind with a schema version, stored in the data directory
-beside the review stores, served with byte ranges so video can seek. A kind
-diffy does not know falls back to a panel showing the raw file.
+**Recording, for agents.** Agents attach captures with the
+[evidence tools](../backend/evidence.md#the-tools); taking them is still
+theirs to work out. They need:
 
-**Recording, for agents.** An agent records evidence; nothing else does yet.
-It needs:
-
-- MCP tools `attach_capture` (an image or clip by path on the same machine,
-  with the boxes and time spans that show each component) and `attach_run`
-  (a run's steps), which copy the files into the data directory, and
-  `read_evidence` to see what a version has.
-- A recorder it can drive, as a skill: a Playwright script whose steps each
-  take a screenshot and record the page's requests, console and the lines
-  of the repository they ran, from V8 block coverage and CSS rule use,
+- A recorder they can drive, as a skill: a Playwright script whose steps
+  each take a screenshot and record the page's requests, console and the
+  lines of the repository they ran, from V8 block coverage and CSS rule use,
   mapped back to source paths through source maps when the app is bundled.
 - The same script run at the commit and at its parent, each served from its
   own jj workspace, so every step can be compared before and after.
 - Boxes found from selectors, so an agent names the element a component
   draws rather than measuring pixels.
 
-**Viewer.** Images first, compared before and after by side, swipe, fade or
-difference, with boxes that link to their components; then video, with
-time as a location and spans of a clip as places. A filmstrip under the
-shot picks among every capture and step of the commit.
-
-**Runs.** Steps join the filmstrip; Network and Console show what the step
-in focus did, its requests answered before and after; the lines it ran are
-lit in the code. The focus gains a hold, so the reader can keep a shot while
-reading on.
+**Runs.** A run's steps are evidence of a second kind, attached with an
+`attach_run` tool, and join the filmstrip; Network and Console show what the
+step in focus did, its requests answered before and after. The lines a step
+ran are marked through the code's layer (`StackLayer` and `LineDecor`), a
+class per step drawn once per commit, and a rule picks out the step in
+focus, so moving the focus never draws the diff again. The focus gains a
+hold, so the reader can keep a shot while reading on.
 
 **Comments on any location.** A box on a capture, a moment of a clip, a step
 or a request can hold a thread, which needs an anchor in the review store
