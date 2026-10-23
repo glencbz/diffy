@@ -40,6 +40,7 @@ import {
 } from "../model/threads";
 import { useBeforePaths, useCompared } from "../state/compared";
 import { useCounterpart, useOwnDiffs } from "../state/components";
+import { useFocus } from "../state/focus";
 import { usePairing } from "../state/pairing";
 import { usePaneSizes } from "../state/paneSizes";
 import { useArrivals, type Visit } from "../state/place";
@@ -252,6 +253,7 @@ export function SeriesReview({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
   const [sizes, resize] = usePaneSizes();
+  const focus = useFocus();
   const arrivals = useArrivals();
   const { from, spot } = place;
   const current = spot?.commit ?? null;
@@ -638,6 +640,8 @@ export function SeriesReview({
           split={display.diffLayout === "split"}
           railSize={sizes["components-rail"] ?? null}
           onRailResize={(size) => resize("components-rail", size)}
+          reading={focus.reading}
+          onRead={focus.onRead}
         >
           {(layer) =>
             commitsError !== null ? (

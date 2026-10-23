@@ -45,6 +45,7 @@ import {
   arrangementsOf,
   groupLinks,
 } from "../../model/groups";
+import type { Location } from "../../model/location";
 import {
   type Comment,
   type ComparisonReview,
@@ -108,6 +109,10 @@ export interface ComponentsStackProps {
   /** The rail's width as the reader dragged it, or null for the default. */
   railSize: number | null;
   onRailResize: (size: number | null) => void;
+  /** The component under the reading line, held by the
+   *  [focus](panels.md#the-focus) so other panels can follow it. */
+  reading: Location | null;
+  onRead: (next: Location | null) => void;
   children: (layer: StackLayer | undefined) => ReactNode;
 }
 
@@ -178,6 +183,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     split,
     railSize,
     onRailResize,
+    onRead,
     children,
   } = props;
   const here = comparisonKey(from?.id ?? null, to.id);
@@ -197,10 +203,10 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // The headings the reader folded or unfolded, by row, file and place;
   // the rest start folded when they are marked seen.
   const [opened, setOpened] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const [reading, setReading] = useState<{
-    id: string;
-    path: string;
-  } | null>(null);
+  const reading =
+    props.reading?.kind === "component"
+      ? { id: props.reading.component, path: props.reading.path ?? "" }
+      : null;
 
   const placesOf = useMemo(() => {
     const out = new Map<string, DrawnPlace[]>();
@@ -407,9 +413,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
       flash(element);
       // A switch that keeps the heading's height can leave it below the
       // reading line, and the rail should still name it.
-      const id = element.dataset.componentsId;
-      if (id !== undefined)
-        setReading({ id, path: element.dataset.path ?? "" });
+      const read = readingAt(element);
+      if (read !== null) onRead(read);
       setLanding({ ...landing, settle: Date.now() + SETTLE });
     } else if (Date.now() > landing.settle) {
       setLanding(null);
@@ -449,17 +454,12 @@ export function ComponentsStack(props: ComponentsStackProps) {
     const read = () => {
       frame = 0;
       const line = readingLine();
-      let found: { id: string; path: string } | null = null;
+      let found: Location | null = null;
       for (const heading of headings()) {
         if (heading.getBoundingClientRect().top > line) break;
-        found = {
-          id: heading.dataset.componentsId ?? "",
-          path: heading.dataset.path ?? "",
-        };
+        found = readingAt(heading);
       }
-      setReading((now) =>
-        now?.id === found?.id && now?.path === found?.path ? now : found,
-      );
+      onRead(found);
     };
     const onScroll = (event: Event) => {
       // A peek too long or wide for its box scrolls itself, and stays.
@@ -1718,5 +1718,17 @@ function flash(element: HTMLElement) {
   element.classList.remove("components-flash");
   void element.offsetWidth;
   element.classList.add("components-flash");
+}
+
+/** The component a heading names, as a location. */
+function readingAt(heading: HTMLElement): Location | null {
+  const { componentsCommit, componentsId, path } = heading.dataset;
+  if (componentsCommit === undefined || componentsId === undefined) return null;
+  return {
+    kind: "component",
+    commit: componentsCommit,
+    component: componentsId,
+    path: path ?? null,
+  };
 }
 // ~/~ end

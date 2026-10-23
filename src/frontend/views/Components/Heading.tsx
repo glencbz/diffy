@@ -75,6 +75,7 @@ export function Heading({
     <div
       className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}${fold.folded ? " components-heading--folded" : ""}`}
       data-components-key={`${component.commitId}:${component.id}/${place}`}
+      data-components-commit={component.commitId}
       data-components-id={component.id}
       data-path={path}
     >
