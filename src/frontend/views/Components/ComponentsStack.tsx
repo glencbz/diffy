@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { AsyncState } from "../../model/asyncState";
 import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
@@ -56,7 +57,6 @@ import {
 import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
-import { paneSize, Splitter } from "../Splitter";
 import { Heading, type HeadingParts, type Switch } from "./Heading";
 import { Peek, type Peeked } from "./Peek";
 import { Rail, type RailEntry } from "./Rail";
@@ -106,9 +106,9 @@ export interface ComponentsStackProps {
     | ((row: ComparisonReview, place: PlaceVersion) => void)
     | null;
   split: boolean;
-  /** The rail's width as the reader dragged it, or null for the default. */
-  railSize: number | null;
-  onRailResize: (size: number | null) => void;
+  /** Where the rail draws: the components panel, or nowhere while the
+   *  reader has closed it. */
+  railSlot: HTMLElement | null;
   /** The component under the reading line, held by the
    *  [focus](panels.md#the-focus) so other panels can follow it. */
   reading: Location | null;
@@ -181,8 +181,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     reviewOf,
     onTogglePlaceSeen,
     split,
-    railSize,
-    onRailResize,
+    railSlot,
     onRead,
     children,
   } = props;
@@ -449,7 +448,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // peek belongs to where it was opened, so a scroll closes it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: listens once, reading the page as it is
   useEffect(() => {
-    const panes = body.current?.closest(".panes");
+    // The panel's host holds the code's pane wherever the panel is placed.
+    const panes = body.current?.closest(".panel-host");
     let frame = 0;
     const read = () => {
       frame = 0;
@@ -497,7 +497,6 @@ export function ComponentsStack(props: ComponentsStackProps) {
     };
   }, []);
 
-  const [railOpen, setRailOpen] = useState(false);
   // The reader's arrangement, or null for the agent's pieces, else roles.
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
   // The focused group, held with the row and arrangement it belongs to, so
@@ -1569,123 +1568,104 @@ export function ComponentsStack(props: ComponentsStackProps) {
           // While its list is open, the lines that use a component are lit.
           <style>{`.components-using--${ident(peeked.component.id)} { background-image: linear-gradient(to left, var(--accent) 4px, transparent 4px); } .components-using--${ident(peeked.component.id)} [data-components-word="${CSS.escape(peeked.component.id)}"] { background: color-mix(in srgb, var(--component) 22%, transparent); text-decoration-style: solid; }`}</style>
         )}
-        {enabled && (
-          <aside
-            className={`components-rail${railSize === null ? "" : " pane--sized"}${railOpen ? "" : " components-rail--closed"}`}
-            style={paneSize(railSize)}
-          >
-            {/* Only a narrow screen draws this; there the rail sits above
-                the diff and starts closed, so the review bar stays in view. */}
-            <button
-              type="button"
-              className="components-rail__toggle"
-              aria-expanded={railOpen}
-              onClick={() => setRailOpen(!railOpen)}
-            >
-              {railOpen ? "▾" : "▸"} Components{" "}
-              {entries.length > 0 && <small>{entries.length}</small>}
-            </button>
-            <Rail
-              loading={shown === undefined || shown.files.status !== "ready"}
-              comparing={
-                from === null
-                  ? `in ${to.name}`
-                  : `between ${from.name} and ${to.name}`
-              }
-              entries={entries}
-              files={files}
-              reading={reading}
-              onMessage={
-                shown !== undefined &&
-                components.some(
-                  (each) =>
-                    each.commitId === shown.commit.commitId &&
-                    mentionedIn(shown.commit.description, each),
-                )
-                  ? () => {
-                      rememberHere();
-                      showMessage(shown.key, null);
-                    }
-                  : null
-              }
-              onGo={(entry) => {
-                const drawn = drawnHere.find(
-                  (each) => each.ref.component.id === entry.component.id,
-                );
-                if (drawn !== undefined) {
-                  rememberHere();
-                  goTo(toPlace(drawn.ref, drawn.path));
-                } else if (from === null && shown !== undefined) {
-                  rememberHere();
-                  toCounterpart(shown, entry.component.id);
-                } else if (from !== null) {
-                  // Unchanged between versions: read it in the newer one.
-                  rememberHere();
-                  props.onCompare(null, to.id, null);
-                  goTo(
-                    {
-                      key: null,
-                      id: entry.component.id,
-                      path: null,
-                      selector: null,
-                    },
-                    null,
-                    comparisonKey(null, to.id),
-                  );
+        {enabled &&
+          railSlot !== null &&
+          createPortal(
+            <aside className="components-rail">
+              <Rail
+                loading={shown === undefined || shown.files.status !== "ready"}
+                comparing={
+                  from === null
+                    ? `in ${to.name}`
+                    : `between ${from.name} and ${to.name}`
                 }
-              }}
-              onGoUnseen={(entry) => {
-                const first = foldsOf(entry.component.id).find(
-                  (each) => !each.seen,
-                );
-                if (first === undefined) return;
-                rememberHere();
-                goTo(toPlace(first.drawn.ref, first.drawn.path));
-              }}
-              onGoShare={(path, share) => {
-                if (share.first === null) return;
-                rememberHere();
-                goTo(toPlace(share.first, path));
-              }}
-              groups={{
-                arrangement: arranging,
-                arrangements,
-                groups: arranged,
-                links: groupLinks(
-                  arranged,
-                  references.flatMap(({ row, ref }) =>
-                    row.key === shown?.key && ref.from !== null
-                      ? [{ from: ref.from.component.id, to: ref.to.id }]
-                      : [],
+                entries={entries}
+                files={files}
+                reading={reading}
+                onMessage={
+                  shown !== undefined &&
+                  components.some(
+                    (each) =>
+                      each.commitId === shown.commit.commitId &&
+                      mentionedIn(shown.commit.description, each),
+                  )
+                    ? () => {
+                        rememberHere();
+                        showMessage(shown.key, null);
+                      }
+                    : null
+                }
+                onGo={(entry) => {
+                  const drawn = drawnHere.find(
+                    (each) => each.ref.component.id === entry.component.id,
+                  );
+                  if (drawn !== undefined) {
+                    rememberHere();
+                    goTo(toPlace(drawn.ref, drawn.path));
+                  } else if (from === null && shown !== undefined) {
+                    rememberHere();
+                    toCounterpart(shown, entry.component.id);
+                  } else if (from !== null) {
+                    // Unchanged between versions: read it in the newer one.
+                    rememberHere();
+                    props.onCompare(null, to.id, null);
+                    goTo(
+                      {
+                        key: null,
+                        id: entry.component.id,
+                        path: null,
+                        selector: null,
+                      },
+                      null,
+                      comparisonKey(null, to.id),
+                    );
+                  }
+                }}
+                onGoUnseen={(entry) => {
+                  const first = foldsOf(entry.component.id).find(
+                    (each) => !each.seen,
+                  );
+                  if (first === undefined) return;
+                  rememberHere();
+                  goTo(toPlace(first.drawn.ref, first.drawn.path));
+                }}
+                onGoShare={(path, share) => {
+                  if (share.first === null) return;
+                  rememberHere();
+                  goTo(toPlace(share.first, path));
+                }}
+                groups={{
+                  arrangement: arranging,
+                  arrangements,
+                  groups: arranged,
+                  links: groupLinks(
+                    arranged,
+                    references.flatMap(({ row, ref }) =>
+                      row.key === shown?.key && ref.from !== null
+                        ? [{ from: ref.from.component.id, to: ref.to.id }]
+                        : [],
+                    ),
                   ),
-                ),
-                focus: focused?.id ?? null,
-                preview,
-                only,
-                onArrange: (next) => {
-                  setArrangement(next);
-                  setFocus(null);
-                },
-                onFocus: (id) =>
-                  setFocus(
-                    id === null || shown === undefined
-                      ? null
-                      : { row: shown.key, arrangement: arranging, id },
-                  ),
-                onPreview: setPreview,
-                onOnly: setOnly,
-              }}
-            />
-          </aside>
-        )}
-        {enabled && (
-          <Splitter
-            pane="components-rail"
-            size={railSize}
-            onResize={onRailResize}
-            label="resize the components rail"
-          />
-        )}
+                  focus: focused?.id ?? null,
+                  preview,
+                  only,
+                  onArrange: (next) => {
+                    setArrangement(next);
+                    setFocus(null);
+                  },
+                  onFocus: (id) =>
+                    setFocus(
+                      id === null || shown === undefined
+                        ? null
+                        : { row: shown.key, arrangement: arranging, id },
+                    ),
+                  onPreview: setPreview,
+                  onOnly: setOnly,
+                }}
+              />
+            </aside>,
+            railSlot,
+          )}
         <div
           className={`components-main${enabled && trail.length > 0 ? " components-main--trail" : ""}`}
         >

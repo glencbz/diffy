@@ -697,6 +697,7 @@ import type { FileDiff } from "../model/diff";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
+import type { PanelId } from "../model/panels";
 import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
 import {
   type ComparisonReview,
@@ -722,7 +723,7 @@ import { useBeforePaths, useCompared } from "../state/compared";
 import { useCounterpart, useOwnDiffs } from "../state/components";
 import { useFocus } from "../state/focus";
 import { usePairing } from "../state/pairing";
-import { usePaneSizes } from "../state/paneSizes";
+import { usePanelLayouts } from "../state/panels";
 import { useArrivals, type Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
 import { type RowDiffs, slotKey, useRowDiffs } from "../state/rowDiffs";
@@ -932,8 +933,11 @@ export function SeriesReview({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
-  const [sizes, resize] = usePaneSizes();
+  const panels = usePanelLayouts();
   const focus = useFocus();
+  // The components panel's body, which the components view draws its rail
+  // into from beside the code.
+  const [railSlot, setRailSlot] = useState<HTMLElement | null>(null);
   const arrivals = useArrivals();
   const { from, spot } = place;
   const current = spot?.commit ?? null;
@@ -1181,14 +1185,24 @@ export function SeriesReview({
 
   const label = (id: string) =>
     `${versionName(versions, id)} · ${id.slice(0, 7)}`;
+  const openThreads = threads.filter(
+    (thread) => !thread.comment.resolved,
+  ).length;
 
   return (
     <PullReviewPanes
       header={screen.header}
       position={position}
       onStep={step}
-      size={sizes["pull-commits"] ?? null}
-      onResize={(size) => resize("pull-commits", size)}
+      tree={panels.tree}
+      layouts={panels.layouts}
+      layout={panels.layout.id}
+      onChoose={panels.choose}
+      onArrange={panels.arrange}
+      onUndo={panels.undo}
+      onReset={panels.reset}
+      empty={componentsOn ? NOTHING_EMPTY : NO_COMPONENTS}
+      badges={openThreads > 0 ? { threads: `${openThreads} open` } : {}}
       picker={
         <>
           <SeriesComparisonPicker
@@ -1230,113 +1244,121 @@ export function SeriesReview({
           />
         </>
       }
-      openThreads={threads.filter((thread) => !thread.comment.resolved).length}
-      threads={
-        everyVersion.status === "error" ? (
-          <Message tone="error">{everyVersion.message}</Message>
-        ) : everyVersion.status === "loading" ? (
-          <Message>Loading threads...</Message>
-        ) : (
-          <ThreadList
-            threads={threads}
-            actions={review.status === "ready" ? review.actions : null}
-            onGo={goToThread}
-          />
-        )
-      }
-      commits={
-        commitsError !== null ? (
-          <Message tone="error">{commitsError}</Message>
-        ) : commitsLoading ? (
-          <Message>Loading commits...</Message>
-        ) : from.kind === "version" ? (
-          <PairedGraph
-            before={beforeCommits}
-            after={afterCommits}
-            pairing={pairing}
-            beforeLabel={label(from.id)}
-            afterLabel={label(to)}
-            current={current}
-            onSelect={pick}
-          />
-        ) : (
-          <CommitLog
-            source={screen.lane(to)}
-            selected={current === null ? [] : [current]}
-            onSelect={(selection) => pick(pickedFrom(selection, current))}
-            oldestFirst
-          />
-        )
-      }
-      diff={
-        // The stack always sits inside the components view, on or off, so
-        // switching the map keeps every file's state, and a switch to another
-        // comparison keeps the place the reader is going to while it loads.
-        <ComponentsStack
-          enabled={componentsOn}
-          rows={rows}
-          components={components}
-          groups={groups}
-          kinds={
-            review.status === "ready"
-              ? review.document.componentKinds
-              : DEFAULT_KINDS
-          }
-          sources={sources}
-          onPeekFiles={peekAt}
-          current={currentKey}
-          open={open}
-          onOpenRow={(key) =>
-            setOpen((now) => (now.has(key) ? now : toggled(now, key)))
-          }
-          onExpandMessage={(key) =>
-            setExpanded((now) => (now.has(key) ? now : toggled(now, key)))
-          }
-          from={
-            from.kind === "version"
-              ? { id: from.id, name: versionName(versions, from.id) }
-              : null
-          }
-          to={{ id: to, name: versionName(versions, to) }}
-          counterparts={counterparts}
-          ownDiffs={ownDiffs}
-          onWantOwn={wantOwn}
-          onCompare={(nextFrom, nextTo, commit) =>
-            onGo({
-              ...place,
-              from:
-                nextFrom === null
-                  ? { kind: "base" }
-                  : { kind: "version", id: nextFrom },
-              to: nextTo,
-              spot: commit === null ? null : { commit, file: null },
-            })
-          }
-          comments={review.status === "ready" ? review.document.comments : []}
-          reviewOf={reviewOf}
-          onTogglePlaceSeen={
-            review.status === "ready" ? review.actions.togglePlaceSeen : null
-          }
-          split={display.diffLayout === "split"}
-          railSize={sizes["components-rail"] ?? null}
-          onRailResize={(size) => resize("components-rail", size)}
-          reading={focus.reading}
-          onRead={focus.onRead}
-        >
-          {(layer) =>
-            commitsError !== null ? (
-              <Message tone="error">{commitsError}</Message>
-            ) : commitsLoading ? (
-              <Message>Loading commits...</Message>
-            ) : (
-              stack(layer)
-            )
-          }
-        </ComponentsStack>
-      }
+      bodies={{
+        threads:
+          everyVersion.status === "error" ? (
+            <Message tone="error">{everyVersion.message}</Message>
+          ) : everyVersion.status === "loading" ? (
+            <Message>Loading threads...</Message>
+          ) : (
+            <ThreadList
+              threads={threads}
+              actions={review.status === "ready" ? review.actions : null}
+              onGo={goToThread}
+            />
+          ),
+        commits:
+          commitsError !== null ? (
+            <Message tone="error">{commitsError}</Message>
+          ) : commitsLoading ? (
+            <Message>Loading commits...</Message>
+          ) : from.kind === "version" ? (
+            <PairedGraph
+              before={beforeCommits}
+              after={afterCommits}
+              pairing={pairing}
+              beforeLabel={label(from.id)}
+              afterLabel={label(to)}
+              current={current}
+              onSelect={pick}
+            />
+          ) : (
+            <CommitLog
+              source={screen.lane(to)}
+              selected={current === null ? [] : [current]}
+              onSelect={(selection) => pick(pickedFrom(selection, current))}
+              oldestFirst
+            />
+          ),
+        components: <div className="components-slot" ref={setRailSlot} />,
+        code: (
+          // The stack always sits inside the components view, on or off, so
+          // switching the map keeps every file's state, and a switch to another
+          // comparison keeps the place the reader is going to while it loads.
+          <div className="pane pane--diff">
+            <ComponentsStack
+              enabled={componentsOn}
+              rows={rows}
+              components={components}
+              groups={groups}
+              kinds={
+                review.status === "ready"
+                  ? review.document.componentKinds
+                  : DEFAULT_KINDS
+              }
+              sources={sources}
+              onPeekFiles={peekAt}
+              current={currentKey}
+              open={open}
+              onOpenRow={(key) =>
+                setOpen((now) => (now.has(key) ? now : toggled(now, key)))
+              }
+              onExpandMessage={(key) =>
+                setExpanded((now) => (now.has(key) ? now : toggled(now, key)))
+              }
+              from={
+                from.kind === "version"
+                  ? { id: from.id, name: versionName(versions, from.id) }
+                  : null
+              }
+              to={{ id: to, name: versionName(versions, to) }}
+              counterparts={counterparts}
+              ownDiffs={ownDiffs}
+              onWantOwn={wantOwn}
+              onCompare={(nextFrom, nextTo, commit) =>
+                onGo({
+                  ...place,
+                  from:
+                    nextFrom === null
+                      ? { kind: "base" }
+                      : { kind: "version", id: nextFrom },
+                  to: nextTo,
+                  spot: commit === null ? null : { commit, file: null },
+                })
+              }
+              comments={
+                review.status === "ready" ? review.document.comments : []
+              }
+              reviewOf={reviewOf}
+              onTogglePlaceSeen={
+                review.status === "ready"
+                  ? review.actions.togglePlaceSeen
+                  : null
+              }
+              split={display.diffLayout === "split"}
+              railSlot={railSlot}
+              reading={focus.reading}
+              onRead={focus.onRead}
+            >
+              {(layer) =>
+                commitsError !== null ? (
+                  <Message tone="error">{commitsError}</Message>
+                ) : commitsLoading ? (
+                  <Message>Loading commits...</Message>
+                ) : (
+                  stack(layer)
+                )
+              }
+            </ComponentsStack>
+          </div>
+        ),
+      }}
     />
   );
 }
+
+const NOTHING_EMPTY: ReadonlySet<PanelId> = new Set();
+const NO_COMPONENTS: ReadonlySet<PanelId> = new Set(["components"]);
 
 /** Whether two lists name the same files at the same blobs. */
 function sameFiles(a: FileDiff[], b: FileDiff[]): boolean {

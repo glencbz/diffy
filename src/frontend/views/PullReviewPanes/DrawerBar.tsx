@@ -4,13 +4,9 @@ import type { StackPosition } from "./PullReviewPanes";
 export function DrawerBar({
   position: { index, count, summary },
   onStep,
-  open,
-  onToggle,
 }: {
   position: StackPosition;
   onStep: (step: -1 | 1) => void;
-  open: boolean;
-  onToggle: () => void;
 }) {
   return (
     <div className="drawer-bar">
@@ -34,20 +30,12 @@ export function DrawerBar({
           ›
         </button>
       </div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="drawer-bar__toggle"
-      >
+      <p className="drawer-bar__where">
         <span className="drawer-bar__position">
           {index === null ? commitCount(count) : `${index + 1} of ${count}`}
         </span>
         <span className="drawer-bar__summary">{summary}</span>
-        <span className="drawer-bar__fold">
-          {open ? "▾ fold" : "▸ show all"}
-        </span>
-      </button>
+      </p>
     </div>
   );
 }
