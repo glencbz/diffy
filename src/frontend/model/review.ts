@@ -9,6 +9,7 @@ import {
   withKind,
 } from "./components";
 import type { InterdiffRow } from "./diff";
+import { Capture, withCapture } from "./evidence";
 import { followLine, readPatch } from "./patch";
 
 const Comparison = z.object({
@@ -178,6 +179,9 @@ export const ReviewDocument = z.object({
   localReviews: z.array(LocalReview).default([]),
   componentMaps: z.array(ComponentMap).default([]),
   componentKinds: z.array(ComponentKind).default(DEFAULT_KINDS),
+  /** What authors recorded of the app, by series and version; see
+   *  [evidence](../backend/evidence.md). */
+  captures: z.array(Capture).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -193,6 +197,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   localReviews: [],
   componentMaps: [],
   componentKinds: DEFAULT_KINDS,
+  captures: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -206,7 +211,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.pairings.length === 0 &&
     document.compared.length === 0 &&
     document.localReviews.length === 0 &&
-    document.componentMaps.length === 0
+    document.componentMaps.length === 0 &&
+    document.captures.length === 0
   );
 }
 
@@ -675,6 +681,14 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("restore-review"), name: z.string() }),
   z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
   z.object({ kind: z.literal("write-components"), map: ComponentMap }),
+  z.object({ kind: z.literal("attach-capture"), capture: Capture }),
+  z.object({
+    kind: z.literal("detach-capture"),
+    series: z.string(),
+    version: z.string(),
+    commitId: z.string(),
+    id: z.string(),
+  }),
   ComponentKind.extend({
     kind: z.literal("define-kind"),
     before: z.string().optional(),
@@ -906,12 +920,33 @@ export function applyCommand(
         componentMaps: document.componentMaps.filter(
           (map) => !purged.has(map.series),
         ),
+        captures: document.captures.filter(
+          (capture) => !purged.has(capture.series),
+        ),
       };
     }
     case "write-components":
       return {
         ...document,
         componentMaps: withComponents(document.componentMaps, command.map),
+      };
+    case "attach-capture":
+      return {
+        ...document,
+        captures: withCapture(document.captures, command.capture),
+      };
+    case "detach-capture":
+      return {
+        ...document,
+        captures: document.captures.filter(
+          (capture) =>
+            !(
+              capture.series === command.series &&
+              capture.version === command.version &&
+              capture.commitId === command.commitId &&
+              capture.id === command.id
+            ),
+        ),
       };
     case "define-kind":
       return {
@@ -1001,6 +1036,8 @@ export function applyCommand(
         // What the browser kept never had a vocabulary, so the repository's
         // stays.
         componentKinds: document.componentKinds,
+        // Nor captures, which only agents attach on the server.
+        captures: document.captures,
       };
   }
 }
