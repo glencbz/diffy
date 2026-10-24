@@ -247,6 +247,7 @@ export function Panels({
         {zoomed !== null ? (
           <div className="panels-zoom">
             <div className="panels-zoom__bar">
+              <div className="panels-zoom__start">{bar}</div>
               {all.flatMap((each) =>
                 each.tabs.map((panel) => (
                   <button

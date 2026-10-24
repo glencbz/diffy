@@ -612,6 +612,12 @@ folded, and what is zoomed belong to the screen, not the layout. A leaf
 whose panels have nothing to show folds to its tabs until the reader opens
 it.
 
+A zoomed panel takes the whole window, over the screen's header and the
+comparison toolbar as well as the other panels; on a phone those take a
+third of the height, and a zoom that kept them would hardly be one. Its bar
+keeps what the reader needs while reading: the stepper, a button for each
+panel, the panel's own controls and the way back.
+
 A panel's own controls, such as how the code is drawn, sit in its leaf's
 tab bar while it is in front, beside fold and zoom, and in the zoom's bar
 while it is zoomed. In a toolbar over the screen they would stay put when
@@ -879,6 +885,7 @@ export function Panels({
         {zoomed !== null ? (
           <div className="panels-zoom">
             <div className="panels-zoom__bar">
+              <div className="panels-zoom__start">{bar}</div>
               {all.flatMap((each) =>
                 each.tabs.map((panel) => (
                   <button
@@ -1250,7 +1257,8 @@ export function LeafView({
   }
 
   /* The stepper sits in the panels' bar, which draws the edge. */
-  .panels-bar__start .stack-stepper {
+  .panels-bar__start .stack-stepper,
+  .panels-zoom__start .stack-stepper {
     flex: 1;
     border-bottom: none;
   }
@@ -1519,11 +1527,18 @@ export function LeafView({
   }
 
   .panels-zoom {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
     display: flex;
-    flex: 1;
     flex-direction: column;
+    background: var(--surface);
+  }
+
+  .panels-zoom__start {
+    display: flex;
+    flex: 1 1 20em;
     min-width: 0;
-    min-height: 0;
   }
 
   .panels-zoom__bar {
