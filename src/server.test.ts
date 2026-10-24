@@ -4,6 +4,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import {
+  AgentListeners,
+  LISTEN_PATH,
+  waitFor,
+} from "./backend/agent/listeners";
 import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
@@ -12,6 +17,7 @@ import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
   agentContext,
+  agentListen,
   handleCompare,
   handleComparePaths,
   handleDiff,
@@ -27,13 +33,14 @@ import {
   REVIEW_TOPIC,
   reviewChanges,
   reviewRoute,
-  reviewSocket,
+  sockets,
 } from "./server";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
 const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
-const HOST = { now: () => new Date() };
+const HOST = { now: () => new Date(), diffy: ["diffy"] };
+const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
 /** The commit id of the single commit `revset` names. */
 async function commitId(revset: string): Promise<string> {
@@ -402,14 +409,26 @@ describe("the review route", () => {
     POST: (req: Request) => Promise<Response>;
   }
 
-  async function withStore(run: (route: Route) => Promise<void>) {
+  async function withStore(
+    run: (route: Route, submits: unknown[][]) => Promise<void>,
+  ) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const repo = { root: ROOT, store: openReviewStore(join(dir, "r.sqlite")) };
+    const submits: unknown[][] = [];
+    const route = reviewRoute({
+      submitted: async (...args) => {
+        submits.push(args);
+        return 0;
+      },
+    });
     try {
-      await run({
-        GET: () => reviewRoute.GET(new Request("http://test/"), repo),
-        POST: (req) => reviewRoute.POST(req, repo),
-      });
+      await run(
+        {
+          GET: () => route.GET(new Request("http://test/"), repo),
+          POST: (req) => route.POST(req, repo),
+        },
+        submits,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -445,6 +464,37 @@ describe("the review route", () => {
       expect(await res.json()).toEqual(read);
       expect(read.revision).toBe(1);
       expect(read.document.marks).toHaveLength(1);
+    }));
+
+  test("tells agents only of a mark on a local review's newest version", () =>
+    withStore(async (route, submits) => {
+      // arrange
+      for (const commit of ["a", "b"]) {
+        const version = {
+          operation: `op-${commit}`,
+          revset: "t",
+          commits: [commit],
+          registeredAt: "2026-10-22T09:00:00.000Z",
+        };
+        await route.POST(post({ kind: "register", name: "t", version }));
+      }
+      const mark = (series: string, version: string) =>
+        route.POST(
+          post({
+            kind: "mark-reviewed",
+            series,
+            version,
+            at: "2026-10-22T10:00:00.000Z",
+          }),
+        );
+
+      // act
+      await mark("local:t", "1");
+      await mark("pull:o/r#1", "abc");
+      await mark("local:t", "2");
+
+      // assert
+      expect(submits).toEqual([[ROOT, "t", 2]]);
     }));
 
   test("reports a body that is not a command as 400 and writes nothing", () =>
@@ -501,7 +551,7 @@ describe("the review route", () => {
     const server = Bun.serve({
       port: 0,
       routes: { "/api/review/changes": reviewChanges },
-      websocket: reviewSocket,
+      websocket: sockets(new AgentListeners()),
     });
     const stop = watchReview(
       store,
@@ -527,6 +577,64 @@ describe("the review route", () => {
     } finally {
       socket.close();
       stop();
+      server.stop(true);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("tells a waiting agent of a submit, and a late one at once", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
+    const store = openReviewStore(join(dir, "r.sqlite"));
+    const listeners = new AgentListeners();
+    const server = Bun.serve({
+      port: 0,
+      routes: {
+        [LISTEN_PATH]: agentListen(async (workspace) => {
+          if (workspace !== ROOT) {
+            throw new Error(`no workspace at ${workspace}`);
+          }
+          return { root: ROOT, store };
+        }),
+      },
+      websocket: sockets(listeners),
+    });
+    const wait = (review: string, workspace = ROOT) =>
+      waitFor(review, workspace, async () => new URL("/mcp", server.url), 10);
+    store.apply({
+      kind: "register",
+      name: "t",
+      version: {
+        operation: "op",
+        revset: "t",
+        commits: ["a"],
+        registeredAt: "2026-10-24T09:00:00.000Z",
+      },
+    });
+
+    try {
+      // act
+      const waited = wait("t");
+      // The route tells the listeners once the reader's mark is written.
+      while ((await listeners.submitted(ROOT, "t", 1)) === 0) {
+        await Bun.sleep(10);
+      }
+      store.apply({
+        kind: "mark-reviewed",
+        series: "local:t",
+        version: "1",
+        at: "2026-10-24T10:00:00.000Z",
+      });
+      const late = await wait("t");
+      const missing = await wait("u");
+      const stranger = await wait("t", "/nowhere");
+
+      // assert
+      expect(await waited).toEqual({ review: "t", version: 1 });
+      expect(late).toEqual({ review: "t", version: 1 });
+      expect(missing).toEqual({ error: "no local review is named u" });
+      expect(stranger).toEqual({ error: "no workspace at /nowhere" });
+    } finally {
       server.stop(true);
       await rm(dir, { recursive: true, force: true });
     }
@@ -861,7 +969,7 @@ describe("agentContext", () => {
     };
     const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
     const context = (caller: string | null) =>
-      agentContext(HOST, { context: () => shown }, agents, "http://vm", caller);
+      agentContext(HOST, { context: () => shown }, agents, ORIGINS, caller);
 
     // act
     const elsewhere = await context(agent.second);
@@ -885,6 +993,9 @@ describe("agentContext", () => {
     );
     expect(sibling.repo.root).toBe(reader.second);
     expect(sibling.link("/reviews/x")).toBe("http://vm/reviews/x");
+    expect(sibling.wait("my t")).toBe(
+      "diffy wait 'my t' --url http://localhost:4000",
+    );
     expect(unnamed.repo).toBe(shown);
     expect((await context(agent.root)).repo.store).toBe(elsewhere.repo.store);
     // The agent's write went to its own repository's store.
@@ -901,7 +1012,7 @@ describe("agentContext", () => {
       HOST,
       { context: () => null },
       agents,
-      "http://vm",
+      ORIGINS,
       dir,
     );
 

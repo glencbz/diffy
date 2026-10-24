@@ -77,6 +77,13 @@ export type VersionMark =
   | { kind: "unmarked"; onMark: () => void }
   | { kind: "unavailable" };
 
+/** What the mark's button says before and after, ahead of the version's
+ *  name: `Mark reviewed at` and `Reviewed at`. */
+export interface MarkLabel {
+  mark: string;
+  marked: string;
+}
+
 /** `v3`, or the id cut short when the history does not list it. */
 export function versionName(versions: SeriesVersion[], id: string): string {
   const version = versions.find((candidate) => candidate.id === id);

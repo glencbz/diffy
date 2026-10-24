@@ -27,6 +27,7 @@ import {
   reviewedIn,
 } from "../model/review";
 import {
+  type MarkLabel,
   rowAsk,
   type SeriesHistory,
   type SeriesSource,
@@ -218,6 +219,7 @@ export interface SeriesScreen {
   header: ReactNode;
   /** What the whole of one version is called: `whole pull request`. */
   wholeLabel: string;
+  markLabel: MarkLabel;
   /** The key a row comparing these two commits is filed under. */
   keyOf: (
     document: ReviewDocument,
@@ -561,6 +563,7 @@ export function SeriesReview({
                     }
                   : { kind: "unavailable" }
             }
+            markLabel={screen.markLabel}
             wholeLabel={`the ${screen.wholeLabel}`}
             onWhole={() =>
               onGo({ from: { kind: "base" }, to: newest, spot: null })

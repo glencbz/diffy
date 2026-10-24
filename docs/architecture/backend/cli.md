@@ -18,6 +18,7 @@ diffy ~/src/third  # serves third, from anywhere
 cd ~/Downloads
 diffy              # serves the repository opened most recently
 diffy mcp          # the agent's end of MCP, for Claude Code to start
+diffy wait t       # exits when the reader submits the review t
 ```
 
 Claude Code is pointed at diffy once per user:
@@ -35,6 +36,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { bridge } from "./backend/agent/bridge";
+import { AgentListeners, waitFor } from "./backend/agent/listeners";
 import { difftDirectories } from "./backend/commit/difft";
 import { type Host, hostFrom } from "./backend/host/host";
 import {
@@ -53,10 +55,11 @@ import {
   type Start,
   startingRepo,
 } from "./backend/repo/repos";
-import { REVIEW_TOPIC, reviewSocket, routes } from "./server";
+import { REVIEW_TOPIC, routes, type SocketData, sockets } from "./server";
 
 const USAGE = `usage: diffy [<path>] [--port <n>] [--no-open]
-       diffy mcp [--url <server>]`;
+       diffy mcp [--url <server>]
+       diffy wait <review> [--url <server>]`;
 
 // A typed port is held to and a busy one ends the run; otherwise diffy is
 // this user's one server, on the port it keeps across runs.
@@ -65,6 +68,7 @@ export type PortChoice = { kind: "given"; port: number } | { kind: "sticky" };
 export type Command =
   | { kind: "serve"; path?: string; port: PortChoice; open: boolean }
   | { kind: "mcp"; url?: string }
+  | { kind: "wait"; review: string; url?: string }
   | { kind: "difft"; left: string; right: string }
   | { kind: "help" }
   | { kind: "usage-error"; reason: string };
@@ -77,6 +81,7 @@ export function parseCommand(argv: string[]): Command {
       : { kind: "difft", left, right };
   }
   if (argv[0] === "mcp") return parseMcp(argv.slice(1));
+  if (argv[0] === "wait") return parseWait(argv.slice(1));
 
   let values: { port?: string; help?: boolean; "no-open"?: boolean };
   let positionals: string[];
@@ -125,6 +130,31 @@ function parseMcp(argv: string[]): Command {
     ? { kind: "mcp", url }
     : { kind: "usage-error", reason: `not a URL: ${url}` };
 }
+
+function parseWait(argv: string[]): Command {
+  let url: string | undefined;
+  let positionals: string[];
+  try {
+    ({
+      values: { url },
+      positionals,
+    } = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      options: { url: { type: "string" } },
+    }));
+  } catch (error) {
+    return { kind: "usage-error", reason: (error as Error).message };
+  }
+  const [review, ...rest] = positionals;
+  if (review === undefined || rest.length > 0) {
+    return { kind: "usage-error", reason: "wait takes one review" };
+  }
+  if (url === undefined) return { kind: "wait", review };
+  return URL.canParse(url)
+    ? { kind: "wait", review, url }
+    : { kind: "usage-error", reason: `not a URL: ${url}` };
+}
 ```
 
 ## The sticky port
@@ -157,10 +187,10 @@ function fail(status: number, message: string): never {
   process.exit(status);
 }
 
-type Bind = (port: number) => Bun.Server<undefined> | null;
+type Bind = (port: number) => Bun.Server<SocketData> | null;
 
 type Listening =
-  | { kind: "bound"; server: Bun.Server<undefined> }
+  | { kind: "bound"; server: Bun.Server<SocketData> }
   | { kind: "running"; running: RunningServer };
 
 async function listenSticky(
@@ -228,7 +258,8 @@ async function serve(
     if (running !== null) return handOff(running, start, open);
   }
 
-  let server: Bun.Server<undefined> | null = null;
+  let server: Bun.Server<SocketData> | null = null;
+  const listeners = new AgentListeners();
   const served = new ServedRepo(host, recent, (revision) =>
     server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
@@ -241,8 +272,8 @@ async function serve(
     try {
       return Bun.serve({
         port,
-        routes: routes(host, served, recent),
-        websocket: reviewSocket,
+        routes: routes(host, served, recent, listeners),
+        websocket: sockets(listeners),
       });
     } catch (error) {
       if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
@@ -306,14 +337,14 @@ with `--port`, and then nothing is found or started.
 ```ts
 //| id: cli-module
 
-async function startInBackground(serverFile: string): Promise<RunningServer> {
+async function startInBackground(
+  [command, ...args]: string[],
+  serverFile: string,
+): Promise<RunningServer> {
   const log = join(dirname(serverFile), "server.log");
   await mkdir(dirname(log), { recursive: true });
   const out = openSync(log, "a");
-  // A compiled diffy is its own executable; under `bun run` the script is
-  // an argument.
-  const script = Bun.main.startsWith("/$bunfs/") ? [] : [Bun.main];
-  spawn(process.execPath, [...script, "--no-open"], {
+  spawn(command as string, [...args, "--no-open"], {
     detached: true,
     stdio: ["ignore", out, out],
   }).unref();
@@ -337,10 +368,45 @@ async function mcp(host: Host, url: string | undefined) {
         "/mcp",
         (
           (await findServer(serverFile)) ??
-          (await startInBackground(serverFile))
+          (await startInBackground(host.diffy, serverFile))
         ).url,
       ),
   });
+}
+
+```
+
+## `diffy wait`
+
+An agent runs `diffy wait <review>` in the background once it has handed the
+reader a review, and the command
+[exits when the reader submits it](agents.md#telling-an-agent-the-reader-submitted),
+printing what the agent should do next. It finds the server the way the
+bridge does, or takes `--url`, but never starts one: the reader needs a
+server up to submit at all. Until one is up it keeps looking.
+`register_review` hands the agent the command spelled out for the server it
+called, so an agent that reaches diffy over HTTP need not have `diffy` on its
+`PATH`. A review that does not exist, or a directory that is not a jj
+workspace, ends it with an error, so the agent is not left waiting on
+nothing.
+
+```ts
+//| id: cli-module
+
+async function wait(host: Host, review: string, url: string | undefined) {
+  const here = await probeRepo(process.cwd(), host.home);
+  if (here.kind !== "jj") fail(2, "diffy wait runs in a jj workspace");
+  const serverFile = serverFilePath(host.stateDir);
+  const given = url === undefined ? null : new URL("/mcp", url);
+  const heard = await waitFor(review, here.root, async () => {
+    if (given !== null) return given;
+    const found = await findServer(serverFile);
+    return found === null ? null : new URL("/mcp", found.url);
+  });
+  if ("error" in heard) fail(1, heard.error);
+  console.log(
+    `The reader submitted their review of ${heard.review} at v${heard.version}. Read its comments with read_comments and address them.`,
+  );
 }
 
 if (import.meta.main) {
@@ -358,6 +424,9 @@ if (import.meta.main) {
       break;
     case "mcp":
       await mcp(host, command.url);
+      break;
+    case "wait":
+      await wait(host, command.review, command.url);
       break;
     case "difft":
       process.stdout.write(
@@ -441,6 +510,16 @@ test("mcp takes an optional server URL", () => {
   });
   expect(parseCommand(["mcp", "--url", "nope"]).kind).toBe("usage-error");
   expect(parseCommand(["mcp", "--port", "1"]).kind).toBe("usage-error");
+});
+
+test("wait takes one review and an optional server URL", () => {
+  expect(parseCommand(["wait", "t"])).toEqual({ kind: "wait", review: "t" });
+  expect(parseCommand(["wait", "t", "--url", "http://localhost:4000"])).toEqual(
+    { kind: "wait", review: "t", url: "http://localhost:4000" },
+  );
+  expect(parseCommand(["wait"]).kind).toBe("usage-error");
+  expect(parseCommand(["wait", "t", "u"]).kind).toBe("usage-error");
+  expect(parseCommand(["wait", "t", "--url", "nope"]).kind).toBe("usage-error");
 });
 
 test("--help asks for the usage", () => {

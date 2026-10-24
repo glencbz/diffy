@@ -16,7 +16,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. review_status says whose turn a review is. Then run the wait command register_review answers with as a background command: it exits when the reader submits the newest version, which marks it reviewed and makes it your turn, and until then you leave the review alone, since the reader may still refine their comments. When it exits, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);
@@ -32,7 +32,7 @@ function newest(document: ReviewDocument, name: string): LocalVersion {
 
 /** Whose move a review waits on. The reader's until they mark the newest
  *  version reviewed, since marking is the one thing they do when done. */
-function turnOf(
+export function turnOf(
   document: ReviewDocument,
   review: LocalReview,
 ): { turn: "reader" | "agent"; newest: number; reviewed: number | null } {
@@ -141,7 +141,11 @@ export function reviewTools(): Tool[] {
           .optional()
           .describe("the commits to review, oldest to newest"),
       }),
-      call: async ({ name, revset }, { repo: { root, store }, link, now }) => {
+      call: async (
+        { name, revset },
+        { repo: { root, store }, link, wait, now },
+      ) => {
+        const waiting = `Run in the background to hear when the reader submits: ${wait(name)}`;
         let version: LocalVersion;
         try {
           ({ version } = await resolveRegistration(
@@ -163,7 +167,7 @@ export function reviewTools(): Tool[] {
           previous !== undefined &&
           previous.commits.join() === version.commits.join()
         ) {
-          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered`;
+          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered\n${waiting}`;
         }
         store.apply({ kind: "register", name, version });
         // Counted after the write: re-registering at the newest version's
@@ -187,6 +191,7 @@ export function reviewTools(): Tool[] {
             (entry) =>
               `${entry.changeId.slice(0, 8)} dropped ${subject(entry)}`,
           ),
+          waiting,
         ].join("\n");
       },
     }),

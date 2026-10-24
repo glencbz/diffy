@@ -45,6 +45,8 @@ export interface ToolContext {
   repo: RepoContext;
   /** The link the reader opens a path of this server's at. */
   link: (path: string) => string;
+  /** The shell command that waits for the reader to submit a review. */
+  wait: (name: string) => string;
   now: () => Date;
 }
 
@@ -292,6 +294,105 @@ function idOf(line: string): string | number | null {
 }
 ```
 
+## Telling an agent the reader submitted
+
+The reader marks the newest version of a local review reviewed with a
+**Submit review** button, and the agent that wrote the work should then take
+it up without polling `review_status`. MCP has no way for a server to start
+a turn in the agent's session, but Claude Code does start one when a command
+it runs in the background exits. So once it has handed the reader the link,
+the agent runs [`diffy wait <name>`](cli.md#diffy-wait) in the background,
+and the command exits when the reader submits. Comments the reader writes
+before then say nothing to the agent, since the reader may still refine
+them, and a turn spent on each would be wasted.
+
+`diffy wait` holds a WebSocket open at `/mcp/listen`, naming the review and
+the workspace it runs in, and the server sends it one message when the
+reader submits: `{"review": name, "version": n}`. A waiter that connects
+after the reader already submitted is told at once, so one started late does
+not wait for a submit that has been and gone. A review the repository does
+not hold is answered with `{"error": ...}`. A waiter hears only of its own
+review in its own repository, since two repositories may each hold a review
+of the same name.
+
+```ts
+//| id: backend-agent-listeners
+//| file: src/backend/agent/listeners.ts
+import { jjRepoDir } from "../commit/jj";
+
+/** Where `diffy wait` listens, beside the `/mcp` the bridge posts to. */
+export const LISTEN_PATH = "/mcp/listen";
+
+/** What a waiter hears: the version the reader submitted, or why there is
+ *  nothing to wait for. */
+export type Heard = { review: string; version: number } | { error: string };
+
+export interface Listener {
+  /** A directory in the repository whose review is waited on. */
+  root: string;
+  review: string;
+  send: (line: string) => void;
+}
+
+/** The waiters at `LISTEN_PATH`, for the reader's submits. */
+export class AgentListeners {
+  #listening = new Set<Listener>();
+
+  /** Adds a waiter; the returned function removes it. */
+  add(listener: Listener): () => void {
+    this.#listening.add(listener);
+    return () => this.#listening.delete(listener);
+  }
+
+  /** Tells each waiter on the review in `root`'s repository that the reader
+   *  submitted `version`, and says how many it told. */
+  async submitted(root: string, review: string, version: number) {
+    const line = JSON.stringify({ review, version } satisfies Heard);
+    const repo = await jjRepoDir(root).catch(() => null);
+    const told = await Promise.all(
+      [...this.#listening].map(async (listener) => {
+        if (listener.review !== review) return false;
+        const theirs = await jjRepoDir(listener.root).catch(() => null);
+        if (theirs === null || theirs !== repo) return false;
+        listener.send(line);
+        return true;
+      }),
+    );
+    return told.filter(Boolean).length;
+  }
+}
+
+/** Waits at the running server for the reader to submit `review`, looking
+ *  for a server again whenever none is up or the one listened on goes
+ *  away. */
+export async function waitFor(
+  review: string,
+  workspace: string,
+  running: () => Promise<URL | null>,
+  retryMs = 1000,
+): Promise<Heard> {
+  for (;;) {
+    const server = await running().catch(() => null);
+    if (server !== null) {
+      const url = new URL(LISTEN_PATH, server);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      url.searchParams.set("workspace", workspace);
+      url.searchParams.set("review", review);
+      const heard = await new Promise<Heard | null>((resolve) => {
+        const socket = new WebSocket(url);
+        socket.onmessage = (event) => {
+          resolve(JSON.parse(String(event.data)) as Heard);
+          socket.close();
+        };
+        socket.onclose = () => resolve(null);
+      });
+      if (heard !== null) return heard;
+    }
+    await Bun.sleep(retryMs);
+  }
+}
+```
+
 ## The review tools
 
 The tools work on the newest version of a local review, since that is the one
@@ -347,7 +448,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. review_status says whose turn a review is: once the reader has marked the newest version reviewed, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. review_status says whose turn a review is. Then run the wait command register_review answers with as a background command: it exits when the reader submits the newest version, which marks it reviewed and makes it your turn, and until then you leave the review alone, since the reader may still refine their comments. When it exits, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);
@@ -363,7 +464,7 @@ function newest(document: ReviewDocument, name: string): LocalVersion {
 
 /** Whose move a review waits on. The reader's until they mark the newest
  *  version reviewed, since marking is the one thing they do when done. */
-function turnOf(
+export function turnOf(
   document: ReviewDocument,
   review: LocalReview,
 ): { turn: "reader" | "agent"; newest: number; reviewed: number | null } {
@@ -472,7 +573,11 @@ export function reviewTools(): Tool[] {
           .optional()
           .describe("the commits to review, oldest to newest"),
       }),
-      call: async ({ name, revset }, { repo: { root, store }, link, now }) => {
+      call: async (
+        { name, revset },
+        { repo: { root, store }, link, wait, now },
+      ) => {
+        const waiting = `Run in the background to hear when the reader submits: ${wait(name)}`;
         let version: LocalVersion;
         try {
           ({ version } = await resolveRegistration(
@@ -494,7 +599,7 @@ export function reviewTools(): Tool[] {
           previous !== undefined &&
           previous.commits.join() === version.commits.join()
         ) {
-          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered`;
+          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered\n${waiting}`;
         }
         store.apply({ kind: "register", name, version });
         // Counted after the write: re-registering at the newest version's
@@ -518,6 +623,7 @@ export function reviewTools(): Tool[] {
             (entry) =>
               `${entry.changeId.slice(0, 8)} dropped ${subject(entry)}`,
           ),
+          waiting,
         ].join("\n");
       },
     }),
@@ -1487,6 +1593,7 @@ beforeEach(async () => {
   route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
     repo,
     link: (path) => `https://vm:4000${path}`,
+    wait: (name) => `diffy wait ${name}`,
     now: () => new Date(),
   }));
 });
@@ -1683,6 +1790,9 @@ describe("the review tools", () => {
       changes: [{ change: tip.changeId.slice(0, 8), sinceReviewed: "same" }],
     });
     expect(again.text).toContain("v1 already has these commits");
+    expect(second.text.split("\n").at(-1)).toBe(
+      "Run in the background to hear when the reader submits: diffy wait t",
+    );
     expect(second.text.split("\n")[1]).toBe("v2, against v1:");
     expect(second.text).toContain(
       `${tip.changeId.slice(0, 8)} ${tip.commitId.slice(0, 8)} same`,
@@ -1843,6 +1953,7 @@ async function call(
     async () => ({
       repo: { root: "/repo", store },
       link: (path) => `https://vm:4000${path}`,
+      wait: (name) => `diffy wait ${name}`,
       now: () => new Date(),
     }),
   );
@@ -2202,6 +2313,7 @@ beforeEach(() => {
   const route = mcpRoute([echo], "", async (_req, caller) => ({
     repo: { root: caller ?? "/reader", store },
     link: (path) => `http://reader${path}`,
+    wait: (name) => `diffy wait ${name}`,
     now: () => new Date(),
   }));
   server = Bun.serve({ port: 0, routes: { "/mcp": route } });
@@ -2282,5 +2394,91 @@ test("answers with an error when no server can be found", async () => {
     callEcho(1),
   );
   expect(answer?.error?.message).toBe("diffy did not start");
+});
+```
+
+A waiter is told by its review and its repository, so the test builds two
+workspaces of one repository and a repository apart. The waiting end is
+tested against a server that is not up at first.
+
+```ts
+//| id: backend-agent-listeners-test
+//| file: src/backend/agent/listeners.test.ts
+import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { $ } from "bun";
+import { AgentListeners, waitFor } from "./listeners";
+
+test("tells only the waiters on the review in its repository", async () => {
+  // arrange
+  const dir = await mkdtemp(join(tmpdir(), "diffy-listen-"));
+  const main = join(dir, "main");
+  const second = join(dir, "second");
+  const apart = join(dir, "apart");
+  try {
+    await $`jj git init ${main} && jj git init ${apart}`.quiet();
+    await $`jj workspace add ${second}`.cwd(main).quiet();
+    const listeners = new AgentListeners();
+    const heard: string[] = [];
+    const wait = (root: string, review: string, as: string) =>
+      listeners.add({
+        root,
+        review,
+        send: (line) => heard.push(`${as} ${line}`),
+      });
+    wait(second, "t", "second");
+    wait(main, "u", "other review");
+    wait(apart, "t", "other repo");
+    wait(dir, "t", "no repo");
+    const gone = wait(main, "t", "gone");
+    gone();
+
+    // act
+    const told = await listeners.submitted(main, "t", 2);
+
+    // assert
+    expect(told).toBe(1);
+    expect(heard).toEqual(['second {"review":"t","version":2}']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("waits for a server, then for what it sends", async () => {
+  // arrange
+  const server = Bun.serve({
+    port: 0,
+    routes: {
+      "/mcp/listen": (req: Request, server: Bun.Server<string>) => {
+        const asked = new URL(req.url).searchParams;
+        const data = `${asked.get("review")} in ${asked.get("workspace")}`;
+        return server.upgrade(req, { data })
+          ? undefined
+          : new Response(null, { status: 400 });
+      },
+    },
+    websocket: {
+      open(ws: Bun.ServerWebSocket<string>) {
+        ws.send(JSON.stringify({ error: ws.data }));
+      },
+      message() {},
+    },
+  });
+  let asked = 0;
+  const running = async () =>
+    asked++ === 0 ? null : new URL("/mcp", server.url);
+
+  try {
+    // act
+    const heard = await waitFor("t", "/src/a", running, 10);
+
+    // assert
+    expect(heard).toEqual({ error: "t in /src/a" });
+    expect(asked).toBe(2);
+  } finally {
+    server.stop(true);
+  }
 });
 ```

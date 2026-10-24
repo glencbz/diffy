@@ -22,6 +22,7 @@ beforeEach(async () => {
   route = mcpRoute(reviewTools(), INSTRUCTIONS, async () => ({
     repo,
     link: (path) => `https://vm:4000${path}`,
+    wait: (name) => `diffy wait ${name}`,
     now: () => new Date(),
   }));
 });
@@ -218,6 +219,9 @@ describe("the review tools", () => {
       changes: [{ change: tip.changeId.slice(0, 8), sinceReviewed: "same" }],
     });
     expect(again.text).toContain("v1 already has these commits");
+    expect(second.text.split("\n").at(-1)).toBe(
+      "Run in the background to hear when the reader submits: diffy wait t",
+    );
     expect(second.text.split("\n")[1]).toBe("v2, against v1:");
     expect(second.text).toContain(
       `${tip.changeId.slice(0, 8)} ${tip.commitId.slice(0, 8)} same`,

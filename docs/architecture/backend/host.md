@@ -1,7 +1,8 @@
 # The host
 
 What diffy takes from the machine it runs on: the home directory, where it
-keeps its files, the address the reader reaches it at, and the time. The
+keeps its files, the address the reader reaches it at, the command that runs
+it, and the time. The
 [command line](cli.md) reads them once into a `Host` and hands it down, so no
 module below it reads `process.env`, `homedir()` or the clock itself, and a
 test or a second server can run against a host of its own.
@@ -31,6 +32,8 @@ export interface Host {
   /** Where the reader opens this server, when a proxy puts it somewhere
    *  other than the address a request came in on. */
   publicUrl: string | null;
+  /** The command that runs this diffy again, before its arguments. */
+  diffy: string[];
   now: () => Date;
 }
 
@@ -46,6 +49,11 @@ export function hostFrom(
       "diffy",
     ),
     publicUrl: env.DIFFY_PUBLIC_URL || null,
+    // A compiled diffy is its own executable; under `bun run` the script is
+    // an argument.
+    diffy: Bun.main.startsWith("/$bunfs/")
+      ? [process.execPath]
+      : [process.execPath, Bun.main],
     now: () => new Date(),
   };
 }
