@@ -2,6 +2,7 @@
 
 import * as z from "zod";
 import { componentTools } from "./backend/agent/components";
+import { evidenceTools } from "./backend/agent/evidence";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
 import { INSTRUCTIONS, reviewTools } from "./backend/agent/review";
 import {
@@ -44,6 +45,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { EvidenceStore, evidenceRoutes } from "./backend/evidence/store";
 import type { Host } from "./backend/host/host";
 import { LayoutStore, layoutRoutes } from "./backend/layouts/layouts";
 import {
@@ -590,12 +592,14 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
       return handle(req, repo);
     };
   const agents = new AgentWorkspaces(host);
+  const evidence = EvidenceStore.in(host.dataDir);
   const publicOrigin = (req: Request) =>
     host.publicUrl ?? new URL(req.url).origin;
   return {
     "/*": index,
     ...repoRoutes(host, served, recent),
     ...layoutRoutes(LayoutStore.in(host.dataDir)),
+    ...evidenceRoutes(evidence),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": reader(handleLog),
     "/api/operations": reader(handleOperations),
@@ -619,7 +623,7 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
     "/api/local/diff": reader(handleLocalDiff),
     "/api/local/size": reader(handleLocalSize),
     "/mcp": mcpRoute(
-      [...reviewTools(), ...componentTools()],
+      [...reviewTools(), ...componentTools(), ...evidenceTools(evidence)],
       INSTRUCTIONS,
       (req, caller) =>
         agentContext(host, served, agents, publicOrigin(req), caller),

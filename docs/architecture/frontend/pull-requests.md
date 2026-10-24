@@ -694,6 +694,7 @@ import {
   seriesComponents,
 } from "../model/components";
 import type { FileDiff } from "../model/diff";
+import { capturesOf } from "../model/evidence";
 import type { GitCommit, Source } from "../model/history";
 import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
@@ -719,6 +720,13 @@ import {
   seriesThreads,
   threadPlace,
 } from "../model/threads";
+import {
+  capturesAt,
+  followCapture,
+  type Pick,
+  stepCapture,
+  type ViewMode,
+} from "../model/viewer";
 import { useBeforePaths, useCompared } from "../state/compared";
 import { useCounterpart, useOwnDiffs } from "../state/components";
 import { useFocus } from "../state/focus";
@@ -751,6 +759,7 @@ import { PairedGraph } from "../views/PairedGraph";
 import { PullReviewPanes } from "../views/PullReviewPanes/PullReviewPanes";
 import { SeriesComparisonPicker } from "../views/SeriesComparisonPicker";
 import { ThreadList } from "../views/ThreadList";
+import { Viewer } from "../views/Viewer/Viewer";
 import { CommitLog } from "./CommitLog";
 
 /** One array for every version that has not arrived. `usePairing` recomputes
@@ -938,6 +947,9 @@ export function SeriesReview({
   // The components panel's body, which the components view draws its rail
   // into from beside the code.
   const [railSlot, setRailSlot] = useState<HTMLElement | null>(null);
+  // The capture the reader picked in the viewer, and how they compare it.
+  const [picked, setPicked] = useState<Pick | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("side");
   const arrivals = useArrivals();
   const { from, spot } = place;
   const current = spot?.commit ?? null;
@@ -1189,6 +1201,22 @@ export function SeriesReview({
     (thread) => !thread.comment.resolved,
   ).length;
 
+  // The viewer shows the captures of the commit picked or being read.
+  const atCommit = capturesAt(
+    review.status === "ready"
+      ? capturesOf(review.document.captures, series, to)
+      : [],
+    currentRow?.commit.commitId ?? focus.reading?.commit ?? null,
+  );
+  const readingComponent =
+    focus.reading?.kind === "component" ? focus.reading.component : null;
+  const captureShown = followCapture(atCommit, picked, readingComponent);
+  const pickCapture = (id: string | null) =>
+    setPicked(id === null ? null : { id, reading: readingComponent });
+  const empty = new Set<PanelId>();
+  if (!componentsOn) empty.add("components");
+  if (captureShown === null) empty.add("viewer");
+
   return (
     <PullReviewPanes
       header={screen.header}
@@ -1201,8 +1229,11 @@ export function SeriesReview({
       onArrange={panels.arrange}
       onUndo={panels.undo}
       onReset={panels.reset}
-      empty={componentsOn ? NOTHING_EMPTY : NO_COMPONENTS}
-      badges={openThreads > 0 ? { threads: `${openThreads} open` } : {}}
+      empty={empty}
+      badges={{
+        ...(openThreads > 0 && { threads: `${openThreads} open` }),
+        ...(atCommit.length > 0 && { viewer: `${atCommit.length}` }),
+      }}
       tools={{
         code: (
           <ComponentsSwitch
@@ -1285,6 +1316,37 @@ export function SeriesReview({
             />
           ),
         components: <div className="components-slot" ref={setRailSlot} />,
+        viewer:
+          captureShown === null ? (
+            <Message>No captures of this commit.</Message>
+          ) : (
+            <Viewer
+              captures={atCommit}
+              shown={captureShown}
+              mode={viewMode}
+              components={
+                new Map(
+                  (toMap?.components ?? [])
+                    .filter((each) => each.commitId === captureShown.commitId)
+                    .map((each) => [each.id, each]),
+                )
+              }
+              reading={readingComponent}
+              onPick={pickCapture}
+              onStep={(by) =>
+                pickCapture(stepCapture(atCommit, captureShown.id, by))
+              }
+              onMode={setViewMode}
+              onGo={(component) =>
+                focus.ask({
+                  kind: "component",
+                  commit: captureShown.commitId,
+                  component,
+                  path: null,
+                })
+              }
+            />
+          ),
         code: (
           // The stack always sits inside the components view, on or off, so
           // switching the map keeps every file's state, and a switch to another
@@ -1343,6 +1405,7 @@ export function SeriesReview({
               railSlot={railSlot}
               reading={focus.reading}
               onRead={focus.onRead}
+              asked={focus.asked}
             >
               {(layer) =>
                 commitsError !== null ? (
@@ -1360,9 +1423,6 @@ export function SeriesReview({
     />
   );
 }
-
-const NOTHING_EMPTY: ReadonlySet<PanelId> = new Set();
-const NO_COMPONENTS: ReadonlySet<PanelId> = new Set(["components"]);
 
 /** Whether two lists name the same files at the same blobs. */
 function sameFiles(a: FileDiff[], b: FileDiff[]): boolean {

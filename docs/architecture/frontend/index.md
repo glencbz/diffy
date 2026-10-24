@@ -265,6 +265,8 @@ with its markup. The references below are an inventory, not an order.
 <<design-threads>>
 
 <<design-panels>>
+
+<<design-viewer>>
 ```
 
 ## Async state
