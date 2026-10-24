@@ -366,7 +366,7 @@ stepper.
 //| file: src/frontend/views/PullReviewPanes/PullReviewPanes.tsx
 import type { ComponentProps, ReactNode } from "react";
 import { Panels } from "../Panels/Panels";
-import { DrawerBar } from "./DrawerBar";
+import { StackStepper } from "./StackStepper";
 
 /** Where the reader is in the stack: the row picked, if any, out of how
  *  many, and a line naming it. */
@@ -396,43 +396,36 @@ export function PullReviewPanes({
       <div className="pull-toolbar">{picker}</div>
       <Panels
         {...panels}
-        bar={<DrawerBar position={position} onStep={onStep} />}
+        bar={<StackStepper position={position} onStep={onStep} />}
       />
     </>
   );
 }
 ```
 
-## The commit drawer
+## The stack stepper
 
-The stacked layout, the one a reader starts on, puts the commits above the
-code, full width, because the paired graph's two lanes of subjects would
-truncate to stubs in a column beside it. Until the reader drags it, the
-drawer is as tall as its rows, capped at `--pane-drawer-height`: a fixed
-share of the window would leave an empty band under the list on every short
-stack, which is most pull requests.
+The stacked layout, the one a reader starts on, puts the commits and the
+[threads](threads.md) above the code, full width, because the paired
+graph's two lanes of subjects would truncate to stubs in a column beside
+it. That panel is as tall as its rows until the reader drags it, like any
+panel sized to its content in a column; see
+[the layout tree](panels.md#the-layout-tree).
 
 The comparison picker and the review marks share one toolbar,
 `.pull-toolbar`, which wraps on a narrow window. As two bands they held a
 row of controls and a row of nearly nothing.
 
-The [threads](threads.md) share the drawer, a tab beside the commits, so the
-code keeps the window's width and a phone reaches them the way it reaches
-the commits. Their tab counts the open ones, so a reader on the commits tab
-still sees how many wait.
-
 The panels' bar starts with where the reader is in the stack and a stepper
-to the previous or next row, so it stays in reach when the drawer folds. A
-drawer the reader folded opens again on the next visit, since a pull
-request opened with its commit list hidden hides the first thing a new
-reader needs.
+to the previous or next row, so the reader can step through the stack with
+the commits folded, closed or in another layout's corner.
 
 ```tsx
-//| id: frontend-view-drawer-bar
-//| file: src/frontend/views/PullReviewPanes/DrawerBar.tsx
+//| id: frontend-view-stack-stepper
+//| file: src/frontend/views/PullReviewPanes/StackStepper.tsx
 import type { StackPosition } from "./PullReviewPanes";
 
-export function DrawerBar({
+export function StackStepper({
   position: { index, count, summary },
   onStep,
 }: {
@@ -440,14 +433,14 @@ export function DrawerBar({
   onStep: (step: -1 | 1) => void;
 }) {
   return (
-    <div className="drawer-bar">
-      <div className="drawer-bar__stepper">
+    <div className="stack-stepper">
+      <div className="stack-stepper__stepper">
         <button
           type="button"
           aria-label="previous commit"
           disabled={index === null || index === 0}
           onClick={() => onStep(-1)}
-          className="drawer-bar__step"
+          className="stack-stepper__step"
         >
           ‹
         </button>
@@ -456,16 +449,16 @@ export function DrawerBar({
           aria-label="next commit"
           disabled={index === null ? count === 0 : index >= count - 1}
           onClick={() => onStep(1)}
-          className="drawer-bar__step"
+          className="stack-stepper__step"
         >
           ›
         </button>
       </div>
-      <p className="drawer-bar__where">
-        <span className="drawer-bar__position">
+      <p className="stack-stepper__where">
+        <span className="stack-stepper__position">
           {index === null ? commitCount(count) : `${index + 1} of ${count}`}
         </span>
-        <span className="drawer-bar__summary">{summary}</span>
+        <span className="stack-stepper__summary">{summary}</span>
       </p>
     </div>
   );
@@ -477,22 +470,22 @@ function commitCount(count: number): string {
 ```
 
 ```css
-/*| id: design-commit-drawer
+/*| id: design-stack-stepper
 @layer components {
-  .drawer-bar {
+  .stack-stepper {
     display: flex;
     flex: none;
     align-items: stretch;
     min-width: 0;
   }
 
-  .drawer-bar__stepper {
+  .stack-stepper__stepper {
     display: flex;
     flex: none;
     margin: var(--space-2) 0 var(--space-2) var(--space-4);
   }
 
-  .drawer-bar__step {
+  .stack-stepper__step {
     min-width: 28px;
     padding: 0 var(--space-4);
     font: inherit;
@@ -503,26 +496,26 @@ function commitCount(count: number): string {
     border: 1px solid var(--border);
   }
 
-  .drawer-bar__step:first-child {
+  .stack-stepper__step:first-child {
     border-radius: var(--radius) 0 0 var(--radius);
   }
 
-  .drawer-bar__step:last-child {
+  .stack-stepper__step:last-child {
     border-left: none;
     border-radius: 0 var(--radius) var(--radius) 0;
   }
 
-  .drawer-bar__step:hover:not(:disabled) {
+  .stack-stepper__step:hover:not(:disabled) {
     color: var(--accent);
     background: var(--surface-sunken);
   }
 
-  .drawer-bar__step:disabled {
+  .stack-stepper__step:disabled {
     color: var(--text-ghost);
     cursor: default;
   }
 
-  .drawer-bar__where {
+  .stack-stepper__where {
     display: flex;
     flex: 1;
     gap: var(--space-4);
@@ -532,12 +525,12 @@ function commitCount(count: number): string {
     padding: var(--space-3) var(--space-4);
   }
 
-  .drawer-bar__position {
+  .stack-stepper__position {
     flex: none;
     font-weight: bold;
   }
 
-  .drawer-bar__summary {
+  .stack-stepper__summary {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -559,10 +552,10 @@ function commitCount(count: number): string {
 ```
 
 ```css
-/*| id: design-commit-drawer
+/*| id: design-stack-stepper
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .drawer-bar__step {
+    .stack-stepper__step {
       min-width: 44px;
       min-height: 44px;
     }
@@ -570,13 +563,13 @@ function commitCount(count: number): string {
 }
 ```
 
-On a wide screen each drawer row is one line, the id, the subject, then who
-and when, since the drawer has the window's width and the subject is what a
+On a wide screen each row of the commits panel is one line, the id, the
+subject, then who and when, since the panel has the window's width and the subject is what a
 reader scans for. A phone keeps the two-line row, which wraps a long subject
 rather than cutting it off.
 
 ```css
-/*| id: design-commit-drawer-rows
+/*| id: design-commit-panel-rows
 /* After the graph's own rules in the stylesheet, so these win by order as
    well as by specificity. */
 @layer components {
@@ -908,7 +901,7 @@ whose panes never carry `pane--showing`.
 
 ## Resizing a pane
 
-Picker columns and the commit drawer carry a splitter. A drag is clamped at
+Picker columns carry a splitter. A drag is clamped at
 the pane's minimum and at whatever leaves the giving pane `REST` pixels. A
 pane nobody has resized stores nothing, so it keeps following the default in
 [Design tokens](tokens.md).
@@ -922,9 +915,7 @@ export type PaneKey =
   | "local-before"
   | "local-after"
   | "local-log"
-  | "local-combined"
-  | "pull-commits"
-  | "components-rail";
+  | "local-combined";
 export type Axis = "x" | "y";
 
 /** One entry per resizable pane: which way it grows and how small it may get. */
@@ -933,8 +924,6 @@ export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-after": { axis: "x", min: 160 },
   "local-log": { axis: "x", min: 160 },
   "local-combined": { axis: "x", min: 160 },
-  "pull-commits": { axis: "y", min: 48 },
-  "components-rail": { axis: "x", min: 180 },
 };
 
 /** What a drag must always leave the pane that gives way. */
@@ -945,8 +934,6 @@ export const PaneSizes = z.object({
   "local-after": z.number().optional(),
   "local-log": z.number().optional(),
   "local-combined": z.number().optional(),
-  "pull-commits": z.number().optional(),
-  "components-rail": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;
 
@@ -990,7 +977,7 @@ describe("clampSize", () => {
     const room = 1000;
 
     // act
-    const size = clampSize("pull-commits", 950, room);
+    const size = clampSize("local-log", 950, room);
 
     // assert
     expect(size).toBe(room - REST);
@@ -1006,10 +993,10 @@ describe("clampSize", () => {
 
   test("rounds to a whole pixel", () => {
     // act
-    const size = clampSize("pull-commits", 120.6, 1000);
+    const size = clampSize("local-log", 200.6, 1000);
 
     // assert
-    expect(size).toBe(121);
+    expect(size).toBe(201);
   });
 });
 ```

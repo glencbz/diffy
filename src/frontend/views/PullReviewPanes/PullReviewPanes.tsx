@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/layout.md#frontend-view-pull-review-panes>>[init]
 import type { ComponentProps, ReactNode } from "react";
 import { Panels } from "../Panels/Panels";
-import { DrawerBar } from "./DrawerBar";
+import { StackStepper } from "./StackStepper";
 
 /** Where the reader is in the stack: the row picked, if any, out of how
  *  many, and a line naming it. */
@@ -31,7 +31,7 @@ export function PullReviewPanes({
       <div className="pull-toolbar">{picker}</div>
       <Panels
         {...panels}
-        bar={<DrawerBar position={position} onStep={onStep} />}
+        bar={<StackStepper position={position} onStep={onStep} />}
       />
     </>
   );

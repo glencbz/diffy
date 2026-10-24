@@ -35,6 +35,7 @@ export function Panels({
   bodies,
   empty,
   badges,
+  tools,
   bar,
 }: {
   tree: Tile;
@@ -48,6 +49,8 @@ export function Panels({
   /** The panels with nothing to show for this commit. */
   empty: ReadonlySet<PanelId>;
   badges: Partial<Record<PanelId, string>>;
+  /** Controls a panel puts in its leaf's tab bar while it is in front. */
+  tools: Partial<Record<PanelId, ReactNode>>;
   /** What the bar holds at its left. */
   bar: ReactNode;
 }) {
@@ -150,6 +153,7 @@ export function Panels({
         axis={axis}
         hosts={hosts}
         badges={badges}
+        tools={folded(tile) ? null : (tools[tile.active] ?? null)}
         focused={tile.id === focusedLeaf?.id}
         folded={folded(tile)}
         dragging={dragging}
@@ -261,6 +265,7 @@ export function Panels({
                   </button>
                 )),
               )}
+              {tools[zoomed.active]}
               <button
                 type="button"
                 className="panels-bar__act panels-zoom__back"

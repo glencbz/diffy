@@ -304,24 +304,9 @@ export function ComponentsStack(props: ComponentsStackProps) {
     return null;
   };
 
-  // Whatever scrolls the stack: the diff pane on a wide screen, the panes'
-  // drawer on a phone.
-  const scroller = () => {
-    for (
-      let at = body.current?.parentElement ?? null;
-      at !== null;
-      at = at.parentElement
-    ) {
-      const overflow = getComputedStyle(at).overflowY;
-      if (
-        (overflow === "auto" || overflow === "scroll") &&
-        at.scrollHeight > at.clientHeight + 1
-      ) {
-        return at;
-      }
-    }
-    return null;
-  };
+  // The code panel scrolls the stack, wherever the layout puts it.
+  const scroller = () =>
+    body.current?.closest<HTMLElement>(".code-panel") ?? null;
   const readingLine = () => {
     const pane = scroller();
     return pane === null
@@ -407,7 +392,6 @@ export function ComponentsStack(props: ComponentsStackProps) {
     const by = element.getBoundingClientRect().top - want;
     const pane = scroller();
     if (pane !== null) pane.scrollTop += by;
-    else window.scrollBy(0, by);
     if (landing.settle === null) {
       flash(element);
       // A switch that keeps the heading's height can leave it below the
@@ -448,8 +432,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // peek belongs to where it was opened, so a scroll closes it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: listens once, reading the page as it is
   useEffect(() => {
-    // The panel's host holds the code's pane wherever the panel is placed.
-    const panes = body.current?.closest(".panel-host");
+    const pane = scroller();
     let frame = 0;
     const read = () => {
       frame = 0;
@@ -479,18 +462,16 @@ export function ComponentsStack(props: ComponentsStackProps) {
       if (!(event.target instanceof Element)) return;
       if (event.target.closest(".components-peek") === null) setPeeked(null);
     };
-    // Captured, so a scroll of whichever pane holds the stack is heard.
-    panes?.addEventListener("scroll", onScroll, {
+    // Captured, so a scroll inside the stack, such as a wide file's, is heard.
+    pane?.addEventListener("scroll", onScroll, {
       passive: true,
       capture: true,
     });
-    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown);
     read();
     return () => {
-      panes?.removeEventListener("scroll", onScroll, { capture: true });
-      window.removeEventListener("scroll", onScroll);
+      pane?.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onDown);
       cancelAnimationFrame(frame);

@@ -523,6 +523,15 @@ export function SeriesReview({
       onReset={panels.reset}
       empty={componentsOn ? NOTHING_EMPTY : NO_COMPONENTS}
       badges={openThreads > 0 ? { threads: `${openThreads} open` } : {}}
+      tools={{
+        code: (
+          <ComponentsSwitch
+            shown={display.components}
+            disabled={toMap === undefined}
+            onChange={setComponents}
+          />
+        ),
+      }}
       picker={
         <>
           <SeriesComparisonPicker
@@ -533,11 +542,6 @@ export function SeriesReview({
             wholeLabel={screen.wholeLabel}
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
-          />
-          <ComponentsSwitch
-            shown={display.components}
-            disabled={toMap === undefined}
-            onChange={setComponents}
           />
           <LastReviewed
             versions={versions}
@@ -605,7 +609,7 @@ export function SeriesReview({
           // The stack always sits inside the components view, on or off, so
           // switching the map keeps every file's state, and a switch to another
           // comparison keeps the place the reader is going to while it loads.
-          <div className="pane pane--diff">
+          <div className="code-panel">
             <ComponentsStack
               enabled={componentsOn}
               rows={rows}

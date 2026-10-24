@@ -16,7 +16,7 @@ applies to every file at once and is per device, since a phone has less room.
 The word mark limit is the share of a line's words that can change before
 [its marks go](diff.md#changed-words), offered in steps a reader can tell
 apart. Whether a [component map](components.md#the-switch) is laid over
-a series is set from the switch in the comparison bar, and kept here so it
+a series is set from the switch in the code panel, and kept here so it
 holds on every series.
 
 ```ts

@@ -30,7 +30,7 @@ export function ComponentsSwitch({
       onClick={() => onChange(on ? "hidden" : "shown")}
     >
       <span className="components-switch-mode__track" aria-hidden="true" />
-      Components
+      by component
     </button>
   );
 }

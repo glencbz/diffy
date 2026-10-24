@@ -260,7 +260,8 @@
     --pane-log-width: 40%;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
-    --pane-drawer-height: 30vh;
+    --panel-natural-height: 30vh;
+    --panel-natural-width: 24em;
     --gutter-width: 40px;
     --label-width: 56px;
     --ref-max-width: 14em;
@@ -823,22 +824,22 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-stack-stepper>>[init] */
 @layer components {
-  .drawer-bar {
+  .stack-stepper {
     display: flex;
     flex: none;
     align-items: stretch;
     min-width: 0;
   }
 
-  .drawer-bar__stepper {
+  .stack-stepper__stepper {
     display: flex;
     flex: none;
     margin: var(--space-2) 0 var(--space-2) var(--space-4);
   }
 
-  .drawer-bar__step {
+  .stack-stepper__step {
     min-width: 28px;
     padding: 0 var(--space-4);
     font: inherit;
@@ -849,26 +850,26 @@
     border: 1px solid var(--border);
   }
 
-  .drawer-bar__step:first-child {
+  .stack-stepper__step:first-child {
     border-radius: var(--radius) 0 0 var(--radius);
   }
 
-  .drawer-bar__step:last-child {
+  .stack-stepper__step:last-child {
     border-left: none;
     border-radius: 0 var(--radius) var(--radius) 0;
   }
 
-  .drawer-bar__step:hover:not(:disabled) {
+  .stack-stepper__step:hover:not(:disabled) {
     color: var(--accent);
     background: var(--surface-sunken);
   }
 
-  .drawer-bar__step:disabled {
+  .stack-stepper__step:disabled {
     color: var(--text-ghost);
     cursor: default;
   }
 
-  .drawer-bar__where {
+  .stack-stepper__where {
     display: flex;
     flex: 1;
     gap: var(--space-4);
@@ -878,12 +879,12 @@
     padding: var(--space-3) var(--space-4);
   }
 
-  .drawer-bar__position {
+  .stack-stepper__position {
     flex: none;
     font-weight: bold;
   }
 
-  .drawer-bar__summary {
+  .stack-stepper__summary {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -903,10 +904,10 @@
   }
 }
 /* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer>>[1] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-stack-stepper>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .drawer-bar__step {
+    .stack-stepper__step {
       min-width: 44px;
       min-height: 44px;
     }
@@ -1828,7 +1829,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer-rows>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-panel-rows>>[init] */
 /* After the graph's own rules in the stylesheet, so these win by order as
    well as by specificity. */
 @layer components {
@@ -4660,8 +4661,8 @@
     min-width: 0;
   }
 
-  /* The drawer's bar sits in the panels' bar, which draws the edge. */
-  .panels-bar__start .drawer-bar {
+  /* The stepper sits in the panels' bar, which draws the edge. */
+  .panels-bar__start .stack-stepper {
     flex: 1;
     border-bottom: none;
   }
@@ -4769,9 +4770,12 @@
     flex: 0 1 auto;
   }
 
-  /* A natural drawer is as tall as its rows, up to the drawer's cap. */
   .panel-split--column > .panel-split__cell--natural {
-    max-height: var(--pane-drawer-height);
+    max-height: var(--panel-natural-height);
+  }
+
+  .panel-split--row > .panel-split__cell--natural {
+    max-width: var(--panel-natural-width);
   }
 
   .panel-split__handle {
@@ -4913,9 +4917,17 @@
     overflow: auto;
   }
 
-  /* The code scrolls in its own pane, which the components view reads. */
+  /* The code scrolls in its own element inside the host, the one the
+     commit stack and the components view read their place from. */
   .panel-host--code {
     overflow: hidden;
+  }
+
+  .code-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
   }
 
   .panels-zoom {

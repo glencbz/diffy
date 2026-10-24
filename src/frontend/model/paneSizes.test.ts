@@ -27,7 +27,7 @@ describe("clampSize", () => {
     const room = 1000;
 
     // act
-    const size = clampSize("pull-commits", 950, room);
+    const size = clampSize("local-log", 950, room);
 
     // assert
     expect(size).toBe(room - REST);
@@ -43,10 +43,10 @@ describe("clampSize", () => {
 
   test("rounds to a whole pixel", () => {
     // act
-    const size = clampSize("pull-commits", 120.6, 1000);
+    const size = clampSize("local-log", 200.6, 1000);
 
     // assert
-    expect(size).toBe(121);
+    expect(size).toBe(201);
   });
 });
 // ~/~ end

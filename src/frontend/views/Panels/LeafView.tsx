@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/panels.md#frontend-view-panels-leaf>>[init]
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   closePanel,
   type Leaf,
@@ -16,6 +16,7 @@ export function LeafView({
   axis,
   hosts,
   badges,
+  tools,
   focused,
   folded,
   dragging,
@@ -32,6 +33,8 @@ export function LeafView({
   axis: "row" | "column";
   hosts: ReadonlyMap<PanelId, HTMLElement>;
   badges: Partial<Record<PanelId, string>>;
+  /** The controls of the panel in front, beside fold and zoom. */
+  tools: ReactNode;
   focused: boolean;
   folded: boolean;
   dragging: PanelId | null;
@@ -100,6 +103,7 @@ export function LeafView({
         ))}
         {!folded && (
           <span className="panel-tabs__end">
+            {tools}
             <button
               type="button"
               className="panel-tabs__act"

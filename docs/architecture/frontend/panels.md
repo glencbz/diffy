@@ -200,8 +200,11 @@ be simpler, but every arrangement the reader wants would need a region
 built for it; a tree takes any of them from the same few moves.
 
 A split's sizes are shares of the room left over, and a null share is the
-child's natural size: the drawer of commits as tall as its rows, the rail as
-wide as its own rule says. The default layouts lean on that so they lie the
+child's natural size: the commits as tall as their rows, the components as
+wide as their names. A natural size stops at `--panel-natural-height` in a
+column and `--panel-natural-width` in a row, so a long list never pushes
+the code off the screen; a fixed share instead would leave an empty band
+under a short stack, which is most pull requests. The default layouts lean on that so they lie the
 way the screen always has, and a drag turns every share in the split into a
 measured one.
 
@@ -609,6 +612,12 @@ folded, and what is zoomed belong to the screen, not the layout. A leaf
 whose panels have nothing to show folds to its tabs until the reader opens
 it.
 
+A panel's own controls, such as how the code is drawn, sit in its leaf's
+tab bar while it is in front, beside fold and zoom, and in the zoom's bar
+while it is zoomed. In a toolbar over the screen they would stay put when
+the panel moved and stay lit when it closed, and the reader would have to
+learn which panel each one belonged to.
+
 A closed panel waits in the bar, named, as a button that opens it again in
 the focused leaf; dragged, it goes to whichever leaf it is dropped on. A `+`
 inside each leaf was the first try, but a faint glyph beside fold and zoom
@@ -658,6 +667,7 @@ export function Panels({
   bodies,
   empty,
   badges,
+  tools,
   bar,
 }: {
   tree: Tile;
@@ -671,6 +681,8 @@ export function Panels({
   /** The panels with nothing to show for this commit. */
   empty: ReadonlySet<PanelId>;
   badges: Partial<Record<PanelId, string>>;
+  /** Controls a panel puts in its leaf's tab bar while it is in front. */
+  tools: Partial<Record<PanelId, ReactNode>>;
   /** What the bar holds at its left. */
   bar: ReactNode;
 }) {
@@ -773,6 +785,7 @@ export function Panels({
         axis={axis}
         hosts={hosts}
         badges={badges}
+        tools={folded(tile) ? null : (tools[tile.active] ?? null)}
         focused={tile.id === focusedLeaf?.id}
         folded={folded(tile)}
         dragging={dragging}
@@ -884,6 +897,7 @@ export function Panels({
                   </button>
                 )),
               )}
+              {tools[zoomed.active]}
               <button
                 type="button"
                 className="panels-bar__act panels-zoom__back"
@@ -1076,7 +1090,7 @@ on end when it sits in a row.
 ```tsx
 //| id: frontend-view-panels-leaf
 //| file: src/frontend/views/Panels/LeafView.tsx
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   closePanel,
   type Leaf,
@@ -1093,6 +1107,7 @@ export function LeafView({
   axis,
   hosts,
   badges,
+  tools,
   focused,
   folded,
   dragging,
@@ -1109,6 +1124,8 @@ export function LeafView({
   axis: "row" | "column";
   hosts: ReadonlyMap<PanelId, HTMLElement>;
   badges: Partial<Record<PanelId, string>>;
+  /** The controls of the panel in front, beside fold and zoom. */
+  tools: ReactNode;
   focused: boolean;
   folded: boolean;
   dragging: PanelId | null;
@@ -1177,6 +1194,7 @@ export function LeafView({
         ))}
         {!folded && (
           <span className="panel-tabs__end">
+            {tools}
             <button
               type="button"
               className="panel-tabs__act"
@@ -1231,8 +1249,8 @@ export function LeafView({
     min-width: 0;
   }
 
-  /* The drawer's bar sits in the panels' bar, which draws the edge. */
-  .panels-bar__start .drawer-bar {
+  /* The stepper sits in the panels' bar, which draws the edge. */
+  .panels-bar__start .stack-stepper {
     flex: 1;
     border-bottom: none;
   }
@@ -1340,9 +1358,12 @@ export function LeafView({
     flex: 0 1 auto;
   }
 
-  /* A natural drawer is as tall as its rows, up to the drawer's cap. */
   .panel-split--column > .panel-split__cell--natural {
-    max-height: var(--pane-drawer-height);
+    max-height: var(--panel-natural-height);
+  }
+
+  .panel-split--row > .panel-split__cell--natural {
+    max-width: var(--panel-natural-width);
   }
 
   .panel-split__handle {
@@ -1484,9 +1505,17 @@ export function LeafView({
     overflow: auto;
   }
 
-  /* The code scrolls in its own pane, which the components view reads. */
+  /* The code scrolls in its own element inside the host, the one the
+     commit stack and the components view read their place from. */
   .panel-host--code {
     overflow: hidden;
+  }
+
+  .code-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
   }
 
   .panels-zoom {

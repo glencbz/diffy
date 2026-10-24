@@ -192,7 +192,8 @@ and is a reader [setting](settings.md#display).
     --pane-log-width: 40%;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
-    --pane-drawer-height: 30vh;
+    --panel-natural-height: 30vh;
+    --panel-natural-width: 24em;
     --gutter-width: 40px;
     --label-width: 56px;
     --ref-max-width: 14em;

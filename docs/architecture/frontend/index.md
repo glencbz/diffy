@@ -202,7 +202,7 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-splitter>>
 
-<<design-commit-drawer>>
+<<design-stack-stepper>>
 
 <<design-pane-tabs>>
 
@@ -226,7 +226,7 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-paired-graph>>
 
-<<design-commit-drawer-rows>>
+<<design-commit-panel-rows>>
 
 <<design-interdiff-rows>>
 

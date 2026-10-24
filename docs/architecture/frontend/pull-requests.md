@@ -654,7 +654,7 @@ The ends, picked commit, file, and line come from the address as one
 a linked file's row opens. Moving the before end keeps the picked commit,
 moving the after end drops it. The stack scrolls on a graph pick or an
 arrival from back/forward (`reveal`), never on a click in the diff. The
-[drawer's bar](layout.md#the-commit-drawer) steps by calling `pick`, so a
+[stack stepper](layout.md#the-stack-stepper) steps by calling `pick`, so a
 step is a pick in every respect. The place used is the one
 [`opening`](#the-head-last-reviewed) resolves, so picks in a since-review
 comparison keep its before end.
@@ -1203,6 +1203,15 @@ export function SeriesReview({
       onReset={panels.reset}
       empty={componentsOn ? NOTHING_EMPTY : NO_COMPONENTS}
       badges={openThreads > 0 ? { threads: `${openThreads} open` } : {}}
+      tools={{
+        code: (
+          <ComponentsSwitch
+            shown={display.components}
+            disabled={toMap === undefined}
+            onChange={setComponents}
+          />
+        ),
+      }}
       picker={
         <>
           <SeriesComparisonPicker
@@ -1213,11 +1222,6 @@ export function SeriesReview({
             wholeLabel={screen.wholeLabel}
             onPickFrom={(next) => onGo({ ...place, from: next })}
             onPickTo={(id) => onGo({ ...place, to: id, spot: null })}
-          />
-          <ComponentsSwitch
-            shown={display.components}
-            disabled={toMap === undefined}
-            onChange={setComponents}
           />
           <LastReviewed
             versions={versions}
@@ -1285,7 +1289,7 @@ export function SeriesReview({
           // The stack always sits inside the components view, on or off, so
           // switching the map keeps every file's state, and a switch to another
           // comparison keeps the place the reader is going to while it loads.
-          <div className="pane pane--diff">
+          <div className="code-panel">
             <ComponentsStack
               enabled={componentsOn}
               rows={rows}
