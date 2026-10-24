@@ -260,7 +260,8 @@
     --pane-log-width: 40%;
     --pane-list-width: 22%;
     --pane-list-min: 220px;
-    --pane-drawer-height: 30vh;
+    --panel-natural-height: 30vh;
+    --panel-natural-width: 24em;
     --gutter-width: 40px;
     --label-width: 56px;
     --ref-max-width: 14em;
@@ -743,13 +744,6 @@
     overflow: auto;
   }
 
-  .pane--commits {
-    height: var(--pane-size, auto);
-    max-height: var(--pane-size, var(--pane-drawer-height));
-    overflow: auto;
-    border-right: none;
-  }
-
   .pane--main {
     display: flex;
     flex-direction: column;
@@ -830,27 +824,22 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-stack-stepper>>[init] */
 @layer components {
-  .panes--drawer {
-    flex-direction: column;
-  }
-
-  .drawer-bar {
+  .stack-stepper {
     display: flex;
     flex: none;
     align-items: stretch;
-    background: var(--surface-raised);
-    border-bottom: 1px solid var(--border);
+    min-width: 0;
   }
 
-  .drawer-bar__stepper {
+  .stack-stepper__stepper {
     display: flex;
     flex: none;
     margin: var(--space-2) 0 var(--space-2) var(--space-4);
   }
 
-  .drawer-bar__step {
+  .stack-stepper__step {
     min-width: 28px;
     padding: 0 var(--space-4);
     font: inherit;
@@ -861,96 +850,47 @@
     border: 1px solid var(--border);
   }
 
-  .drawer-bar__step:first-child {
+  .stack-stepper__step:first-child {
     border-radius: var(--radius) 0 0 var(--radius);
   }
 
-  .drawer-bar__step:last-child {
+  .stack-stepper__step:last-child {
     border-left: none;
     border-radius: 0 var(--radius) var(--radius) 0;
   }
 
-  .drawer-bar__step:hover:not(:disabled) {
+  .stack-stepper__step:hover:not(:disabled) {
     color: var(--accent);
     background: var(--surface-sunken);
   }
 
-  .drawer-bar__step:disabled {
+  .stack-stepper__step:disabled {
     color: var(--text-ghost);
     cursor: default;
   }
 
-  .drawer-bar__toggle {
+  .stack-stepper__where {
     display: flex;
     flex: 1;
     gap: var(--space-4);
     align-items: center;
     min-width: 0;
+    margin: 0;
     padding: var(--space-3) var(--space-4);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    background: transparent;
-    border: none;
   }
 
-  .drawer-bar__toggle:hover {
-    background: var(--surface-sunken);
-  }
-
-  .drawer-bar__position {
+  .stack-stepper__position {
     flex: none;
     font-weight: bold;
   }
 
-  .drawer-bar__summary {
+  .stack-stepper__summary {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     color: var(--text-muted);
     white-space: nowrap;
     text-overflow: ellipsis;
-  }
-
-  .drawer-bar__fold {
-    flex: none;
-    color: var(--accent);
-  }
-
-  /* Sticks to the top of the drawer, so a long list keeps its way back. */
-  .drawer-tabs {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    gap: var(--space-5);
-    padding: 0 var(--space-5);
-    background: var(--surface);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .drawer-tab {
-    display: flex;
-    gap: var(--space-3);
-    align-items: center;
-    padding: var(--space-2) 0;
-    font: inherit;
-    color: var(--text-muted);
-    cursor: pointer;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-  }
-
-  .drawer-tab[aria-selected="true"] {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
-
-  .drawer-tab__count {
-    font-size: var(--text-size-small);
-    color: var(--review-open);
   }
 
   .pull-toolbar {
@@ -964,20 +904,12 @@
   }
 }
 /* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer>>[1] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-stack-stepper>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .drawer-bar__step {
+    .stack-stepper__step {
       min-width: 44px;
       min-height: 44px;
-    }
-
-    .drawer-tab {
-      min-height: 44px;
-    }
-
-    .panes--drawer .splitter--y::before {
-      inset: calc(-1 * var(--space-4)) 0;
     }
   }
 }
@@ -1897,16 +1829,16 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-drawer-rows>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-commit-panel-rows>>[init] */
 /* After the graph's own rules in the stylesheet, so these win by order as
    well as by specificity. */
 @layer components {
   @media (min-width: 1001px) {
-    .pane--commits .commit-graph__row {
+    .panel-host--commits .commit-graph__row {
       min-height: calc(28 / 12 * 1em);
     }
 
-    .pane--commits .commit-label {
+    .panel-host--commits .commit-label {
       flex-direction: row;
       align-items: baseline;
       justify-content: flex-start;
@@ -1916,19 +1848,19 @@
 
     /* Lets the meta line's parts and the subject be ordered as siblings,
        each still inheriting the meta line's small muted text. */
-    .pane--commits .commit-label__meta {
+    .panel-host--commits .commit-label__meta {
       display: contents;
     }
 
-    .pane--commits .commit-label__summary {
+    .panel-host--commits .commit-label__summary {
       flex: 0 1 auto;
       order: 1;
       min-width: 0;
     }
 
-    .pane--commits .commit-label__author,
-    .pane--commits .commit-label__time,
-    .pane--commits .commit-ref {
+    .panel-host--commits .commit-label__author,
+    .panel-host--commits .commit-label__time,
+    .panel-host--commits .commit-ref {
       order: 2;
     }
   }
@@ -3729,26 +3661,11 @@
     flex: 1;
     min-width: 0;
   }
-  .components-body > .splitter {
-    align-self: stretch;
-  }
-  /* The rail's edge is a thin line; give a pointer more to catch. */
-  .components-body > .splitter::before {
-    inset: 0 -6px;
-  }
-  .components-rail__toggle {
-    display: none;
-  }
+  /* The rail fills its panel, which scrolls it. */
   .components-rail {
-    flex: none;
-    position: sticky;
-    top: 0;
-    width: var(--pane-size, 24em);
-    max-height: 100vh;
-    overflow: auto;
+    flex: 1 0 auto;
     padding: var(--space-4);
     background: var(--surface-sunken);
-    border-right: 1px solid var(--border);
     font-size: var(--text-size-small);
   }
   .components-rail__head {
@@ -4545,30 +4462,8 @@
       flex-direction: column;
       align-items: stretch;
     }
-    .components-body > .splitter {
-      display: none;
-    }
     .components-rail {
-      position: static;
-      width: auto;
-      max-height: 40vh;
       padding: var(--space-2) var(--space-4);
-      border-right: 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .components-rail__toggle {
-      display: block;
-      width: 100%;
-      padding: var(--space-2) 0;
-      border: 0;
-      background: none;
-      color: var(--text-muted);
-      font: inherit;
-      text-align: left;
-      cursor: pointer;
-    }
-    .components-rail--closed > :not(.components-rail__toggle) {
-      display: none;
     }
     .components-heading {
       flex-wrap: wrap;
@@ -4736,6 +4631,366 @@
   .thread-entry__go {
     margin: 0 var(--space-4);
     font-size: var(--text-size-small);
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/panels.md#design-panels>>[init] */
+@layer components {
+  .panels {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .panels-bar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: stretch;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Too narrow for both, the layouts wrap under the stepper rather than
+     squeeze it. */
+  .panels-bar__start {
+    display: flex;
+    flex: 1 1 20em;
+    min-width: 0;
+  }
+
+  /* The stepper sits in the panels' bar, which draws the edge. */
+  .panels-bar__start .stack-stepper,
+  .panels-zoom__start .stack-stepper {
+    flex: 1;
+    border-bottom: none;
+  }
+
+  .panels-bar__layouts {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    align-items: center;
+    padding: 0 var(--space-4);
+    font-size: var(--text-size-small);
+  }
+
+  .panels-bar__layout,
+  .panels-bar__act {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .panels-bar__layout kbd,
+  .panels-bar__act kbd {
+    color: var(--text-faint);
+    font-size: 0.85em;
+  }
+
+  .panels-bar__layout[aria-selected="true"] {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  .panels-bar__act {
+    border-color: var(--border);
+  }
+
+  .panels-bar__act:disabled {
+    color: var(--text-ghost);
+    cursor: default;
+  }
+
+  /* A closed panel reads as a tab waiting to be put back. */
+  .panels-bar__closed {
+    display: flex;
+    flex: none;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-1) var(--space-4);
+    font-size: var(--text-size-small);
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .panels-bar__label {
+    color: var(--text-faint);
+  }
+
+  .panels-bar__reopen {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: grab;
+    background: none;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
+
+  .panels-bar__reopen:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .panels-tiles {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel-split {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel-split--column {
+    flex-direction: column;
+  }
+
+  .panel-split__cell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel-split__cell--natural {
+    flex: 0 1 auto;
+  }
+
+  .panel-split--column > .panel-split__cell--natural {
+    max-height: var(--panel-natural-height);
+  }
+
+  .panel-split--row > .panel-split__cell--natural {
+    max-width: var(--panel-natural-width);
+  }
+
+  .panel-split__handle {
+    position: absolute;
+    z-index: 3;
+  }
+
+  .panel-split__handle--row {
+    top: 0;
+    right: -3px;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+  }
+
+  .panel-split__handle--column {
+    right: 0;
+    bottom: -3px;
+    left: 0;
+    height: 6px;
+    cursor: row-resize;
+  }
+
+  .panel-split__handle:hover {
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  .panel-leaf {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-leaf--over {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  .panel-tabs {
+    display: flex;
+    flex: none;
+    gap: var(--space-4);
+    align-items: center;
+    padding: 0 var(--space-4);
+    font-size: var(--text-size-small);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .panel-leaf--focused > .panel-tabs {
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
+  .panel-tab {
+    display: flex;
+    align-items: center;
+  }
+
+  .panel-tab__name {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-2) 0;
+    font: inherit;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .panel-tab__name[aria-selected="true"] {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+
+  .panel-tab__badge {
+    color: var(--review-open);
+  }
+
+  .panel-tab__close {
+    padding: 0 var(--space-1);
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .panel-tabs__end {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-left: auto;
+  }
+
+  .panel-tabs__act {
+    padding: 0 var(--space-2);
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  .panel-tabs__act:hover,
+  .panel-tab__close:hover {
+    color: var(--accent);
+  }
+
+  /* Folded in a row, a leaf's tabs stand on end. */
+  .panel-leaf--folded.panel-leaf--row > .panel-tabs {
+    flex: 1;
+    flex-direction: column;
+    padding: var(--space-4) 0;
+    writing-mode: vertical-rl;
+    border-bottom: none;
+  }
+
+  .panel-leaf--folded.panel-leaf--row .panel-tab__name {
+    padding: 0 var(--space-2);
+    border-bottom: none;
+  }
+
+  .panel-body,
+  .panel-host {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel-host {
+    overflow: auto;
+  }
+
+  /* The code scrolls in its own element inside the host, the one the
+     commit stack and the components view read their place from. */
+  .panel-host--code {
+    overflow: hidden;
+  }
+
+  .code-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .panels-zoom {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+  }
+
+  .panels-zoom__start {
+    display: flex;
+    flex: 1 1 20em;
+    min-width: 0;
+  }
+
+  .panels-zoom__bar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-1) var(--space-4);
+    font-size: var(--text-size-small);
+    background: var(--surface);
+    border-bottom: 2px solid var(--accent);
+  }
+
+  .panels-zoom__panel {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .panels-zoom__panel[aria-pressed="true"] {
+    color: var(--text);
+    border-color: var(--border);
+  }
+
+  .panels-zoom__back {
+    margin-left: auto;
+  }
+}
+/* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/panels.md#design-panels>>[1] */
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .panels-bar__layout kbd,
+    .panels-bar__act kbd {
+      display: none;
+    }
+
+    .panel-tab__name,
+    .panel-tabs__act,
+    .panels-bar__reopen {
+      min-height: 44px;
+    }
   }
 }
 /* ~/~ end */

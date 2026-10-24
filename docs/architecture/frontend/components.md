@@ -1169,6 +1169,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { AsyncState } from "../../model/asyncState";
 import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
@@ -1207,6 +1208,7 @@ import {
   arrangementsOf,
   groupLinks,
 } from "../../model/groups";
+import type { Location } from "../../model/location";
 import {
   type Comment,
   type ComparisonReview,
@@ -1217,7 +1219,6 @@ import {
 import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
-import { paneSize, Splitter } from "../Splitter";
 import { Heading, type HeadingParts, type Switch } from "./Heading";
 import { Peek, type Peeked } from "./Peek";
 import { Rail, type RailEntry } from "./Rail";
@@ -1267,9 +1268,13 @@ export interface ComponentsStackProps {
     | ((row: ComparisonReview, place: PlaceVersion) => void)
     | null;
   split: boolean;
-  /** The rail's width as the reader dragged it, or null for the default. */
-  railSize: number | null;
-  onRailResize: (size: number | null) => void;
+  /** Where the rail draws: the components panel, or nowhere while the
+   *  reader has closed it. */
+  railSlot: HTMLElement | null;
+  /** The component under the reading line, held by the
+   *  [focus](panels.md#the-focus) so other panels can follow it. */
+  reading: Location | null;
+  onRead: (next: Location | null) => void;
   children: (layer: StackLayer | undefined) => ReactNode;
 }
 
@@ -1338,8 +1343,8 @@ export function ComponentsStack(props: ComponentsStackProps) {
     reviewOf,
     onTogglePlaceSeen,
     split,
-    railSize,
-    onRailResize,
+    railSlot,
+    onRead,
     children,
   } = props;
   const here = comparisonKey(from?.id ?? null, to.id);
@@ -1359,10 +1364,10 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // The headings the reader folded or unfolded, by row, file and place;
   // the rest start folded when they are marked seen.
   const [opened, setOpened] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const [reading, setReading] = useState<{
-    id: string;
-    path: string;
-  } | null>(null);
+  const reading =
+    props.reading?.kind === "component"
+      ? { id: props.reading.component, path: props.reading.path ?? "" }
+      : null;
 
   const placesOf = useMemo(() => {
     const out = new Map<string, DrawnPlace[]>();
@@ -1461,24 +1466,9 @@ export function ComponentsStack(props: ComponentsStackProps) {
     return null;
   };
 
-  // Whatever scrolls the stack: the diff pane on a wide screen, the panes'
-  // drawer on a phone.
-  const scroller = () => {
-    for (
-      let at = body.current?.parentElement ?? null;
-      at !== null;
-      at = at.parentElement
-    ) {
-      const overflow = getComputedStyle(at).overflowY;
-      if (
-        (overflow === "auto" || overflow === "scroll") &&
-        at.scrollHeight > at.clientHeight + 1
-      ) {
-        return at;
-      }
-    }
-    return null;
-  };
+  // The code panel scrolls the stack, wherever the layout puts it.
+  const scroller = () =>
+    body.current?.closest<HTMLElement>(".code-panel") ?? null;
   const readingLine = () => {
     const pane = scroller();
     return pane === null
@@ -1564,14 +1554,12 @@ export function ComponentsStack(props: ComponentsStackProps) {
     const by = element.getBoundingClientRect().top - want;
     const pane = scroller();
     if (pane !== null) pane.scrollTop += by;
-    else window.scrollBy(0, by);
     if (landing.settle === null) {
       flash(element);
       // A switch that keeps the heading's height can leave it below the
       // reading line, and the rail should still name it.
-      const id = element.dataset.componentsId;
-      if (id !== undefined)
-        setReading({ id, path: element.dataset.path ?? "" });
+      const read = readingAt(element);
+      if (read !== null) onRead(read);
       setLanding({ ...landing, settle: Date.now() + SETTLE });
     } else if (Date.now() > landing.settle) {
       setLanding(null);
@@ -1606,22 +1594,17 @@ export function ComponentsStack(props: ComponentsStackProps) {
   // peek belongs to where it was opened, so a scroll closes it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: listens once, reading the page as it is
   useEffect(() => {
-    const panes = body.current?.closest(".panes");
+    const pane = scroller();
     let frame = 0;
     const read = () => {
       frame = 0;
       const line = readingLine();
-      let found: { id: string; path: string } | null = null;
+      let found: Location | null = null;
       for (const heading of headings()) {
         if (heading.getBoundingClientRect().top > line) break;
-        found = {
-          id: heading.dataset.componentsId ?? "",
-          path: heading.dataset.path ?? "",
-        };
+        found = readingAt(heading);
       }
-      setReading((now) =>
-        now?.id === found?.id && now?.path === found?.path ? now : found,
-      );
+      onRead(found);
     };
     const onScroll = (event: Event) => {
       // A peek too long or wide for its box scrolls itself, and stays.
@@ -1641,25 +1624,22 @@ export function ComponentsStack(props: ComponentsStackProps) {
       if (!(event.target instanceof Element)) return;
       if (event.target.closest(".components-peek") === null) setPeeked(null);
     };
-    // Captured, so a scroll of whichever pane holds the stack is heard.
-    panes?.addEventListener("scroll", onScroll, {
+    // Captured, so a scroll inside the stack, such as a wide file's, is heard.
+    pane?.addEventListener("scroll", onScroll, {
       passive: true,
       capture: true,
     });
-    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown);
     read();
     return () => {
-      panes?.removeEventListener("scroll", onScroll, { capture: true });
-      window.removeEventListener("scroll", onScroll);
+      pane?.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onDown);
       cancelAnimationFrame(frame);
     };
   }, []);
 
-  const [railOpen, setRailOpen] = useState(false);
   // The reader's arrangement, or null for the agent's pieces, else roles.
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
   // The focused group, held with the row and arrangement it belongs to, so
@@ -2731,123 +2711,104 @@ export function ComponentsStack(props: ComponentsStackProps) {
           // While its list is open, the lines that use a component are lit.
           <style>{`.components-using--${ident(peeked.component.id)} { background-image: linear-gradient(to left, var(--accent) 4px, transparent 4px); } .components-using--${ident(peeked.component.id)} [data-components-word="${CSS.escape(peeked.component.id)}"] { background: color-mix(in srgb, var(--component) 22%, transparent); text-decoration-style: solid; }`}</style>
         )}
-        {enabled && (
-          <aside
-            className={`components-rail${railSize === null ? "" : " pane--sized"}${railOpen ? "" : " components-rail--closed"}`}
-            style={paneSize(railSize)}
-          >
-            {/* Only a narrow screen draws this; there the rail sits above
-                the diff and starts closed, so the review bar stays in view. */}
-            <button
-              type="button"
-              className="components-rail__toggle"
-              aria-expanded={railOpen}
-              onClick={() => setRailOpen(!railOpen)}
-            >
-              {railOpen ? "▾" : "▸"} Components{" "}
-              {entries.length > 0 && <small>{entries.length}</small>}
-            </button>
-            <Rail
-              loading={shown === undefined || shown.files.status !== "ready"}
-              comparing={
-                from === null
-                  ? `in ${to.name}`
-                  : `between ${from.name} and ${to.name}`
-              }
-              entries={entries}
-              files={files}
-              reading={reading}
-              onMessage={
-                shown !== undefined &&
-                components.some(
-                  (each) =>
-                    each.commitId === shown.commit.commitId &&
-                    mentionedIn(shown.commit.description, each),
-                )
-                  ? () => {
-                      rememberHere();
-                      showMessage(shown.key, null);
-                    }
-                  : null
-              }
-              onGo={(entry) => {
-                const drawn = drawnHere.find(
-                  (each) => each.ref.component.id === entry.component.id,
-                );
-                if (drawn !== undefined) {
-                  rememberHere();
-                  goTo(toPlace(drawn.ref, drawn.path));
-                } else if (from === null && shown !== undefined) {
-                  rememberHere();
-                  toCounterpart(shown, entry.component.id);
-                } else if (from !== null) {
-                  // Unchanged between versions: read it in the newer one.
-                  rememberHere();
-                  props.onCompare(null, to.id, null);
-                  goTo(
-                    {
-                      key: null,
-                      id: entry.component.id,
-                      path: null,
-                      selector: null,
-                    },
-                    null,
-                    comparisonKey(null, to.id),
-                  );
+        {enabled &&
+          railSlot !== null &&
+          createPortal(
+            <aside className="components-rail">
+              <Rail
+                loading={shown === undefined || shown.files.status !== "ready"}
+                comparing={
+                  from === null
+                    ? `in ${to.name}`
+                    : `between ${from.name} and ${to.name}`
                 }
-              }}
-              onGoUnseen={(entry) => {
-                const first = foldsOf(entry.component.id).find(
-                  (each) => !each.seen,
-                );
-                if (first === undefined) return;
-                rememberHere();
-                goTo(toPlace(first.drawn.ref, first.drawn.path));
-              }}
-              onGoShare={(path, share) => {
-                if (share.first === null) return;
-                rememberHere();
-                goTo(toPlace(share.first, path));
-              }}
-              groups={{
-                arrangement: arranging,
-                arrangements,
-                groups: arranged,
-                links: groupLinks(
-                  arranged,
-                  references.flatMap(({ row, ref }) =>
-                    row.key === shown?.key && ref.from !== null
-                      ? [{ from: ref.from.component.id, to: ref.to.id }]
-                      : [],
+                entries={entries}
+                files={files}
+                reading={reading}
+                onMessage={
+                  shown !== undefined &&
+                  components.some(
+                    (each) =>
+                      each.commitId === shown.commit.commitId &&
+                      mentionedIn(shown.commit.description, each),
+                  )
+                    ? () => {
+                        rememberHere();
+                        showMessage(shown.key, null);
+                      }
+                    : null
+                }
+                onGo={(entry) => {
+                  const drawn = drawnHere.find(
+                    (each) => each.ref.component.id === entry.component.id,
+                  );
+                  if (drawn !== undefined) {
+                    rememberHere();
+                    goTo(toPlace(drawn.ref, drawn.path));
+                  } else if (from === null && shown !== undefined) {
+                    rememberHere();
+                    toCounterpart(shown, entry.component.id);
+                  } else if (from !== null) {
+                    // Unchanged between versions: read it in the newer one.
+                    rememberHere();
+                    props.onCompare(null, to.id, null);
+                    goTo(
+                      {
+                        key: null,
+                        id: entry.component.id,
+                        path: null,
+                        selector: null,
+                      },
+                      null,
+                      comparisonKey(null, to.id),
+                    );
+                  }
+                }}
+                onGoUnseen={(entry) => {
+                  const first = foldsOf(entry.component.id).find(
+                    (each) => !each.seen,
+                  );
+                  if (first === undefined) return;
+                  rememberHere();
+                  goTo(toPlace(first.drawn.ref, first.drawn.path));
+                }}
+                onGoShare={(path, share) => {
+                  if (share.first === null) return;
+                  rememberHere();
+                  goTo(toPlace(share.first, path));
+                }}
+                groups={{
+                  arrangement: arranging,
+                  arrangements,
+                  groups: arranged,
+                  links: groupLinks(
+                    arranged,
+                    references.flatMap(({ row, ref }) =>
+                      row.key === shown?.key && ref.from !== null
+                        ? [{ from: ref.from.component.id, to: ref.to.id }]
+                        : [],
+                    ),
                   ),
-                ),
-                focus: focused?.id ?? null,
-                preview,
-                only,
-                onArrange: (next) => {
-                  setArrangement(next);
-                  setFocus(null);
-                },
-                onFocus: (id) =>
-                  setFocus(
-                    id === null || shown === undefined
-                      ? null
-                      : { row: shown.key, arrangement: arranging, id },
-                  ),
-                onPreview: setPreview,
-                onOnly: setOnly,
-              }}
-            />
-          </aside>
-        )}
-        {enabled && (
-          <Splitter
-            pane="components-rail"
-            size={railSize}
-            onResize={onRailResize}
-            label="resize the components rail"
-          />
-        )}
+                  focus: focused?.id ?? null,
+                  preview,
+                  only,
+                  onArrange: (next) => {
+                    setArrangement(next);
+                    setFocus(null);
+                  },
+                  onFocus: (id) =>
+                    setFocus(
+                      id === null || shown === undefined
+                        ? null
+                        : { row: shown.key, arrangement: arranging, id },
+                    ),
+                  onPreview: setPreview,
+                  onOnly: setOnly,
+                }}
+              />
+            </aside>,
+            railSlot,
+          )}
         <div
           className={`components-main${enabled && trail.length > 0 ? " components-main--trail" : ""}`}
         >
@@ -2880,6 +2841,18 @@ function flash(element: HTMLElement) {
   element.classList.remove("components-flash");
   void element.offsetWidth;
   element.classList.add("components-flash");
+}
+
+/** The component a heading names, as a location. */
+function readingAt(heading: HTMLElement): Location | null {
+  const { componentsCommit, componentsId, path } = heading.dataset;
+  if (componentsCommit === undefined || componentsId === undefined) return null;
+  return {
+    kind: "component",
+    commit: componentsCommit,
+    component: componentsId,
+    path: path ?? null,
+  };
 }
 ```
 
@@ -2968,6 +2941,7 @@ export function Heading({
     <div
       className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}${fold.folded ? " components-heading--folded" : ""}`}
       data-components-key={`${component.commitId}:${component.id}/${place}`}
+      data-components-commit={component.commitId}
       data-components-id={component.id}
       data-path={path}
     >
@@ -4068,7 +4042,10 @@ export function SwapIcon() {
 ## The switch
 
 A series with a map reads with it laid over by default, and the switch in
-the comparison bar takes it off. Whether it is on is a [setting](settings.md),
+the code panel's tab bar takes it off. It changes how the code is drawn, so
+it belongs to the code, and it says so: it is named for the way of reading,
+not for the components panel beside it, which a reader might take it to
+open or close. Whether it is on is a [setting](settings.md),
 so a phone and a laptop keep their own.
 
 ```tsx
@@ -4105,7 +4082,7 @@ export function ComponentsSwitch({
       onClick={() => onChange(on ? "hidden" : "shown")}
     >
       <span className="components-switch-mode__track" aria-hidden="true" />
-      Components
+      by component
     </button>
   );
 }
@@ -4175,26 +4152,11 @@ export function ComponentsSwitch({
     flex: 1;
     min-width: 0;
   }
-  .components-body > .splitter {
-    align-self: stretch;
-  }
-  /* The rail's edge is a thin line; give a pointer more to catch. */
-  .components-body > .splitter::before {
-    inset: 0 -6px;
-  }
-  .components-rail__toggle {
-    display: none;
-  }
+  /* The rail fills its panel, which scrolls it. */
   .components-rail {
-    flex: none;
-    position: sticky;
-    top: 0;
-    width: var(--pane-size, 24em);
-    max-height: 100vh;
-    overflow: auto;
+    flex: 1 0 auto;
     padding: var(--space-4);
     background: var(--surface-sunken);
-    border-right: 1px solid var(--border);
     font-size: var(--text-size-small);
   }
   .components-rail__head {
@@ -4998,30 +4960,8 @@ never reads as a kind and either theme can read them.
       flex-direction: column;
       align-items: stretch;
     }
-    .components-body > .splitter {
-      display: none;
-    }
     .components-rail {
-      position: static;
-      width: auto;
-      max-height: 40vh;
       padding: var(--space-2) var(--space-4);
-      border-right: 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .components-rail__toggle {
-      display: block;
-      width: 100%;
-      padding: var(--space-2) 0;
-      border: 0;
-      background: none;
-      color: var(--text-muted);
-      font: inherit;
-      text-align: left;
-      cursor: pointer;
-    }
-    .components-rail--closed > :not(.components-rail__toggle) {
-      display: none;
     }
     .components-heading {
       flex-wrap: wrap;

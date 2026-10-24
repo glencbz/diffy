@@ -67,6 +67,7 @@ import {
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import type { Host } from "./backend/host/host";
+import { LayoutStore, layoutRoutes } from "./backend/layouts/layouts";
 import {
   AgentWorkspaces,
   type RecentRepos,
@@ -725,6 +726,7 @@ export function routes(host: Host, served: ServedRepo, recent: RecentRepos) {
   return {
     "/*": index,
     ...repoRoutes(host, served, recent),
+    ...layoutRoutes(LayoutStore.in(host.dataDir)),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": reader(handleLog),
     "/api/operations": reader(handleOperations),

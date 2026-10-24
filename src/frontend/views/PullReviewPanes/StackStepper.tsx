@@ -1,26 +1,22 @@
-// ~/~ begin <<docs/architecture/frontend/layout.md#frontend-view-drawer-bar>>[init]
+// ~/~ begin <<docs/architecture/frontend/layout.md#frontend-view-stack-stepper>>[init]
 import type { StackPosition } from "./PullReviewPanes";
 
-export function DrawerBar({
+export function StackStepper({
   position: { index, count, summary },
   onStep,
-  open,
-  onToggle,
 }: {
   position: StackPosition;
   onStep: (step: -1 | 1) => void;
-  open: boolean;
-  onToggle: () => void;
 }) {
   return (
-    <div className="drawer-bar">
-      <div className="drawer-bar__stepper">
+    <div className="stack-stepper">
+      <div className="stack-stepper__stepper">
         <button
           type="button"
           aria-label="previous commit"
           disabled={index === null || index === 0}
           onClick={() => onStep(-1)}
-          className="drawer-bar__step"
+          className="stack-stepper__step"
         >
           ‹
         </button>
@@ -29,25 +25,17 @@ export function DrawerBar({
           aria-label="next commit"
           disabled={index === null ? count === 0 : index >= count - 1}
           onClick={() => onStep(1)}
-          className="drawer-bar__step"
+          className="stack-stepper__step"
         >
           ›
         </button>
       </div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="drawer-bar__toggle"
-      >
-        <span className="drawer-bar__position">
+      <p className="stack-stepper__where">
+        <span className="stack-stepper__position">
           {index === null ? commitCount(count) : `${index + 1} of ${count}`}
         </span>
-        <span className="drawer-bar__summary">{summary}</span>
-        <span className="drawer-bar__fold">
-          {open ? "▾ fold" : "▸ show all"}
-        </span>
-      </button>
+        <span className="stack-stepper__summary">{summary}</span>
+      </p>
     </div>
   );
 }

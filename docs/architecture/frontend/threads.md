@@ -1,7 +1,7 @@
 # Threads
 
 A series screen lists every comment thread on the series, whatever its
-comparison draws, in a tab of the [commit drawer](layout.md#the-commit-drawer).
+comparison draws, in a [panel](panels.md) of its own.
 A comparison draws a thread only on a row filed under the thread's key that
 also draws its file. So an interdiff hides the threads on every change it calls
 unchanged. A comparison against the base hides the threads on changes a later

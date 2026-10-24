@@ -274,8 +274,8 @@ narrow rule; its rows run down the window, marked current on the left edge.
 ## Pull request panes
 
 The pull request screen nests: the list against everything else, and inside
-that the header and picker over [a drawer of commits](#the-commit-drawer) and
-the diff.
+that the header and picker over the [panels](panels.md) that hold the
+commits and the code.
 
 ```tsx
 //| id: frontend-view-pull-panes
@@ -357,13 +357,16 @@ export function PullPanes({
 
 ### Reviewing a pull request
 
+The header and the comparison picker sit over the
+[panels](panels.md#the-panels-view), whose bar starts with the stack's
+stepper.
+
 ```tsx
 //| id: frontend-view-pull-review-panes
 //| file: src/frontend/views/PullReviewPanes/PullReviewPanes.tsx
-import { type ReactNode, useState } from "react";
-import { paneSize, Splitter } from "../Splitter";
-import { DrawerBar } from "./DrawerBar";
-import { type DrawerTab, DrawerTabs } from "./DrawerTabs";
+import type { ComponentProps, ReactNode } from "react";
+import { Panels } from "../Panels/Panels";
+import { StackStepper } from "./StackStepper";
 
 /** Where the reader is in the stack: the row picked, if any, out of how
  *  many, and a line naming it. */
@@ -376,121 +379,68 @@ export interface StackPosition {
 export function PullReviewPanes({
   header,
   picker,
-  commits,
-  threads,
-  openThreads,
-  diff,
   position,
   onStep,
-  size,
-  onResize,
+  ...panels
 }: {
   /** The series screen's header, which a pull request and a local review
    *  each fill in for themselves. */
   header: ReactNode;
   picker: ReactNode;
-  commits: ReactNode;
-  threads: ReactNode;
-  /** How many threads the series has open, for the tab to say. */
-  openThreads: number;
-  diff: ReactNode;
   position: StackPosition;
   onStep: (step: -1 | 1) => void;
-  size: number | null;
-  onResize: (size: number | null) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  const [tab, setTab] = useState<DrawerTab>("commits");
+} & Omit<ComponentProps<typeof Panels>, "bar">) {
   return (
     <>
       {header}
       <div className="pull-toolbar">{picker}</div>
-      <div className="panes panes--drawer">
-        <DrawerBar
-          position={position}
-          onStep={onStep}
-          open={open}
-          onToggle={() => setOpen((now) => !now)}
-        />
-        {open && (
-          <>
-            <div
-              className={
-                size === null
-                  ? "pane pane--commits"
-                  : "pane pane--commits pane--sized"
-              }
-              style={paneSize(size)}
-            >
-              <DrawerTabs tab={tab} onTab={setTab} openThreads={openThreads} />
-              {tab === "commits" ? commits : threads}
-            </div>
-            <Splitter
-              pane="pull-commits"
-              size={size}
-              onResize={onResize}
-              label="resize the commit list"
-            />
-          </>
-        )}
-        <div className="pane pane--diff">{diff}</div>
-      </div>
+      <Panels
+        {...panels}
+        bar={<StackStepper position={position} onStep={onStep} />}
+      />
     </>
   );
 }
 ```
 
-## The commit drawer
+## The stack stepper
 
-The commits sit above the diff, full width, because the paired graph's two
-lanes of subjects would truncate to stubs in a column beside it. They trade
-height instead, set by the [splitter](#resizing-a-pane) under the drawer.
-
-Until the reader sets that height, the drawer is as tall as its rows, capped
-at `--pane-drawer-height`. A fixed share of the window would leave an empty
-band under the list on every short stack, which is most pull requests.
+The stacked layout, the one a reader starts on, puts the commits and the
+[threads](threads.md) above the code, full width, because the paired
+graph's two lanes of subjects would truncate to stubs in a column beside
+it. That panel is as tall as its rows until the reader drags it, like any
+panel sized to its content in a column; see
+[the layout tree](panels.md#the-layout-tree).
 
 The comparison picker and the review marks share one toolbar,
 `.pull-toolbar`, which wraps on a narrow window. As two bands they held a
 row of controls and a row of nearly nothing.
 
-The drawer holds the commits or the series'
-[threads](threads.md), a tab each. The threads share the drawer rather than
-take a panel beside the diff, so the diff keeps the window's width, and a
-phone reaches them the way it reaches the commits. The threads tab counts the
-open ones, so a reader on the commits tab still sees how many wait.
-
-The drawer folds to a bar that keeps where the reader is in the stack and a
-stepper to the previous or next row; the rest of the bar is one fold button,
-so a press on an arrow never also folds. It opens on every visit, since a
-pull request opened with its commit list hidden hides the first thing a new
-reader needs; only its height is kept.
+The panels' bar starts with where the reader is in the stack and a stepper
+to the previous or next row, so the reader can step through the stack with
+the commits folded, closed or in another layout's corner.
 
 ```tsx
-//| id: frontend-view-drawer-bar
-//| file: src/frontend/views/PullReviewPanes/DrawerBar.tsx
+//| id: frontend-view-stack-stepper
+//| file: src/frontend/views/PullReviewPanes/StackStepper.tsx
 import type { StackPosition } from "./PullReviewPanes";
 
-export function DrawerBar({
+export function StackStepper({
   position: { index, count, summary },
   onStep,
-  open,
-  onToggle,
 }: {
   position: StackPosition;
   onStep: (step: -1 | 1) => void;
-  open: boolean;
-  onToggle: () => void;
 }) {
   return (
-    <div className="drawer-bar">
-      <div className="drawer-bar__stepper">
+    <div className="stack-stepper">
+      <div className="stack-stepper__stepper">
         <button
           type="button"
           aria-label="previous commit"
           disabled={index === null || index === 0}
           onClick={() => onStep(-1)}
-          className="drawer-bar__step"
+          className="stack-stepper__step"
         >
           ‹
         </button>
@@ -499,25 +449,17 @@ export function DrawerBar({
           aria-label="next commit"
           disabled={index === null ? count === 0 : index >= count - 1}
           onClick={() => onStep(1)}
-          className="drawer-bar__step"
+          className="stack-stepper__step"
         >
           ›
         </button>
       </div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="drawer-bar__toggle"
-      >
-        <span className="drawer-bar__position">
+      <p className="stack-stepper__where">
+        <span className="stack-stepper__position">
           {index === null ? commitCount(count) : `${index + 1} of ${count}`}
         </span>
-        <span className="drawer-bar__summary">{summary}</span>
-        <span className="drawer-bar__fold">
-          {open ? "▾ fold" : "▸ show all"}
-        </span>
-      </button>
+        <span className="stack-stepper__summary">{summary}</span>
+      </p>
     </div>
   );
 }
@@ -527,70 +469,23 @@ function commitCount(count: number): string {
 }
 ```
 
-```tsx
-//| id: frontend-view-drawer-tabs
-//| file: src/frontend/views/PullReviewPanes/DrawerTabs.tsx
-export type DrawerTab = "commits" | "threads";
-
-export function DrawerTabs({
-  tab,
-  onTab,
-  openThreads,
-}: {
-  tab: DrawerTab;
-  onTab: (tab: DrawerTab) => void;
-  openThreads: number;
-}) {
-  return (
-    <div className="drawer-tabs" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={tab === "commits"}
-        onClick={() => onTab("commits")}
-        className="drawer-tab"
-      >
-        Commits
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={tab === "threads"}
-        onClick={() => onTab("threads")}
-        className="drawer-tab"
-      >
-        Threads
-        {openThreads > 0 && (
-          <span className="drawer-tab__count">{openThreads} open</span>
-        )}
-      </button>
-    </div>
-  );
-}
-```
-
 ```css
-/*| id: design-commit-drawer
+/*| id: design-stack-stepper
 @layer components {
-  .panes--drawer {
-    flex-direction: column;
-  }
-
-  .drawer-bar {
+  .stack-stepper {
     display: flex;
     flex: none;
     align-items: stretch;
-    background: var(--surface-raised);
-    border-bottom: 1px solid var(--border);
+    min-width: 0;
   }
 
-  .drawer-bar__stepper {
+  .stack-stepper__stepper {
     display: flex;
     flex: none;
     margin: var(--space-2) 0 var(--space-2) var(--space-4);
   }
 
-  .drawer-bar__step {
+  .stack-stepper__step {
     min-width: 28px;
     padding: 0 var(--space-4);
     font: inherit;
@@ -601,96 +496,47 @@ export function DrawerTabs({
     border: 1px solid var(--border);
   }
 
-  .drawer-bar__step:first-child {
+  .stack-stepper__step:first-child {
     border-radius: var(--radius) 0 0 var(--radius);
   }
 
-  .drawer-bar__step:last-child {
+  .stack-stepper__step:last-child {
     border-left: none;
     border-radius: 0 var(--radius) var(--radius) 0;
   }
 
-  .drawer-bar__step:hover:not(:disabled) {
+  .stack-stepper__step:hover:not(:disabled) {
     color: var(--accent);
     background: var(--surface-sunken);
   }
 
-  .drawer-bar__step:disabled {
+  .stack-stepper__step:disabled {
     color: var(--text-ghost);
     cursor: default;
   }
 
-  .drawer-bar__toggle {
+  .stack-stepper__where {
     display: flex;
     flex: 1;
     gap: var(--space-4);
     align-items: center;
     min-width: 0;
+    margin: 0;
     padding: var(--space-3) var(--space-4);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    background: transparent;
-    border: none;
   }
 
-  .drawer-bar__toggle:hover {
-    background: var(--surface-sunken);
-  }
-
-  .drawer-bar__position {
+  .stack-stepper__position {
     flex: none;
     font-weight: bold;
   }
 
-  .drawer-bar__summary {
+  .stack-stepper__summary {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     color: var(--text-muted);
     white-space: nowrap;
     text-overflow: ellipsis;
-  }
-
-  .drawer-bar__fold {
-    flex: none;
-    color: var(--accent);
-  }
-
-  /* Sticks to the top of the drawer, so a long list keeps its way back. */
-  .drawer-tabs {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    gap: var(--space-5);
-    padding: 0 var(--space-5);
-    background: var(--surface);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .drawer-tab {
-    display: flex;
-    gap: var(--space-3);
-    align-items: center;
-    padding: var(--space-2) 0;
-    font: inherit;
-    color: var(--text-muted);
-    cursor: pointer;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-  }
-
-  .drawer-tab[aria-selected="true"] {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
-
-  .drawer-tab__count {
-    font-size: var(--text-size-small);
-    color: var(--review-open);
   }
 
   .pull-toolbar {
@@ -706,41 +552,33 @@ export function DrawerTabs({
 ```
 
 ```css
-/*| id: design-commit-drawer
+/*| id: design-stack-stepper
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .drawer-bar__step {
+    .stack-stepper__step {
       min-width: 44px;
       min-height: 44px;
-    }
-
-    .drawer-tab {
-      min-height: 44px;
-    }
-
-    .panes--drawer .splitter--y::before {
-      inset: calc(-1 * var(--space-4)) 0;
     }
   }
 }
 ```
 
-On a wide screen each drawer row is one line, the id, the subject, then who
-and when, since the drawer has the window's width and the subject is what a
+On a wide screen each row of the commits panel is one line, the id, the
+subject, then who and when, since the panel has the window's width and the subject is what a
 reader scans for. A phone keeps the two-line row, which wraps a long subject
 rather than cutting it off.
 
 ```css
-/*| id: design-commit-drawer-rows
+/*| id: design-commit-panel-rows
 /* After the graph's own rules in the stylesheet, so these win by order as
    well as by specificity. */
 @layer components {
   @media (min-width: 1001px) {
-    .pane--commits .commit-graph__row {
+    .panel-host--commits .commit-graph__row {
       min-height: calc(28 / 12 * 1em);
     }
 
-    .pane--commits .commit-label {
+    .panel-host--commits .commit-label {
       flex-direction: row;
       align-items: baseline;
       justify-content: flex-start;
@@ -750,19 +588,19 @@ rather than cutting it off.
 
     /* Lets the meta line's parts and the subject be ordered as siblings,
        each still inheriting the meta line's small muted text. */
-    .pane--commits .commit-label__meta {
+    .panel-host--commits .commit-label__meta {
       display: contents;
     }
 
-    .pane--commits .commit-label__summary {
+    .panel-host--commits .commit-label__summary {
       flex: 0 1 auto;
       order: 1;
       min-width: 0;
     }
 
-    .pane--commits .commit-label__author,
-    .pane--commits .commit-label__time,
-    .pane--commits .commit-ref {
+    .panel-host--commits .commit-label__author,
+    .panel-host--commits .commit-label__time,
+    .panel-host--commits .commit-ref {
       order: 2;
     }
   }
@@ -988,13 +826,6 @@ reader dragged arrives as `--pane-size`.
     overflow: auto;
   }
 
-  .pane--commits {
-    height: var(--pane-size, auto);
-    max-height: var(--pane-size, var(--pane-drawer-height));
-    overflow: auto;
-    border-right: none;
-  }
-
   .pane--main {
     display: flex;
     flex-direction: column;
@@ -1070,7 +901,7 @@ whose panes never carry `pane--showing`.
 
 ## Resizing a pane
 
-Picker columns and the commit drawer carry a splitter. A drag is clamped at
+Picker columns carry a splitter. A drag is clamped at
 the pane's minimum and at whatever leaves the giving pane `REST` pixels. A
 pane nobody has resized stores nothing, so it keeps following the default in
 [Design tokens](tokens.md).
@@ -1084,9 +915,7 @@ export type PaneKey =
   | "local-before"
   | "local-after"
   | "local-log"
-  | "local-combined"
-  | "pull-commits"
-  | "components-rail";
+  | "local-combined";
 export type Axis = "x" | "y";
 
 /** One entry per resizable pane: which way it grows and how small it may get. */
@@ -1095,8 +924,6 @@ export const PANES: Record<PaneKey, { axis: Axis; min: number }> = {
   "local-after": { axis: "x", min: 160 },
   "local-log": { axis: "x", min: 160 },
   "local-combined": { axis: "x", min: 160 },
-  "pull-commits": { axis: "y", min: 48 },
-  "components-rail": { axis: "x", min: 180 },
 };
 
 /** What a drag must always leave the pane that gives way. */
@@ -1107,8 +934,6 @@ export const PaneSizes = z.object({
   "local-after": z.number().optional(),
   "local-log": z.number().optional(),
   "local-combined": z.number().optional(),
-  "pull-commits": z.number().optional(),
-  "components-rail": z.number().optional(),
 });
 export type PaneSizes = z.infer<typeof PaneSizes>;
 
@@ -1152,7 +977,7 @@ describe("clampSize", () => {
     const room = 1000;
 
     // act
-    const size = clampSize("pull-commits", 950, room);
+    const size = clampSize("local-log", 950, room);
 
     // assert
     expect(size).toBe(room - REST);
@@ -1168,10 +993,10 @@ describe("clampSize", () => {
 
   test("rounds to a whole pixel", () => {
     // act
-    const size = clampSize("pull-commits", 120.6, 1000);
+    const size = clampSize("local-log", 200.6, 1000);
 
     // assert
-    expect(size).toBe(121);
+    expect(size).toBe(201);
   });
 });
 ```

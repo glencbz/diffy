@@ -161,7 +161,7 @@ export function CommitStack({
   latest.current = { rows, current, onInView };
 
   useEffect(() => {
-    const pane = stack.current?.closest(".pane--diff");
+    const pane = stack.current?.closest(".code-panel");
     if (!(pane instanceof HTMLElement)) return;
 
     let frame: number | null = null;
@@ -201,7 +201,7 @@ export function CommitStack({
   }, []);
 
   const onRevealed = () => {
-    const pane = stack.current?.closest(".pane--diff");
+    const pane = stack.current?.closest(".code-panel");
     if (pane instanceof HTMLElement) revealedAt.current = pane.scrollTop;
   };
 

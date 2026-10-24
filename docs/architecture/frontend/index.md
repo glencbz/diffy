@@ -127,7 +127,8 @@ Allowed import edges:
   modules, never `api.ts`.
 - The server's [review store](../backend/review-store.md) imports
   `model/review.ts`, so browser and server apply a command with the same
-  function.
+  function, and its [layout store](../backend/layouts.md) imports
+  `model/panels.ts` for the document it keeps.
 - `model/pairing.ts` imports the pure `alignSeries` from
   `../../backend/commit/series`.
 - `persistence/` imports `model/` and other `persistence/` modules. It is the
@@ -201,7 +202,7 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-splitter>>
 
-<<design-commit-drawer>>
+<<design-stack-stepper>>
 
 <<design-pane-tabs>>
 
@@ -225,7 +226,7 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-paired-graph>>
 
-<<design-commit-drawer-rows>>
+<<design-commit-panel-rows>>
 
 <<design-interdiff-rows>>
 
@@ -262,6 +263,8 @@ with its markup. The references below are an inventory, not an order.
 <<design-components>>
 
 <<design-threads>>
+
+<<design-panels>>
 ```
 
 ## Async state
