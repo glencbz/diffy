@@ -32,10 +32,10 @@ describe("layouts", () => {
   test("closing a leaf's only panel lets its sibling take the split", () => {
     // arrange
     // act
-    const tree = closePanel(stacked.tree, "components");
+    const tree = closePanel(closePanel(stacked.tree, "components"), "viewer");
 
     // assert
-    expect(missing(tree)).toEqual(["components"]);
+    expect(missing(tree)).toEqual(["components", "viewer"]);
     expect(findLeaf(tree, "stacked/rail")).toBeNull();
     expect(tree.kind === "split" && tree.children[1]?.kind).toBe("leaf");
   });

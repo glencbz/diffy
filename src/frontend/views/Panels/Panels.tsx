@@ -79,7 +79,9 @@ export function Panels({
     all.find((each) => each.id === focused) ??
     all.find((each) => each.tabs.includes("code"));
   const folded = (leaf: Leaf) =>
-    folds.get(leaf.id) ?? leaf.tabs.every((panel) => empty.has(panel));
+    folds.get(leaf.id) ??
+    (leaf.tabs.every((panel) => empty.has(panel)) ||
+      (narrow && leaf.id !== all[0]?.id && !leaf.tabs.includes("code")));
   const zoomed = all.find((each) => each.id === zoom) ?? null;
 
   const show = (leafId: string, panel: PanelId) => {

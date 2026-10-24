@@ -46,7 +46,7 @@ import {
   arrangementsOf,
   groupLinks,
 } from "../../model/groups";
-import type { Location } from "../../model/location";
+import type { Asked, Location } from "../../model/location";
 import {
   type Comment,
   type ComparisonReview,
@@ -113,6 +113,8 @@ export interface ComponentsStackProps {
    *  [focus](panels.md#the-focus) so other panels can follow it. */
   reading: Location | null;
   onRead: (next: Location | null) => void;
+  /** Where another panel last asked the code to go. */
+  asked: Asked | null;
   children: (layer: StackLayer | undefined) => ReactNode;
 }
 
@@ -183,6 +185,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
     split,
     railSlot,
     onRead,
+    asked,
     children,
   } = props;
   const here = comparisonKey(from?.id ?? null, to.id);
@@ -1407,6 +1410,32 @@ export function ComponentsStack(props: ComponentsStackProps) {
     : (rows.find((each) => each.key === current) ??
       rows.find((each) => (placesOf.get(each.key)?.length ?? 0) > 0));
   const drawnHere = shown === undefined ? [] : (placesOf.get(shown.key) ?? []);
+  const goToComponent = (id: string) => {
+    const drawn = drawnHere.find((each) => each.ref.component.id === id);
+    if (drawn !== undefined) {
+      rememberHere();
+      goTo(toPlace(drawn.ref, drawn.path));
+    } else if (from === null && shown !== undefined) {
+      rememberHere();
+      toCounterpart(shown, id);
+    } else if (from !== null) {
+      // Unchanged between versions: read it in the newer one.
+      rememberHere();
+      props.onCompare(null, to.id, null);
+      goTo(
+        { key: null, id, path: null, selector: null },
+        null,
+        comparisonKey(null, to.id),
+      );
+    }
+  };
+  // Another panel asks for a component the way the rail goes to one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask moves the code once
+  useEffect(() => {
+    if (asked?.location.kind === "component") {
+      goToComponent(asked.location.component);
+    }
+  }, [asked]);
   const shownFiles =
     shown?.files.status === "ready" ? shown.files.data : ([] as FileDiff[]);
   const fileAt = (path: string) =>
@@ -1576,32 +1605,7 @@ export function ComponentsStack(props: ComponentsStackProps) {
                       }
                     : null
                 }
-                onGo={(entry) => {
-                  const drawn = drawnHere.find(
-                    (each) => each.ref.component.id === entry.component.id,
-                  );
-                  if (drawn !== undefined) {
-                    rememberHere();
-                    goTo(toPlace(drawn.ref, drawn.path));
-                  } else if (from === null && shown !== undefined) {
-                    rememberHere();
-                    toCounterpart(shown, entry.component.id);
-                  } else if (from !== null) {
-                    // Unchanged between versions: read it in the newer one.
-                    rememberHere();
-                    props.onCompare(null, to.id, null);
-                    goTo(
-                      {
-                        key: null,
-                        id: entry.component.id,
-                        path: null,
-                        selector: null,
-                      },
-                      null,
-                      comparisonKey(null, to.id),
-                    );
-                  }
-                }}
+                onGo={(entry) => goToComponent(entry.component.id)}
                 onGoUnseen={(entry) => {
                   const first = foldsOf(entry.component.id).find(
                     (each) => !each.seen,
