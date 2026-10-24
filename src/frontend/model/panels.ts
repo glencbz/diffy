@@ -1,7 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/panels.md#frontend-model-panels>>[init]
 import * as z from "zod";
 
-export const PanelId = z.enum(["code", "commits", "threads", "components"]);
+export const PanelId = z.enum([
+  "code",
+  "commits",
+  "threads",
+  "components",
+  "viewer",
+]);
 export type PanelId = z.infer<typeof PanelId>;
 
 export const PANEL_NAMES: Record<PanelId, string> = {
@@ -9,6 +15,7 @@ export const PANEL_NAMES: Record<PanelId, string> = {
   commits: "Commits",
   threads: "Threads",
   components: "Components",
+  viewer: "Viewer",
 };
 
 export interface Leaf {
@@ -84,8 +91,9 @@ export const LAYOUTS: Layout[] = [
           [
             leaf("stacked/rail", ["components"]),
             leaf("stacked/code", ["code"]),
+            leaf("stacked/viewer", ["viewer"]),
           ],
-          [null, 1],
+          [null, 0.62, 0.38],
         ),
       ],
       [null, 1],
@@ -98,7 +106,7 @@ export const LAYOUTS: Layout[] = [
       "columns",
       "row",
       [
-        leaf("columns/list", ["commits", "threads"]),
+        leaf("columns/list", ["commits", "threads", "viewer"]),
         leaf("columns/rail", ["components"]),
         leaf("columns/code", ["code"]),
       ],
@@ -113,7 +121,7 @@ export const LAYOUTS: Layout[] = [
       "row",
       [
         leaf("code/code", ["code"]),
-        leaf("code/side", ["components", "commits", "threads"]),
+        leaf("code/side", ["components", "viewer", "commits", "threads"]),
       ],
       [0.7, 0.3],
     ),

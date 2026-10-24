@@ -1,0 +1,257 @@
+// ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-view-viewer>>[init]
+import { type CSSProperties, useEffect, useRef, useState } from "react";
+import type { Component } from "../../model/components";
+import { type BlobName, blobUrl, type Capture } from "../../model/evidence";
+import {
+  boxStyle,
+  modesFor,
+  shownAt,
+  VIEW_MODE_NAMES,
+  type ViewMode,
+} from "../../model/viewer";
+
+export function Viewer({
+  captures,
+  shown,
+  mode,
+  components,
+  reading,
+  onPick,
+  onStep,
+  onMode,
+  onGo,
+}: {
+  /** Every capture of the commit, for the strip. */
+  captures: Capture[];
+  shown: Capture;
+  mode: ViewMode;
+  /** The components of the capture's commit, by id. */
+  components: ReadonlyMap<string, Component>;
+  /** The id of the component under the reading line. */
+  reading: string | null;
+  onPick: (id: string) => void;
+  onStep: (step: -1 | 1) => void;
+  onMode: (mode: ViewMode) => void;
+  onGo: (component: string) => void;
+}) {
+  const modes = modesFor(shown);
+  const showing = modes.includes(mode) ? mode : "side";
+  const [time, setTime] = useState<number | null>(null);
+  const [cut, setCut] = useState(0.5);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new capture starts its clip, and its cut, afresh
+  useEffect(() => {
+    setTime(null);
+    setCut(0.5);
+  }, [shown.id, shown.commitId]);
+
+  const latest = useRef(onStep);
+  latest.current = onStep;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.matches("input, textarea, select"))
+      ) {
+        return;
+      }
+      if (event.key === "[") latest.current(-1);
+      else if (event.key === "]") latest.current(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const shows = shownAt(shown, shown.media === "video" ? time : null);
+  const readingHere = shows.some((each) => each.component === reading);
+  const boxes = (
+    <span className="viewer-boxes">
+      {shows.map((each) =>
+        each.box === undefined ? null : (
+          <button
+            key={each.component}
+            type="button"
+            style={boxStyle(each.box)}
+            title={each.about || undefined}
+            className={`viewer-box components-kind--${components.get(each.component)?.kind ?? "unknown"}${!readingHere ? "" : each.component === reading ? " viewer-box--reading" : " viewer-box--quiet"}${each.box[1] < 0.06 ? " viewer-box--top" : ""}${each.box[0] + each.box[2] / 2 > 0.6 ? " viewer-box--right" : ""}`}
+            onClick={() => onGo(each.component)}
+          >
+            <span className="viewer-box__name">
+              {components.get(each.component)?.name ?? each.component}
+            </span>
+          </button>
+        ),
+      )}
+    </span>
+  );
+  const boxesOn = shown.after !== null ? "after" : "before";
+
+  return (
+    <div className="viewer">
+      <div className="viewer__head">
+        <p className="viewer__title">
+          <span className="viewer__name">{shown.name}</span>
+          {shown.state.map((state) => (
+            <span key={state} className="viewer__state">
+              {state}
+            </span>
+          ))}
+        </p>
+        {modes.length > 1 && (
+          <span className="viewer__modes">
+            {modes.map((each) => (
+              <button
+                key={each}
+                type="button"
+                aria-pressed={each === showing}
+                className="viewer__mode"
+                onClick={() => onMode(each)}
+              >
+                {VIEW_MODE_NAMES[each]}
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+      {shown.about !== "" && <p className="viewer__about">{shown.about}</p>}
+      {showing === "side" ? (
+        <div className="viewer__sides">
+          {(["before", "after"] as const).map((side) =>
+            shown[side] === null ? (
+              <p key={side} className="viewer__none">
+                {side === "before"
+                  ? "Nothing to show at the parent."
+                  : "Nothing to show at this commit."}
+              </p>
+            ) : (
+              <figure key={side} className="viewer__side">
+                <figcaption className="viewer__caption">
+                  {side === "before" ? "parent" : "this commit"}
+                </figcaption>
+                <span className={`viewer__frame viewer__frame--${shown.media}`}>
+                  <Media
+                    capture={shown}
+                    name={shown[side] as BlobName}
+                    side={side}
+                    onTime={side === "after" ? setTime : null}
+                  />
+                  {side === boxesOn && boxes}
+                </span>
+              </figure>
+            ),
+          )}
+        </div>
+      ) : (
+        <div className="viewer__overlay">
+          <span
+            className={`viewer__frame viewer__frame--${showing}`}
+            style={{ "--viewer-cut": cut } as CSSProperties}
+          >
+            <img
+              src={blobUrl(shown.before as BlobName)}
+              alt={`${shown.name} at the parent`}
+              className="viewer__media"
+            />
+            <img
+              src={blobUrl(shown.after as BlobName)}
+              alt={`${shown.name} at this commit`}
+              className="viewer__media viewer__media--top"
+            />
+            {boxes}
+          </span>
+          {showing !== "difference" && (
+            <label className="viewer__cut">
+              <span>parent</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={cut}
+                onChange={(event) => setCut(Number(event.target.value))}
+              />
+              <span>this commit</span>
+            </label>
+          )}
+        </div>
+      )}
+      {captures.length > 1 && (
+        <div className="viewer__strip">
+          {captures.map((capture) => {
+            const thumb = capture.after ?? capture.before;
+            return (
+              <button
+                key={capture.id}
+                type="button"
+                aria-pressed={capture.id === shown.id}
+                className="viewer__thumb"
+                title={capture.about || capture.name}
+                onClick={() => onPick(capture.id)}
+              >
+                {capture.media === "image" && thumb !== null ? (
+                  <img src={blobUrl(thumb)} alt="" />
+                ) : (
+                  <span className="viewer__thumb-clip">▶</span>
+                )}
+                <span className="viewer__thumb-name">
+                  {[capture.name, ...capture.state].join(" · ")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One side of a capture. The commit's clip leads its parent's: whatever
+ *  the reader does to it, the other does too. */
+function Media({
+  capture,
+  name,
+  side,
+  onTime,
+}: {
+  capture: Capture;
+  name: BlobName;
+  side: "before" | "after";
+  onTime: ((time: number) => void) | null;
+}) {
+  const alt = `${capture.name} ${side === "before" ? "at the parent" : "at this commit"}`;
+  if (capture.media === "image") {
+    return <img src={blobUrl(name)} alt={alt} className="viewer__media" />;
+  }
+  const follow = (lead: HTMLVideoElement) => {
+    const other = lead
+      .closest(".viewer__sides")
+      ?.querySelector<HTMLVideoElement>(".viewer__media--before");
+    if (other === null || other === undefined) return;
+    if (Math.abs(other.currentTime - lead.currentTime) > 0.2) {
+      other.currentTime = lead.currentTime;
+    }
+    if (lead.paused !== other.paused) {
+      if (lead.paused) other.pause();
+      else void other.play();
+    }
+  };
+  return (
+    <video
+      src={blobUrl(name)}
+      aria-label={alt}
+      controls={side === "after"}
+      muted
+      playsInline
+      className={`viewer__media viewer__media--${side}`}
+      onTimeUpdate={(event) => {
+        onTime?.(event.currentTarget.currentTime);
+        if (side === "after") follow(event.currentTarget);
+      }}
+      onPlay={(event) => side === "after" && follow(event.currentTarget)}
+      onPause={(event) => side === "after" && follow(event.currentTarget)}
+      onSeeked={(event) => side === "after" && follow(event.currentTarget)}
+    />
+  );
+}
+// ~/~ end

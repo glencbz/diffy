@@ -4994,4 +4994,252 @@
   }
 }
 /* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/viewer.md#design-viewer>>[init] */
+@layer components {
+  .viewer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .viewer__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .viewer__title {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
+    margin: 0;
+  }
+
+  .viewer__name {
+    font-weight: bold;
+  }
+
+  .viewer__state {
+    padding: 0 var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .viewer__modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    font-size: var(--text-size-small);
+  }
+
+  .viewer__mode {
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .viewer__mode[aria-pressed="true"] {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  .viewer__about {
+    margin: 0;
+    color: var(--text-muted);
+  }
+
+  /* Side by side while each side has room for a readable picture, one
+     above the other in a narrow panel. */
+  .viewer__sides {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16em, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .viewer__side {
+    margin: 0;
+  }
+
+  .viewer__caption {
+    margin-bottom: var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
+  /* A missing side is a line across the grid, so the side there is takes
+     the panel's width. */
+  .viewer__none {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--text-faint);
+  }
+
+  /* The frame is exactly the picture's size, so boxes kept as fractions of
+     the picture land on it. */
+  .viewer__frame {
+    position: relative;
+    display: block;
+    border: 1px solid var(--border);
+  }
+
+  .viewer__media {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .viewer__frame--swipe .viewer__media--top,
+  .viewer__frame--fade .viewer__media--top,
+  .viewer__frame--difference .viewer__media--top {
+    position: absolute;
+    inset: 0;
+  }
+
+  .viewer__frame--swipe .viewer__media--top {
+    clip-path: inset(0 0 0 calc((1 - var(--viewer-cut)) * 100%));
+  }
+
+  .viewer__frame--fade .viewer__media--top {
+    opacity: var(--viewer-cut);
+  }
+
+  .viewer__frame--difference .viewer__media--top {
+    mix-blend-mode: difference;
+  }
+
+  .viewer__cut {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+  }
+
+  .viewer__cut input {
+    flex: 1;
+  }
+
+  .viewer-boxes {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .viewer-box {
+    position: absolute;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    pointer-events: auto;
+    background: color-mix(in srgb, var(--component) 12%, transparent);
+    border: 2px solid var(--component);
+    border-radius: var(--radius);
+  }
+
+  .viewer-box--reading {
+    background: color-mix(in srgb, var(--component) 22%, transparent);
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+
+  .viewer-box--quiet {
+    opacity: 0.35;
+  }
+
+  /* The name hangs above the box, so it never covers what the box shows,
+     except at the picture's top edge, where above would cover the
+     caption. A box on the right hangs its name from its right edge, so
+     the name stays on the picture. */
+  .viewer-box__name {
+    position: absolute;
+    bottom: 100%;
+    left: -2px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-size-small);
+    color: var(--surface);
+    white-space: nowrap;
+    background: var(--component);
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .viewer-box--top .viewer-box__name {
+    top: 0;
+    bottom: auto;
+    border-radius: 0 0 var(--radius) 0;
+  }
+
+  .viewer-box--right .viewer-box__name {
+    right: -2px;
+    left: auto;
+  }
+
+  /* Over a clip the player's controls sit under the boxes, so only a
+     box's name answers a click there. */
+  .viewer__frame--video .viewer-box {
+    pointer-events: none;
+  }
+
+  .viewer__frame--video .viewer-box__name {
+    pointer-events: auto;
+  }
+
+  .viewer__strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .viewer__thumb {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    width: 8em;
+    padding: var(--space-1);
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .viewer__thumb[aria-pressed="true"] {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .viewer__thumb img,
+  .viewer__thumb-clip {
+    display: block;
+    width: 100%;
+    height: 4.5em;
+    object-fit: cover;
+    object-position: top;
+  }
+
+  .viewer__thumb-clip {
+    display: grid;
+    place-items: center;
+    background: var(--surface-sunken);
+  }
+
+  .viewer__thumb-name {
+    overflow-wrap: anywhere;
+  }
+}
+/* ~/~ end */
 /* ~/~ end */
