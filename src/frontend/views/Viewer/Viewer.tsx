@@ -4,15 +4,30 @@ import type { Component } from "../../model/components";
 import { type BlobName, blobUrl, type Capture } from "../../model/evidence";
 import {
   boxStyle,
+  type Item,
+  itemKey,
   modesFor,
   shownAt,
   VIEW_MODE_NAMES,
   type ViewMode,
 } from "../../model/viewer";
 
+/** A run's steps, when the item shown is a run. */
+export interface Steps {
+  labels: string[];
+  at: number;
+  /** Why the parent stopped, or null. */
+  stopped: string | null;
+  /** The files the step in focus ran lines of, which the code marks. */
+  ran: string[];
+  onAt: (index: number) => void;
+}
+
 export function Viewer({
-  captures,
+  items,
+  shownKey,
   shown,
+  steps,
   mode,
   components,
   reading,
@@ -21,15 +36,19 @@ export function Viewer({
   onMode,
   onGo,
 }: {
-  /** Every capture of the commit, for the strip. */
-  captures: Capture[];
+  /** Every capture and run of the commit, for the strip. */
+  items: Item[];
+  /** The key of the item shown. */
+  shownKey: string;
+  /** The capture shown, or the run's step in focus as one. */
   shown: Capture;
+  steps: Steps | null;
   mode: ViewMode;
   /** The components of the capture's commit, by id. */
   components: ReadonlyMap<string, Component>;
   /** The id of the component under the reading line. */
   reading: string | null;
-  onPick: (id: string) => void;
+  onPick: (key: string) => void;
   onStep: (step: -1 | 1) => void;
   onMode: (mode: ViewMode) => void;
   onGo: (component: string) => void;
@@ -45,8 +64,8 @@ export function Viewer({
     setCut(0.5);
   }, [shown.id, shown.commitId]);
 
-  const latest = useRef(onStep);
-  latest.current = onStep;
+  const latest = useRef({ onStep, steps });
+  latest.current = { onStep, steps };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target;
@@ -56,8 +75,13 @@ export function Viewer({
       ) {
         return;
       }
-      if (event.key === "[") latest.current(-1);
-      else if (event.key === "]") latest.current(1);
+      const now = latest.current;
+      if (event.key === "[") now.onStep(-1);
+      else if (event.key === "]") now.onStep(1);
+      else if (now.steps !== null && (event.key === "," || event.key === ".")) {
+        const next = now.steps.at + (event.key === "," ? -1 : 1);
+        if (next >= 0 && next < now.steps.labels.length) now.steps.onAt(next);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -116,6 +140,39 @@ export function Viewer({
         )}
       </div>
       {shown.about !== "" && <p className="viewer__about">{shown.about}</p>}
+      {steps !== null && (
+        <>
+          <ol className="viewer__steps">
+            {steps.labels.map((label, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a step's place is what it is; two steps can share a label
+              <li key={`${index}:${label}`}>
+                <button
+                  type="button"
+                  aria-pressed={index === steps.at}
+                  className="viewer__step"
+                  onClick={() => steps.onAt(index)}
+                >
+                  {index + 1}. {label}
+                </button>
+              </li>
+            ))}
+          </ol>
+          {steps.ran.length > 0 && (
+            <p className="viewer__ran">
+              <span className="viewer__ran-mark" aria-hidden="true" />
+              <span>
+                The code marks the lines this step ran in {steps.ran.join(", ")}
+                .
+              </span>
+            </p>
+          )}
+          {steps.stopped !== null && (
+            <p className="viewer__about">
+              The parent stopped at {steps.stopped.replace(/\.+$/, "")}.
+            </p>
+          )}
+        </>
+      )}
       {showing === "side" ? (
         <div
           className={`viewer__sides${shown.before === null || shown.after === null ? " viewer__sides--one" : ""}`}
@@ -179,27 +236,41 @@ export function Viewer({
           )}
         </div>
       )}
-      {captures.length > 1 && (
+      {items.length > 1 && (
         <div className="viewer__strip">
-          {captures.map((capture) => {
-            const thumb = capture.after ?? capture.before;
+          {items.map((item) => {
+            const key = itemKey(item);
+            const named =
+              item.kind === "capture"
+                ? [item.capture.name, ...item.capture.state]
+                : [
+                    item.run.name,
+                    ...item.run.state,
+                    `${item.run.after.steps.length} steps`,
+                  ];
+            const thumb =
+              item.kind === "run"
+                ? (item.run.after.steps[0]?.shot ?? null)
+                : item.capture.media === "image"
+                  ? (item.capture.after ?? item.capture.before)
+                  : null;
+            const about =
+              item.kind === "capture" ? item.capture.about : item.run.about;
             return (
               <button
-                key={capture.id}
+                key={key}
                 type="button"
-                aria-pressed={capture.id === shown.id}
-                className="viewer__thumb"
-                title={capture.about || capture.name}
-                onClick={() => onPick(capture.id)}
+                aria-pressed={key === shownKey}
+                className={`viewer__thumb viewer__thumb--${item.kind}`}
+                title={about || named[0]}
+                onClick={() => onPick(key)}
               >
-                {capture.media === "image" && thumb !== null ? (
+                {thumb !== null ? (
                   <img src={blobUrl(thumb)} alt="" />
                 ) : (
                   <span className="viewer__thumb-clip">▶</span>
                 )}
-                <span className="viewer__thumb-name">
-                  {[capture.name, ...capture.state].join(" · ")}
-                </span>
+                <span className="viewer__thumb-name">{named.join(" · ")}</span>
               </button>
             );
           })}

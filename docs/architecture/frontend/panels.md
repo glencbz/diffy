@@ -2,8 +2,9 @@
 
 How a series review lays out what the reader looks at beside the code, and
 the addresses that let one part of the screen follow another. The commits,
-the threads, the component rail, the code and the [viewer](viewer.md) of
-the author's captures are panels today; the [roadmap](#roadmap) adds runs.
+the threads, the component rail, the code, the [viewer](viewer.md) of the
+author's captures, and the Network and Console of a [run](runs.md) are
+panels today; the [roadmap](#roadmap) says what comes next.
 
 A new kind of panel takes three steps: an id in `PanelId`, a body from the
 screen's controller, and a rule for when it has nothing to show. When it
@@ -245,6 +246,8 @@ export const PanelId = z.enum([
   "threads",
   "components",
   "viewer",
+  "network",
+  "console",
 ]);
 export type PanelId = z.infer<typeof PanelId>;
 
@@ -254,6 +257,8 @@ export const PANEL_NAMES: Record<PanelId, string> = {
   threads: "Threads",
   components: "Components",
   viewer: "Viewer",
+  network: "Network",
+  console: "Console",
 };
 
 export interface Leaf {
@@ -322,7 +327,7 @@ export const LAYOUTS: Layout[] = [
       "stacked",
       "column",
       [
-        leaf("stacked/drawer", ["commits", "threads"]),
+        leaf("stacked/drawer", ["commits", "threads", "network", "console"]),
         split(
           "stacked/main",
           "row",
@@ -344,7 +349,13 @@ export const LAYOUTS: Layout[] = [
       "columns",
       "row",
       [
-        leaf("columns/list", ["commits", "threads", "viewer"]),
+        leaf("columns/list", [
+          "commits",
+          "threads",
+          "viewer",
+          "network",
+          "console",
+        ]),
         leaf("columns/rail", ["components"]),
         leaf("columns/code", ["code"]),
       ],
@@ -359,7 +370,14 @@ export const LAYOUTS: Layout[] = [
       "row",
       [
         leaf("code/code", ["code"]),
-        leaf("code/side", ["components", "viewer", "commits", "threads"]),
+        leaf("code/side", [
+          "components",
+          "viewer",
+          "network",
+          "console",
+          "commits",
+          "threads",
+        ]),
       ],
       [0.7, 0.3],
     ),
@@ -1642,17 +1660,10 @@ export function LeafView({
 What is still to build, in order. Each step is a pull request that moves its
 part of this list into the sections above.
 
-**Runs.** The [recorder](../backend/recording.md) learns to keep what
-each step did: the page's requests and console, and the lines of the
-repository it ran, from V8 block coverage and CSS rule use, mapped back to
-source paths through source maps when the app is bundled. A run's steps are
-evidence of a second kind and join the [viewer's](viewer.md) strip; Network
-and Console show what the step in focus did, its requests answered before
-and after. The lines a step ran are marked through the code's layer
-(`StackLayer` and `LineDecor`), a class per step drawn once per commit, and
-a rule picks out the step in focus, so moving the focus never draws the diff
-again. The focus gains a hold, so the reader can keep a shot while reading
-on.
+**Bundled apps in runs.** A [run](../backend/runs.md) keeps the lines a
+step ran only for files the app serves as they are in the repository. An
+app that bundles its code, diffy among them, needs its source maps read to
+put those lines back in their files.
 
 **Comments on any location.** A box on a capture, a moment of a clip, a step
 or a request can hold a thread, which needs an anchor in the review store
@@ -1824,7 +1835,11 @@ describe("layouts", () => {
     const tree = movePanel(stacked.tree, "threads", "stacked/rail");
 
     // assert
-    expect(findLeaf(tree, "stacked/drawer")?.tabs).toEqual(["commits"]);
+    expect(findLeaf(tree, "stacked/drawer")?.tabs).toEqual([
+      "commits",
+      "network",
+      "console",
+    ]);
     expect(findLeaf(tree, "stacked/rail")).toMatchObject({
       tabs: ["components", "threads"],
       active: "threads",

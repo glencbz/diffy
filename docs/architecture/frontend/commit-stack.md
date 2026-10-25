@@ -328,7 +328,11 @@ function StackSection({
   }, []);
 
   return (
-    <section ref={section} className="commit-stack__row">
+    <section
+      ref={section}
+      className="commit-stack__row"
+      data-commit={row.commit.commitId}
+    >
       <StackSpine row={row} since={since} />
       {isQuiet(row.kind) && !isOpen ? (
         <QuietLine kind={row.kind} onOpen={onToggle} />

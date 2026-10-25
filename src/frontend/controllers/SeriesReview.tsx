@@ -20,6 +20,7 @@ import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
 import type { PanelId } from "../model/panels";
 import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
+import { ranRules } from "../model/ranLines";
 import {
   type ComparisonReview,
   keptPairing,
@@ -27,6 +28,13 @@ import {
   reviewComparison,
   reviewedIn,
 } from "../model/review";
+import {
+  compareLogged,
+  compareRequests,
+  stepAsCapture,
+  stepsAt,
+} from "../model/runSteps";
+import { runsOf } from "../model/runs";
 import {
   type MarkLabel,
   rowAsk,
@@ -43,9 +51,11 @@ import {
 } from "../model/threads";
 import {
   capturesAt,
-  followCapture,
+  followItem,
+  type Item,
+  itemKey,
   type Pick,
-  stepCapture,
+  stepItem,
   type ViewMode,
 } from "../model/viewer";
 import { useBeforePaths, useCompared } from "../state/compared";
@@ -78,6 +88,8 @@ import { LastReviewed } from "../views/LastReviewed";
 import { Message } from "../views/Message";
 import { PairedGraph } from "../views/PairedGraph";
 import { PullReviewPanes } from "../views/PullReviewPanes/PullReviewPanes";
+import { Console } from "../views/Runs/Console";
+import { Network } from "../views/Runs/Network";
 import { SeriesComparisonPicker } from "../views/SeriesComparisonPicker";
 import { ThreadList } from "../views/ThreadList";
 import { Viewer } from "../views/Viewer/Viewer";
@@ -269,9 +281,13 @@ export function SeriesReview({
   // The components panel's body, which the components view draws its rail
   // into from beside the code.
   const [railSlot, setRailSlot] = useState<HTMLElement | null>(null);
-  // The capture the reader picked in the viewer, and how they compare it.
+  // The capture or run the reader picked in the viewer, how they compare it,
+  // and the step of a run in focus, which a new run starts at its first.
   const [picked, setPicked] = useState<Pick | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("side");
+  const [stepAt, setStepAt] = useState<{ run: string; index: number } | null>(
+    null,
+  );
   const arrivals = useArrivals();
   const { from, spot } = place;
   const current = spot?.commit ?? null;
@@ -523,21 +539,51 @@ export function SeriesReview({
     (thread) => !thread.comment.resolved,
   ).length;
 
-  // The viewer shows the captures of the commit picked or being read.
+  // The viewer shows the captures and runs of the commit picked or being
+  // read; Network and Console show the step in focus of the run shown.
+  const inView = currentRow?.commit.commitId ?? focus.reading?.commit ?? null;
   const atCommit = capturesAt(
     review.status === "ready"
       ? capturesOf(review.document.captures, series, to)
       : [],
-    currentRow?.commit.commitId ?? focus.reading?.commit ?? null,
+    inView,
   );
+  const runsAtCommit = (
+    review.status === "ready" ? runsOf(review.document.runs, series, to) : []
+  ).filter((run) => inView === null || run.commitId === inView);
+  const items: Item[] = [
+    ...atCommit.map((capture): Item => ({ kind: "capture", capture })),
+    ...runsAtCommit.map((run): Item => ({ kind: "run", run })),
+  ];
   const readingComponent =
     focus.reading?.kind === "component" ? focus.reading.component : null;
-  const captureShown = followCapture(atCommit, picked, readingComponent);
-  const pickCapture = (id: string | null) =>
-    setPicked(id === null ? null : { id, reading: readingComponent });
+  const itemShown = followItem(
+    atCommit,
+    runsAtCommit,
+    picked,
+    readingComponent,
+  );
+  const runShown = itemShown?.kind === "run" ? itemShown.run : null;
+  const stepIndex =
+    runShown !== null && stepAt?.run === runShown.id
+      ? Math.min(stepAt.index, runShown.after.steps.length - 1)
+      : 0;
+  const stepShown = runShown === null ? null : stepsAt(runShown, stepIndex);
+  const captureShown =
+    itemShown === null
+      ? null
+      : itemShown.kind === "capture"
+        ? itemShown.capture
+        : stepAsCapture(itemShown.run, stepIndex);
+  const pickItem = (key: string | null) =>
+    setPicked(key === null ? null : { id: key, reading: readingComponent });
   const empty = new Set<PanelId>();
   if (!componentsOn) empty.add("components");
   if (captureShown === null) empty.add("viewer");
+  if (stepShown === null) {
+    empty.add("network");
+    empty.add("console");
+  }
 
   return (
     <PullReviewPanes
@@ -554,7 +600,7 @@ export function SeriesReview({
       empty={empty}
       badges={{
         ...(openThreads > 0 && { threads: `${openThreads} open` }),
-        ...(atCommit.length > 0 && { viewer: `${atCommit.length}` }),
+        ...(items.length > 0 && { viewer: `${items.length}` }),
       }}
       tools={{
         code: (
@@ -639,13 +685,55 @@ export function SeriesReview({
             />
           ),
         components: <div className="components-slot" ref={setRailSlot} />,
+        network:
+          runShown === null || stepShown === null ? (
+            <Message>No run of this commit.</Message>
+          ) : (
+            <Network
+              label={stepShown.after?.label ?? ""}
+              requests={compareRequests(
+                runShown.before === null
+                  ? null
+                  : (stepShown.before?.requests ?? []),
+                stepShown.after?.requests ?? [],
+              )}
+            />
+          ),
+        console:
+          runShown === null || stepShown === null ? (
+            <Message>No run of this commit.</Message>
+          ) : (
+            <Console
+              label={stepShown.after?.label ?? ""}
+              lines={compareLogged(
+                runShown.before === null
+                  ? null
+                  : (stepShown.before?.console ?? []),
+                stepShown.after?.console ?? [],
+              )}
+            />
+          ),
         viewer:
-          captureShown === null ? (
+          captureShown === null || itemShown === null ? (
             <Message>No captures of this commit.</Message>
           ) : (
             <Viewer
-              captures={atCommit}
+              items={items}
+              shownKey={itemKey(itemShown)}
               shown={captureShown}
+              steps={
+                runShown === null
+                  ? null
+                  : {
+                      labels: runShown.after.steps.map((each) => each.label),
+                      at: stepIndex,
+                      stopped: runShown.before?.stopped ?? null,
+                      ran: (stepShown?.after?.ran ?? []).map(
+                        (each) => each.path,
+                      ),
+                      onAt: (index) => setStepAt({ run: runShown.id, index }),
+                    }
+              }
               mode={viewMode}
               components={
                 new Map(
@@ -655,10 +743,8 @@ export function SeriesReview({
                 )
               }
               reading={readingComponent}
-              onPick={pickCapture}
-              onStep={(by) =>
-                pickCapture(stepCapture(atCommit, captureShown.id, by))
-              }
+              onPick={pickItem}
+              onStep={(by) => pickItem(stepItem(items, itemKey(itemShown), by))}
               onMode={setViewMode}
               onGo={(component) =>
                 focus.ask({
@@ -675,6 +761,15 @@ export function SeriesReview({
           // switching the map keeps every file's state, and a switch to another
           // comparison keeps the place the reader is going to while it loads.
           <div className="code-panel">
+            {runShown !== null && stepShown?.after != null && (
+              <style>
+                {ranRules(
+                  runShown.commitId,
+                  stepShown.after.ran,
+                  stepShown.before?.ran ?? null,
+                )}
+              </style>
+            )}
             <ComponentsStack
               enabled={componentsOn}
               rows={rows}

@@ -126,6 +126,7 @@ import {
 import type { InterdiffRow } from "./diff";
 import { Capture, withCapture } from "./evidence";
 import { followLine, readPatch } from "./patch";
+import { Run, withRun } from "./runs";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -297,6 +298,9 @@ export const ReviewDocument = z.object({
   /** What authors recorded of the app, by series and version; see
    *  [evidence](../backend/evidence.md). */
   captures: z.array(Capture).default([]),
+  /** What each step of a recipe did, by series and version; see
+   *  [runs](../backend/runs.md). */
+  runs: z.array(Run).default([]),
 });
 export type ReviewDocument = z.infer<typeof ReviewDocument>;
 
@@ -313,6 +317,7 @@ export const EMPTY_REVIEW: ReviewDocument = {
   componentMaps: [],
   componentKinds: DEFAULT_KINDS,
   captures: [],
+  runs: [],
 };
 
 export function isEmptyReview(document: ReviewDocument): boolean {
@@ -327,7 +332,8 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.compared.length === 0 &&
     document.localReviews.length === 0 &&
     document.componentMaps.length === 0 &&
-    document.captures.length === 0
+    document.captures.length === 0 &&
+    document.runs.length === 0
   );
 }
 
@@ -797,6 +803,7 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("purge-forgotten"), before: z.string() }),
   z.object({ kind: z.literal("write-components"), map: ComponentMap }),
   z.object({ kind: z.literal("attach-capture"), capture: Capture }),
+  z.object({ kind: z.literal("record-run"), run: Run }),
   z.object({
     kind: z.literal("detach-capture"),
     series: z.string(),
@@ -1038,6 +1045,7 @@ export function applyCommand(
         captures: document.captures.filter(
           (capture) => !purged.has(capture.series),
         ),
+        runs: document.runs.filter((run) => !purged.has(run.series)),
       };
     }
     case "write-components":
@@ -1050,6 +1058,8 @@ export function applyCommand(
         ...document,
         captures: withCapture(document.captures, command.capture),
       };
+    case "record-run":
+      return { ...document, runs: withRun(document.runs, command.run) };
     case "detach-capture":
       return {
         ...document,
@@ -1151,8 +1161,9 @@ export function applyCommand(
         // What the browser kept never had a vocabulary, so the repository's
         // stays.
         componentKinds: document.componentKinds,
-        // Nor captures, which only agents attach on the server.
+        // Nor captures and runs, which only agents attach on the server.
         captures: document.captures,
+        runs: document.runs,
       };
   }
 }

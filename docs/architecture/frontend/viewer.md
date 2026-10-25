@@ -25,6 +25,7 @@ side whatever mode the reader chose.
 //| id: frontend-model-viewer
 //| file: src/frontend/model/viewer.ts
 import type { Box, Capture, Shown } from "./evidence";
+import type { Run } from "./runs";
 
 export const VIEW_MODES = ["side", "swipe", "fade", "difference"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
@@ -47,8 +48,8 @@ export function capturesAt(
     : captures.filter((each) => each.commitId === commitId);
 }
 
-/** A capture the reader picked, and the component they were reading
- *  when they picked it. */
+/** A capture or run the reader picked, by its key, and the component they
+ *  were reading when they picked it. */
 export interface Pick {
   id: string;
   reading: string | null;
@@ -75,16 +76,63 @@ export function followCapture(
   return captures.find(shows) ?? pick ?? captures[0] ?? null;
 }
 
-/** The capture `step` along from `at`, wrapping round. */
-export function stepCapture(
+/** What the strip holds: a capture, or a [run](runs.md) of steps. */
+export type Item =
+  | { kind: "capture"; capture: Capture }
+  | { kind: "run"; run: Run };
+
+/** An item's name in a pick, unique across both kinds. */
+export function itemKey(item: Item): string {
+  return item.kind === "capture"
+    ? `capture:${item.capture.id}`
+    : `run:${item.run.id}`;
+}
+
+/** The item to show. A picked run holds as a picked capture does, until the
+ *  reader reads on to a component some capture shows; captures follow the
+ *  reading as `followCapture` says; a commit with only runs shows its
+ *  first. */
+export function followItem(
   captures: Capture[],
+  runs: Run[],
+  picked: Pick | null,
+  reading: string | null,
+): Item | null {
+  const run = runs.find((each) => `run:${each.id}` === picked?.id);
+  const shownSomewhere =
+    reading !== null &&
+    captures.some((capture) =>
+      capture.shows.some((shown) => shown.component === reading),
+    );
+  if (
+    run !== undefined &&
+    (reading === null || reading === picked?.reading || !shownSomewhere)
+  ) {
+    return { kind: "run", run };
+  }
+  const capture = followCapture(
+    captures,
+    picked === null
+      ? null
+      : { id: picked.id.replace(/^capture:/, ""), reading: picked.reading },
+    reading,
+  );
+  if (capture !== null) return { kind: "capture", capture };
+  const first = runs[0];
+  return first === undefined ? null : { kind: "run", run: first };
+}
+
+/** The key of the item `step` along from `at`, wrapping round. */
+export function stepItem(
+  items: Item[],
   at: string | null,
   step: -1 | 1,
 ): string | null {
-  if (captures.length === 0) return null;
-  const index = captures.findIndex((each) => each.id === at);
-  const next = (index + step + captures.length) % captures.length;
-  return captures[index === -1 ? 0 : next]?.id ?? null;
+  if (items.length === 0) return null;
+  const index = items.findIndex((each) => itemKey(each) === at);
+  const next = (index + step + items.length) % items.length;
+  const item = items[index === -1 ? 0 : next];
+  return item === undefined ? null : itemKey(item);
 }
 
 /** The modes `capture` can be shown in. */
@@ -139,8 +187,10 @@ being read, every box is drawn alike.
 
 A clip plays both sides together: playing, pausing or seeking the commit's
 side does the same to its parent's, and the boxes follow the commit's time.
-`[` and `]` step through the commit's captures from anywhere on the screen,
-as the panels' own keys do.
+`[` and `]` step through the commit's captures and runs from anywhere on
+the screen, as the panels' own keys do. A run lists its steps under its
+name, and `,` and `.` move between them; the step in focus is drawn as a
+capture of its two windows, as [runs](runs.md#the-step-in-focus) says.
 
 ```tsx
 //| id: frontend-view-viewer
@@ -150,15 +200,30 @@ import type { Component } from "../../model/components";
 import { type BlobName, blobUrl, type Capture } from "../../model/evidence";
 import {
   boxStyle,
+  type Item,
+  itemKey,
   modesFor,
   shownAt,
   VIEW_MODE_NAMES,
   type ViewMode,
 } from "../../model/viewer";
 
+/** A run's steps, when the item shown is a run. */
+export interface Steps {
+  labels: string[];
+  at: number;
+  /** Why the parent stopped, or null. */
+  stopped: string | null;
+  /** The files the step in focus ran lines of, which the code marks. */
+  ran: string[];
+  onAt: (index: number) => void;
+}
+
 export function Viewer({
-  captures,
+  items,
+  shownKey,
   shown,
+  steps,
   mode,
   components,
   reading,
@@ -167,15 +232,19 @@ export function Viewer({
   onMode,
   onGo,
 }: {
-  /** Every capture of the commit, for the strip. */
-  captures: Capture[];
+  /** Every capture and run of the commit, for the strip. */
+  items: Item[];
+  /** The key of the item shown. */
+  shownKey: string;
+  /** The capture shown, or the run's step in focus as one. */
   shown: Capture;
+  steps: Steps | null;
   mode: ViewMode;
   /** The components of the capture's commit, by id. */
   components: ReadonlyMap<string, Component>;
   /** The id of the component under the reading line. */
   reading: string | null;
-  onPick: (id: string) => void;
+  onPick: (key: string) => void;
   onStep: (step: -1 | 1) => void;
   onMode: (mode: ViewMode) => void;
   onGo: (component: string) => void;
@@ -191,8 +260,8 @@ export function Viewer({
     setCut(0.5);
   }, [shown.id, shown.commitId]);
 
-  const latest = useRef(onStep);
-  latest.current = onStep;
+  const latest = useRef({ onStep, steps });
+  latest.current = { onStep, steps };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target;
@@ -202,8 +271,13 @@ export function Viewer({
       ) {
         return;
       }
-      if (event.key === "[") latest.current(-1);
-      else if (event.key === "]") latest.current(1);
+      const now = latest.current;
+      if (event.key === "[") now.onStep(-1);
+      else if (event.key === "]") now.onStep(1);
+      else if (now.steps !== null && (event.key === "," || event.key === ".")) {
+        const next = now.steps.at + (event.key === "," ? -1 : 1);
+        if (next >= 0 && next < now.steps.labels.length) now.steps.onAt(next);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -262,6 +336,39 @@ export function Viewer({
         )}
       </div>
       {shown.about !== "" && <p className="viewer__about">{shown.about}</p>}
+      {steps !== null && (
+        <>
+          <ol className="viewer__steps">
+            {steps.labels.map((label, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a step's place is what it is; two steps can share a label
+              <li key={`${index}:${label}`}>
+                <button
+                  type="button"
+                  aria-pressed={index === steps.at}
+                  className="viewer__step"
+                  onClick={() => steps.onAt(index)}
+                >
+                  {index + 1}. {label}
+                </button>
+              </li>
+            ))}
+          </ol>
+          {steps.ran.length > 0 && (
+            <p className="viewer__ran">
+              <span className="viewer__ran-mark" aria-hidden="true" />
+              <span>
+                The code marks the lines this step ran in {steps.ran.join(", ")}
+                .
+              </span>
+            </p>
+          )}
+          {steps.stopped !== null && (
+            <p className="viewer__about">
+              The parent stopped at {steps.stopped.replace(/\.+$/, "")}.
+            </p>
+          )}
+        </>
+      )}
       {showing === "side" ? (
         <div
           className={`viewer__sides${shown.before === null || shown.after === null ? " viewer__sides--one" : ""}`}
@@ -325,27 +432,41 @@ export function Viewer({
           )}
         </div>
       )}
-      {captures.length > 1 && (
+      {items.length > 1 && (
         <div className="viewer__strip">
-          {captures.map((capture) => {
-            const thumb = capture.after ?? capture.before;
+          {items.map((item) => {
+            const key = itemKey(item);
+            const named =
+              item.kind === "capture"
+                ? [item.capture.name, ...item.capture.state]
+                : [
+                    item.run.name,
+                    ...item.run.state,
+                    `${item.run.after.steps.length} steps`,
+                  ];
+            const thumb =
+              item.kind === "run"
+                ? (item.run.after.steps[0]?.shot ?? null)
+                : item.capture.media === "image"
+                  ? (item.capture.after ?? item.capture.before)
+                  : null;
+            const about =
+              item.kind === "capture" ? item.capture.about : item.run.about;
             return (
               <button
-                key={capture.id}
+                key={key}
                 type="button"
-                aria-pressed={capture.id === shown.id}
-                className="viewer__thumb"
-                title={capture.about || capture.name}
-                onClick={() => onPick(capture.id)}
+                aria-pressed={key === shownKey}
+                className={`viewer__thumb viewer__thumb--${item.kind}`}
+                title={about || named[0]}
+                onClick={() => onPick(key)}
               >
-                {capture.media === "image" && thumb !== null ? (
+                {thumb !== null ? (
                   <img src={blobUrl(thumb)} alt="" />
                 ) : (
                   <span className="viewer__thumb-clip">▶</span>
                 )}
-                <span className="viewer__thumb-name">
-                  {[capture.name, ...capture.state].join(" · ")}
-                </span>
+                <span className="viewer__thumb-name">{named.join(" · ")}</span>
               </button>
             );
           })}
@@ -610,6 +731,32 @@ function Media({
     pointer-events: auto;
   }
 
+  .viewer__steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+    margin: 0;
+    padding: 0;
+    font-size: var(--text-size-small);
+    list-style: none;
+  }
+
+  .viewer__step {
+    padding: var(--space-1) var(--space-2);
+    font: inherit;
+    color: var(--text-muted);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .viewer__step[aria-pressed="true"] {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
   .viewer__strip {
     display: flex;
     flex-wrap: wrap;
@@ -665,9 +812,32 @@ function Media({
 //| file: src/frontend/model/viewer.test.ts
 import { describe, expect, test } from "bun:test";
 import type { Capture } from "./evidence";
-import { followCapture, modesFor, shownAt, stepCapture } from "./viewer";
+import type { Run } from "./runs";
+import {
+  followCapture,
+  followItem,
+  type Item,
+  modesFor,
+  shownAt,
+  stepItem,
+} from "./viewer";
 
 const PNG = `${"a".repeat(64)}.png` as const;
+
+function run(id: string): Run {
+  return {
+    series: "local:r",
+    version: "1",
+    commitId: "c1",
+    id,
+    name: id,
+    state: [],
+    about: "",
+    before: null,
+    after: { steps: [], stopped: null },
+    recordedAt: "2026-10-25T00:00:00Z",
+  };
+}
 
 function capture(id: string, shows: string[], more: Partial<Capture> = {}) {
   return {
@@ -751,15 +921,33 @@ describe("following the reading", () => {
 });
 
 describe("the viewer's choices", () => {
-  test("steps round the commit's captures", () => {
+  test("steps round the commit's captures and runs", () => {
     // arrange
-    const captures = [capture("a", []), capture("b", [])];
+    const items: Item[] = [
+      { kind: "capture", capture: capture("a", []) },
+      { kind: "run", run: run("b") },
+    ];
 
     // act
-    const back = stepCapture(captures, "a", -1);
+    const back = stepItem(items, "capture:a", -1);
 
     // assert
-    expect(back).toBe("b");
+    expect(back).toBe("run:b");
+  });
+
+  test("a picked run holds until the reader reads on to a capture", () => {
+    // arrange
+    const captures = [capture("settings", ["switch"])];
+    const runs = [run("switching")];
+    const picked = { id: "run:switching", reading: "header" };
+
+    // act
+    const held = followItem(captures, runs, picked, "header");
+    const moved = followItem(captures, runs, picked, "switch");
+
+    // assert
+    expect(held?.kind).toBe("run");
+    expect(moved?.kind).toBe("capture");
   });
 
   test("only lays a picture over its other side", () => {
