@@ -5175,6 +5175,32 @@
     pointer-events: auto;
   }
 
+  .viewer__steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+    margin: 0;
+    padding: 0;
+    font-size: var(--text-size-small);
+    list-style: none;
+  }
+
+  .viewer__step {
+    padding: var(--space-1) var(--space-2);
+    font: inherit;
+    color: var(--text-muted);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .viewer__step[aria-pressed="true"] {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
   .viewer__strip {
     display: flex;
     flex-wrap: wrap;
@@ -5219,6 +5245,129 @@
 
   .viewer__thumb-name {
     overflow-wrap: anywhere;
+  }
+}
+/* ~/~ end */
+
+/* ~/~ begin <<docs/architecture/frontend/runs.md#design-runs>>[init] */
+@layer components {
+  .run-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-size-small);
+  }
+
+  .run-panel__step {
+    margin: 0;
+    font-weight: bold;
+  }
+
+  .run-panel__none {
+    margin: 0;
+    color: var(--text-faint);
+  }
+
+  .run-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .run-row {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .run-row__head,
+  .run-row:not(:has(.run-row__head)) {
+    display: grid;
+    grid-template-columns: 1.2em 4em minmax(0, 1fr) auto auto;
+    gap: var(--space-3);
+    align-items: baseline;
+    width: 100%;
+    padding: var(--space-1) 0;
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    background: none;
+    border: none;
+  }
+
+  .run-row__head:enabled {
+    cursor: pointer;
+  }
+
+  .run-row__head:enabled:hover {
+    background: var(--surface-sunken);
+  }
+
+  /* A console line has no method or status; its text takes their room. */
+  .run-row:not(:has(.run-row__head)) {
+    grid-template-columns: 1.2em 4em minmax(0, 1fr);
+  }
+
+  .run-row__url,
+  .run-log__text {
+    overflow-wrap: anywhere;
+  }
+
+  .run-row__status,
+  .run-row__type,
+  .run-log__level {
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .run-row__change {
+    font-weight: bold;
+  }
+
+  .run-row--new .run-row__change {
+    color: var(--diff-added);
+  }
+
+  .run-row--gone {
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+
+  .run-row--changed .run-row__status {
+    color: var(--status-modified);
+  }
+
+  .run-log--error .run-log__level,
+  .run-log--error .run-log__text {
+    color: var(--danger);
+  }
+
+  .run-log--warn .run-log__level {
+    color: var(--status-modified);
+  }
+
+  .run-row__bodies {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14em, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-2) 0 var(--space-3) 1.2em;
+  }
+
+  .run-body {
+    margin: 0;
+    min-width: 0;
+  }
+
+  .run-body figcaption {
+    color: var(--text-muted);
+  }
+
+  .run-body pre {
+    margin: 0;
+    padding: var(--space-2);
+    overflow: auto;
+    max-height: 20em;
+    background: var(--surface-sunken);
+    border-radius: var(--radius);
   }
 }
 /* ~/~ end */

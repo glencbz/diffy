@@ -55,7 +55,11 @@ describe("layouts", () => {
     const tree = movePanel(stacked.tree, "threads", "stacked/rail");
 
     // assert
-    expect(findLeaf(tree, "stacked/drawer")?.tabs).toEqual(["commits"]);
+    expect(findLeaf(tree, "stacked/drawer")?.tabs).toEqual([
+      "commits",
+      "network",
+      "console",
+    ]);
     expect(findLeaf(tree, "stacked/rail")).toMatchObject({
       tabs: ["components", "threads"],
       active: "threads",

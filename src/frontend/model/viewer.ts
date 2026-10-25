@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer>>[init]
 import type { Box, Capture, Shown } from "./evidence";
+import type { Run } from "./runs";
 
 export const VIEW_MODES = ["side", "swipe", "fade", "difference"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
@@ -22,8 +23,8 @@ export function capturesAt(
     : captures.filter((each) => each.commitId === commitId);
 }
 
-/** A capture the reader picked, and the component they were reading
- *  when they picked it. */
+/** A capture or run the reader picked, by its key, and the component they
+ *  were reading when they picked it. */
 export interface Pick {
   id: string;
   reading: string | null;
@@ -50,16 +51,63 @@ export function followCapture(
   return captures.find(shows) ?? pick ?? captures[0] ?? null;
 }
 
-/** The capture `step` along from `at`, wrapping round. */
-export function stepCapture(
+/** What the strip holds: a capture, or a [run](runs.md) of steps. */
+export type Item =
+  | { kind: "capture"; capture: Capture }
+  | { kind: "run"; run: Run };
+
+/** An item's name in a pick, unique across both kinds. */
+export function itemKey(item: Item): string {
+  return item.kind === "capture"
+    ? `capture:${item.capture.id}`
+    : `run:${item.run.id}`;
+}
+
+/** The item to show. A picked run holds as a picked capture does, until the
+ *  reader reads on to a component some capture shows; captures follow the
+ *  reading as `followCapture` says; a commit with only runs shows its
+ *  first. */
+export function followItem(
   captures: Capture[],
+  runs: Run[],
+  picked: Pick | null,
+  reading: string | null,
+): Item | null {
+  const run = runs.find((each) => `run:${each.id}` === picked?.id);
+  const shownSomewhere =
+    reading !== null &&
+    captures.some((capture) =>
+      capture.shows.some((shown) => shown.component === reading),
+    );
+  if (
+    run !== undefined &&
+    (reading === null || reading === picked?.reading || !shownSomewhere)
+  ) {
+    return { kind: "run", run };
+  }
+  const capture = followCapture(
+    captures,
+    picked === null
+      ? null
+      : { id: picked.id.replace(/^capture:/, ""), reading: picked.reading },
+    reading,
+  );
+  if (capture !== null) return { kind: "capture", capture };
+  const first = runs[0];
+  return first === undefined ? null : { kind: "run", run: first };
+}
+
+/** The key of the item `step` along from `at`, wrapping round. */
+export function stepItem(
+  items: Item[],
   at: string | null,
   step: -1 | 1,
 ): string | null {
-  if (captures.length === 0) return null;
-  const index = captures.findIndex((each) => each.id === at);
-  const next = (index + step + captures.length) % captures.length;
-  return captures[index === -1 ? 0 : next]?.id ?? null;
+  if (items.length === 0) return null;
+  const index = items.findIndex((each) => itemKey(each) === at);
+  const next = (index + step + items.length) % items.length;
+  const item = items[index === -1 ? 0 : next];
+  return item === undefined ? null : itemKey(item);
 }
 
 /** The modes `capture` can be shown in. */

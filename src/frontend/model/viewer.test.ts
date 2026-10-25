@@ -1,9 +1,32 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { Capture } from "./evidence";
-import { followCapture, modesFor, shownAt, stepCapture } from "./viewer";
+import type { Run } from "./runs";
+import {
+  followCapture,
+  followItem,
+  type Item,
+  modesFor,
+  shownAt,
+  stepItem,
+} from "./viewer";
 
 const PNG = `${"a".repeat(64)}.png` as const;
+
+function run(id: string): Run {
+  return {
+    series: "local:r",
+    version: "1",
+    commitId: "c1",
+    id,
+    name: id,
+    state: [],
+    about: "",
+    before: null,
+    after: { steps: [], stopped: null },
+    recordedAt: "2026-10-25T00:00:00Z",
+  };
+}
 
 function capture(id: string, shows: string[], more: Partial<Capture> = {}) {
   return {
@@ -87,15 +110,33 @@ describe("following the reading", () => {
 });
 
 describe("the viewer's choices", () => {
-  test("steps round the commit's captures", () => {
+  test("steps round the commit's captures and runs", () => {
     // arrange
-    const captures = [capture("a", []), capture("b", [])];
+    const items: Item[] = [
+      { kind: "capture", capture: capture("a", []) },
+      { kind: "run", run: run("b") },
+    ];
 
     // act
-    const back = stepCapture(captures, "a", -1);
+    const back = stepItem(items, "capture:a", -1);
 
     // assert
-    expect(back).toBe("b");
+    expect(back).toBe("run:b");
+  });
+
+  test("a picked run holds until the reader reads on to a capture", () => {
+    // arrange
+    const captures = [capture("settings", ["switch"])];
+    const runs = [run("switching")];
+    const picked = { id: "run:switching", reading: "header" };
+
+    // act
+    const held = followItem(captures, runs, picked, "header");
+    const moved = followItem(captures, runs, picked, "switch");
+
+    // assert
+    expect(held?.kind).toBe("run");
+    expect(moved?.kind).toBe("capture");
   });
 
   test("only lays a picture over its other side", () => {

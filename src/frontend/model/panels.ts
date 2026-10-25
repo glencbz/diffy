@@ -7,6 +7,8 @@ export const PanelId = z.enum([
   "threads",
   "components",
   "viewer",
+  "network",
+  "console",
 ]);
 export type PanelId = z.infer<typeof PanelId>;
 
@@ -16,6 +18,8 @@ export const PANEL_NAMES: Record<PanelId, string> = {
   threads: "Threads",
   components: "Components",
   viewer: "Viewer",
+  network: "Network",
+  console: "Console",
 };
 
 export interface Leaf {
@@ -84,7 +88,7 @@ export const LAYOUTS: Layout[] = [
       "stacked",
       "column",
       [
-        leaf("stacked/drawer", ["commits", "threads"]),
+        leaf("stacked/drawer", ["commits", "threads", "network", "console"]),
         split(
           "stacked/main",
           "row",
@@ -106,7 +110,13 @@ export const LAYOUTS: Layout[] = [
       "columns",
       "row",
       [
-        leaf("columns/list", ["commits", "threads", "viewer"]),
+        leaf("columns/list", [
+          "commits",
+          "threads",
+          "viewer",
+          "network",
+          "console",
+        ]),
         leaf("columns/rail", ["components"]),
         leaf("columns/code", ["code"]),
       ],
@@ -121,7 +131,14 @@ export const LAYOUTS: Layout[] = [
       "row",
       [
         leaf("code/code", ["code"]),
-        leaf("code/side", ["components", "viewer", "commits", "threads"]),
+        leaf("code/side", [
+          "components",
+          "viewer",
+          "network",
+          "console",
+          "commits",
+          "threads",
+        ]),
       ],
       [0.7, 0.3],
     ),
