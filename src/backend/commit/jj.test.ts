@@ -48,6 +48,28 @@ describe("jjLog", () => {
     expect(root?.refs).toEqual([]);
   });
 
+  test("lists the working copy first, above a newer head", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-jj-"));
+    try {
+      await $`jj git init`.cwd(dir).quiet();
+      await $`jj describe -m here`.cwd(dir).quiet();
+      await $`jj new --no-edit "root()" -m elsewhere`.cwd(dir).quiet();
+
+      // act
+      const entries = await jjLog(dir);
+
+      // assert
+      expect(entries.map((entry) => entry.description.trim())).toEqual([
+        "here",
+        "elsewhere",
+        "",
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("marks the working copy and nothing else", async () => {
     // arrange
     // act

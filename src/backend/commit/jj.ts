@@ -156,7 +156,7 @@ export async function jjLog(
   root: string,
   options: JjLogOptions = {},
 ): Promise<JjLogEntry[]> {
-  const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
+  const args = ["log", "-T", LOG_TEMPLATE];
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
   if (options.atOperation !== undefined) {
@@ -167,9 +167,11 @@ export async function jjLog(
 
   return output
     .split("\n")
-    .filter((line) => line.length > 0)
+    .filter((line) => line.includes("{"))
     .map((line) => {
-      const entry = JjLogEntryWire.parse(JSON.parse(line));
+      const entry = JjLogEntryWire.parse(
+        JSON.parse(line.slice(line.indexOf("{"))),
+      );
       const { commit } = entry;
 
       return {
