@@ -359,7 +359,9 @@ export type LocalReview = z.infer<typeof LocalReview>;
  *  purged. */
 export const KEEP_FORGOTTEN_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const ReviewDocument = z.object({
+// Loose, so a field from a newer diffy survives a write by this one; see
+// [the review store](../backend/review-store.md#the-document-as-one-row).
+export const ReviewDocument = z.looseObject({
   marks: z.array(Mark),
   comments: z.array(Comment),
   viewed: z.array(ViewedFile).default([]),
@@ -1175,6 +1177,7 @@ export function applyCommand(
       };
     case "import":
       return {
+        ...document,
         marks: added(document.marks, command.document.marks, sameComparison),
         comments: added(
           document.comments,
