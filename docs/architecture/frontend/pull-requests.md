@@ -718,6 +718,7 @@ import { lastReviewed, opening } from "../model/lastReviewed";
 import type { Slot } from "../model/pairing";
 import type { PanelId } from "../model/panels";
 import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
+import { ranRules } from "../model/ranLines";
 import {
   type ComparisonReview,
   keptPairing,
@@ -1425,6 +1426,9 @@ export function SeriesReview({
                       labels: runShown.after.steps.map((each) => each.label),
                       at: stepIndex,
                       stopped: runShown.before?.stopped ?? null,
+                      ran: (stepShown?.after?.ran ?? []).map(
+                        (each) => each.path,
+                      ),
                       onAt: (index) => setStepAt({ run: runShown.id, index }),
                     }
               }
@@ -1455,6 +1459,15 @@ export function SeriesReview({
           // switching the map keeps every file's state, and a switch to another
           // comparison keeps the place the reader is going to while it loads.
           <div className="code-panel">
+            {runShown !== null && stepShown?.after != null && (
+              <style>
+                {ranRules(
+                  runShown.commitId,
+                  stepShown.after.ran,
+                  stepShown.before?.ran ?? null,
+                )}
+              </style>
+            )}
             <ComponentsStack
               enabled={componentsOn}
               rows={rows}

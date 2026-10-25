@@ -5371,4 +5371,32 @@
   }
 }
 /* ~/~ end */
+/* ~/~ begin <<docs/architecture/frontend/runs.md#design-runs>>[1] */
+@layer components {
+  :root {
+    --run-ran: var(--accent);
+    --run-ran-before: var(--text-faint);
+  }
+
+  .viewer__ran {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--text-muted);
+  }
+
+  .viewer__ran-mark {
+    flex: none;
+    width: 1.2em;
+    height: 0.9em;
+    background-image:
+      linear-gradient(to left, var(--run-ran) 3px, transparent 3px),
+      linear-gradient(
+        color-mix(in srgb, var(--run-ran) 12%, transparent),
+        color-mix(in srgb, var(--run-ran) 12%, transparent)
+      );
+  }
+}
+/* ~/~ end */
 /* ~/~ end */

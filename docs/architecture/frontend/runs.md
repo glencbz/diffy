@@ -11,7 +11,8 @@ A run's step is shown as a picture capture of that step: its two windows
 side by side or laid over each other, with the step's label as what to look
 for. Drawing it through the capture's view keeps one way of comparing
 pictures, so swipe, fade and difference work on a step as they do on a
-shot. A step has no boxes.
+shot. A step has no boxes; which components it reached is what the code
+shows by the lines it ran.
 
 The two sides are paired by position, since both played the same recipe.
 A parent that stopped early has nothing at the later steps, and the viewer
@@ -398,12 +399,103 @@ export function Console({
 }
 ```
 
+## The lines a step ran
+
+The code marks the lines the step in focus ran, in the commit's row: a
+bar down the right edge of each line, so it never covers the left edge the
+[components](components.md) draw on, and a faint tint. The commit's lines
+are its own; the parent's are the removed side of the same row, since a
+commit's row compares it with its parent.
+
+The marks are one stylesheet, written from the step's lines and replaced
+when the focus moves to another step. Classes on the lines themselves
+would draw every file of the row again on each step; a stylesheet changes
+nothing the diff drew, and the browser restyles only the lines it names.
+A line the diff does not draw, such as one far from any change, has no
+mark to show.
+
+The viewer says so under the steps, with a swatch of the mark and the files
+the step ran, since a bar nobody explained reads as one more highlight.
+
+```ts
+//| id: frontend-model-ran-lines
+//| file: src/frontend/model/ranLines.ts
+import type { Ran } from "./runs";
+
+/** The rules that mark, in the row of `commitId`, the lines a step ran:
+ *  the commit's on the side after it, the parent's on the side before. */
+export function ranRules(
+  commitId: string,
+  after: Ran[],
+  before: Ran[] | null,
+): string {
+  // A JSON string is a quoted CSS string as well.
+  const row = `.commit-stack__row[data-commit=${JSON.stringify(commitId)}]`;
+  const selectors = (ran: Ran[], side: "after" | "before") =>
+    ran.flatMap(({ path, lines }) =>
+      lines.flatMap(([start, end]) =>
+        Array.from(
+          { length: end - start + 1 },
+          (_, at) =>
+            `${row} .diff-file[data-path=${JSON.stringify(path)}] [data-anchor="${side}:${start + at}"]`,
+        ),
+      ),
+    );
+  return [
+    ...ruleFor(selectors(after, "after"), "run-ran"),
+    ...ruleFor(selectors(before ?? [], "before"), "run-ran-before"),
+  ].join("\n");
+}
+
+// A bar on the right edge over a faint tint, both drawn as background so
+// they sit under the text and leave the borders and shadows other marks
+// use alone.
+function ruleFor(selectors: string[], mark: string): string[] {
+  return selectors.length === 0
+    ? []
+    : [
+        `${selectors.join(",\n")} { background-image: linear-gradient(to left, var(--${mark}) 3px, transparent 3px), linear-gradient(color-mix(in srgb, var(--${mark}) 12%, transparent), color-mix(in srgb, var(--${mark}) 12%, transparent)); }`,
+      ];
+}
+```
+
+```css
+/*| id: design-runs
+@layer components {
+  :root {
+    --run-ran: var(--accent);
+    --run-ran-before: var(--text-faint);
+  }
+
+  .viewer__ran {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--text-muted);
+  }
+
+  .viewer__ran-mark {
+    flex: none;
+    width: 1.2em;
+    height: 0.9em;
+    background-image:
+      linear-gradient(to left, var(--run-ran) 3px, transparent 3px),
+      linear-gradient(
+        color-mix(in srgb, var(--run-ran) 12%, transparent),
+        color-mix(in srgb, var(--run-ran) 12%, transparent)
+      );
+  }
+}
+```
+
 ## Tests
 
 ```ts
 //| id: frontend-model-run-steps-test
 //| file: src/frontend/model/runSteps.test.ts
 import { describe, expect, test } from "bun:test";
+import { ranRules } from "./ranLines";
 import { compareLogged, compareRequests } from "./runSteps";
 import type { Request } from "./runs";
 
@@ -458,6 +550,28 @@ describe("comparing a step's sides", () => {
 
     // assert
     expect(compared.map((each) => each.change)).toEqual(["same", "new"]);
+  });
+});
+
+describe("marking the lines a step ran", () => {
+  test("names each line of each run on its side, in the commit's row", () => {
+    // act
+    const rules = ranRules("c1", [{ path: "a.js", lines: [[2, 3]] }], null);
+
+    // assert
+    expect(rules).toContain(
+      '.commit-stack__row[data-commit="c1"] .diff-file[data-path="a.js"] [data-anchor="after:2"]',
+    );
+    expect(rules).toContain('[data-anchor="after:3"]');
+    expect(rules).not.toContain("before:");
+  });
+
+  test("marks nothing for a step that ran no lines", () => {
+    // act
+    const rules = ranRules("c1", [], []);
+
+    // assert
+    expect(rules).toBe("");
   });
 });
 ```

@@ -214,6 +214,8 @@ export interface Steps {
   at: number;
   /** Why the parent stopped, or null. */
   stopped: string | null;
+  /** The files the step in focus ran lines of, which the code marks. */
+  ran: string[];
   onAt: (index: number) => void;
 }
 
@@ -351,6 +353,15 @@ export function Viewer({
               </li>
             ))}
           </ol>
+          {steps.ran.length > 0 && (
+            <p className="viewer__ran">
+              <span className="viewer__ran-mark" aria-hidden="true" />
+              <span>
+                The code marks the lines this step ran in {steps.ran.join(", ")}
+                .
+              </span>
+            </p>
+          )}
           {steps.stopped !== null && (
             <p className="viewer__about">
               The parent stopped at {steps.stopped.replace(/\.+$/, "")}.

@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-run-steps-test>>[init]
 import { describe, expect, test } from "bun:test";
+import { ranRules } from "./ranLines";
 import { compareLogged, compareRequests } from "./runSteps";
 import type { Request } from "./runs";
 
@@ -54,6 +55,28 @@ describe("comparing a step's sides", () => {
 
     // assert
     expect(compared.map((each) => each.change)).toEqual(["same", "new"]);
+  });
+});
+
+describe("marking the lines a step ran", () => {
+  test("names each line of each run on its side, in the commit's row", () => {
+    // act
+    const rules = ranRules("c1", [{ path: "a.js", lines: [[2, 3]] }], null);
+
+    // assert
+    expect(rules).toContain(
+      '.commit-stack__row[data-commit="c1"] .diff-file[data-path="a.js"] [data-anchor="after:2"]',
+    );
+    expect(rules).toContain('[data-anchor="after:3"]');
+    expect(rules).not.toContain("before:");
+  });
+
+  test("marks nothing for a step that ran no lines", () => {
+    // act
+    const rules = ranRules("c1", [], []);
+
+    // assert
+    expect(rules).toBe("");
   });
 });
 // ~/~ end
