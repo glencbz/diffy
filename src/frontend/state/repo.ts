@@ -8,7 +8,6 @@ import {
   useState,
 } from "react";
 import {
-  dismissRepoNotice,
   fetchFoundRepos,
   fetchRecentRepos,
   fetchServedRepo,
@@ -31,7 +30,6 @@ export interface RepoHandle {
   served: AsyncState<ServedRepo>;
   /** Serve the repository at `path` and start over in it, or answer why not. */
   open: (path: string) => Promise<string | null>;
-  dismissNotice: () => void;
 }
 
 function failed(error: unknown): string {
@@ -100,19 +98,7 @@ export function useServedRepo(): RepoHandle {
     }
   }, []);
 
-  const dismissNotice = useCallback(() => {
-    setServed((now) =>
-      now.status === "ready"
-        ? { status: "ready", data: { ...now.data, startedOutside: null } }
-        : now,
-    );
-    void dismissRepoNotice();
-  }, []);
-
-  return useMemo(
-    () => ({ served, open, dismissNotice }),
-    [served, open, dismissNotice],
-  );
+  return useMemo(() => ({ served, open }), [served, open]);
 }
 
 export const RepoContext = createContext<RepoHandle | null>(null);

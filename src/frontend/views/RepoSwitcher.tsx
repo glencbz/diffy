@@ -12,18 +12,14 @@ import { pathParts, tildePath } from "../model/repo";
 export function RepoSwitcher({
   home,
   current,
-  startedOutside,
   open,
   onOpenChange,
-  onDismissNotice,
   children,
 }: {
   home: string;
   current: string;
-  startedOutside: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDismissNotice: () => void;
   /** The picker, drawn in the popover while it is open. */
   children: ReactNode;
 }) {
@@ -84,23 +80,6 @@ export function RepoSwitcher({
       {open && (
         <div className="repo-switcher__popover" role="dialog" style={below}>
           {children}
-        </div>
-      )}
-      {!open && startedOutside !== null && (
-        <div className="repo-switcher__notice" role="status" style={below}>
-          <span>
-            diffy started in <code>{tildePath(startedOutside, home)}</code>,
-            which is not a jj repository, so it opened <b>{shown.name}</b>, the
-            one used last.
-          </span>
-          <span className="repo-switcher__notice-actions">
-            <button type="button" onClick={() => onOpenChange(true)}>
-              Pick another
-            </button>
-            <button type="button" onClick={onDismissNotice}>
-              OK
-            </button>
-          </span>
         </div>
       )}
     </div>

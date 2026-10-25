@@ -159,12 +159,15 @@ async function listenSticky(
   fail(1, "found no free port");
 }
 
-async function handOff(running: RunningServer, start: Start, open: boolean) {
-  if (
-    start.kind === "open" &&
-    start.startedOutside === null &&
-    start.root !== running.current
-  ) {
+/** Hand a run over to the server already up. Only a path on the command
+ *  line switches it; a bare `diffy` shows what it serves. */
+async function handOff(
+  running: RunningServer,
+  start: Start,
+  given: boolean,
+  open: boolean,
+) {
+  if (given && start.kind === "open" && start.root !== running.current) {
     const res = await fetch(new URL("/api/repo", running.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -191,28 +194,27 @@ async function serve(
   const open = openAsked && process.stdout.isTTY === true;
   const serverFile = serverFilePath(host.stateDir);
   const recent = RecentRepos.in(host.dataDir);
-  const start = await startingRepo(
-    path,
-    process.cwd(),
-    await recent.read(),
-    (each) => probeRepo(each, host.home),
+  const start = await startingRepo(path, await recent.read(), (each) =>
+    probeRepo(each, host.home),
   );
   if (start.kind === "fail") fail(1, start.reason);
   if (choice.kind === "sticky") {
     const running = await findServer(serverFile);
-    if (running !== null) return handOff(running, start, open);
+    if (running !== null) {
+      return handOff(running, start, path !== undefined, open);
+    }
   }
 
   let server: Bun.Server<SocketData> | null = null;
   const listeners = new AgentListeners();
-  const served = new ServedRepo(host, recent, (revision) =>
-    server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+  // A server on a port of its own is a side server, such as a preview, and
+  // what it opens is not what the reader was last working on.
+  const served = new ServedRepo(
+    host,
+    choice.kind === "sticky" ? recent : null,
+    (revision) => server?.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
   );
-  if (start.kind === "open") {
-    await served.open(start.root, start.startedOutside);
-  } else {
-    served.startedOutside = start.startedOutside;
-  }
+  if (start.kind === "open") await served.open(start.root);
   const bind: Bind = (port) => {
     try {
       return Bun.serve({
@@ -230,7 +232,7 @@ async function serve(
   } else {
     const listening = await listenSticky(bind, serverFile);
     if (listening.kind === "running") {
-      await handOff(listening.running, start, open);
+      await handOff(listening.running, start, path !== undefined, open);
       process.exit(0);
     }
     server = listening.server;
@@ -240,7 +242,7 @@ async function serve(
   console.log(
     start.kind === "open"
       ? `diffy serving ${start.root} at ${server.url}`
-      : `diffy at ${server.url}: ${start.startedOutside} is not a jj repository, pick one there`,
+      : `diffy at ${server.url}: no repository yet, pick one there`,
   );
   if (open) openBrowser(server.url);
 }
