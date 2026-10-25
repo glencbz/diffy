@@ -690,7 +690,9 @@ describe("pullDiffResponse", () => {
 
   /** A base and a head that have diverged, with the commit they share. The
    *  base must carry something that commit does not, or a diff from the base
-   *  and a diff from the merge base would be the same diff either way. */
+   *  and a diff from the merge base would be the same diff either way. Both
+   *  sides stay small, because difftastic takes seconds on a big diff and the
+   *  test would time out. */
   async function divergedPull(): Promise<{
     base: string;
     head: string;
@@ -715,7 +717,19 @@ describe("pullDiffResponse", () => {
           revset: `(${mergeBase}..${base}) ~ empty()`,
           limit: 1,
         });
-        if (moved !== undefined) return { base, head, mergeBase };
+        if (moved === undefined) continue;
+        const [onBase, onHead] = await Promise.all(
+          [base, head].map(async (side) => {
+            const names =
+              await $`jj diff --name-only --from ${mergeBase} --to ${side}`
+                .quiet()
+                .text();
+            return names.split("\n").filter(Boolean).length;
+          }),
+        );
+        if ((onBase ?? 0) <= 3 && (onHead ?? 0) <= 3) {
+          return { base, head, mergeBase };
+        }
       }
     }
     throw new Error("this repo has no merge of two diverged histories");
