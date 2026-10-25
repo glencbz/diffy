@@ -79,12 +79,11 @@ import { EvidenceStore, evidenceRoutes } from "./backend/evidence/store";
 import type { Host } from "./backend/host/host";
 import { LayoutStore, layoutRoutes } from "./backend/layouts/layouts";
 import {
-  AgentWorkspaces,
+  type DefaultRepo,
   type RecentRepos,
   type RepoContext,
   repoRoutes,
-  type ServedRepo,
-  sameRepo,
+  type Workspaces,
 } from "./backend/repo/repos";
 import {
   localCommits,
@@ -628,13 +627,12 @@ opens.
 ```ts
 //| id: backend-server
 
-export const REVIEW_TOPIC = "review";
-
-/** Who is at the other end of a socket: a screen, or an agent
+/** Who is at the other end of a socket: a screen, which hears its
+ *  repository's store under `topic`, or an agent
  *  [waiting for the reader to submit](agents.md#telling-an-agent-the-reader-submitted),
  *  and what it hears at once when there is nothing to wait for. */
 export type SocketData =
-  | { kind: "screen" }
+  | { kind: "screen"; topic: string }
   | {
       kind: "agent";
       root: string;
@@ -646,8 +644,11 @@ export type SocketData =
 export function reviewChanges(
   req: Request,
   server: Bun.Server<SocketData>,
+  { topic }: RepoContext,
 ): Response | undefined {
-  if (server.upgrade(req, { data: { kind: "screen" } })) return undefined;
+  if (server.upgrade(req, { data: { kind: "screen", topic } })) {
+    return undefined;
+  }
   return Response.json({ error: "expected a WebSocket" }, { status: 400 });
 }
 
@@ -703,7 +704,7 @@ export function sockets(
   return {
     open(ws) {
       if (ws.data.kind === "screen") {
-        ws.subscribe(REVIEW_TOPIC);
+        ws.subscribe(ws.data.topic);
         return;
       }
       if (ws.data.now !== null) {
@@ -816,34 +817,50 @@ export function handleLocalSize(
 Every non-API path serves the page, since the frontend keeps the reader's
 place in [the path](../frontend/address.md). An unknown API path is a 404.
 Each handler takes the [`RepoContext`](repos.md#a-repository-per-request) it
-runs in, and `reader` hands the browser's routes the reader's. The pull
-request list and history routes ask GitHub alone, so they need none.
+runs in, and `inRepo` resolves it from the request's `?workspace=`, or the
+[default repository](repos.md#a-repository-per-request) when there is none.
+The name is not `repo` because the GitHub routes already take that for
+`owner/name`. The pull request list and history routes ask GitHub alone, so
+they need no workspace. The review socket names one too, and listens to that
+repository's store alone.
 
 ```ts
 //| id: backend-server
+
+/** The workspace a browser request names in `?workspace=`, or the
+ *  default repository's when it names none. A Response is the refusal. */
+async function requested(
+  req: Request,
+  defaultRepo: DefaultRepo,
+  workspaces: Workspaces,
+): Promise<RepoContext | Response> {
+  const named =
+    new URL(req.url).searchParams.get("workspace") ?? defaultRepo.root;
+  if (named === null) {
+    return Response.json({ error: "no repository is open" }, { status: 409 });
+  }
+  return workspaces
+    .context(named)
+    .catch((error: Error) =>
+      Response.json({ error: error.message }, { status: 404 }),
+    );
+}
 
 type InRepo = (req: Request, repo: RepoContext) => Response | Promise<Response>;
 
 export function routes(
   host: Host,
-  served: ServedRepo,
+  defaultRepo: DefaultRepo,
   recent: RecentRepos,
+  workspaces: Workspaces,
   listeners: AgentListeners,
 ) {
-  // Every browser route reads the repository the reader is shown.
-  const reader =
+  const inRepo =
     (handle: InRepo) =>
-    (req: Request): Response | Promise<Response> => {
-      const repo = served.context();
-      if (repo === null) {
-        return Response.json(
-          { error: "no repository is open" },
-          { status: 409 },
-        );
-      }
-      return handle(req, repo);
+    async (req: Request): Promise<Response> => {
+      const repo = await requested(req, defaultRepo, workspaces);
+      return repo instanceof Response ? repo : handle(req, repo);
     };
-  const agents = new AgentWorkspaces(host);
   const evidence = EvidenceStore.in(host.dataDir);
   const recorder = playwrightRecorder(host.browser);
   const publicOrigin = (req: Request) =>
@@ -854,31 +871,37 @@ export function routes(
   });
   return {
     "/*": index,
-    ...repoRoutes(host, served, recent),
+    ...repoRoutes(host, defaultRepo, recent),
     ...layoutRoutes(LayoutStore.in(host.dataDir)),
     ...evidenceRoutes(evidence),
     "/api/*": () => new Response("Not found", { status: 404 }),
-    "/api/log": reader(handleLog),
-    "/api/operations": reader(handleOperations),
-    "/api/diff": reader(handleDiff),
-    "/api/interdiff": reader(handleInterdiff),
-    "/api/source": reader(handleSource),
-    "/api/compare": reader(handleCompare),
-    "/api/compare/paths": reader(handleComparePaths),
-    "/api/github/repo": reader(handleGithubRepo),
+    "/api/log": inRepo(handleLog),
+    "/api/operations": inRepo(handleOperations),
+    "/api/diff": inRepo(handleDiff),
+    "/api/interdiff": inRepo(handleInterdiff),
+    "/api/source": inRepo(handleSource),
+    "/api/compare": inRepo(handleCompare),
+    "/api/compare/paths": inRepo(handleComparePaths),
+    "/api/github/repo": inRepo(handleGithubRepo),
     "/api/github/pulls": handleGithubPulls,
     "/api/github/pull/history": handleGithubPullHistory,
-    "/api/github/pull/commits": reader(handleGithubPullCommits),
-    "/api/github/pull/diff": reader(handleGithubPullDiff),
+    "/api/github/pull/commits": inRepo(handleGithubPullCommits),
+    "/api/github/pull/diff": inRepo(handleGithubPullDiff),
     "/api/review": {
-      GET: reader(reviewRoute(listeners).GET),
-      POST: reader(reviewRoute(listeners).POST),
+      GET: inRepo(reviewRoute(listeners).GET),
+      POST: inRepo(reviewRoute(listeners).POST),
     },
-    "/api/review/changes": reviewChanges,
-    "/api/local/reviews": { POST: reader(localReviewsRoute(host.now).POST) },
-    "/api/local/commits": reader(handleLocalCommits),
-    "/api/local/diff": reader(handleLocalDiff),
-    "/api/local/size": reader(handleLocalSize),
+    "/api/review/changes": async (
+      req: Request,
+      server: Bun.Server<SocketData>,
+    ) => {
+      const repo = await requested(req, defaultRepo, workspaces);
+      return repo instanceof Response ? repo : reviewChanges(req, server, repo);
+    },
+    "/api/local/reviews": { POST: inRepo(localReviewsRoute(host.now).POST) },
+    "/api/local/commits": inRepo(handleLocalCommits),
+    "/api/local/diff": inRepo(handleLocalDiff),
+    "/api/local/size": inRepo(handleLocalSize),
     "/mcp": mcpRoute(
       [
         ...reviewTools(),
@@ -888,45 +911,41 @@ export function routes(
         ...runTools(evidence, recorder),
       ],
       INSTRUCTIONS,
-      (req, caller) => agentContext(host, served, agents, origins(req), caller),
+      (req, caller) =>
+        agentContext(host, defaultRepo, workspaces, origins(req), caller),
     ),
-    [LISTEN_PATH]: agentListen((workspace) => agents.context(workspace)),
+    [LISTEN_PATH]: agentListen((workspace) => workspaces.context(workspace)),
   };
 }
 ```
 
 `/mcp` is where [agents](agents.md) reach the review document. A tool call
-runs in the [workspace its agent named](repos.md#an-agent-in-another-repository),
-or in the reader's when it named none. A link into another repository than
-the reader's carries it in `?repo=`, so opening the link
-[switches diffy there](../frontend/repos.md#holding-the-served-repository);
-a link into a sibling workspace does not, since its reviews are the reader's
-already.
+runs in the [workspace its agent named](repos.md#opening-a-workspace), or in
+the default repository when it named none. Every link it hands back names
+that workspace in `?repo=`, so it [opens in that
+repository](../frontend/repos.md#holding-the-tabs-repository) whatever the
+reader's other tabs are showing.
 
 ```ts
 //| id: backend-server
 
 export async function agentContext(
   host: Pick<Host, "now" | "diffy">,
-  served: Pick<ServedRepo, "context">,
-  agents: AgentWorkspaces,
+  defaultRepo: Pick<DefaultRepo, "root">,
+  workspaces: Pick<Workspaces, "context">,
   origins: { reader: string; agent: string },
   caller: string | null,
 ): Promise<ToolContext> {
-  const shown = served.context();
-  const repo =
-    caller === null
-      ? shown
-      : await agents.context(caller).catch((error: Error) => {
-          throw new ToolError(error.message);
-        });
-  if (repo === null) {
+  const named = caller ?? defaultRepo.root;
+  if (named === null) {
     throw new ToolError(
       "diffy has no repository open, and the agent named no workspace",
     );
   }
-  const elsewhere = shown === null || !(await sameRepo(shown.root, repo.root));
-  const query = elsewhere ? `?repo=${encodeURIComponent(repo.root)}` : "";
+  const repo = await workspaces.context(named).catch((error: Error) => {
+    throw new ToolError(error.message);
+  });
+  const query = `?repo=${encodeURIComponent(repo.root)}`;
   return {
     repo,
     link: (path) => `${origins.reader}${path}${query}`,
@@ -964,7 +983,12 @@ import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import { hostFrom } from "./backend/host/host";
-import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
+import {
+  DefaultRepo,
+  RecentRepos,
+  type RepoContext,
+  Workspaces,
+} from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
   agentContext,
@@ -981,15 +1005,20 @@ import {
   handleSource,
   localReviewsRoute,
   pullDiffResponse,
-  REVIEW_TOPIC,
   reviewChanges,
   reviewRoute,
+  routes,
+  type SocketData,
   sockets,
 } from "./server";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
-const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
+const REPO: RepoContext = {
+  root: ROOT,
+  store: openReviewStore(":memory:"),
+  topic: "test",
+};
 const HOST = { now: () => new Date(), diffy: ["diffy"] };
 const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
@@ -1372,7 +1401,11 @@ describe("the review route", () => {
     run: (route: Route, submits: unknown[][]) => Promise<void>,
   ) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
-    const repo = { root: ROOT, store: openReviewStore(join(dir, "r.sqlite")) };
+    const repo = {
+      root: ROOT,
+      store: openReviewStore(join(dir, "r.sqlite")),
+      topic: "t",
+    };
     const submits: unknown[][] = [];
     const route = reviewRoute({
       submitted: async (...args) => {
@@ -1481,7 +1514,7 @@ describe("the review route", () => {
           method: "POST",
           body: JSON.stringify(body),
         }),
-        { root: ROOT, store },
+        { root: ROOT, store, topic: "t" },
       );
 
     try {
@@ -1505,16 +1538,18 @@ describe("the review route", () => {
 
   test("announces a new revision to an open socket", async () => {
     // arrange
-    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
-    const store = openReviewStore(join(dir, "r.sqlite"));
+    const store = openReviewStore(":memory:");
     const server = Bun.serve({
       port: 0,
-      routes: { "/api/review/changes": reviewChanges },
+      routes: {
+        "/api/review/changes": (req, server) =>
+          reviewChanges(req, server, { root: ROOT, store, topic: "t" }),
+      },
       websocket: sockets(new AgentListeners()),
     });
     const stop = watchReview(
       store,
-      (revision) => server.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+      (revision) => server.publish("t", JSON.stringify({ revision })),
       10,
     );
     const socket = new WebSocket(
@@ -1537,7 +1572,6 @@ describe("the review route", () => {
       socket.close();
       stop();
       server.stop(true);
-      await rm(dir, { recursive: true, force: true });
     }
   });
 
@@ -1553,7 +1587,7 @@ describe("the review route", () => {
           if (workspace !== ROOT) {
             throw new Error(`no workspace at ${workspace}`);
           }
-          return { root: ROOT, store };
+          return { root: ROOT, store, topic: "t" };
         }),
       },
       websocket: sockets(listeners),
@@ -1957,7 +1991,7 @@ describe("pullDiffResponse", () => {
   });
 });
 
-describe("agentContext", () => {
+describe("a repository per tab and per agent", () => {
   let dir: string;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "diffy-agents-"));
@@ -1975,65 +2009,141 @@ describe("agentContext", () => {
     return { root, second };
   }
 
-  test("runs a named workspace's call there, and links the reader to it", async () => {
+  const SEEN = {
+    kind: "set-seen",
+    comparison: { reviewKey: "change:a", fromCommitId: null, toCommitId: "a" },
+    seen: true,
+    at: "2026-10-19T09:00:00.000Z",
+  } as const;
+
+  test("runs an agent's call in its workspace, and links the reader to it", async () => {
     // arrange
     const reader = await repoWithWorkspace("reader");
     const agent = await repoWithWorkspace("agent");
-    const shown = {
-      root: reader.root,
-      store: openReviewStore(join(dir, "reader.sqlite")),
-    };
-    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
+    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
+    const workspaces = new Workspaces(host, () => {});
     const context = (caller: string | null) =>
-      agentContext(HOST, { context: () => shown }, agents, ORIGINS, caller);
+      agentContext(HOST, { root: reader.root }, workspaces, ORIGINS, caller);
 
     // act
-    const elsewhere = await context(agent.second);
-    const sibling = await context(reader.second);
+    const named = await context(agent.second);
     const unnamed = await context(null);
-    elsewhere.repo.store.apply({
-      kind: "set-seen",
-      comparison: {
-        reviewKey: "change:a",
-        fromCommitId: null,
-        toCommitId: "a",
-      },
-      seen: true,
-      at: "2026-10-19T09:00:00.000Z",
-    });
+    named.repo.store.apply(SEEN);
 
     // assert
-    expect(elsewhere.repo.root).toBe(agent.second);
-    expect(elsewhere.link("/reviews/x")).toBe(
+    expect(named.repo.root).toBe(agent.second);
+    expect(named.link("/reviews/x")).toBe(
       `http://vm/reviews/x?repo=${encodeURIComponent(agent.second)}`,
     );
-    expect(sibling.repo.root).toBe(reader.second);
-    expect(sibling.link("/reviews/x")).toBe("http://vm/reviews/x");
-    expect(sibling.wait("my t")).toBe(
+    expect(unnamed.repo.root).toBe(reader.root);
+    expect(named.wait("my t")).toBe(
       "diffy wait 'my t' --url http://localhost:4000",
     );
-    expect(unnamed.repo).toBe(shown);
-    expect((await context(agent.root)).repo.store).toBe(elsewhere.repo.store);
+    expect((await context(agent.root)).repo.store).toBe(named.repo.store);
     // The agent's write went to its own repository's store.
-    expect(shown.store.revision()).toBe(0);
-    expect((await context(agent.root)).repo.store.revision()).toBe(1);
+    expect(unnamed.repo.store.revision()).toBe(0);
+    expect(named.repo.store.revision()).toBe(1);
   });
 
   test("fails a call from a path that is no workspace", async () => {
     // arrange
-    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
+    const workspaces = new Workspaces(hostFrom({}, dir), () => {});
 
     // act
-    const call = agentContext(
-      HOST,
-      { context: () => null },
-      agents,
-      ORIGINS,
-      dir,
-    );
+    const call = agentContext(HOST, { root: null }, workspaces, ORIGINS, dir);
 
     // assert
     await expect(call).rejects.toBeInstanceOf(ToolError);
+  });
+
+  test("reads each tab's repository from its request", async () => {
+    // arrange
+    const reader = await repoWithWorkspace("reader");
+    const other = await repoWithWorkspace("other");
+    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
+    const defaultRepo = new DefaultRepo(host, null);
+    await defaultRepo.open(reader.root);
+    const table = routes(
+      host,
+      defaultRepo,
+      RecentRepos.in(host.dataDir),
+      new Workspaces(host, () => {}),
+      new AgentListeners(),
+    );
+    const review = (workspace: string | null, init?: RequestInit) =>
+      new Request(
+        `http://test/api/review${workspace === null ? "" : `?workspace=${encodeURIComponent(workspace)}`}`,
+        init,
+      );
+    const revision = async (workspace: string | null) =>
+      (
+        (await (await table["/api/review"].GET(review(workspace))).json()) as {
+          revision: number;
+        }
+      ).revision;
+
+    // act
+    await table["/api/review"].POST(
+      review(other.second, { method: "POST", body: JSON.stringify(SEEN) }),
+    );
+    const missing = await table["/api/review"].GET(review(join(dir, "none")));
+
+    // assert
+    expect(await revision(other.root)).toBe(1);
+    expect(await revision(reader.root)).toBe(0);
+    expect(await revision(null)).toBe(0);
+    expect(missing.status).toBe(404);
+  });
+
+  test("tells a socket only about its own repository's writes", async () => {
+    // arrange
+    const reader = await repoWithWorkspace("reader");
+    const other = await repoWithWorkspace("other");
+    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
+    let server: Bun.Server<SocketData> | null = null;
+    const workspaces = new Workspaces(host, (topic, revision) =>
+      server?.publish(topic, JSON.stringify({ revision })),
+    );
+    const defaultRepo = new DefaultRepo(host, null);
+    const table = routes(
+      host,
+      defaultRepo,
+      RecentRepos.in(host.dataDir),
+      workspaces,
+      new AgentListeners(),
+    );
+    server = Bun.serve({
+      port: 0,
+      routes: { "/api/review/changes": table["/api/review/changes"] },
+      websocket: sockets(new AgentListeners()),
+    });
+    const listen = async (workspace: string) => {
+      const heard: unknown[] = [];
+      const socket = new WebSocket(
+        `ws://localhost:${server?.port}/api/review/changes?workspace=${encodeURIComponent(workspace)}`,
+      );
+      socket.onmessage = (event) => heard.push(JSON.parse(String(event.data)));
+      await new Promise((resolve) => {
+        socket.onopen = resolve;
+      });
+      return { socket, heard };
+    };
+    const readerTab = await listen(reader.root);
+    const otherTab = await listen(other.root);
+
+    try {
+      // act
+      (await workspaces.context(other.root)).store.apply(SEEN);
+      await Bun.sleep(800);
+
+      // assert
+      expect(otherTab.heard).toEqual([{ revision: 1 }]);
+      expect(readerTab.heard).toEqual([]);
+    } finally {
+      readerTab.socket.close();
+      otherTab.socket.close();
+      server.stop(true);
+    }
   });
 });
 ```

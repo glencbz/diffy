@@ -17,6 +17,7 @@ import {
   restoreRecentRepo,
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import { readRepo, withRepo } from "../model/place";
 import {
   type FoundRepo,
   isPathQuery,
@@ -36,62 +37,50 @@ function failed(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Serve the repository a link names in `?repo=`, then load the link
- *  without it. True when the page is reloading. */
-async function openLinked(current: string | null): Promise<boolean> {
-  const url = new URL(location.href);
-  const linked = url.searchParams.get("repo");
-  if (linked === null) return false;
-  url.searchParams.delete("repo");
-  // A repository that will not open leaves the reader where they were.
-  if (linked !== current) await openRepo(linked).catch(() => undefined);
-  location.replace(url);
-  return true;
-}
-
 export function useServedRepo(): RepoHandle {
   const [served, setServed] = useState<AsyncState<ServedRepo>>({
     status: "loading",
   });
 
   useEffect(() => {
-    let shown: string | null | undefined;
     let cancelled = false;
-    const load = () =>
-      fetchServedRepo().then(
-        async (next) => {
-          if (cancelled) return;
-          if (shown === undefined && (await openLinked(next.current))) return;
-          if (shown !== undefined && next.current !== shown) {
-            location.assign("/");
-            return;
+    const named = readRepo(window.location);
+    fetchServedRepo()
+      .then(async ({ home, current }) => {
+        if (named === null) {
+          // Pin the tab, so a repository opened in another one leaves it be.
+          if (current !== null) {
+            const { pathname, search, hash } = window.location;
+            history.replaceState(
+              null,
+              "",
+              withRepo(`${pathname}${search}${hash}`, current),
+            );
           }
-          shown = next.current;
-          setServed({ status: "ready", data: next });
+          return { home, current };
+        }
+        // A repository the tab is opened on is the one used last, and one
+        // that will not open leaves the tab asking for another.
+        const opened = await openRepo(named).catch(() => null);
+        return { home, current: opened };
+      })
+      .then(
+        (data) => {
+          if (!cancelled) setServed({ status: "ready", data });
         },
         (error) => {
-          // A failed recheck leaves the screen as it is; only the first
-          // answer decides whether there is anything to draw.
-          if (!cancelled && shown === undefined) {
+          if (!cancelled)
             setServed({ status: "error", message: failed(error) });
-          }
         },
       );
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void load();
-    };
-    void load();
-    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
   const open = useCallback(async (path: string) => {
     try {
-      await openRepo(path);
-      location.assign("/");
+      location.assign(withRepo("/", await openRepo(path)));
       return null;
     } catch (error) {
       return failed(error);
@@ -107,6 +96,16 @@ export function useRepoContext(): RepoHandle {
   const repo = useContext(RepoContext);
   if (repo === null) throw new Error("no RepoContext above this screen");
   return repo;
+}
+
+/** The workspace this tab reads, for a hook below the screens, which draw
+ *  only once there is one. */
+export function useWorkspace(): string {
+  const { served } = useRepoContext();
+  if (served.status !== "ready" || served.data.current === null) {
+    throw new Error("no repository is open in this tab");
+  }
+  return served.data.current;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/repos.md#frontend-state-repo>>[1]

@@ -16,7 +16,7 @@ first character, so `~/src` opens a folder while `src` narrows the list.
 //| file: src/frontend/model/repo.ts
 export interface ServedRepo {
   home: string;
-  /** The workspace root being served, or null before the reader picks one. */
+  /** The workspace this tab reads, or null before the reader picks one. */
   current: string | null;
 }
 
@@ -80,13 +80,28 @@ export function since(at: string, now: number): string {
   if (elapsed < 30 * DAY) return `${Math.floor(elapsed / DAY)}d ago`;
   return `${Math.floor(elapsed / (30 * DAY))}mo ago`;
 }
+/** `url` naming the workspace a request reads, for the routes that read
+ *  one. */
+export function inWorkspace(url: string, workspace: string): string {
+  const [path, query = ""] = url.split("?");
+  const params = new URLSearchParams(query);
+  params.set("workspace", workspace);
+  return `${path}?${params}`;
+}
 ```
 
 ```ts
 //| id: frontend-model-repo-test
 //| file: src/frontend/model/repo.test.ts
 import { describe, expect, test } from "bun:test";
-import { isPathQuery, matchesQuery, pathParts, since, tildePath } from "./repo";
+import {
+  inWorkspace,
+  isPathQuery,
+  matchesQuery,
+  pathParts,
+  since,
+  tildePath,
+} from "./repo";
 
 describe("tildePath", () => {
   test("writes the home directory as ~", () => {
@@ -128,26 +143,31 @@ describe("since", () => {
     expect(since("2026-08-01T12:00:00Z", now)).toBe("2mo ago");
   });
 });
+
+describe("inWorkspace", () => {
+  test("names the workspace beside the query a route already has", () => {
+    expect(inWorkspace("/api/log", "/w")).toBe("/api/log?workspace=%2Fw");
+    expect(inWorkspace("/api/log?op=1", "/w")).toBe(
+      "/api/log?op=1&workspace=%2Fw",
+    );
+  });
+});
 ```
 
-## Holding the served repository
+## Holding the tab's repository
 
-`useServedRepo` sits above every screen, which waits for it: a screen drawn
-before it answers could fetch from a repository about to be replaced. Opening
-a repository reloads the page at `/`, since every slice of state, the place
-in the address included, belongs to the old one. Resetting each slice in
-place would need every `state/` hook to know about the switch.
+Each tab is in one repository, which its [address](address.md) names in
+`?repo=`, so two tabs, a phone and a laptop can each be in a different one,
+and a link opens where it points. `useServedRepo` sits above every screen,
+which waits for it. A tab opened with no repository named takes the one used
+last and writes it into its address at once, so a repository opened in
+another tab later leaves this one where it was. A tab opened on a repository
+tells the server, so the next bare tab opens there too.
 
-Another browser can switch the repository under this one. The hook asks again
-whenever the tab comes back into view and reloads if the answer moved, so a
-phone left on one repository catches up when the reader looks at it. Pushing
-the switch over the review socket would also reach a tab in view, but the
-reader is looking at one screen at a time.
-
-A link an agent hands the reader names its repository in `?repo=` when the
-reader is shown another one. The first answer opens that repository, then
-loads the link without the parameter, so a reload or a shared address does
-not switch the repository again.
+Every `state/` hook asks for its data in the tab's workspace, which
+`useWorkspace` reads. Opening another repository loads the page at `/` in it,
+since every slice of state belongs to the old one, and resetting each in
+place would need every hook to know about the switch.
 
 ```tsx
 //| id: frontend-state-repo
@@ -170,6 +190,7 @@ import {
   restoreRecentRepo,
 } from "../api";
 import type { AsyncState } from "../model/asyncState";
+import { readRepo, withRepo } from "../model/place";
 import {
   type FoundRepo,
   isPathQuery,
@@ -189,62 +210,50 @@ function failed(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Serve the repository a link names in `?repo=`, then load the link
- *  without it. True when the page is reloading. */
-async function openLinked(current: string | null): Promise<boolean> {
-  const url = new URL(location.href);
-  const linked = url.searchParams.get("repo");
-  if (linked === null) return false;
-  url.searchParams.delete("repo");
-  // A repository that will not open leaves the reader where they were.
-  if (linked !== current) await openRepo(linked).catch(() => undefined);
-  location.replace(url);
-  return true;
-}
-
 export function useServedRepo(): RepoHandle {
   const [served, setServed] = useState<AsyncState<ServedRepo>>({
     status: "loading",
   });
 
   useEffect(() => {
-    let shown: string | null | undefined;
     let cancelled = false;
-    const load = () =>
-      fetchServedRepo().then(
-        async (next) => {
-          if (cancelled) return;
-          if (shown === undefined && (await openLinked(next.current))) return;
-          if (shown !== undefined && next.current !== shown) {
-            location.assign("/");
-            return;
+    const named = readRepo(window.location);
+    fetchServedRepo()
+      .then(async ({ home, current }) => {
+        if (named === null) {
+          // Pin the tab, so a repository opened in another one leaves it be.
+          if (current !== null) {
+            const { pathname, search, hash } = window.location;
+            history.replaceState(
+              null,
+              "",
+              withRepo(`${pathname}${search}${hash}`, current),
+            );
           }
-          shown = next.current;
-          setServed({ status: "ready", data: next });
+          return { home, current };
+        }
+        // A repository the tab is opened on is the one used last, and one
+        // that will not open leaves the tab asking for another.
+        const opened = await openRepo(named).catch(() => null);
+        return { home, current: opened };
+      })
+      .then(
+        (data) => {
+          if (!cancelled) setServed({ status: "ready", data });
         },
         (error) => {
-          // A failed recheck leaves the screen as it is; only the first
-          // answer decides whether there is anything to draw.
-          if (!cancelled && shown === undefined) {
+          if (!cancelled)
             setServed({ status: "error", message: failed(error) });
-          }
         },
       );
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void load();
-    };
-    void load();
-    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
   const open = useCallback(async (path: string) => {
     try {
-      await openRepo(path);
-      location.assign("/");
+      location.assign(withRepo("/", await openRepo(path)));
       return null;
     } catch (error) {
       return failed(error);
@@ -260,6 +269,16 @@ export function useRepoContext(): RepoHandle {
   const repo = useContext(RepoContext);
   if (repo === null) throw new Error("no RepoContext above this screen");
   return repo;
+}
+
+/** The workspace this tab reads, for a hook below the screens, which draw
+ *  only once there is one. */
+export function useWorkspace(): string {
+  const { served } = useRepoContext();
+  if (served.status !== "ready" || served.data.current === null) {
+    throw new Error("no repository is open in this tab");
+  }
+  return served.data.current;
 }
 ```
 

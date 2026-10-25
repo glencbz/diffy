@@ -16,20 +16,25 @@ import {
   versionAsk,
 } from "../model/series";
 import type { VersionCommits } from "../model/threads";
+import { useWorkspace } from "./repo";
 
 /** One version's commits, oldest first, the order the pairing and the stack
  *  read in. The backend lists them newest first, as `git log` does. */
-function versionCommits(ask: VersionAsk): Promise<GitCommit[]> {
-  if (ask.kind === "local") return fetchLocalCommits(ask.commits);
-  return fetchPullCommits(ask.repo, ask.number, ask.head).then((answer) =>
-    [...answer.commits].reverse(),
+function versionCommits(
+  workspace: string,
+  ask: VersionAsk,
+): Promise<GitCommit[]> {
+  if (ask.kind === "local") return fetchLocalCommits(workspace, ask.commits);
+  return fetchPullCommits(workspace, ask.repo, ask.number, ask.head).then(
+    (answer) => [...answer.commits].reverse(),
   );
 }
 
 /** Every file one version changes against its base. */
-function versionSize(ask: VersionAsk): Promise<FileDiff[]> {
-  if (ask.kind === "local") return fetchLocalSize(ask.commits);
+function versionSize(workspace: string, ask: VersionAsk): Promise<FileDiff[]> {
+  if (ask.kind === "local") return fetchLocalSize(workspace, ask.commits);
   return fetchPullDiff(
+    workspace,
     ask.repo,
     ask.number,
     ask.head,
@@ -43,13 +48,14 @@ function versionSize(ask: VersionAsk): Promise<FileDiff[]> {
  *  for no before side, and one between versions for no whole size. */
 function useLoaded<A, T>(
   ask: A | null,
-  load: (ask: A) => Promise<T>,
+  load: (workspace: string, ask: A) => Promise<T>,
   none: T,
 ): AsyncState<T> {
+  const workspace = useWorkspace();
   const [state, setState] = useState<AsyncState<T>>({ status: "loading" });
-  const key = JSON.stringify(ask);
+  const key = JSON.stringify([workspace, ask]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `ask`, and `load` and `none` are fixed per caller
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `workspace` and `ask`, and `load` and `none` are fixed per caller
   useEffect(() => {
     let live = true;
     if (ask === null) {
@@ -57,7 +63,7 @@ function useLoaded<A, T>(
       return;
     }
     setState({ status: "loading" });
-    load(ask).then(
+    load(workspace, ask).then(
       (data) => {
         if (live) setState({ status: "ready", data });
       },
@@ -97,12 +103,13 @@ export function useEveryVersion(
 }
 
 function everyVersion(
+  workspace: string,
   asks: { version: SeriesVersion; ask: VersionAsk }[],
 ): Promise<VersionCommits[]> {
   return Promise.all(
     asks.map(async ({ version, ask }) => ({
       version,
-      commits: await versionCommits(ask),
+      commits: await versionCommits(workspace, ask),
     })),
   );
 }

@@ -669,7 +669,7 @@ async function call(
     evidenceTools(EvidenceStore.in(join(dir, "data")), () => PULL),
     INSTRUCTIONS,
     async () => ({
-      repo: { root: "/repo", store },
+      repo: { root: "/repo", store, topic: "t" },
       link: (path) => `https://vm:4000${path}`,
       wait: (name) => `diffy wait ${name}`,
       now: () => new Date("2026-10-23T00:00:00Z"),

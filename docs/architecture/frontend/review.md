@@ -2761,7 +2761,10 @@ describe("registered local reviews", () => {
     );
 
     // act
-    const sorted = sortForgottenReviews(document.localReviews, "deleted-newest");
+    const sorted = sortForgottenReviews(
+      document.localReviews,
+      "deleted-newest",
+    );
 
     // assert
     expect(sorted.map((review) => review.name)).toEqual(["other", "x"]);
@@ -3137,6 +3140,7 @@ message.
 //| id: frontend-persistence-review
 //| file: src/frontend/persistence/review.ts
 import * as z from "zod";
+import { inWorkspace } from "../model/repo";
 import { type ReviewCommand, ReviewSnapshot } from "../model/review";
 
 const ErrorAnswer = z.object({ error: z.string() });
@@ -3155,14 +3159,15 @@ async function snapshotOf(res: Response): Promise<ReviewSnapshot> {
   return ReviewSnapshot.parse(body);
 }
 
-/** The review document as the server keeps it. */
-export const reviewStore = {
+/** The review document of the repository behind `workspace`, as the server
+ *  keeps it. */
+export const reviewStoreIn = (workspace: string) => ({
   async load(): Promise<ReviewSnapshot> {
-    return snapshotOf(await fetch("/api/review"));
+    return snapshotOf(await fetch(inWorkspace("/api/review", workspace)));
   },
   async send(command: ReviewCommand): Promise<ReviewSnapshot> {
     return snapshotOf(
-      await fetch("/api/review", {
+      await fetch(inWorkspace("/api/review", workspace), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(command),
@@ -3176,7 +3181,10 @@ export const reviewStore = {
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
-    const url = new URL("/api/review/changes", location.href);
+    const url = new URL(
+      inWorkspace("/api/review/changes", workspace),
+      location.href,
+    );
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
 
     const connect = () => {
@@ -3198,7 +3206,7 @@ export const reviewStore = {
       socket?.close();
     };
   },
-};
+});
 
 const Change = z.object({ revision: z.number().int() });
 ```
@@ -3247,7 +3255,8 @@ import {
   type ReviewSnapshot,
 } from "../model/review";
 import { clearLegacyReview, legacyReview } from "../persistence/legacyReview";
-import { reviewStore } from "../persistence/review";
+import { reviewStoreIn } from "../persistence/review";
+import { useWorkspace } from "./repo";
 
 /** The review document and what a screen can do with it. Only a document
  *  the server has answered with can be changed, so `actions` exists only
@@ -3280,6 +3289,8 @@ export function useReview(): ReviewHandle {
   const [pending, setPending] = useState<Pending[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
   const nextId = useRef(0);
+  const workspace = useWorkspace();
+  const reviewStore = useMemo(() => reviewStoreIn(workspace), [workspace]);
 
   // Answers can arrive out of order, and an older one would undo a newer
   // one's command on screen, so only a higher revision replaces what is held.
@@ -3309,7 +3320,7 @@ export function useReview(): ReviewHandle {
     return () => {
       cancelled = true;
     };
-  }, [accept]);
+  }, [accept, reviewStore]);
 
   // Another writer's change reaches this screen as an announced revision.
   // One this screen already holds needs no read.
@@ -3322,7 +3333,7 @@ export function useReview(): ReviewHandle {
         if (revision !== null && revision <= heldRef.current) return;
         reviewStore.load().then(accept, () => {});
       }),
-    [accept],
+    [accept, reviewStore],
   );
 
   const actions = useMemo<ReviewActions>(() => {
@@ -3397,7 +3408,7 @@ export function useReview(): ReviewHandle {
       forgetReview: (name) => send({ kind: "forget-review", name, at: now() }),
       restoreReview: (name) => send({ kind: "restore-review", name }),
     };
-  }, [accept]);
+  }, [accept, reviewStore]);
 
   const dismissFailure = useCallback(() => setFailure(null), []);
   const shared = { failure, dismissFailure };

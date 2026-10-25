@@ -13,7 +13,12 @@ import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
 import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
 import { hostFrom } from "./backend/host/host";
-import { AgentWorkspaces, type RepoContext } from "./backend/repo/repos";
+import {
+  DefaultRepo,
+  RecentRepos,
+  type RepoContext,
+  Workspaces,
+} from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
   agentContext,
@@ -30,15 +35,20 @@ import {
   handleSource,
   localReviewsRoute,
   pullDiffResponse,
-  REVIEW_TOPIC,
   reviewChanges,
   reviewRoute,
+  routes,
+  type SocketData,
   sockets,
 } from "./server";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
-const REPO: RepoContext = { root: ROOT, store: openReviewStore(":memory:") };
+const REPO: RepoContext = {
+  root: ROOT,
+  store: openReviewStore(":memory:"),
+  topic: "test",
+};
 const HOST = { now: () => new Date(), diffy: ["diffy"] };
 const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
@@ -413,7 +423,11 @@ describe("the review route", () => {
     run: (route: Route, submits: unknown[][]) => Promise<void>,
   ) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
-    const repo = { root: ROOT, store: openReviewStore(join(dir, "r.sqlite")) };
+    const repo = {
+      root: ROOT,
+      store: openReviewStore(join(dir, "r.sqlite")),
+      topic: "t",
+    };
     const submits: unknown[][] = [];
     const route = reviewRoute({
       submitted: async (...args) => {
@@ -522,7 +536,7 @@ describe("the review route", () => {
           method: "POST",
           body: JSON.stringify(body),
         }),
-        { root: ROOT, store },
+        { root: ROOT, store, topic: "t" },
       );
 
     try {
@@ -546,16 +560,18 @@ describe("the review route", () => {
 
   test("announces a new revision to an open socket", async () => {
     // arrange
-    const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
-    const store = openReviewStore(join(dir, "r.sqlite"));
+    const store = openReviewStore(":memory:");
     const server = Bun.serve({
       port: 0,
-      routes: { "/api/review/changes": reviewChanges },
+      routes: {
+        "/api/review/changes": (req, server) =>
+          reviewChanges(req, server, { root: ROOT, store, topic: "t" }),
+      },
       websocket: sockets(new AgentListeners()),
     });
     const stop = watchReview(
       store,
-      (revision) => server.publish(REVIEW_TOPIC, JSON.stringify({ revision })),
+      (revision) => server.publish("t", JSON.stringify({ revision })),
       10,
     );
     const socket = new WebSocket(
@@ -578,7 +594,6 @@ describe("the review route", () => {
       socket.close();
       stop();
       server.stop(true);
-      await rm(dir, { recursive: true, force: true });
     }
   });
 
@@ -594,7 +609,7 @@ describe("the review route", () => {
           if (workspace !== ROOT) {
             throw new Error(`no workspace at ${workspace}`);
           }
-          return { root: ROOT, store };
+          return { root: ROOT, store, topic: "t" };
         }),
       },
       websocket: sockets(listeners),
@@ -941,7 +956,7 @@ describe("pullDiffResponse", () => {
   });
 });
 
-describe("agentContext", () => {
+describe("a repository per tab and per agent", () => {
   let dir: string;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "diffy-agents-"));
@@ -959,65 +974,141 @@ describe("agentContext", () => {
     return { root, second };
   }
 
-  test("runs a named workspace's call there, and links the reader to it", async () => {
+  const SEEN = {
+    kind: "set-seen",
+    comparison: { reviewKey: "change:a", fromCommitId: null, toCommitId: "a" },
+    seen: true,
+    at: "2026-10-19T09:00:00.000Z",
+  } as const;
+
+  test("runs an agent's call in its workspace, and links the reader to it", async () => {
     // arrange
     const reader = await repoWithWorkspace("reader");
     const agent = await repoWithWorkspace("agent");
-    const shown = {
-      root: reader.root,
-      store: openReviewStore(join(dir, "reader.sqlite")),
-    };
-    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
+    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
+    const workspaces = new Workspaces(host, () => {});
     const context = (caller: string | null) =>
-      agentContext(HOST, { context: () => shown }, agents, ORIGINS, caller);
+      agentContext(HOST, { root: reader.root }, workspaces, ORIGINS, caller);
 
     // act
-    const elsewhere = await context(agent.second);
-    const sibling = await context(reader.second);
+    const named = await context(agent.second);
     const unnamed = await context(null);
-    elsewhere.repo.store.apply({
-      kind: "set-seen",
-      comparison: {
-        reviewKey: "change:a",
-        fromCommitId: null,
-        toCommitId: "a",
-      },
-      seen: true,
-      at: "2026-10-19T09:00:00.000Z",
-    });
+    named.repo.store.apply(SEEN);
 
     // assert
-    expect(elsewhere.repo.root).toBe(agent.second);
-    expect(elsewhere.link("/reviews/x")).toBe(
+    expect(named.repo.root).toBe(agent.second);
+    expect(named.link("/reviews/x")).toBe(
       `http://vm/reviews/x?repo=${encodeURIComponent(agent.second)}`,
     );
-    expect(sibling.repo.root).toBe(reader.second);
-    expect(sibling.link("/reviews/x")).toBe("http://vm/reviews/x");
-    expect(sibling.wait("my t")).toBe(
+    expect(unnamed.repo.root).toBe(reader.root);
+    expect(named.wait("my t")).toBe(
       "diffy wait 'my t' --url http://localhost:4000",
     );
-    expect(unnamed.repo).toBe(shown);
-    expect((await context(agent.root)).repo.store).toBe(elsewhere.repo.store);
+    expect((await context(agent.root)).repo.store).toBe(named.repo.store);
     // The agent's write went to its own repository's store.
-    expect(shown.store.revision()).toBe(0);
-    expect((await context(agent.root)).repo.store.revision()).toBe(1);
+    expect(unnamed.repo.store.revision()).toBe(0);
+    expect(named.repo.store.revision()).toBe(1);
   });
 
   test("fails a call from a path that is no workspace", async () => {
     // arrange
-    const agents = new AgentWorkspaces(hostFrom({ XDG_DATA_HOME: dir }, dir));
+    const workspaces = new Workspaces(hostFrom({}, dir), () => {});
 
     // act
-    const call = agentContext(
-      HOST,
-      { context: () => null },
-      agents,
-      ORIGINS,
-      dir,
-    );
+    const call = agentContext(HOST, { root: null }, workspaces, ORIGINS, dir);
 
     // assert
     await expect(call).rejects.toBeInstanceOf(ToolError);
+  });
+
+  test("reads each tab's repository from its request", async () => {
+    // arrange
+    const reader = await repoWithWorkspace("reader");
+    const other = await repoWithWorkspace("other");
+    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
+    const defaultRepo = new DefaultRepo(host, null);
+    await defaultRepo.open(reader.root);
+    const table = routes(
+      host,
+      defaultRepo,
+      RecentRepos.in(host.dataDir),
+      new Workspaces(host, () => {}),
+      new AgentListeners(),
+    );
+    const review = (workspace: string | null, init?: RequestInit) =>
+      new Request(
+        `http://test/api/review${workspace === null ? "" : `?workspace=${encodeURIComponent(workspace)}`}`,
+        init,
+      );
+    const revision = async (workspace: string | null) =>
+      (
+        (await (await table["/api/review"].GET(review(workspace))).json()) as {
+          revision: number;
+        }
+      ).revision;
+
+    // act
+    await table["/api/review"].POST(
+      review(other.second, { method: "POST", body: JSON.stringify(SEEN) }),
+    );
+    const missing = await table["/api/review"].GET(review(join(dir, "none")));
+
+    // assert
+    expect(await revision(other.root)).toBe(1);
+    expect(await revision(reader.root)).toBe(0);
+    expect(await revision(null)).toBe(0);
+    expect(missing.status).toBe(404);
+  });
+
+  test("tells a socket only about its own repository's writes", async () => {
+    // arrange
+    const reader = await repoWithWorkspace("reader");
+    const other = await repoWithWorkspace("other");
+    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
+    let server: Bun.Server<SocketData> | null = null;
+    const workspaces = new Workspaces(host, (topic, revision) =>
+      server?.publish(topic, JSON.stringify({ revision })),
+    );
+    const defaultRepo = new DefaultRepo(host, null);
+    const table = routes(
+      host,
+      defaultRepo,
+      RecentRepos.in(host.dataDir),
+      workspaces,
+      new AgentListeners(),
+    );
+    server = Bun.serve({
+      port: 0,
+      routes: { "/api/review/changes": table["/api/review/changes"] },
+      websocket: sockets(new AgentListeners()),
+    });
+    const listen = async (workspace: string) => {
+      const heard: unknown[] = [];
+      const socket = new WebSocket(
+        `ws://localhost:${server?.port}/api/review/changes?workspace=${encodeURIComponent(workspace)}`,
+      );
+      socket.onmessage = (event) => heard.push(JSON.parse(String(event.data)));
+      await new Promise((resolve) => {
+        socket.onopen = resolve;
+      });
+      return { socket, heard };
+    };
+    const readerTab = await listen(reader.root);
+    const otherTab = await listen(other.root);
+
+    try {
+      // act
+      (await workspaces.context(other.root)).store.apply(SEEN);
+      await Bun.sleep(800);
+
+      // assert
+      expect(otherTab.heard).toEqual([{ revision: 1 }]);
+      expect(readerTab.heard).toEqual([]);
+    } finally {
+      readerTab.socket.close();
+      otherTab.socket.close();
+      server.stop(true);
+    }
   });
 });
 // ~/~ end
