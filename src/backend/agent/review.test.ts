@@ -77,6 +77,7 @@ describe("the protocol", () => {
       "delete_review",
       "review_status",
       "read_comments",
+      "read_review_history",
       "add_comment",
       "reply_to_comment",
       "resolve_comment",
@@ -281,6 +282,85 @@ describe("the review tools", () => {
       text: "no local review is named nope",
       isError: true,
     });
+  });
+
+  test("reads what the reader wrote in a window across reviews", async () => {
+    // arrange
+    const [tip] = await jjLog(ROOT, { revset: TIP });
+    if (tip === undefined) throw new Error("no history");
+    await call("register_review", { name: "t", revset: TIP });
+    const comment = (id: string, createdAt: string, commitId: string) => ({
+      kind: "add-comment" as const,
+      comment: {
+        id,
+        reviewKey: `change:${tip.changeId}`,
+        commitId,
+        body: id,
+        resolved: false,
+        createdAt,
+        author: "reader",
+        replies: [],
+        kind: "comparison" as const,
+      },
+    });
+    store.apply(comment("before", "2026-09-01T00:00:00Z", tip.commitId));
+    store.apply(comment("inside", "2026-10-02T00:00:00.000Z", tip.commitId));
+    store.apply(comment("on a pull", "2026-10-03T00:00:00Z", "f".repeat(40)));
+    const agents = await call("add_comment", {
+      name: "t",
+      change: tip.changeId,
+      body: "why this way?",
+    });
+    store.apply({
+      kind: "add-reply",
+      commentId: agents.text,
+      reply: {
+        id: "r",
+        body: "because",
+        createdAt: "2026-10-04T00:00:00Z",
+        author: "reader",
+      },
+    });
+    store.apply({
+      kind: "mark-reviewed",
+      series: "local:t",
+      version: "1",
+      at: "2026-10-05T00:00:00Z",
+    });
+
+    // act
+    const read = await call("read_review_history", {
+      since: "2026-10-01",
+      until: "2026-10-06",
+    });
+    const bad = await call("read_review_history", { since: "last week" });
+
+    // assert
+    const history = JSON.parse(read.text);
+    expect(history.reviewed).toEqual([
+      { series: "local:t", version: "v1", at: "2026-10-05T00:00:00Z" },
+    ]);
+    expect(history.threads).toEqual([
+      expect.objectContaining({
+        id: "inside",
+        review: "t",
+        link: "https://vm:4000/reviews/t",
+        change: tip.changeId.slice(0, 8),
+      }),
+      expect.objectContaining({ id: "on a pull", review: null, change: null }),
+      expect.objectContaining({
+        id: agents.text,
+        author: "claude",
+        replies: [
+          {
+            author: "reader",
+            body: "because",
+            createdAt: "2026-10-04T00:00:00Z",
+          },
+        ],
+      }),
+    ]);
+    expect(bad.isError).toBe(true);
   });
 
   test("tells the agent what it got wrong as a failed call", async () => {

@@ -125,6 +125,13 @@ function where(anchor: Anchor): string {
 
 const Name = z.string().min(1).describe("the local review's name");
 
+/** A time as milliseconds since the epoch. The document's own times are not
+ *  all written the same way, so they compare as numbers, not strings. */
+const Moment = z
+  .string()
+  .refine((at) => !Number.isNaN(Date.parse(at)), "not an ISO date or time")
+  .transform((at) => Date.parse(at));
+
 export function reviewTools(): Tool[] {
   return [
     tool({
@@ -326,6 +333,89 @@ export function reviewTools(): Tool[] {
           ];
         });
         return JSON.stringify(comments, null, 2);
+      },
+    }),
+    tool({
+      name: "read_review_history",
+      description:
+        "Read everything the reader wrote while reviewing between two times, across every review, as JSON: the versions they marked reviewed, and each thread they started or replied to in the window, whole, with the agent's side of it. A thread names its local review and change, or no review when it is on a pull request. Use it to learn how the reader reviews.",
+      input: z.object({
+        since: Moment.describe(
+          "the start of the window, as an ISO date or time",
+        ),
+        until: Moment.optional().describe(
+          "the end of the window, as an ISO date or time; now if left out",
+        ),
+      }),
+      call: async ({ since, until }, { repo: { root, store }, link, now }) => {
+        const { document } = store.read();
+        const end = until ?? now().getTime();
+        const within = (at: string) => {
+          const time = Date.parse(at);
+          return since <= time && time < end;
+        };
+        const byReader = (author: string) => author !== AGENT;
+        const threads = document.comments
+          .filter(
+            (comment) =>
+              (byReader(comment.author) && within(comment.createdAt)) ||
+              comment.replies.some(
+                (reply) => byReader(reply.author) && within(reply.createdAt),
+              ),
+          )
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        // A comment's commit was in the version the reader read it in.
+        const reviewOf = new Map(
+          document.localReviews.flatMap((review) =>
+            review.versions.flatMap((version) =>
+              version.commits.map((commit) => [commit, review.name] as const),
+            ),
+          ),
+        );
+        // Only local reviews' commits: a pull request's are fetched where
+        // jj cannot see them, and one unknown id fails the whole lookup.
+        const entries = await jjCommits(root, [
+          ...new Set(
+            threads.flatMap((comment) =>
+              reviewOf.has(comment.commitId) ? [comment.commitId] : [],
+            ),
+          ),
+        ]);
+        return JSON.stringify(
+          {
+            reviewed: document.reviewed
+              .filter((mark) => within(mark.reviewedAt))
+              .map((mark) => ({
+                series: mark.series,
+                version: `v${mark.version}`,
+                at: mark.reviewedAt,
+              })),
+            threads: threads.map((comment) => {
+              const review = reviewOf.get(comment.commitId) ?? null;
+              const entry = entries.get(comment.commitId);
+              return {
+                id: comment.id,
+                review,
+                link: review === null ? null : link(reviewPath(review)),
+                change: entry?.changeId.slice(0, 8) ?? null,
+                subject: entry === undefined ? null : subject(entry),
+                commit: comment.commitId.slice(0, 12),
+                at: where(comment),
+                author: comment.author,
+                createdAt: comment.createdAt,
+                body: comment.body,
+                resolved: comment.resolved,
+                replies: comment.replies.map(({ author, body, createdAt }) => ({
+                  author,
+                  body,
+                  createdAt,
+                })),
+              };
+            }),
+          },
+          null,
+          2,
+        );
       },
     }),
     tool({
