@@ -170,31 +170,28 @@ async function structural(
 
 ## Test
 
-The tests read this repository's own `main`, whose history only grows.
+The tests read [fixed commits](../../devtools/testing.md) of this repository.
 
 ```ts
 //| id: compare-module-test
 //| file: src/backend/commit/compare.test.ts
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
+import { FIXED } from "../../testing/history";
 import { beforePaths, CompareError, compareFiles } from "./compare";
 import { GitOid } from "./git";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
-
-async function oidOf(revision: string): Promise<GitOid> {
-  return GitOid.parse(
-    (await $`git rev-parse ${revision}`.quiet().text()).trim(),
-  );
-}
+const COMMIT = GitOid.parse(FIXED.commit);
+const PARENT = GitOid.parse(FIXED.parent);
 
 describe("compareFiles", () => {
   test("diffs two paths as a rename, with the blobs each side holds", async () => {
     // arrange
-    const to = await oidOf("main");
+    const to = COMMIT;
     const oldBlob = (
-      await $`git rev-parse main^:package.json`.quiet().text()
+      await $`git rev-parse ${PARENT}:package.json`.quiet().text()
     ).trim();
 
     // act
@@ -218,21 +215,20 @@ describe("compareFiles", () => {
 
   test("reads the older commit's tree when the row has one", async () => {
     // arrange
-    const from = await oidOf("main~3");
-    const to = await oidOf("main");
+    const [from, to] = [PARENT, COMMIT];
 
     // act
     const file = await compareFiles(ROOT, { from, to }, "justfile", "justfile");
 
     // assert
     expect(file.oldBlob).toBe(
-      (await $`git rev-parse main~3:justfile`.quiet().text()).trim(),
+      (await $`git rev-parse ${PARENT}:justfile`.quiet().text()).trim(),
     );
   });
 
   test("refuses a path the side does not hold", async () => {
     // arrange
-    const to = await oidOf("main");
+    const to = COMMIT;
 
     // act
     const compared = compareFiles(
@@ -250,7 +246,7 @@ describe("compareFiles", () => {
 describe("beforePaths", () => {
   test("lists the parent's tree for a commit's own diff", async () => {
     // arrange
-    const to = await oidOf("main");
+    const to = COMMIT;
 
     // act
     const paths = await beforePaths(ROOT, { from: null, to });

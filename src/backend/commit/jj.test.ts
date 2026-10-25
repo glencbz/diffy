@@ -4,6 +4,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import { FIXED, type ScratchRepo, scratchRepo } from "../../testing/history";
 import {
   COMMIT_MARKERS,
   JjError,
@@ -20,33 +21,44 @@ import {
 /** The repository these tests read. */
 const ROOT = process.cwd();
 
+/** Runs `body` against a fresh scratch repository. */
+async function inScratch(body: (repo: ScratchRepo) => Promise<void>) {
+  const repo = await scratchRepo();
+  try {
+    await body(repo);
+  } finally {
+    await repo.remove();
+  }
+}
+
 describe("jjLog", () => {
-  test("lists every commit, including the root", async () => {
-    // arrange
-    // act
-    const entries = await jjLog(ROOT, { revset: "all()" });
+  test("lists every commit, including the root", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // act
+      const entries = await jjLog(dir, { revset: "all()" });
 
-    // assert
-    expect(entries.length).toBeGreaterThan(0);
-    for (const entry of entries) {
-      expect(typeof entry.commitId).toBe("string");
-      expect(typeof entry.changeId).toBe("string");
-      expect(typeof entry.description).toBe("string");
-      expect(Array.isArray(entry.parents)).toBe(true);
-      expect(typeof entry.author).toBe("string");
-      expect(Number.isNaN(Date.parse(entry.timestamp))).toBe(false);
-      for (const ref of entry.refs) expect(typeof ref.name).toBe("string");
-      for (const marker of entry.markers) {
-        expect(COMMIT_MARKERS).toContain(marker);
+      // assert
+      expect(entries.length).toBeGreaterThan(0);
+      for (const entry of entries) {
+        expect(typeof entry.commitId).toBe("string");
+        expect(typeof entry.changeId).toBe("string");
+        expect(typeof entry.description).toBe("string");
+        expect(Array.isArray(entry.parents)).toBe(true);
+        expect(typeof entry.author).toBe("string");
+        expect(Number.isNaN(Date.parse(entry.timestamp))).toBe(false);
+        for (const ref of entry.refs) expect(typeof ref.name).toBe("string");
+        for (const marker of entry.markers) {
+          expect(COMMIT_MARKERS).toContain(marker);
+        }
       }
-    }
 
-    const root = entries.at(-1);
-    expect(root?.commitId).toBe("0".repeat(40));
-    expect(root?.changeId).toBe("z".repeat(32));
-    expect(root?.markers).toEqual(["empty"]);
-    expect(root?.refs).toEqual([]);
-  });
+      const root = entries.at(-1);
+      expect(root?.commitId).toBe("0".repeat(40));
+      expect(root?.changeId).toBe("z".repeat(32));
+      expect(root?.markers).toEqual(["empty"]);
+      expect(root?.refs).toEqual([]);
+    }));
 
   test("lists the working copy first, above a newer head", async () => {
     // arrange
@@ -70,41 +82,44 @@ describe("jjLog", () => {
     }
   });
 
-  test("marks the working copy and nothing else", async () => {
-    // arrange
-    // act
-    const entries = await jjLog(ROOT, { revset: "all()" });
+  test("marks the working copy and nothing else", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // act
+      const entries = await jjLog(dir, { revset: "all()" });
 
-    // assert
-    const here = entries.filter((entry) =>
-      entry.markers.includes("working-copy"),
-    );
-    expect(here).toHaveLength(1);
-    expect(here[0]?.commitId).toBe(
-      (await jjLog(ROOT, { revset: "@" }))[0]?.commitId as string,
-    );
-  });
+      // assert
+      const here = entries.filter((entry) =>
+        entry.markers.includes("working-copy"),
+      );
+      expect(here).toHaveLength(1);
+      expect(here[0]?.commitId).toBe(
+        (await jjLog(dir, { revset: "@" }))[0]?.commitId as string,
+      );
+    }));
 
-  test("names the bookmarks pointing at a commit", async () => {
-    // arrange
-    // act
-    const entries = await jjLog(ROOT, { revset: "bookmarks()" });
+  test("names the bookmarks pointing at a commit", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // act
+      const entries = await jjLog(dir, { revset: "bookmarks()" });
 
-    // assert
-    expect(entries.length).toBeGreaterThan(0);
-    for (const entry of entries) {
-      expect(entry.refs.some((ref) => ref.kind === "bookmark")).toBe(true);
-    }
-  });
+      // assert
+      expect(entries.map((entry) => entry.description)).toEqual(["second\n"]);
+      expect(entries[0]?.refs).toContainEqual(
+        expect.objectContaining({ kind: "bookmark", name: "feature" }),
+      );
+    }));
 
-  test("respects the limit option", async () => {
-    // arrange
-    // act
-    const entries = await jjLog(ROOT, { revset: "all()", limit: 1 });
+  test("respects the limit option", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // act
+      const entries = await jjLog(dir, { revset: "all()", limit: 1 });
 
-    // assert
-    expect(entries).toHaveLength(1);
-  });
+      // assert
+      expect(entries).toHaveLength(1);
+    }));
 
   test("wraps an unresolvable revset in JjError", async () => {
     // arrange
@@ -129,25 +144,27 @@ describe("jjLog", () => {
 const ROOT_OPERATION = "0".repeat(128);
 
 describe("jjOpLog", () => {
-  test("lists operations newest first, ending at the root operation", async () => {
-    // arrange
-    // act
-    const operations = await jjOpLog(ROOT);
+  test("lists operations newest first, ending at the root operation", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // act
+      const operations = await jjOpLog(dir);
 
-    // assert
-    expect(operations.length).toBeGreaterThan(1);
-    expect(operations[0]?.id).not.toBe(ROOT_OPERATION);
-    expect(operations.at(-1)?.id).toBe(ROOT_OPERATION);
-  });
+      // assert
+      expect(operations.length).toBeGreaterThan(1);
+      expect(operations[0]?.id).not.toBe(ROOT_OPERATION);
+      expect(operations.at(-1)?.id).toBe(ROOT_OPERATION);
+    }));
 
-  test("respects the limit option", async () => {
-    // arrange
-    // act
-    const operations = await jjOpLog(ROOT, { limit: 1 });
+  test("respects the limit option", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // act
+      const operations = await jjOpLog(dir, { limit: 1 });
 
-    // assert
-    expect(operations).toHaveLength(1);
-  });
+      // assert
+      expect(operations).toHaveLength(1);
+    }));
 });
 
 describe("jjRepoDir", () => {
@@ -337,7 +354,7 @@ describe("jjDiff", () => {
   test("parses the first commit as a set of added files", async () => {
     // arrange
     // act
-    const files = await jjDiff(ROOT, { revision: "root()+" });
+    const files = await jjDiff(ROOT, { revision: FIXED.first });
 
     // assert
     expect(files.length).toBeGreaterThan(0);
@@ -350,7 +367,7 @@ describe("jjDiff", () => {
   test("reads every modified file through difftastic as well", async () => {
     // arrange
     // act
-    const files = await jjDiff(ROOT, { revision: "root()++" });
+    const files = await jjDiff(ROOT, { revision: FIXED.second });
 
     // assert
     const modified = files.filter((file) => file.status === "modified");
@@ -386,18 +403,10 @@ describe("jjDiff", () => {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[2]
 
-/** The commit id of the single commit `revset` names. */
-async function commitId(revset: string): Promise<string> {
-  const [entry] = await jjLog(ROOT, { revset, limit: 1 });
-  if (entry === undefined) throw new Error(`no commit matches ${revset}`);
-  return entry.commitId;
-}
-
 describe("jjCommits", () => {
   test("keys the requested commits by commit id", async () => {
     // arrange
-    const entries = await jjLog(ROOT, { revset: "all()", limit: 3 });
-    const ids = entries.map((entry) => entry.commitId);
+    const ids = [FIXED.first, FIXED.parent, FIXED.commit];
 
     // act
     const found = await jjCommits(ROOT, ids);
@@ -418,7 +427,7 @@ describe("jjCommits", () => {
 describe("jjInterdiff", () => {
   test("reports no difference between a commit and itself", async () => {
     // arrange
-    const id = await commitId("root()+");
+    const id = FIXED.first;
 
     // act
     // assert
@@ -427,8 +436,7 @@ describe("jjInterdiff", () => {
 
   test("reports the difference between two unrelated changes", async () => {
     // arrange
-    const from = await commitId("root()+");
-    const to = await commitId("root()++");
+    const { first: from, second: to } = FIXED;
 
     // act
     const files = await jjInterdiff(ROOT, { from, to });
@@ -440,26 +448,29 @@ describe("jjInterdiff", () => {
     }
   });
 
-  test("compares a commit from an old operation without --at-operation", async () => {
-    // arrange
-    const operations = await jjOpLog(ROOT);
-    const oldest = operations.at(-1);
-    const [before] = await jjLog(ROOT, {
-      revset: "all()",
-      limit: 1,
-      atOperation: oldest?.id,
-    });
-    if (before === undefined) throw new Error("no commit at the oldest op");
+  test("compares a commit from an old operation without --at-operation", () =>
+    inScratch(async ({ root: dir }) => {
+      // arrange
+      // The working copy jj started with, before `first` described it.
+      const operations = await jjOpLog(dir);
+      const [before] = await jjLog(dir, {
+        revset: "@",
+        atOperation: operations.at(-2)?.id,
+      });
+      const [now] = await jjLog(dir, { revset: "@" });
+      if (before === undefined || now === undefined) {
+        throw new Error("no working copy");
+      }
 
-    // act
-    const files = await jjInterdiff(ROOT, {
-      from: before.commitId,
-      to: await commitId("@"),
-    });
+      // act
+      const files = await jjInterdiff(dir, {
+        from: before.commitId,
+        to: now.commitId,
+      });
 
-    // assert
-    expect(Array.isArray(files)).toBe(true);
-  });
+      // assert
+      expect(Array.isArray(files)).toBe(true);
+    }));
 });
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[3]
@@ -467,8 +478,7 @@ describe("jjInterdiff", () => {
 describe("jjDiffBetween", () => {
   test("gives a commit's own diff when the before side is its parent", async () => {
     // arrange
-    const from = await commitId("root()+");
-    const to = await commitId("root()++");
+    const { first: from, second: to } = FIXED;
 
     // act
     const files = await jjDiffBetween(ROOT, { from, to });
