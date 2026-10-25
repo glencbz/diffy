@@ -237,7 +237,7 @@ import {
 } from "../../frontend/model/evidence";
 import type { EvidenceStore } from "../evidence/store";
 import type { RepoContext } from "../repo/repos";
-import { type Tool, ToolError, tool } from "./mcp";
+import { type Tool, type ToolContext, ToolError, tool } from "./mcp";
 import {
   commitNamed,
   liveSources,
@@ -299,6 +299,127 @@ function boxOf(
   ];
 }
 
+/** What an agent gives to attach a capture: the files it took, or that
+ *  diffy took for it while [recording](recording.md). */
+export const AttachInput = z.object({
+  ...Target,
+  commit: z
+    .string()
+    .min(1)
+    .describe("the change id or commit id it shows, or a prefix"),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "a short slug, the same in every version that captures the same thing",
+    ),
+  name: z
+    .string()
+    .min(1)
+    .describe("what it shows, such as the page's name: Settings"),
+  state: z
+    .array(z.string())
+    .default([])
+    .describe(
+      "the state of the app, a word or two each, such as dark or phone",
+    ),
+  about: z.string().default("").describe("what to look for, a sentence"),
+  after: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "the path on this machine of the picture or clip taken at the commit",
+    ),
+  before: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "the path of the same taken at the commit's parent, if it can be shown there",
+    ),
+  size: z
+    .object({
+      width: z.number().positive(),
+      height: z.number().positive(),
+    })
+    .describe("the page's size in the pixels the boxes are measured in"),
+  shows: z.array(ShownInput).default([]),
+});
+export type AttachInput = z.infer<typeof AttachInput>;
+
+/** Attaches a capture and says where it went. */
+export async function attachCapture(
+  input: AttachInput,
+  { repo, link, now }: ToolContext,
+  store: EvidenceStore,
+  sources: SeriesSources,
+): Promise<string> {
+  if (input.after === undefined && input.before === undefined) {
+    throw new ToolError("give the capture at the commit, its parent, or both");
+  }
+  const target = await targetOf(sources, input);
+  const commit = commitNamed(target, input.commit);
+  const map = componentsTo(
+    repo.store.read().document.componentMaps,
+    target.series,
+    target.version,
+  );
+  const ids = (map?.components ?? [])
+    .filter((each) => each.commitId === commit.commitId)
+    .map((each) => each.id);
+  const stray = input.shows.find((each) => !ids.includes(each.component));
+  if (stray !== undefined) {
+    throw new ToolError(
+      ids.length === 0
+        ? `${short(commit)} has no components in ${target.label}'s map; write the map first`
+        : `${stray.component} is not a component of ${short(commit)}; its components are ${ids.join(", ")}`,
+    );
+  }
+  const shows = input.shows.map(
+    (each): Shown => ({
+      component: each.component,
+      about: each.about,
+      ...(each.box === undefined
+        ? {}
+        : { box: boxOf(each.box, input.size, each.component) }),
+      ...(each.at === undefined
+        ? {}
+        : { at: [each.at.start, Math.max(each.at.start, each.at.end)] }),
+    }),
+  );
+  const stored = async (path: string | undefined) => {
+    if (path === undefined) return null;
+    const put = await store.put(path);
+    if ("refused" in put) throw new ToolError(put.refused);
+    return put.name;
+  };
+  const before = await stored(input.before);
+  const after = await stored(input.after);
+  const video = [before, after].some(
+    (name) => name !== null && /\.(mp4|webm)$/.test(name),
+  );
+  const capture: Capture = {
+    series: target.series,
+    version: target.version,
+    commitId: commit.commitId,
+    id: input.id,
+    name: input.name,
+    state: input.state,
+    about: input.about,
+    media: video ? "video" : "image",
+    before,
+    after,
+    shows,
+    attachedAt: now().toISOString(),
+  };
+  repo.store.apply({ kind: "attach-capture", capture });
+  return [
+    link(target.path),
+    `${input.id} is attached to ${short(commit)} in ${target.label}, showing ${shows.length === 0 ? "no component" : shows.map((each) => each.component).join(", ")}`,
+  ].join("\n");
+}
+
 export function evidenceTools(
   store: EvidenceStore,
   sourcesOf: (repo: RepoContext) => SeriesSources = liveSources,
@@ -308,118 +429,9 @@ export function evidenceTools(
       name: "attach_capture",
       description:
         "Attach a screenshot or a clip of the app to a commit of the newest version of a local review or a pull request: the app at the commit, and at its parent where it can be shown, with where it shows each of the commit's components. Write the version's component map first; a capture names its components by their ids. Attaching an id the commit already has replaces it.",
-      input: z.object({
-        ...Target,
-        commit: z
-          .string()
-          .min(1)
-          .describe("the change id or commit id it shows, or a prefix"),
-        id: z
-          .string()
-          .min(1)
-          .describe(
-            "a short slug, the same in every version that captures the same thing",
-          ),
-        name: z
-          .string()
-          .min(1)
-          .describe("what it shows, such as the page's name: Settings"),
-        state: z
-          .array(z.string())
-          .default([])
-          .describe(
-            "the state of the app, a word or two each, such as dark or phone",
-          ),
-        about: z.string().default("").describe("what to look for, a sentence"),
-        after: z
-          .string()
-          .min(1)
-          .optional()
-          .describe(
-            "the path on this machine of the picture or clip taken at the commit",
-          ),
-        before: z
-          .string()
-          .min(1)
-          .optional()
-          .describe(
-            "the path of the same taken at the commit's parent, if it can be shown there",
-          ),
-        size: z
-          .object({
-            width: z.number().positive(),
-            height: z.number().positive(),
-          })
-          .describe("the page's size in the pixels the boxes are measured in"),
-        shows: z.array(ShownInput).default([]),
-      }),
-      call: async (input, { repo, link, now }) => {
-        if (input.after === undefined && input.before === undefined) {
-          throw new ToolError(
-            "give the capture at the commit, its parent, or both",
-          );
-        }
-        const target = await targetOf(sourcesOf(repo), input);
-        const commit = commitNamed(target, input.commit);
-        const map = componentsTo(
-          repo.store.read().document.componentMaps,
-          target.series,
-          target.version,
-        );
-        const ids = (map?.components ?? [])
-          .filter((each) => each.commitId === commit.commitId)
-          .map((each) => each.id);
-        const stray = input.shows.find((each) => !ids.includes(each.component));
-        if (stray !== undefined) {
-          throw new ToolError(
-            ids.length === 0
-              ? `${short(commit)} has no components in ${target.label}'s map; write the map first`
-              : `${stray.component} is not a component of ${short(commit)}; its components are ${ids.join(", ")}`,
-          );
-        }
-        const shows = input.shows.map(
-          (each): Shown => ({
-            component: each.component,
-            about: each.about,
-            ...(each.box === undefined
-              ? {}
-              : { box: boxOf(each.box, input.size, each.component) }),
-            ...(each.at === undefined
-              ? {}
-              : { at: [each.at.start, Math.max(each.at.start, each.at.end)] }),
-          }),
-        );
-        const stored = async (path: string | undefined) => {
-          if (path === undefined) return null;
-          const put = await store.put(path);
-          if ("refused" in put) throw new ToolError(put.refused);
-          return put.name;
-        };
-        const before = await stored(input.before);
-        const after = await stored(input.after);
-        const video = [before, after].some(
-          (name) => name !== null && /\.(mp4|webm)$/.test(name),
-        );
-        const capture: Capture = {
-          series: target.series,
-          version: target.version,
-          commitId: commit.commitId,
-          id: input.id,
-          name: input.name,
-          state: input.state,
-          about: input.about,
-          media: video ? "video" : "image",
-          before,
-          after,
-          shows,
-          attachedAt: now().toISOString(),
-        };
-        repo.store.apply({ kind: "attach-capture", capture });
-        return [
-          link(target.path),
-          `${input.id} is attached to ${short(commit)} in ${target.label}, showing ${shows.length === 0 ? "no component" : shows.map((each) => each.component).join(", ")}`,
-        ].join("\n");
-      },
+      input: AttachInput,
+      call: (input, context) =>
+        attachCapture(input, context, store, sourcesOf(context.repo)),
     }),
     tool({
       name: "read_captures",
