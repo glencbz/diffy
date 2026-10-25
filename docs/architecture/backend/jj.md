@@ -74,8 +74,15 @@ escaped by hand. Refs and markers are template keywords rather than commit
 fields, so the template wraps `json(self)` and adds a `json(...)` per keyword:
 
 ```sh
-jj log --no-graph -T '"{\"commit\":" ++ json(self) ++ ",\"bookmarks\":" ++ json(bookmarks) ++ "}\n"'
+jj log -T '"{\"commit\":" ++ json(self) ++ ",\"bookmarks\":" ++ json(bookmarks) ++ "}\n"'
 ```
+
+The log keeps jj's graph on, because only graph mode orders it the way
+`jj log` draws it: the working copy's branch first, so `@` takes the top row
+and the leftmost lane. `--no-graph` lists commits in index order instead,
+which can put another workspace's commit above `@`. Every line jj prints that
+holds a commit starts with graph glyphs, none of them `{`, so the JSON starts
+at the line's first `{`, and lines with none are graph edges.
 
 `bookmarks` and `tags` are the keywords `jj log`'s default template reads, so
 a tracked remote ref shows only where it has drifted from its local one. Adding
@@ -196,7 +203,7 @@ export async function jjLog(
   root: string,
   options: JjLogOptions = {},
 ): Promise<JjLogEntry[]> {
-  const args = ["log", "--no-graph", "-T", LOG_TEMPLATE];
+  const args = ["log", "-T", LOG_TEMPLATE];
   if (options.revset !== undefined) args.push("-r", options.revset);
   if (options.limit !== undefined) args.push("-n", String(options.limit));
   if (options.atOperation !== undefined) {
@@ -207,9 +214,11 @@ export async function jjLog(
 
   return output
     .split("\n")
-    .filter((line) => line.length > 0)
+    .filter((line) => line.includes("{"))
     .map((line) => {
-      const entry = JjLogEntryWire.parse(JSON.parse(line));
+      const entry = JjLogEntryWire.parse(
+        JSON.parse(line.slice(line.indexOf("{"))),
+      );
       const { commit } = entry;
 
       return {
@@ -617,6 +626,28 @@ describe("jjLog", () => {
     expect(root?.changeId).toBe("z".repeat(32));
     expect(root?.markers).toEqual(["empty"]);
     expect(root?.refs).toEqual([]);
+  });
+
+  test("lists the working copy first, above a newer head", async () => {
+    // arrange
+    const dir = await mkdtemp(join(tmpdir(), "diffy-jj-"));
+    try {
+      await $`jj git init`.cwd(dir).quiet();
+      await $`jj describe -m here`.cwd(dir).quiet();
+      await $`jj new --no-edit "root()" -m elsewhere`.cwd(dir).quiet();
+
+      // act
+      const entries = await jjLog(dir);
+
+      // assert
+      expect(entries.map((entry) => entry.description.trim())).toEqual([
+        "here",
+        "elsewhere",
+        "",
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("marks the working copy and nothing else", async () => {
