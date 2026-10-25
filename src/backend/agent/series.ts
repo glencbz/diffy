@@ -5,7 +5,7 @@ import {
   localSeries,
   pullSeries,
 } from "../../frontend/model/review";
-import { GitError, gitLog, gitMaterialize } from "../commit/git";
+import { GitError, gitFiles, gitLog, gitMaterialize } from "../commit/git";
 import {
   GitHubError,
   githubPullRequestHistory,
@@ -46,6 +46,8 @@ export interface SeriesSources {
   local: (name: string) => Promise<SeriesTarget>;
   pull: (number: number) => Promise<SeriesTarget>;
   diff: (commitId: string) => Promise<JjFileDiff[]>;
+  /** Every file of a revision git names, such as `<commit id>^`. */
+  files: (revision: string) => Promise<string[]>;
 }
 
 function subject(description: string): string {
@@ -109,6 +111,7 @@ export function liveSources({ root, store }: RepoContext): SeriesSources {
       };
     },
     diff: (commitId) => jjDiff(root, { revision: commitId }),
+    files: (revision) => gitFiles(root, revision),
   };
 }
 

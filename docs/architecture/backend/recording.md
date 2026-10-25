@@ -500,6 +500,7 @@ const PULL: SeriesSources = {
     ],
   }),
   diff: async () => [],
+  files: async () => [],
 };
 
 /** A recorder whose parent's side has no switch to click. */

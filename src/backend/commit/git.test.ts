@@ -5,6 +5,7 @@ import {
   BlobId,
   GitOid,
   gitBlob,
+  gitFiles,
   gitForget,
   gitHasCommit,
   gitLog,
@@ -354,6 +355,29 @@ describe("gitBlob", () => {
     // act
     // assert
     expect(await gitBlob(ROOT, BlobId.parse("f".repeat(40)))).toBeNull();
+  });
+});
+// ~/~ end
+// ~/~ begin <<docs/architecture/backend/git.md#git-module-test>>[4]
+
+describe("gitFiles", () => {
+  test("lists a commit's tree, nested paths included", async () => {
+    // arrange
+    const head = await oidOf("HEAD");
+
+    // act
+    const files = await gitFiles(ROOT, head);
+
+    // assert
+    expect(files).toContain("package.json");
+    expect(files).toContain("src/server.ts");
+  });
+
+  test("lists nothing for a revision git cannot name", async () => {
+    // arrange
+    // act
+    // assert
+    expect(await gitFiles(ROOT, "f".repeat(40))).toEqual([]);
   });
 });
 // ~/~ end

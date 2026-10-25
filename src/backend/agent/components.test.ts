@@ -65,6 +65,7 @@ const PULL: SeriesSources = {
       structural: { kind: "unavailable", reason: "test" },
     },
   ],
+  files: async () => [],
 };
 
 let nextId = 1;

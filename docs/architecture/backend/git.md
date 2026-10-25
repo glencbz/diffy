@@ -281,6 +281,7 @@ import {
   BlobId,
   GitOid,
   gitBlob,
+  gitFiles,
   gitForget,
   gitHasCommit,
   gitLog,
@@ -701,6 +702,59 @@ describe("gitBlob", () => {
     // act
     // assert
     expect(await gitBlob(ROOT, BlobId.parse("f".repeat(40)))).toBeNull();
+  });
+});
+```
+
+### Listing a commit's files
+
+A [run](runs.md#which-file-ran) keeps the lines it ran against the files of the
+commit it played, so it needs every path the commit's tree holds, not only
+the ones its diff touches. A revision git cannot name has no files.
+
+```ts
+//| id: git-module
+
+/** Every file `revision`'s tree holds, or none when git cannot name it. */
+export async function gitFiles(
+  root: string,
+  revision: string,
+): Promise<string[]> {
+  const result = await $`git ls-tree -r -z --full-tree --name-only ${revision}`
+    .cwd(root)
+    .quiet()
+    .nothrow();
+  if (result.exitCode !== 0) return [];
+  return result
+    .text()
+    .split("\0")
+    .filter((path) => path !== "");
+}
+```
+
+#### Test
+
+```ts
+//| id: git-module-test
+
+describe("gitFiles", () => {
+  test("lists a commit's tree, nested paths included", async () => {
+    // arrange
+    const head = await oidOf("HEAD");
+
+    // act
+    const files = await gitFiles(ROOT, head);
+
+    // assert
+    expect(files).toContain("package.json");
+    expect(files).toContain("src/server.ts");
+  });
+
+  test("lists nothing for a revision git cannot name", async () => {
+    // arrange
+    // act
+    // assert
+    expect(await gitFiles(ROOT, "f".repeat(40))).toEqual([]);
   });
 });
 ```

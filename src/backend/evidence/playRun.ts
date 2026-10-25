@@ -8,6 +8,12 @@ import {
   type Request,
 } from "../../frontend/model/runs";
 import type { Step } from "./recipe";
+import {
+  mappedLinesRun,
+  ranChars,
+  readSourceMap,
+  type SourceMap,
+} from "./sourceMap";
 
 /** How much of a fetch's answer a step keeps. */
 const BODY_LIMIT = 16 * 1024;
@@ -25,7 +31,11 @@ interface Source {
   path: string;
   /** The first line of the script within its file, counting from 0. */
   startLine: number;
+  /** Where its source map is, resolved, or null. */
+  mapUrl: string | null;
   text: string | null;
+  /** Read with the text; null when it has none or it cannot be read. */
+  map: SourceMap | null;
 }
 
 /** Watches one page: its requests and console as they come, and what each
@@ -42,25 +52,39 @@ export async function watch(page: Page, base: string) {
     const path = decodeURIComponent(at.pathname).replace(/^\//, "");
     return path === "" || path.endsWith("/") ? `${path}index.html` : path;
   };
+  const sourceOf = (
+    url: string,
+    startLine: number,
+    mapUrl: string | undefined,
+  ): Source | null => {
+    const path = pathOf(url);
+    if (path === null) return null;
+    return {
+      path,
+      startLine,
+      mapUrl: mapUrl ? new URL(mapUrl, new URL(url, base)).href : null,
+      text: null,
+      map: null,
+    };
+  };
+  /** A file a map points into: its path on disk, or as `pathOf` names it. */
+  const mappedPath = (source: string, mapUrl: string): string | null => {
+    const at = new URL(source, mapUrl);
+    return at.protocol === "file:"
+      ? decodeURIComponent(at.pathname)
+      : pathOf(at.href);
+  };
   cdp.on("Debugger.scriptParsed", (event) => {
-    const path = pathOf(event.url);
-    if (path !== null) {
-      scripts.set(event.scriptId, {
-        path,
-        startLine: event.startLine,
-        text: null,
-      });
-    }
+    const source = sourceOf(event.url, event.startLine, event.sourceMapURL);
+    if (source !== null) scripts.set(event.scriptId, source);
   });
   cdp.on("CSS.styleSheetAdded", ({ header }) => {
-    const path = pathOf(header.sourceURL);
-    if (path !== null) {
-      sheets.set(header.styleSheetId, {
-        path,
-        startLine: header.startLine,
-        text: null,
-      });
-    }
+    const source = sourceOf(
+      header.sourceURL,
+      header.startLine,
+      header.sourceMapURL,
+    );
+    if (source !== null) sheets.set(header.styleSheetId, source);
   });
   await cdp.send("Debugger.enable");
   await cdp.send("Profiler.enable");
@@ -112,6 +136,10 @@ export async function watch(page: Page, base: string) {
     logged.push({ level: "error", text: error.message });
   });
 
+  const readMap = async (url: string): Promise<string> =>
+    url.startsWith("data:")
+      ? (await fetch(url)).text()
+      : (await page.context().request.get(url)).text();
   const textOf = async (
     sources: Map<string, Source>,
     id: string,
@@ -119,7 +147,14 @@ export async function watch(page: Page, base: string) {
   ): Promise<Source | null> => {
     const source = sources.get(id);
     if (source === undefined) return null;
-    source.text ??= await read().catch(() => "");
+    if (source.text === null) {
+      source.text = await read().catch(() => "");
+      if (source.mapUrl !== null) {
+        source.map = readSourceMap(
+          await readMap(source.mapUrl).catch(() => ""),
+        );
+      }
+    }
     return source;
   };
 
@@ -127,10 +162,22 @@ export async function watch(page: Page, base: string) {
   const step = async (label: string, shot: string): Promise<PlayedStep> => {
     await page.screenshot({ path: shot });
     const lines = new Map<string, Set<number>>();
-    const add = (path: string, numbers: number[]) => {
+    const add = (path: string, numbers: Iterable<number>) => {
       const set = lines.get(path) ?? new Set<number>();
       for (const number of numbers) set.add(number);
       lines.set(path, set);
+    };
+    const addRan = (source: Source, ranges: CoveredRange[]) => {
+      if (source.text === null) return;
+      if (source.map === null || source.mapUrl === null) {
+        add(source.path, linesRun(source.text, ranges, source.startLine));
+        return;
+      }
+      const { map, mapUrl } = source;
+      for (const [index, numbers] of mappedLinesRun(source.text, ranges, map)) {
+        const path = mappedPath(map.sources[index] ?? "", mapUrl);
+        if (path !== null) add(path, numbers);
+      }
     };
     const { result } = await cdp.send("Profiler.takePreciseCoverage");
     for (const script of result) {
@@ -147,14 +194,10 @@ export async function watch(page: Page, base: string) {
             })
           ).scriptSource,
       );
-      if (source?.text == null) continue;
-      add(
-        source.path,
-        linesRun(
-          source.text,
-          script.functions.flatMap((fn) => fn.ranges),
-          source.startLine,
-        ),
+      if (source === null) continue;
+      addRan(
+        source,
+        script.functions.flatMap((fn) => fn.ranges),
       );
     }
     const { coverage: ruleUsage } = await cdp.send("CSS.takeCoverageDelta");
@@ -170,21 +213,10 @@ export async function watch(page: Page, base: string) {
             })
           ).text,
       );
-      if (source?.text == null) continue;
-      add(
-        source.path,
-        linesRun(
-          source.text,
-          [
-            {
-              startOffset: rule.startOffset,
-              endOffset: rule.endOffset,
-              count: 1,
-            },
-          ],
-          source.startLine,
-        ),
-      );
+      if (source === null) continue;
+      addRan(source, [
+        { startOffset: rule.startOffset, endOffset: rule.endOffset, count: 1 },
+      ]);
     }
     const played: PlayedStep = {
       label,
@@ -203,37 +235,20 @@ export async function watch(page: Page, base: string) {
   return { step };
 }
 
-/** The lines, counting from 1, whose characters other than spaces ran:
- *  later ranges sit inside earlier ones and decide their characters. */
+type CoveredRange = { startOffset: number; endOffset: number; count: number };
+
+/** The lines, counting from 1, whose characters other than spaces ran. */
 export function linesRun(
   text: string,
-  ranges: { startOffset: number; endOffset: number; count: number }[],
+  ranges: CoveredRange[],
   startLine = 0,
 ): number[] {
-  const counts = new Int32Array(text.length).fill(-1);
-  for (const range of ranges) {
-    counts.fill(
-      range.count,
-      range.startOffset,
-      Math.min(range.endOffset, text.length),
-    );
-  }
+  const ran = ranChars(text, ranges);
   const out = new Set<number>();
   let line = startLine + 1;
   for (let at = 0; at < text.length; at++) {
-    const char = text[at];
-    if (char === "\n") {
-      line++;
-      continue;
-    }
-    if (
-      (counts[at] ?? 0) > 0 &&
-      char !== " " &&
-      char !== "\t" &&
-      char !== "\r"
-    ) {
-      out.add(line);
-    }
+    if (text[at] === "\n") line++;
+    else if (ran[at] === 1) out.add(line);
   }
   return [...out];
 }
