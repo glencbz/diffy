@@ -259,3 +259,21 @@ export async function gitBlob(
   return result.exitCode === 0 ? result.text() : null;
 }
 // ~/~ end
+// ~/~ begin <<docs/architecture/backend/git.md#git-module>>[6]
+
+/** Every file `revision`'s tree holds, or none when git cannot name it. */
+export async function gitFiles(
+  root: string,
+  revision: string,
+): Promise<string[]> {
+  const result = await $`git ls-tree -r -z --full-tree --name-only ${revision}`
+    .cwd(root)
+    .quiet()
+    .nothrow();
+  if (result.exitCode !== 0) return [];
+  return result
+    .text()
+    .split("\0")
+    .filter((path) => path !== "");
+}
+// ~/~ end

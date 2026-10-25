@@ -1660,11 +1660,6 @@ export function LeafView({
 What is still to build, in order. Each step is a pull request that moves its
 part of this list into the sections above.
 
-**Bundled apps in runs.** A [run](../backend/runs.md) keeps the lines a
-step ran only for files the app serves as they are in the repository. An
-app that bundles its code, diffy among them, needs its source maps read to
-put those lines back in their files.
-
 **Comments on any location.** A box on a capture, a moment of a clip, a step
 or a request can hold a thread, which needs an anchor in the review store
 wider than a line.

@@ -658,6 +658,7 @@ const PULL: SeriesSources = {
     ],
   }),
   diff: async () => [],
+  files: async () => [],
 };
 
 async function call(

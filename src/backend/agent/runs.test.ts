@@ -4,13 +4,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runsOf } from "../../frontend/model/runs";
+import type { PlayedStep } from "../evidence/playRun";
 import type { Recorder } from "../evidence/recorder";
 import type { Played } from "../evidence/recordRun";
 import { EvidenceStore } from "../evidence/store";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";
 import { INSTRUCTIONS } from "./review";
-import { runTools } from "./runs";
+import { againstFiles, runTools } from "./runs";
 import type { SeriesSources } from "./series";
 
 let dir: string;
@@ -42,6 +43,7 @@ const PULL: SeriesSources = {
     ],
   }),
   diff: async () => [],
+  files: async () => ["theme.js"],
 };
 
 /** Plays the open step everywhere, and the click only at the commit. */
@@ -146,6 +148,42 @@ describe("recording runs", () => {
     expect(run?.before?.steps).toHaveLength(1);
     expect(run?.before?.stopped).toContain("no #dark");
     expect(run?.after.steps[0]?.shot).toMatch(/^[0-9a-f]{64}\.png$/);
+  });
+});
+
+describe("which file ran", () => {
+  const step = (ran: [string, [number, number][]][]): PlayedStep => ({
+    label: "open /",
+    shot: "s.png",
+    requests: [],
+    console: [],
+    ran: ran.map(([path, lines]) => ({ path, lines })),
+  });
+
+  test("paths on disk are read below the folder most of them share", () => {
+    // arrange
+    const files = new Set(["index.ts", "src/app.tsx", "src/view.tsx"]);
+    const served = "/work/ws/";
+
+    // act
+    const [only] = againstFiles(
+      [
+        step([
+          [`${served}src/app.tsx`, [[1, 2]]],
+          [`${served}src/view.tsx`, [[4, 4]]],
+          [`${served}node_modules/react/index.ts`, [[9, 9]]],
+          ["src/app.tsx", [[3, 3]]],
+          ["_bun/client/x.js", [[1, 1]]],
+        ]),
+      ],
+      files,
+    );
+
+    // assert
+    expect(only?.ran).toEqual([
+      { path: "src/app.tsx", lines: [[1, 3]] },
+      { path: "src/view.tsx", lines: [[4, 4]] },
+    ]);
   });
 });
 // ~/~ end
