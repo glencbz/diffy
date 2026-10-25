@@ -23,6 +23,13 @@ export interface ComponentLocation {
 
 export type LocationKind = Location["kind"];
 
+/** A place a panel asked the code to go, numbered so the same place asked
+ *  twice still moves it. */
+export interface Asked {
+  location: Location;
+  at: number;
+}
+
 export function sameLocation(a: Location | null, b: Location | null): boolean {
   if (a === null || b === null) return a === b;
   if (a.kind === "code" && b.kind === "code") {

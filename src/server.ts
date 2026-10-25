@@ -2,12 +2,14 @@
 
 import * as z from "zod";
 import { componentTools } from "./backend/agent/components";
+import { evidenceTools } from "./backend/agent/evidence";
 import {
   type AgentListeners,
   type Heard,
   LISTEN_PATH,
 } from "./backend/agent/listeners";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
+import { recordingTools } from "./backend/agent/recording";
 import { INSTRUCTIONS, reviewTools, turnOf } from "./backend/agent/review";
 import {
   beforePaths,
@@ -49,6 +51,8 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { playwrightRecorder } from "./backend/evidence/recorder";
+import { EvidenceStore, evidenceRoutes } from "./backend/evidence/store";
 import type { Host } from "./backend/host/host";
 import { LayoutStore, layoutRoutes } from "./backend/layouts/layouts";
 import {
@@ -703,6 +707,8 @@ export function routes(
       return handle(req, repo);
     };
   const agents = new AgentWorkspaces(host);
+  const evidence = EvidenceStore.in(host.dataDir);
+  const recorder = playwrightRecorder(host.browser);
   const publicOrigin = (req: Request) =>
     host.publicUrl ?? new URL(req.url).origin;
   const origins = (req: Request) => ({
@@ -713,6 +719,7 @@ export function routes(
     "/*": index,
     ...repoRoutes(host, served, recent),
     ...layoutRoutes(LayoutStore.in(host.dataDir)),
+    ...evidenceRoutes(evidence),
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": reader(handleLog),
     "/api/operations": reader(handleOperations),
@@ -736,7 +743,12 @@ export function routes(
     "/api/local/diff": reader(handleLocalDiff),
     "/api/local/size": reader(handleLocalSize),
     "/mcp": mcpRoute(
-      [...reviewTools(), ...componentTools()],
+      [
+        ...reviewTools(),
+        ...componentTools(),
+        ...evidenceTools(evidence),
+        ...recordingTools(evidence, recorder),
+      ],
       INSTRUCTIONS,
       (req, caller) => agentContext(host, served, agents, origins(req), caller),
     ),

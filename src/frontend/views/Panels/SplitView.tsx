@@ -55,16 +55,27 @@ export function SplitView({
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  const natural = (index: number) =>
+    (sizes[index] ?? null) === null || (folded[index] ?? false);
+  // Flex hands out only the part of the room its grows add up to, so the
+  // shares left once a child folds are scaled back up to the whole.
+  const shared = sizes.reduce<number>(
+    (sum, size, index) => (natural(index) ? sum : sum + (size ?? 0)),
+    0,
+  );
   return (
     <div ref={box} className={`panel-split panel-split--${dir}`}>
       {children.map((child, index) => {
         const size = sizes[index] ?? null;
-        const natural = size === null || folded[index];
         return (
           <div
             key={split.children[index]?.id}
-            className={`panel-split__cell${natural ? " panel-split__cell--natural" : ""}`}
-            style={natural ? undefined : { flex: `${size} 1 0` }}
+            className={`panel-split__cell${natural(index) ? " panel-split__cell--natural" : ""}`}
+            style={
+              natural(index) || size === null
+                ? undefined
+                : { flex: `${size / shared} 1 0` }
+            }
           >
             {child}
             {index < children.length - 1 &&

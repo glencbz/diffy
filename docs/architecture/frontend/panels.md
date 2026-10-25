@@ -2,8 +2,8 @@
 
 How a series review lays out what the reader looks at beside the code, and
 the addresses that let one part of the screen follow another. The commits,
-the threads, the component rail and the code are panels today; the
-[roadmap](#roadmap) adds the author's captures, recordings and runs.
+the threads, the component rail, the code and the [viewer](viewer.md) of
+the author's captures are panels today; the [roadmap](#roadmap) adds runs.
 
 A new kind of panel takes three steps: an id in `PanelId`, a body from the
 screen's controller, and a rule for when it has nothing to show. When it
@@ -69,6 +69,13 @@ export interface ComponentLocation {
 }
 
 export type LocationKind = Location["kind"];
+
+/** A place a panel asked the code to go, numbered so the same place asked
+ *  twice still moves it. */
+export interface Asked {
+  location: Location;
+  at: number;
+}
 
 export function sameLocation(a: Location | null, b: Location | null): boolean {
   if (a === null || b === null) return a === b;
@@ -167,20 +174,34 @@ commit picked or a line linked, stay in the [address](address.md), where a
 reload and a shared link find them; the focus is only what scrolling
 changes, which would fill the browser's history if it went there too.
 
+A follower that wants the code somewhere else asks rather than writes: the
+request goes to the components view, which owns the code's scroll, and the
+reading changes only when the code gets there. So the reading always says
+what the code shows, never what a panel hoped it would.
+
 ```ts
 //| id: frontend-state-focus
 //| file: src/frontend/state/focus.ts
 import { useCallback, useState } from "react";
-import { type Location, sameLocation } from "../model/location";
+import { type Asked, type Location, sameLocation } from "../model/location";
 
 export interface Focus {
   /** What the reading line is over, or null above the first heading. */
   reading: Location | null;
   onRead: (next: Location | null) => void;
+  /** The last place a follower asked the code to go. */
+  asked: Asked | null;
+  ask: (location: Location) => void;
 }
 
 export function useFocus(): Focus {
   const [reading, setReading] = useState<Location | null>(null);
+  const [asked, setAsked] = useState<Asked | null>(null);
+  const ask = useCallback(
+    (location: Location) =>
+      setAsked((now) => ({ location, at: (now?.at ?? 0) + 1 })),
+    [],
+  );
   // The reading line reports on every frame of a scroll; only a change
   // draws anything again.
   const onRead = useCallback(
@@ -188,7 +209,7 @@ export function useFocus(): Focus {
       setReading((now) => (sameLocation(now, next) ? now : next)),
     [],
   );
-  return { reading, onRead };
+  return { reading, onRead, asked, ask };
 }
 ```
 
@@ -218,7 +239,13 @@ panel twice, is no layout, and the one it was made from stands in for it.
 //| file: src/frontend/model/panels.ts
 import * as z from "zod";
 
-export const PanelId = z.enum(["code", "commits", "threads", "components"]);
+export const PanelId = z.enum([
+  "code",
+  "commits",
+  "threads",
+  "components",
+  "viewer",
+]);
 export type PanelId = z.infer<typeof PanelId>;
 
 export const PANEL_NAMES: Record<PanelId, string> = {
@@ -226,6 +253,7 @@ export const PANEL_NAMES: Record<PanelId, string> = {
   commits: "Commits",
   threads: "Threads",
   components: "Components",
+  viewer: "Viewer",
 };
 
 export interface Leaf {
@@ -301,8 +329,9 @@ export const LAYOUTS: Layout[] = [
           [
             leaf("stacked/rail", ["components"]),
             leaf("stacked/code", ["code"]),
+            leaf("stacked/viewer", ["viewer"]),
           ],
-          [null, 1],
+          [null, 0.62, 0.38],
         ),
       ],
       [null, 1],
@@ -315,7 +344,7 @@ export const LAYOUTS: Layout[] = [
       "columns",
       "row",
       [
-        leaf("columns/list", ["commits", "threads"]),
+        leaf("columns/list", ["commits", "threads", "viewer"]),
         leaf("columns/rail", ["components"]),
         leaf("columns/code", ["code"]),
       ],
@@ -330,7 +359,7 @@ export const LAYOUTS: Layout[] = [
       "row",
       [
         leaf("code/code", ["code"]),
-        leaf("code/side", ["components", "commits", "threads"]),
+        leaf("code/side", ["components", "viewer", "commits", "threads"]),
       ],
       [0.7, 0.3],
     ),
@@ -632,7 +661,10 @@ the reader had lost, and the bar is where the reader already goes to change
 the arrangement.
 
 Under 1000px every split stacks, since side by side nothing has room; the
-leaves keep their order, so the drawer still sits over the code.
+leaves keep their order, so the commits still sit over the code. Stacked,
+every leaf after the first that does not hold the code starts folded, or a
+phone would give the code a sliver between them; each is a tap away, and
+zoom gives any of them the screen.
 
 ```tsx
 //| id: frontend-view-panels
@@ -717,7 +749,9 @@ export function Panels({
     all.find((each) => each.id === focused) ??
     all.find((each) => each.tabs.includes("code"));
   const folded = (leaf: Leaf) =>
-    folds.get(leaf.id) ?? leaf.tabs.every((panel) => empty.has(panel));
+    folds.get(leaf.id) ??
+    (leaf.tabs.every((panel) => empty.has(panel)) ||
+      (narrow && leaf.id !== all[0]?.id && !leaf.tabs.includes("code")));
   const zoomed = all.find((each) => each.id === zoom) ?? null;
 
   const show = (leafId: string, panel: PanelId) => {
@@ -1060,16 +1094,27 @@ export function SplitView({
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  const natural = (index: number) =>
+    (sizes[index] ?? null) === null || (folded[index] ?? false);
+  // Flex hands out only the part of the room its grows add up to, so the
+  // shares left once a child folds are scaled back up to the whole.
+  const shared = sizes.reduce<number>(
+    (sum, size, index) => (natural(index) ? sum : sum + (size ?? 0)),
+    0,
+  );
   return (
     <div ref={box} className={`panel-split panel-split--${dir}`}>
       {children.map((child, index) => {
         const size = sizes[index] ?? null;
-        const natural = size === null || folded[index];
         return (
           <div
             key={split.children[index]?.id}
-            className={`panel-split__cell${natural ? " panel-split__cell--natural" : ""}`}
-            style={natural ? undefined : { flex: `${size} 1 0` }}
+            className={`panel-split__cell${natural(index) ? " panel-split__cell--natural" : ""}`}
+            style={
+              natural(index) || size === null
+                ? undefined
+                : { flex: `${size / shared} 1 0` }
+            }
           >
             {child}
             {index < children.length - 1 &&
@@ -1597,40 +1642,17 @@ export function LeafView({
 What is still to build, in order. Each step is a pull request that moves its
 part of this list into the sections above.
 
-**Drawing on the code.** Panels mark lines through the code's layer
-(`StackLayer` and `LineDecor`) rather than `<style>` rules, so a new panel
-can light the lines it cares about.
-
-**Evidence.** Captures, recordings and runs join the component map as a
-list keyed by kind with a schema version, stored in the data directory
-beside the review stores, served with byte ranges so video can seek. A kind
-diffy does not know falls back to a panel showing the raw file.
-
-**Recording, for agents.** An agent records evidence; nothing else does yet.
-It needs:
-
-- MCP tools `attach_capture` (an image or clip by path on the same machine,
-  with the boxes and time spans that show each component) and `attach_run`
-  (a run's steps), which copy the files into the data directory, and
-  `read_evidence` to see what a version has.
-- A recorder it can drive, as a skill: a Playwright script whose steps each
-  take a screenshot and record the page's requests, console and the lines
-  of the repository they ran, from V8 block coverage and CSS rule use,
-  mapped back to source paths through source maps when the app is bundled.
-- The same script run at the commit and at its parent, each served from its
-  own jj workspace, so every step can be compared before and after.
-- Boxes found from selectors, so an agent names the element a component
-  draws rather than measuring pixels.
-
-**Viewer.** Images first, compared before and after by side, swipe, fade or
-difference, with boxes that link to their components; then video, with
-time as a location and spans of a clip as places. A filmstrip under the
-shot picks among every capture and step of the commit.
-
-**Runs.** Steps join the filmstrip; Network and Console show what the step
-in focus did, its requests answered before and after; the lines it ran are
-lit in the code. The focus gains a hold, so the reader can keep a shot while
-reading on.
+**Runs.** The [recorder](../backend/recording.md) learns to keep what
+each step did: the page's requests and console, and the lines of the
+repository it ran, from V8 block coverage and CSS rule use, mapped back to
+source paths through source maps when the app is bundled. A run's steps are
+evidence of a second kind and join the [viewer's](viewer.md) strip; Network
+and Console show what the step in focus did, its requests answered before
+and after. The lines a step ran are marked through the code's layer
+(`StackLayer` and `LineDecor`), a class per step drawn once per commit, and
+a rule picks out the step in focus, so moving the focus never draws the diff
+again. The focus gains a hold, so the reader can keep a shot while reading
+on.
 
 **Comments on any location.** A box on a capture, a moment of a clip, a step
 or a request can hold a thread, which needs an anchor in the review store
@@ -1779,10 +1801,10 @@ describe("layouts", () => {
   test("closing a leaf's only panel lets its sibling take the split", () => {
     // arrange
     // act
-    const tree = closePanel(stacked.tree, "components");
+    const tree = closePanel(closePanel(stacked.tree, "components"), "viewer");
 
     // assert
-    expect(missing(tree)).toEqual(["components"]);
+    expect(missing(tree)).toEqual(["components", "viewer"]);
     expect(findLeaf(tree, "stacked/rail")).toBeNull();
     expect(tree.kind === "split" && tree.children[1]?.kind).toBe("leaf");
   });
