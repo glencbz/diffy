@@ -33,6 +33,7 @@ import {
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
 import { recordingTools } from "./backend/agent/recording";
 import { INSTRUCTIONS, reviewTools, turnOf } from "./backend/agent/review";
+import { runTools } from "./backend/agent/runs";
 import {
   beforePaths,
   CompareError,
@@ -884,6 +885,7 @@ export function routes(
         ...componentTools(),
         ...evidenceTools(evidence),
         ...recordingTools(evidence, recorder),
+        ...runTools(evidence, recorder),
       ],
       INSTRUCTIONS,
       (req, caller) => agentContext(host, served, agents, origins(req), caller),

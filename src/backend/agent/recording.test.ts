@@ -82,6 +82,7 @@ const FAKE: Recorder = {
       length: 3,
     };
   },
+  run: () => Promise.reject(new Error("not asked")),
   close: async () => {},
 };
 

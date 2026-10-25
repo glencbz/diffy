@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "playwright-core";
 import type { Recipe, Step, Taken } from "./recipe";
+import { type Played, recordRun } from "./recordRun";
 
 /** How long a step waits for its element before the recipe fails. */
 const STEP_MS = 5000;
@@ -11,6 +12,11 @@ const STEP_MS = 5000;
 export interface Recorder {
   /** Plays `recipe` against the app at `base`, measuring `selectors`. */
   take(base: string, recipe: Recipe, selectors: string[]): Promise<Taken>;
+  /** Plays `recipe` as a [run](runs.md), step by step. */
+  run(
+    base: string,
+    recipe: Recipe & { steps: (Step & { label?: string })[] },
+  ): Promise<Played>;
   close(): Promise<void>;
 }
 
@@ -81,13 +87,20 @@ export function playwrightRecorder(executablePath: string | null): Recorder {
         await context.close();
       }
     },
+    async run(base, recipe) {
+      return recordRun(await launched(), base, recipe);
+    },
     async close() {
       if (browser !== null) await (await browser).close();
     },
   };
 }
 
-async function play(page: Page, base: string, step: Step): Promise<void> {
+export async function play(
+  page: Page,
+  base: string,
+  step: Step,
+): Promise<void> {
   switch (step.do) {
     case "goto":
       return settle(page, page.goto(new URL(step.path, base).href));
@@ -104,7 +117,10 @@ async function play(page: Page, base: string, step: Step): Promise<void> {
 
 /** Waits for `action`, then for the page to stop fetching, up to a point:
  *  an app that polls never stops. */
-async function settle(page: Page, action: Promise<unknown>): Promise<void> {
+export async function settle(
+  page: Page,
+  action: Promise<unknown>,
+): Promise<void> {
   await action;
   await page
     .waitForLoadState("networkidle", { timeout: 3000 })
