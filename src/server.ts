@@ -9,6 +9,7 @@ import {
   LISTEN_PATH,
 } from "./backend/agent/listeners";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
+import { recordingTools } from "./backend/agent/recording";
 import { INSTRUCTIONS, reviewTools, turnOf } from "./backend/agent/review";
 import {
   beforePaths,
@@ -50,6 +51,7 @@ import {
   jjOpLog,
 } from "./backend/commit/jj";
 import { type AlignedPair, alignSeries } from "./backend/commit/series";
+import { playwrightRecorder } from "./backend/evidence/recorder";
 import { EvidenceStore, evidenceRoutes } from "./backend/evidence/store";
 import type { Host } from "./backend/host/host";
 import { LayoutStore, layoutRoutes } from "./backend/layouts/layouts";
@@ -706,6 +708,7 @@ export function routes(
     };
   const agents = new AgentWorkspaces(host);
   const evidence = EvidenceStore.in(host.dataDir);
+  const recorder = playwrightRecorder(host.browser);
   const publicOrigin = (req: Request) =>
     host.publicUrl ?? new URL(req.url).origin;
   const origins = (req: Request) => ({
@@ -740,7 +743,12 @@ export function routes(
     "/api/local/diff": reader(handleLocalDiff),
     "/api/local/size": reader(handleLocalSize),
     "/mcp": mcpRoute(
-      [...reviewTools(), ...componentTools(), ...evidenceTools(evidence)],
+      [
+        ...reviewTools(),
+        ...componentTools(),
+        ...evidenceTools(evidence),
+        ...recordingTools(evidence, recorder),
+      ],
       INSTRUCTIONS,
       (req, caller) => agentContext(host, served, agents, origins(req), caller),
     ),

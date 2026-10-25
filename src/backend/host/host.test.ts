@@ -23,4 +23,11 @@ test("puts diffy's files under the XDG directories, or their defaults", () => {
     publicUrl: "https://vm",
   });
 });
+
+test("records with the browser named, or none when nothing is cached", () => {
+  expect(hostFrom({ DIFFY_CHROMIUM: "/c" }, "/home/me").browser).toBe("/c");
+  expect(
+    hostFrom({ PLAYWRIGHT_BROWSERS_PATH: "/nowhere" }, "/home/me").browser,
+  ).toBeNull();
+});
 // ~/~ end

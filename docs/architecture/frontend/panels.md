@@ -1642,23 +1642,13 @@ export function LeafView({
 What is still to build, in order. Each step is a pull request that moves its
 part of this list into the sections above.
 
-**Recording, for agents.** Agents attach captures with the
-[evidence tools](../backend/evidence.md#the-tools); taking them is still
-theirs to work out. They need:
-
-- A recorder they can drive, as a skill: a Playwright script whose steps
-  each take a screenshot and record the page's requests, console and the
-  lines of the repository they ran, from V8 block coverage and CSS rule use,
-  mapped back to source paths through source maps when the app is bundled.
-- The same script run at the commit and at its parent, each served from its
-  own jj workspace, so every step can be compared before and after.
-- Boxes found from selectors, so an agent names the element a component
-  draws rather than measuring pixels.
-
-**Runs.** A run's steps are evidence of a second kind, attached with an
-`attach_run` tool, and join the [viewer's](viewer.md) strip; Network and
-Console show what the step in focus did, its requests answered before and
-after. The lines a step ran are marked through the code's layer
+**Runs.** The [recorder](../backend/recording.md) learns to keep what
+each step did: the page's requests and console, and the lines of the
+repository it ran, from V8 block coverage and CSS rule use, mapped back to
+source paths through source maps when the app is bundled. A run's steps are
+evidence of a second kind and join the [viewer's](viewer.md) strip; Network
+and Console show what the step in focus did, its requests answered before
+and after. The lines a step ran are marked through the code's layer
 (`StackLayer` and `LineDecor`), a class per step drawn once per commit, and
 a rule picks out the step in focus, so moving the focus never draws the diff
 again. The focus gains a hold, so the reader can keep a shot while reading

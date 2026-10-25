@@ -2,7 +2,7 @@
 
 What diffy takes from the machine it runs on: the home directory, where it
 keeps its files, the address the reader reaches it at, the command that runs
-it, and the time. The
+it, the browser it [records](recording.md) with, and the time. The
 [command line](cli.md) reads them once into a `Host` and hands it down, so no
 module below it reads `process.env`, `homedir()` or the clock itself, and a
 test or a second server can run against a host of its own.
@@ -19,6 +19,7 @@ a shell.
 ```ts
 //| id: backend-host
 //| file: src/backend/host/host.ts
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -34,6 +35,9 @@ export interface Host {
   publicUrl: string | null;
   /** The command that runs this diffy again, before its arguments. */
   diffy: string[];
+  /** The Chromium a recording drives, or null for the one Playwright
+   *  would download. */
+  browser: string | null;
   now: () => Date;
 }
 
@@ -54,8 +58,32 @@ export function hostFrom(
     diffy: Bun.main.startsWith("/$bunfs/")
       ? [process.execPath]
       : [process.execPath, Bun.main],
+    browser:
+      env.DIFFY_CHROMIUM ||
+      cachedChromium(
+        env.PLAYWRIGHT_BROWSERS_PATH || join(home, ".cache", "ms-playwright"),
+      ),
     now: () => new Date(),
   };
+}
+
+/** The newest Chromium Playwright has downloaded under `dir`. A browser
+ *  driver of another version, such as an MCP server's, often fetched one
+ *  that diffy's Playwright would not pick by its own revision. */
+function cachedChromium(dir: string): string | null {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  const newest = names
+    .filter((name) => /^chromium-\d+$/.test(name))
+    .sort((a, b) => Number(a.slice(9)) - Number(b.slice(9)))
+    .at(-1);
+  return newest === undefined
+    ? null
+    : join(dir, newest, "chrome-linux64", "chrome");
 }
 ```
 
@@ -87,5 +115,12 @@ test("puts diffy's files under the XDG directories, or their defaults", () => {
     stateDir: "/s/diffy",
     publicUrl: "https://vm",
   });
+});
+
+test("records with the browser named, or none when nothing is cached", () => {
+  expect(hostFrom({ DIFFY_CHROMIUM: "/c" }, "/home/me").browser).toBe("/c");
+  expect(
+    hostFrom({ PLAYWRIGHT_BROWSERS_PATH: "/nowhere" }, "/home/me").browser,
+  ).toBeNull();
 });
 ```

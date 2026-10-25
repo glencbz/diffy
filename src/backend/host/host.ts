@@ -1,4 +1,5 @@
 // ~/~ begin <<docs/architecture/backend/host.md#backend-host>>[init]
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +15,9 @@ export interface Host {
   publicUrl: string | null;
   /** The command that runs this diffy again, before its arguments. */
   diffy: string[];
+  /** The Chromium a recording drives, or null for the one Playwright
+   *  would download. */
+  browser: string | null;
   now: () => Date;
 }
 
@@ -34,7 +38,31 @@ export function hostFrom(
     diffy: Bun.main.startsWith("/$bunfs/")
       ? [process.execPath]
       : [process.execPath, Bun.main],
+    browser:
+      env.DIFFY_CHROMIUM ||
+      cachedChromium(
+        env.PLAYWRIGHT_BROWSERS_PATH || join(home, ".cache", "ms-playwright"),
+      ),
     now: () => new Date(),
   };
+}
+
+/** The newest Chromium Playwright has downloaded under `dir`. A browser
+ *  driver of another version, such as an MCP server's, often fetched one
+ *  that diffy's Playwright would not pick by its own revision. */
+function cachedChromium(dir: string): string | null {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  const newest = names
+    .filter((name) => /^chromium-\d+$/.test(name))
+    .sort((a, b) => Number(a.slice(9)) - Number(b.slice(9)))
+    .at(-1);
+  return newest === undefined
+    ? null
+    : join(dir, newest, "chrome-linux64", "chrome");
 }
 // ~/~ end
