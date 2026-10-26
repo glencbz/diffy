@@ -91,6 +91,24 @@ describe("openReviewStore", () => {
     expect(answer.document.viewed).toHaveLength(1);
   });
 
+  test("keeps a field a newer diffy wrote when it applies a command", () => {
+    // arrange
+    const path = join(dir, "r.sqlite");
+    openReviewStore(path).apply(seen);
+    new Database(path).run(
+      `UPDATE review SET document = json_set(document, '$.fromNewerDiffy', json('[{"id":"r1"}]'))`,
+    );
+    const store = openReviewStore(path);
+
+    // act
+    store.apply(seen);
+
+    // assert
+    expect(store.read().document).toMatchObject({
+      fromNewerDiffy: [{ id: "r1" }],
+    });
+  });
+
   test("refuses a stored document it cannot read rather than replacing it", () => {
     // arrange
     const path = join(dir, "r.sqlite");

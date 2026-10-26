@@ -22,6 +22,14 @@ but every command would need a second implementation in SQL that could
 disagree with the model's. The document is small enough to read whole on
 every write.
 
+Every workspace's server writes the same file, and they run different
+versions of diffy. The document keeps the fields a server does not know, so
+a server from before a field existed passes it along when it applies a
+command, rather than dropping what a newer one wrote. Only the document's
+own fields are kept that way; a field added inside an existing kind of
+record is dropped by an older server, so a new kind of record goes in a
+field of its own.
+
 ```ts
 //| id: backend-review-store
 //| file: src/backend/review/store.ts
@@ -280,6 +288,24 @@ describe("openReviewStore", () => {
     expect(answer.revision).toBe(2);
     expect(answer.document.marks).toHaveLength(1);
     expect(answer.document.viewed).toHaveLength(1);
+  });
+
+  test("keeps a field a newer diffy wrote when it applies a command", () => {
+    // arrange
+    const path = join(dir, "r.sqlite");
+    openReviewStore(path).apply(seen);
+    new Database(path).run(
+      `UPDATE review SET document = json_set(document, '$.fromNewerDiffy', json('[{"id":"r1"}]'))`,
+    );
+    const store = openReviewStore(path);
+
+    // act
+    store.apply(seen);
+
+    // assert
+    expect(store.read().document).toMatchObject({
+      fromNewerDiffy: [{ id: "r1" }],
+    });
   });
 
   test("refuses a stored document it cannot read rather than replacing it", () => {
