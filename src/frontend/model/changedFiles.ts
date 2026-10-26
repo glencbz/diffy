@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-model-changed-files>>[init]
 import type { FileDiff } from "./diff";
 import { readPatch } from "./patch";
-import type { FileVersion, RowComment } from "./review";
+import { type FileVersion, onFile, type RowComment } from "./review";
 
 /** One changed file, read once from whichever `FileDiff` shape it came
  *  from, for every reader that only wants to know what changed. */
@@ -86,7 +86,7 @@ export function changedFile(
     binary: file.binary,
     openComments: comments.filter(
       (comment) =>
-        comment.kind !== "comparison" &&
+        onFile(comment) &&
         comment.path === shownPathOf(file) &&
         !comment.resolved,
     ).length,

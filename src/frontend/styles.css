@@ -5246,6 +5246,115 @@
   .viewer__thumb-name {
     overflow-wrap: anywhere;
   }
+
+  .viewer__comment {
+    margin-left: auto;
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    font-size: var(--text-size-small);
+    color: var(--text-muted);
+    cursor: pointer;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .viewer__comment[aria-pressed="true"] {
+    color: var(--review-open);
+    border-color: var(--review-open);
+  }
+
+  /* While the reader picks where to comment, the layer takes every press
+     on the picture, the component boxes' and the player's too. */
+  .viewer-draw {
+    position: absolute;
+    inset: 0;
+    cursor: crosshair;
+    touch-action: none;
+    background: color-mix(in srgb, var(--review-open) 6%, transparent);
+  }
+
+  /* A thread's box is dashed, so it never reads as a component's. */
+  .viewer-note {
+    position: absolute;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    background: none;
+    border: 2px dashed var(--review-open);
+    border-radius: var(--radius);
+  }
+
+  .viewer-note--resolved {
+    border-color: var(--review-resolved);
+    opacity: 0.6;
+  }
+
+  .viewer-note--lit {
+    background: color-mix(in srgb, var(--review-open) 14%, transparent);
+    opacity: 1;
+  }
+
+  .viewer-note--draft {
+    pointer-events: none;
+    background: color-mix(in srgb, var(--review-open) 10%, transparent);
+  }
+
+  .viewer-note__number,
+  .viewer__thread-number {
+    display: grid;
+    place-items: center;
+    min-width: 1.5em;
+    height: 1.5em;
+    font-size: var(--text-size-small);
+    font-weight: bold;
+    color: var(--surface);
+    background: var(--review-open);
+    border-radius: 0.75em;
+  }
+
+  /* The number sits on the box's corner, outside what it marks. */
+  .viewer-note__number {
+    position: absolute;
+    top: -0.75em;
+    right: -0.75em;
+  }
+
+  /* Over a clip only the number answers a click, as only a component
+     box's name does. */
+  .viewer__frame--video .viewer-note {
+    pointer-events: none;
+  }
+
+  .viewer__frame--video .viewer-note__number {
+    pointer-events: auto;
+  }
+
+  .viewer__notes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .viewer__notes .comment-composer,
+  .viewer__notes .comment-thread {
+    margin: 0;
+  }
+
+  .viewer__thread {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: start;
+  }
+
+  .viewer__thread-number {
+    margin-top: var(--space-2);
+  }
+
+  .viewer__thread--lit .comment-thread {
+    border-color: var(--review-open);
+  }
 }
 /* ~/~ end */
 
@@ -5277,6 +5386,44 @@
 
   .run-row {
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  /* A request's comment button sits at the end of its line; what opens
+     under the line takes the whole row. */
+  .run-row:has(.run-row__head) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+  }
+
+  .run-row__bodies,
+  .run-row__notes {
+    grid-column: 1 / -1;
+  }
+
+  .run-row__comment {
+    min-width: 1.6em;
+    padding: 0 var(--space-1);
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .run-row__comment:hover {
+    color: var(--review-open);
+    border-color: var(--review-open);
+  }
+
+  .run-row:has(.run-row__notes) .run-row__comment {
+    color: var(--review-open);
+  }
+
+  .run-row__notes .comment-composer,
+  .run-row__notes .comment-thread {
+    margin: var(--space-2) 0 var(--space-2) 1.2em;
   }
 
   .run-row__head,

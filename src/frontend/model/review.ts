@@ -9,7 +9,7 @@ import {
   withKind,
 } from "./components";
 import type { InterdiffRow } from "./diff";
-import { Capture, withCapture } from "./evidence";
+import { Box, Capture, withCapture } from "./evidence";
 import { followLine, readPatch } from "./patch";
 import { Run, withRun } from "./runs";
 
@@ -32,10 +32,11 @@ export interface LineAnchor {
   line: number;
 }
 
-/** What a comment is about: one line of a file, a whole file, or the whole
- *  comparison. A stored comment with no kind is a line comment, and one with
- *  no side is on the after side. Defaulting both keeps `load` from
- *  discarding a whole document written before either field. */
+/** What a comment is about: one line of a file, a whole file, the whole
+ *  comparison, a capture, or a step of a run. A stored comment with no kind
+ *  is a line comment, and one with no side is on the after side. Defaulting
+ *  both keeps `load` from discarding a whole document written before either
+ *  field. */
 export const Anchor = z.union([
   z.object({
     kind: z.literal("line").default("line"),
@@ -45,8 +46,65 @@ export const Anchor = z.union([
   }),
   z.object({ kind: z.literal("file"), path: z.string() }),
   z.object({ kind: z.literal("comparison") }),
+  z.object({
+    kind: z.literal("capture"),
+    /** The capture's id, which its commit keeps from version to version. */
+    capture: z.string(),
+    /** The picture the box is drawn on. */
+    side: Side,
+    /** A region of the picture, or null for all of it. */
+    box: Box.nullable(),
+    /** Seconds into a clip, or null for a picture or the whole clip. */
+    at: z.number().min(0).nullable(),
+  }),
+  z.object({
+    kind: z.literal("step"),
+    /** The run's id, which its commit keeps from version to version. */
+    run: z.string(),
+    /** Counting from 0, as the run's steps are stored. */
+    step: z.number().int().min(0),
+    /** The shot the box is drawn on, and the box, as on a capture. */
+    side: Side,
+    box: Box.nullable(),
+    /** One request of the step, by method and address, or null for the
+     *  whole step. */
+    request: z.object({ method: z.string(), url: z.string() }).nullable(),
+  }),
 ]);
 export type Anchor = z.infer<typeof Anchor>;
+
+/** The anchors on a file of a commit's diff. */
+export type FileAnchor = Extract<Anchor, { kind: "line" | "file" }>;
+
+/** What a comment on a capture or a run is about, named so it reads on its
+ *  own: the capture or run by its id, then the part of it. */
+export function evidenceLabel(
+  anchor: Extract<Anchor, { kind: "capture" | "step" }>,
+): string {
+  const parts =
+    anchor.kind === "step"
+      ? [
+          anchor.run,
+          `step ${anchor.step + 1}`,
+          ...(anchor.request === null
+            ? []
+            : [`${anchor.request.method} ${anchor.request.url}`]),
+        ]
+      : [
+          anchor.capture,
+          ...(anchor.at === null ? [] : [`at ${anchor.at.toFixed(1)}s`]),
+        ];
+  return [
+    ...parts,
+    ...(anchor.box === null ? [] : ["a box"]),
+    ...(anchor.side === "before" ? ["parent"] : []),
+  ].join(", ");
+}
+
+/** Whether a comment is about a file of its commit's diff. */
+export function onFile<T extends Anchor>(anchor: T): anchor is T & FileAnchor {
+  return anchor.kind === "line" || anchor.kind === "file";
+}
 
 /** An answer on a comment's thread. It has no anchor, commit or resolution
  *  of its own: it is about whatever its comment is about. */
@@ -362,10 +420,8 @@ export function drawnAt(comment: RowComment, patch: string): LineAnchor | null {
   }
 }
 
-/** Review memory for the files on screen. A diff that has one lets every
- * file, and every line of it on either side, be commented on; a diff that
- * has none renders read-only. */
-export interface DiffReview {
+/** The threads on one thing of a row, and what the reader can do to them. */
+export interface ThreadReview {
   comments: RowComment[];
   onAddComment: (anchor: Anchor, body: string) => void;
   onEditComment: (id: string, body: string) => void;
@@ -374,6 +430,12 @@ export interface DiffReview {
   onReplyToComment: (id: string, body: string) => void;
   onEditReply: (commentId: string, replyId: string, body: string) => void;
   onDropReply: (commentId: string, replyId: string) => void;
+}
+
+/** Review memory for the files on screen. A diff that has one lets every
+ * file, and every line of it on either side, be commented on; a diff that
+ * has none renders read-only. */
+export interface DiffReview extends ThreadReview {
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -1146,6 +1208,24 @@ export interface ReviewActions {
   ) => void;
   forgetReview: (name: string) => void;
   restoreReview: (name: string) => void;
+}
+
+/** `comments` of `row`, written to through `actions`. */
+export function threadReview(
+  actions: ReviewActions,
+  row: ComparisonReview,
+  comments: RowComment[],
+): ThreadReview {
+  return {
+    comments,
+    onAddComment: (anchor, body) => actions.addComment(row, anchor, body),
+    onEditComment: actions.editComment,
+    onResolveComment: actions.resolveComment,
+    onDropComment: actions.dropComment,
+    onReplyToComment: actions.replyToComment,
+    onEditReply: actions.editReply,
+    onDropReply: actions.dropReply,
+  };
 }
 
 /** The comparison a row stands for, as a mark names it. */

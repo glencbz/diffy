@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-run-steps>>[init]
 import type { Capture } from "./evidence";
+import type { RowComment } from "./review";
 import type { Logged, Request, Run, RunStep } from "./runs";
 
 /** The step `index` of `run` drawn as a picture capture. */
@@ -96,5 +97,31 @@ function compare<T>(
       out.push({ change: "gone", before: item, after: null });
   }
   return out;
+}
+/** The threads on the requests of one step of a run. */
+export function requestNotes(
+  comments: RowComment[],
+  run: string,
+  step: number,
+): RowComment[] {
+  return comments.filter(
+    (comment) =>
+      comment.kind === "step" &&
+      comment.run === run &&
+      comment.step === step &&
+      comment.request !== null,
+  );
+}
+
+/** Whether a thread is on `request`. */
+export function isOnRequest(
+  comment: RowComment,
+  request: { method: string; url: string },
+): boolean {
+  return (
+    comment.kind === "step" &&
+    comment.request?.method === request.method &&
+    comment.request.url === request.url
+  );
 }
 // ~/~ end

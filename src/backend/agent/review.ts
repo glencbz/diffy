@@ -2,6 +2,7 @@
 import * as z from "zod";
 import {
   type Anchor,
+  evidenceLabel,
   KEEP_FORGOTTEN_MS,
   type LocalReview,
   type LocalVersion,
@@ -120,6 +121,15 @@ function where(anchor: Anchor): string {
       return anchor.path;
     case "comparison":
       return "whole commit";
+    case "capture":
+    case "step": {
+      // An agent cannot see the box, so it reads it as numbers.
+      const box =
+        anchor.box === null
+          ? ""
+          : ` [${anchor.box.map((each) => each.toFixed(3)).join(", ")}]`;
+      return `${anchor.kind === "capture" ? "capture" : "run"} ${evidenceLabel(anchor)}${box}`;
+    }
   }
 }
 

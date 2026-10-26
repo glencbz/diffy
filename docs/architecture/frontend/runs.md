@@ -22,6 +22,7 @@ says so the way it does for a capture with no parent.
 //| id: frontend-model-run-steps
 //| file: src/frontend/model/runSteps.ts
 import type { Capture } from "./evidence";
+import type { RowComment } from "./review";
 import type { Logged, Request, Run, RunStep } from "./runs";
 
 /** The step `index` of `run` drawn as a picture capture. */
@@ -119,6 +120,32 @@ function compare<T>(
   }
   return out;
 }
+/** The threads on the requests of one step of a run. */
+export function requestNotes(
+  comments: RowComment[],
+  run: string,
+  step: number,
+): RowComment[] {
+  return comments.filter(
+    (comment) =>
+      comment.kind === "step" &&
+      comment.run === run &&
+      comment.step === step &&
+      comment.request !== null,
+  );
+}
+
+/** Whether a thread is on `request`. */
+export function isOnRequest(
+  comment: RowComment,
+  request: { method: string; url: string },
+): boolean {
+  return (
+    comment.kind === "step" &&
+    comment.request?.method === request.method &&
+    comment.request.url === request.url
+  );
+}
 ```
 
 ## Network and Console
@@ -129,22 +156,40 @@ that was never played marks nothing, since there is nothing to compare
 with. A request's answer opens under it, both sides when they differ, so a
 reader can see the response a change altered.
 
+A request takes a thread of its own, opened from the button at the end of
+its line, the way a line of code does. Its anchor names the step and the
+request's method and address, the key that pairs the two sides, rather
+than its place in the list: a re-recorded run can fetch in another order,
+and the thread should still find its request.
+
 ```tsx
 //| id: frontend-view-network
 //| file: src/frontend/views/Runs/Network.tsx
 import { useState } from "react";
-import type { Compared } from "../../model/runSteps";
+import type { Anchor, ThreadReview } from "../../model/review";
+import { type Compared, isOnRequest } from "../../model/runSteps";
 import type { Request } from "../../model/runs";
+import { CommentComposer, CommentThreads } from "../Comments";
+
+/** The threads on the step's requests, and the anchor a new one takes. */
+export interface RequestNotes {
+  review: ThreadReview;
+  anchorOf: (request: { method: string; url: string }) => Anchor;
+}
 
 export function Network({
   label,
   requests,
+  notes,
 }: {
   /** The step the requests belong to. */
   label: string;
   requests: Compared<Request>[];
+  /** Null where there is no review to keep comments in. */
+  notes: RequestNotes | null;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [composing, setComposing] = useState<string | null>(null);
   return (
     <div className="run-panel">
       <p className="run-panel__step">{label}</p>
@@ -156,6 +201,10 @@ export function Network({
             const request = (each.after ?? each.before) as Request;
             const key = `${index}:${request.method} ${request.url}`;
             const body = each.after?.body ?? each.before?.body ?? null;
+            const threads =
+              notes?.review.comments.filter((comment) =>
+                isOnRequest(comment, request),
+              ) ?? [];
             return (
               <li key={key} className={`run-row run-row--${each.change}`}>
                 <button
@@ -177,6 +226,16 @@ export function Network({
                   </span>
                   <span className="run-row__type">{request.type}</span>
                 </button>
+                {notes !== null && (
+                  <button
+                    type="button"
+                    className="run-row__comment"
+                    aria-label={`comment on ${request.method} ${request.url}`}
+                    onClick={() => setComposing(key)}
+                  >
+                    {threads.length > 0 ? threads.length : "+"}
+                  </button>
+                )}
                 {open === key && (
                   <div className="run-row__bodies">
                     {each.change === "changed" &&
@@ -193,6 +252,30 @@ export function Network({
                     )}
                   </div>
                 )}
+                {notes !== null &&
+                  (composing === key || threads.length > 0) && (
+                    <div className="run-row__notes">
+                      {composing === key && (
+                        <CommentComposer
+                          anchor={notes.anchorOf(request)}
+                          onCancel={() => setComposing(null)}
+                          onSubmit={(anchor, text) => {
+                            notes.review.onAddComment(anchor, text);
+                            setComposing(null);
+                          }}
+                        />
+                      )}
+                      <CommentThreads
+                        comments={threads}
+                        onEditComment={notes.review.onEditComment}
+                        onResolveComment={notes.review.onResolveComment}
+                        onDropComment={notes.review.onDropComment}
+                        onReplyToComment={notes.review.onReplyToComment}
+                        onEditReply={notes.review.onEditReply}
+                        onDropReply={notes.review.onDropReply}
+                      />
+                    </div>
+                  )}
               </li>
             );
           })}
@@ -304,6 +387,44 @@ export function Console({
 
   .run-row {
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  /* A request's comment button sits at the end of its line; what opens
+     under the line takes the whole row. */
+  .run-row:has(.run-row__head) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+  }
+
+  .run-row__bodies,
+  .run-row__notes {
+    grid-column: 1 / -1;
+  }
+
+  .run-row__comment {
+    min-width: 1.6em;
+    padding: 0 var(--space-1);
+    font: inherit;
+    color: var(--text-faint);
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  .run-row__comment:hover {
+    color: var(--review-open);
+    border-color: var(--review-open);
+  }
+
+  .run-row:has(.run-row__notes) .run-row__comment {
+    color: var(--review-open);
+  }
+
+  .run-row__notes .comment-composer,
+  .run-row__notes .comment-thread {
+    margin: var(--space-2) 0 var(--space-2) 1.2em;
   }
 
   .run-row__head,

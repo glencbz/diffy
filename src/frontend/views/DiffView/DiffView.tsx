@@ -15,6 +15,7 @@ import {
   type CompareOffer,
   type DiffReview,
   isViewed,
+  onFile,
 } from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
@@ -83,12 +84,11 @@ export function DiffView({
                 : {
                     kind: "review",
                     comments: review.comments.filter(
-                      (comment) =>
-                        comment.kind !== "comparison" && comment.path === path,
+                      (comment) => onFile(comment) && comment.path === path,
                     ),
                     composer:
                       composer !== null &&
-                      composer.kind !== "comparison" &&
+                      onFile(composer) &&
                       composer.path === path
                         ? composer
                         : null,

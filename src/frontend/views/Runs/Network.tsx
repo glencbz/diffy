@@ -1,17 +1,29 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-view-network>>[init]
 import { useState } from "react";
-import type { Compared } from "../../model/runSteps";
+import type { Anchor, ThreadReview } from "../../model/review";
+import { type Compared, isOnRequest } from "../../model/runSteps";
 import type { Request } from "../../model/runs";
+import { CommentComposer, CommentThreads } from "../Comments";
+
+/** The threads on the step's requests, and the anchor a new one takes. */
+export interface RequestNotes {
+  review: ThreadReview;
+  anchorOf: (request: { method: string; url: string }) => Anchor;
+}
 
 export function Network({
   label,
   requests,
+  notes,
 }: {
   /** The step the requests belong to. */
   label: string;
   requests: Compared<Request>[];
+  /** Null where there is no review to keep comments in. */
+  notes: RequestNotes | null;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [composing, setComposing] = useState<string | null>(null);
   return (
     <div className="run-panel">
       <p className="run-panel__step">{label}</p>
@@ -23,6 +35,10 @@ export function Network({
             const request = (each.after ?? each.before) as Request;
             const key = `${index}:${request.method} ${request.url}`;
             const body = each.after?.body ?? each.before?.body ?? null;
+            const threads =
+              notes?.review.comments.filter((comment) =>
+                isOnRequest(comment, request),
+              ) ?? [];
             return (
               <li key={key} className={`run-row run-row--${each.change}`}>
                 <button
@@ -44,6 +60,16 @@ export function Network({
                   </span>
                   <span className="run-row__type">{request.type}</span>
                 </button>
+                {notes !== null && (
+                  <button
+                    type="button"
+                    className="run-row__comment"
+                    aria-label={`comment on ${request.method} ${request.url}`}
+                    onClick={() => setComposing(key)}
+                  >
+                    {threads.length > 0 ? threads.length : "+"}
+                  </button>
+                )}
                 {open === key && (
                   <div className="run-row__bodies">
                     {each.change === "changed" &&
@@ -60,6 +86,30 @@ export function Network({
                     )}
                   </div>
                 )}
+                {notes !== null &&
+                  (composing === key || threads.length > 0) && (
+                    <div className="run-row__notes">
+                      {composing === key && (
+                        <CommentComposer
+                          anchor={notes.anchorOf(request)}
+                          onCancel={() => setComposing(null)}
+                          onSubmit={(anchor, text) => {
+                            notes.review.onAddComment(anchor, text);
+                            setComposing(null);
+                          }}
+                        />
+                      )}
+                      <CommentThreads
+                        comments={threads}
+                        onEditComment={notes.review.onEditComment}
+                        onResolveComment={notes.review.onResolveComment}
+                        onDropComment={notes.review.onDropComment}
+                        onReplyToComment={notes.review.onReplyToComment}
+                        onEditReply={notes.review.onEditReply}
+                        onDropReply={notes.review.onDropReply}
+                      />
+                    </div>
+                  )}
               </li>
             );
           })}

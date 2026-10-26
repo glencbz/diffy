@@ -3,7 +3,7 @@ import { shownPathOf } from "./changedFiles";
 import type { FileDiff } from "./diff";
 import type { GitCommit } from "./history";
 import type { FileSpot, SeriesPlace } from "./place";
-import { type Comment, drawnAt, type RowComment } from "./review";
+import { type Comment, drawnAt, onFile, type RowComment } from "./review";
 import type { SeriesVersion } from "./series";
 
 /** One version of a series and its commits, oldest first. */
@@ -50,8 +50,9 @@ export function drawnThreads(rows: ShownRow[]): Map<string, Drawn> {
       row.files.map((file) => [shownPathOf(file), file.patch]),
     );
     for (const comment of row.comments) {
-      const patch =
-        comment.kind === "comparison" ? "" : patches.get(comment.path);
+      // Only a thread on a file needs the file drawn; the rest are drawn
+      // wherever their row is.
+      const patch = onFile(comment) ? patches.get(comment.path) : "";
       if (patch === undefined) continue;
       drawn.set(comment.id, {
         row: row.key,
@@ -142,10 +143,9 @@ export function threadPlace(
   to: string,
 ): SeriesPlace {
   const { comment, drawn } = thread;
-  const file: FileSpot | null =
-    comment.kind === "comparison"
-      ? null
-      : { path: comment.path, line: afterLine(thread) };
+  const file: FileSpot | null = onFile(comment)
+    ? { path: comment.path, line: afterLine(thread) }
+    : null;
   if (drawn !== null) {
     return { ...place, to, spot: { commit: drawn.commitId, file } };
   }

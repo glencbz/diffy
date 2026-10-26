@@ -257,6 +257,57 @@ describe("the review tools", () => {
     expect(missing).toEqual({ text: "no comment has id nope", isError: true });
   });
 
+  test("names where a thread on a capture or a run sits", async () => {
+    // arrange
+    const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };
+    await call("register_review", { name: "t", revset: TIP });
+    const written = {
+      reviewKey: `change:${tip.changeId}`,
+      commitId: tip.commitId,
+      body: "",
+      resolved: false,
+      createdAt: "2026-10-26T00:00:00.000Z",
+      author: "reader",
+      replies: [],
+    };
+    store.apply({
+      kind: "add-comment",
+      comment: {
+        ...written,
+        id: "on-capture",
+        kind: "capture",
+        capture: "settings",
+        side: "after",
+        box: [0.1, 0.2, 0.3, 0.4],
+        at: null,
+      },
+    });
+    store.apply({
+      kind: "add-comment",
+      comment: {
+        ...written,
+        id: "on-request",
+        kind: "step",
+        run: "checkout",
+        step: 0,
+        side: "after",
+        box: null,
+        request: { method: "GET", url: "/api/cart" },
+      },
+    });
+
+    // act
+    const read = await call("read_comments", { name: "t" });
+
+    // assert
+    expect(
+      JSON.parse(read.text).map((each: { at: string }) => each.at),
+    ).toEqual([
+      "capture settings, a box [0.100, 0.200, 0.300, 0.400]",
+      "run checkout, step 1, GET /api/cart",
+    ]);
+  });
+
   test("deletes a review so the reader can restore it", async () => {
     // arrange
     await call("register_review", { name: "t", revset: TIP });

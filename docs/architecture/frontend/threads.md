@@ -28,8 +28,11 @@ called dropped, since nothing can say what became of it.
 Whether the comparison on screen draws a thread comes from the rows it draws,
 not from the thread. `drawnThreads` takes each row's comments, filed the way
 [`reviewComparison`](review.md#review-state) files them, and keeps the threads
-a row's files draw. It also keeps the threads on the whole commit, which every
-row draws once open. A row still loading draws nothing yet.
+a row's files draw. It also keeps the threads on the whole commit, and on its
+captures and runs, which every row draws once open: the row stands for their
+commit, and the [viewer](viewer.md#comments-on-what-it-shows) and the
+[Network panel](runs.md#network-and-console) draw them. A row still loading
+draws nothing yet.
 
 A jump to a drawn thread stays in the comparison and picks its row, file, and
 line. A jump to one that is not drawn opens the version it was written on
@@ -44,7 +47,7 @@ import { shownPathOf } from "./changedFiles";
 import type { FileDiff } from "./diff";
 import type { GitCommit } from "./history";
 import type { FileSpot, SeriesPlace } from "./place";
-import { type Comment, drawnAt, type RowComment } from "./review";
+import { type Comment, drawnAt, onFile, type RowComment } from "./review";
 import type { SeriesVersion } from "./series";
 
 /** One version of a series and its commits, oldest first. */
@@ -91,8 +94,9 @@ export function drawnThreads(rows: ShownRow[]): Map<string, Drawn> {
       row.files.map((file) => [shownPathOf(file), file.patch]),
     );
     for (const comment of row.comments) {
-      const patch =
-        comment.kind === "comparison" ? "" : patches.get(comment.path);
+      // Only a thread on a file needs the file drawn; the rest are drawn
+      // wherever their row is.
+      const patch = onFile(comment) ? patches.get(comment.path) : "";
       if (patch === undefined) continue;
       drawn.set(comment.id, {
         row: row.key,
@@ -183,10 +187,9 @@ export function threadPlace(
   to: string,
 ): SeriesPlace {
   const { comment, drawn } = thread;
-  const file: FileSpot | null =
-    comment.kind === "comparison"
-      ? null
-      : { path: comment.path, line: afterLine(thread) };
+  const file: FileSpot | null = onFile(comment)
+    ? { path: comment.path, line: afterLine(thread) }
+    : null;
   if (drawn !== null) {
     return { ...place, to, spot: { commit: drawn.commitId, file } };
   }
@@ -217,11 +220,19 @@ one needs nothing more from the reader.
 A thread the comparison does not draw reads with no line drawn, so its thread
 says which commit and line it was written against, not that it is stale.
 
+A jump to a thread on a capture or a run also picks it in the viewer, and
+brings the viewer, or the Network panel for a request, to the front through
+the panels' `raise`, since the code alone would only show its commit.
+
 ```tsx
 //| id: frontend-view-thread-list
 //| file: src/frontend/views/ThreadList.tsx
 import { useState } from "react";
-import type { ReviewActions, RowComment } from "../model/review";
+import {
+  evidenceLabel,
+  type ReviewActions,
+  type RowComment,
+} from "../model/review";
 import {
   byVersion,
   type SeriesThread,
@@ -408,6 +419,9 @@ function shown(thread: SeriesThread): Shown {
  *  thread's commit is a click away. */
 function whereOf({ comment }: SeriesThread): string {
   if (comment.kind === "comparison") return "whole commit";
+  if (comment.kind === "capture" || comment.kind === "step") {
+    return evidenceLabel(comment);
+  }
   const name = comment.path.split("/").at(-1) ?? comment.path;
   if (comment.kind === "file") return name;
   return comment.side === "after"
