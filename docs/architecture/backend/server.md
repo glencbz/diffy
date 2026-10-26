@@ -981,7 +981,7 @@ import {
 } from "./backend/agent/listeners";
 import { ToolError } from "./backend/agent/mcp";
 import type { GitHubGraphQL } from "./backend/commit/github";
-import { jjDiff, jjDiffBetween, jjInterdiff, jjLog } from "./backend/commit/jj";
+import { jjDiff, jjDiffBetween, jjInterdiff } from "./backend/commit/jj";
 import { hostFrom } from "./backend/host/host";
 import {
   DefaultRepo,
@@ -1011,6 +1011,7 @@ import {
   type SocketData,
   sockets,
 } from "./server";
+import { FIXED, scratchRepo } from "./testing/history";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
@@ -1022,31 +1023,32 @@ const REPO: RepoContext = {
 const HOST = { now: () => new Date(), diffy: ["diffy"] };
 const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
-/** The commit id of the single commit `revset` names. */
-async function commitId(revset: string): Promise<string> {
-  const [entry] = await jjLog(ROOT, { revset, limit: 1 });
-  if (entry === undefined) throw new Error(`no commit matches ${revset}`);
-  return entry.commitId;
-}
-
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
     // arrange
-    // act
-    const res = await handleLog(new Request("http://test/api/log"), REPO);
-    const body = (await res.json()) as unknown[];
+    const scratch = await scratchRepo();
 
-    // assert
-    expect(res.status).toBe(200);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBeGreaterThan(0);
+    try {
+      // act
+      const res = await handleLog(new Request("http://test/api/log"), {
+        ...REPO,
+        root: scratch.root,
+      });
+      const body = (await res.json()) as unknown[];
+
+      // assert
+      expect(res.status).toBe(200);
+      expect(body).toHaveLength(4);
+    } finally {
+      await scratch.remove();
+    }
   });
 
   test("reads only what a revset names", async () => {
     // arrange
     // act
     const res = await handleLog(
-      new Request("http://test/api/log?revset=@"),
+      new Request(`http://test/api/log?revset=${FIXED.commit}`),
       REPO,
     );
     const body = (await res.json()) as unknown[];
@@ -1090,26 +1092,35 @@ describe("handleDiff", () => {
     // arrange
     // act
     const res = await handleDiff(
-      new Request("http://test/api/diff?rev=root()%2B"),
+      new Request(`http://test/api/diff?rev=${FIXED.first}`),
       REPO,
     );
 
     // assert
     expect(res.status).toBe(200);
     const body = (await res.json()) as { revision: string; files: unknown[] };
-    expect(body.revision).toBe("root()+");
+    expect(body.revision).toBe(FIXED.first);
     expect(body.files.length).toBeGreaterThan(0);
   });
 
   test("defaults the revision to @", async () => {
     // arrange
-    // act
-    const res = await handleDiff(new Request("http://test/api/diff"), REPO);
-    const body = (await res.json()) as { revision: string };
+    const scratch = await scratchRepo();
 
-    // assert
-    expect(res.status).toBe(200);
-    expect(body.revision).toBe("@");
+    try {
+      // act
+      const res = await handleDiff(new Request("http://test/api/diff"), {
+        ...REPO,
+        root: scratch.root,
+      });
+      const body = (await res.json()) as { revision: string };
+
+      // assert
+      expect(res.status).toBe(200);
+      expect(body.revision).toBe("@");
+    } finally {
+      await scratch.remove();
+    }
   });
 
   test("reports an unresolvable revision as 400 with jj's message", async () => {
@@ -1137,7 +1148,7 @@ describe("handleSource", () => {
   test("answers a blob's lines, highlighted as its path says", async () => {
     // arrange
     const blob = (
-      await $`git rev-parse HEAD:package.json`.quiet().text()
+      await $`git rev-parse ${FIXED.commit}:package.json`.quiet().text()
     ).trim();
 
     // act
@@ -1178,7 +1189,7 @@ describe("the compare routes", () => {
 
   test("answers one file diffed against another path", async () => {
     // arrange
-    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+    const toCommit = FIXED.commit;
 
     // act
     const res = await get(handleCompare, {
@@ -1195,7 +1206,7 @@ describe("the compare routes", () => {
 
   test("lists the before side's paths", async () => {
     // arrange
-    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+    const toCommit = FIXED.commit;
 
     // act
     const res = await get(handleComparePaths, { toCommit });
@@ -1208,7 +1219,7 @@ describe("the compare routes", () => {
 
   test("reports a path the side does not hold as 400", async () => {
     // arrange
-    const toCommit = (await $`git rev-parse main`.quiet().text()).trim();
+    const toCommit = FIXED.commit;
 
     // act
     const res = await get(handleCompare, {
@@ -1244,8 +1255,7 @@ describe("handleInterdiff", () => {
 
   test("pairs one commit against another", async () => {
     // arrange
-    const from = await commitId("root()+");
-    const to = await commitId("root()++");
+    const { first: from, second: to } = FIXED;
 
     // act
     const rows = await rowsFor([
@@ -1262,9 +1272,7 @@ describe("handleInterdiff", () => {
 
   test("lines up a series against itself, one row per commit", async () => {
     // arrange
-    const ids = (await jjLog(ROOT, { revset: "root()+::", limit: 3 })).map(
-      (entry) => entry.commitId,
-    );
+    const ids = [FIXED.first, FIXED.second, FIXED.third];
     const params: [string, string][] = [
       ...ids.map((id): [string, string] => ["from", id]),
       ...ids.map((id): [string, string] => ["to", id]),
@@ -1283,7 +1291,7 @@ describe("handleInterdiff", () => {
 
   test("gives a commit with no opposite number its own diff", async () => {
     // arrange
-    const to = await commitId("root()+");
+    const to = FIXED.first;
 
     // act
     const rows = await rowsFor([["to", to]]);
@@ -1314,7 +1322,7 @@ describe("handleInterdiff", () => {
     const res = await handleInterdiff(
       request([
         ["from", "no-such-xyz"],
-        ["to", "@"],
+        ["to", FIXED.commit],
       ]),
       REPO,
     );
@@ -1327,7 +1335,7 @@ describe("handleInterdiff", () => {
 
   test("keeps interdiff rows free of review fields", async () => {
     // arrange
-    const to = await commitId("root()+");
+    const to = FIXED.first;
 
     // act
     const rows = await rowsFor([["to", to]]);
@@ -1519,7 +1527,7 @@ describe("the review route", () => {
 
     try {
       // act
-      const res = await post({ name: "t", revset: "trunk()" });
+      const res = await post({ name: "t", revset: FIXED.commit });
       const refused = await post({ name: "t", revset: "none()" });
 
       // assert
@@ -1683,12 +1691,11 @@ ESLint + Prettier. We used the default `bunx biome init`.
 The diff route runs against a stubbed pull request built from commits already
 in this repository, so nothing is fetched. Each answer is checked against the
 jj call it should have made, since a file count would pass with the two
-diffs swapped. `divergedPull` finds a trunk merge whose base side holds a
-commit the merge base lacks, the only shape where diffing from the merge base
-and from the base tip differ. It asks a revset rather than diffing, and the
-test tells the two ends apart by the paths `jj diff --name-only` lists: a
-branch cut from an old main spans hundreds of files from its base tip, and
-reading those through difftastic runs past the test timeout.
+diffs swapped. The diverged case reads a
+[fixed merge's sides](../../devtools/testing.md), whose base holds a commit
+the merge base lacks, the only shape where diffing from the merge base and
+from the base tip differ. The test tells the two ends apart by the paths
+`jj diff --name-only` lists, which skips difftastic.
 
 ```ts
 //| id: backend-server-test
@@ -1696,10 +1703,7 @@ reading those through difftastic runs past the test timeout.
 describe("pullDiffResponse", () => {
   /** A pull request whose base and heads are commits every clone of this repo has. */
   async function localPull(): Promise<{ base: string; heads: string[] }> {
-    return {
-      base: await commitId("root()+"),
-      heads: [await commitId("root()++"), await commitId("root()+++")],
-    };
+    return { base: FIXED.first, heads: [FIXED.second, FIXED.third] };
   }
 
   /** A transport that answers the history query for that pull request. */
@@ -1736,39 +1740,6 @@ describe("pullDiffResponse", () => {
       number: "9",
       ...extra,
     });
-  }
-
-  /** A base and a head that have diverged, with the commit they share. The
-   *  base must carry something that commit does not, or a diff from the base
-   *  and a diff from the merge base would be the same diff either way. */
-  async function divergedPull(): Promise<{
-    base: string;
-    head: string;
-    mergeBase: string;
-  }> {
-    for (const merge of await jjLog(ROOT, { revset: "merges() & ::trunk()" })) {
-      const [left, right] = merge.parents;
-      if (left === undefined || right === undefined) continue;
-      const [shared] = await jjLog(ROOT, {
-        revset: `heads(::${left} & ::${right})`,
-        limit: 1,
-      });
-      if (shared === undefined) continue;
-
-      const mergeBase = shared.commitId;
-      if (mergeBase === left || mergeBase === right) continue;
-      for (const [base, head] of [
-        [left, right],
-        [right, left],
-      ] as [string, string][]) {
-        const [moved] = await jjLog(ROOT, {
-          revset: `(${mergeBase}..${base}) ~ empty()`,
-          limit: 1,
-        });
-        if (moved !== undefined) return { base, head, mergeBase };
-      }
-    }
-    throw new Error("this repo has no merge of two diverged histories");
   }
 
   async function body(res: Response) {
@@ -1935,7 +1906,9 @@ describe("pullDiffResponse", () => {
 
   test("measures a diverged base from the commit the head grew out of", async () => {
     // arrange
-    const { base, head, mergeBase } = await divergedPull();
+    // The base carries something the merge base does not, or a diff from
+    // either would be the same diff.
+    const { base, head, mergeBase } = FIXED.diverged;
 
     // act
     const res = await pullDiffResponse(

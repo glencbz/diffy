@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/git.md#git-module-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
+import { FIXED } from "../../testing/history";
 import {
   BlobId,
   GitOid,
@@ -19,23 +20,9 @@ import {
 /** The repository these tests read. */
 const ROOT = process.cwd();
 
-/** The oid `revision` names, as this repo's git store has it. */
-async function oidOf(revision: string): Promise<GitOid> {
-  return GitOid.parse(
-    (await $`git rev-parse ${revision}`.quiet().text()).trim(),
-  );
-}
-
-/** The newest commit with a single parent, and that parent. Exactly one commit
- *  apart, which `HEAD~1` and `HEAD` are not when the tip is a merge. */
-async function soloCommit(): Promise<[base: GitOid, head: GitOid]> {
-  const head = await oidOf(
-    (
-      await $`git rev-list --no-merges --max-count=1 HEAD`.quiet().text()
-    ).trim(),
-  );
-  return [await oidOf(`${head}~1`), head];
-}
+const COMMIT = GitOid.parse(FIXED.commit);
+/** `COMMIT`'s only parent, so the two are exactly one commit apart. */
+const PARENT = GitOid.parse(FIXED.parent);
 
 const MISSING = GitOid.parse("f".repeat(40));
 const SCOPE = RefPath.parse("pull/0");
@@ -46,7 +33,7 @@ const pin = (oid: GitOid) => ({ at: RefPath.parse(`${SCOPE}/v1`), oid });
 describe("gitHasCommit", () => {
   test("finds a commit that is here", async () => {
     // arrange
-    const head = await oidOf("HEAD");
+    const head = COMMIT;
 
     // act
     // assert
@@ -64,7 +51,7 @@ describe("gitHasCommit", () => {
 describe("gitForget", () => {
   test("drops only its own scope's pins, and reports how many", async () => {
     // arrange
-    const head = await oidOf("HEAD");
+    const head = COMMIT;
     const mine = RefPath.parse("pull/999999");
     const other = RefPath.parse("pull/999998");
     await $`git update-ref ${`refs/diffy/${mine}/${head}`} ${head}`.quiet();
@@ -96,7 +83,7 @@ describe("gitForget", () => {
 describe("gitMaterialize", () => {
   test("resolves an already-present oid, twice, without fetching", async () => {
     // arrange
-    const head = await oidOf("HEAD");
+    const head = COMMIT;
 
     // act
     const first = await gitMaterialize(ROOT, [pin(head)]);
@@ -109,7 +96,7 @@ describe("gitMaterialize", () => {
 
   test("keeps the order it was asked in", async () => {
     // arrange
-    const [head, parent] = [await oidOf("HEAD"), await oidOf("HEAD~1")];
+    const [head, parent] = [COMMIT, PARENT];
 
     // act
     const oids = await gitMaterialize(ROOT, [pin(parent), pin(head)]);
@@ -122,11 +109,7 @@ describe("gitMaterialize", () => {
 describe("gitLog", () => {
   test("reads the commits the tip has and the base does not", async () => {
     // arrange
-    const [soloBase, soloHead] = await soloCommit();
-    const [base, head] = await gitMaterialize(ROOT, [
-      pin(soloBase),
-      pin(soloHead),
-    ]);
+    const [base, head] = await gitMaterialize(ROOT, [pin(PARENT), pin(COMMIT)]);
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
@@ -143,7 +126,7 @@ describe("gitLog", () => {
 
   test("puts the tip first and honours the limit", async () => {
     // arrange
-    const [head] = await gitMaterialize(ROOT, [pin(await oidOf("HEAD"))]);
+    const [head] = await gitMaterialize(ROOT, [pin(COMMIT)]);
     if (head === undefined) throw new Error("no oid");
 
     // act
@@ -287,26 +270,14 @@ async function isAncestor(
   return (await $`git ${args}`.quiet().nothrow()).exitCode === 0;
 }
 
-/** Two commits neither of which is the other's ancestor, read off the parents
- *  of a merge. Any pair along one line of history is ancestor-related. */
-async function divergedPair(): Promise<[GitOid, GitOid]> {
-  const merges = await $`git log --merges --format=%P`.quiet().text();
-  for (const line of merges.split("\n")) {
-    const [left, right] = line.split(" ");
-    if (left === undefined || right === undefined) continue;
-    if (await isAncestor(left, right)) continue;
-    if (await isAncestor(right, left)) continue;
-    return [await oidOf(left), await oidOf(right)];
-  }
-  throw new Error("this repo has no merge of two diverged histories");
-}
-
 describe("gitMergeBase", () => {
   test("finds the commit two diverged histories share", async () => {
     // arrange
     const [left, right] = await gitMaterialize(
       ROOT,
-      (await divergedPair()).map(pin),
+      [FIXED.diverged.base, FIXED.diverged.head].map((oid) =>
+        pin(GitOid.parse(oid)),
+      ),
     );
     if (left === undefined || right === undefined) throw new Error("no oids");
 
@@ -314,18 +285,14 @@ describe("gitMergeBase", () => {
     const shared = await gitMergeBase(ROOT, left, right);
 
     // assert
-    expect(shared).not.toBe(left);
-    expect(shared).not.toBe(right);
+    expect(String(shared)).toBe(FIXED.diverged.mergeBase);
     expect(await isAncestor(shared, left)).toBe(true);
     expect(await isAncestor(shared, right)).toBe(true);
   });
 
   test("answers the older commit when one is the other's ancestor", async () => {
     // arrange
-    const [base, head] = await gitMaterialize(
-      ROOT,
-      (await soloCommit()).map(pin),
-    );
+    const [base, head] = await gitMaterialize(ROOT, [PARENT, COMMIT].map(pin));
     if (base === undefined || head === undefined) throw new Error("no oids");
 
     // act
@@ -340,14 +307,14 @@ describe("gitBlob", () => {
   test("reads a file back by the blob id a tree holds it under", async () => {
     // arrange
     const id = BlobId.parse(
-      (await $`git rev-parse HEAD:package.json`.quiet().text()).trim(),
+      (await $`git rev-parse ${COMMIT}:package.json`.quiet().text()).trim(),
     );
 
     // act
     const text = await gitBlob(ROOT, id);
 
     // assert
-    expect(text).toBe(await $`git show HEAD:package.json`.quiet().text());
+    expect(text).toBe(await $`git show ${COMMIT}:package.json`.quiet().text());
   });
 
   test("answers null for an id that names nothing", async () => {
@@ -363,7 +330,7 @@ describe("gitBlob", () => {
 describe("gitFiles", () => {
   test("lists a commit's tree, nested paths included", async () => {
     // arrange
-    const head = await oidOf("HEAD");
+    const head = COMMIT;
 
     // act
     const files = await gitFiles(ROOT, head);

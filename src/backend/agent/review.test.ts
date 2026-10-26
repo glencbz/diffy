@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { jjLog } from "../commit/jj";
+import { FIXED } from "../../testing/history";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";
 import { INSTRUCTIONS, reviewTools } from "./review";
@@ -56,7 +56,7 @@ async function call(
   };
 }
 
-const TIP = "latest(::trunk() ~ empty())";
+const TIP = FIXED.commit;
 
 describe("the protocol", () => {
   test("agrees a version a client asks for and lists every tool", async () => {
@@ -121,8 +121,7 @@ describe("the protocol", () => {
 describe("the review tools", () => {
   test("registers a review, comments on it, and reads the comment back", async () => {
     // arrange
-    const [tip] = await jjLog(ROOT, { revset: TIP });
-    if (tip === undefined) throw new Error("no history");
+    const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };
     const registered = await call("register_review", {
       name: "t",
       revset: TIP,
@@ -157,8 +156,7 @@ describe("the review tools", () => {
 
   test("leaves a resolved comment out of the unresolved ones", async () => {
     // arrange
-    const [tip] = await jjLog(ROOT, { revset: TIP });
-    if (tip === undefined) throw new Error("no history");
+    const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };
     await call("register_review", { name: "t", revset: TIP });
     const added = await call("add_comment", {
       name: "t",
@@ -181,8 +179,7 @@ describe("the review tools", () => {
 
   test("hands the turn over when the reader marks the newest version", async () => {
     // arrange
-    const [tip] = await jjLog(ROOT, { revset: TIP });
-    if (tip === undefined) throw new Error("no history");
+    const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };
     // v1 is written at an operation of its own, since the tool registering
     // v2 reads the live repo and a test cannot make a new operation in it.
     store.apply({
@@ -208,7 +205,7 @@ describe("the review tools", () => {
     const again = await call("register_review", { name: "t" });
     const second = await call("register_review", {
       name: "t",
-      revset: `${TIP} | ${TIP}-`,
+      revset: `${TIP} | ${FIXED.parent}`,
     });
     const listed = await call("list_reviews", {});
 
@@ -234,8 +231,7 @@ describe("the review tools", () => {
 
   test("threads a reply under the reader's comment", async () => {
     // arrange
-    const [tip] = await jjLog(ROOT, { revset: TIP });
-    if (tip === undefined) throw new Error("no history");
+    const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };
     await call("register_review", { name: "t", revset: TIP });
     const added = await call("add_comment", {
       name: "t",
@@ -286,8 +282,7 @@ describe("the review tools", () => {
 
   test("reads what the reader wrote in a window across reviews", async () => {
     // arrange
-    const [tip] = await jjLog(ROOT, { revset: TIP });
-    if (tip === undefined) throw new Error("no history");
+    const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };
     await call("register_review", { name: "t", revset: TIP });
     const comment = (id: string, createdAt: string, commitId: string) => ({
       kind: "add-comment" as const,
