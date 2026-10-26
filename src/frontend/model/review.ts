@@ -11,7 +11,7 @@ import {
 import type { InterdiffRow } from "./diff";
 import { Box, Capture, withCapture } from "./evidence";
 import { followLine, readPatch } from "./patch";
-import { Run, withRun } from "./runs";
+import { Logged, Run, withRun } from "./runs";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -69,6 +69,9 @@ export const Anchor = z.union([
     /** One request of the step, by method and address, or null for the
      *  whole step. */
     request: z.object({ method: z.string(), url: z.string() }).nullable(),
+    /** One line the step wrote to the console, or null. A comment written
+     *  before console lines took threads has none. */
+    console: Logged.nullable().default(null),
   }),
 ]);
 export type Anchor = z.infer<typeof Anchor>;
@@ -89,6 +92,9 @@ export function evidenceLabel(
           ...(anchor.request === null
             ? []
             : [`${anchor.request.method} ${anchor.request.url}`]),
+          ...(anchor.console === null
+            ? []
+            : [`${anchor.console.level} "${clipped(anchor.console.text)}"`]),
         ]
       : [
           anchor.capture,
@@ -99,6 +105,12 @@ export function evidenceLabel(
     ...(anchor.box === null ? [] : ["a box"]),
     ...(anchor.side === "before" ? ["parent"] : []),
   ].join(", ");
+}
+
+/** A console line short enough to name a thread by. */
+function clipped(text: string): string {
+  const line = text.split("\n")[0] ?? "";
+  return line.length > 40 ? `${line.slice(0, 39)}...` : line;
 }
 
 /** Whether a comment is about a file of its commit's diff. */

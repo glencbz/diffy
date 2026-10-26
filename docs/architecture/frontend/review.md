@@ -24,7 +24,8 @@ leave only a reorder's two halves unrelated, as they must be.
 **Comments** are anchored to a line on one side, a file, the whole
 comparison, or something the author recorded for the commit: a box or a
 moment of a [capture](viewer.md#comments-on-what-it-shows), or a step of a
-[run](runs.md#network-and-console) or one of its requests. The anchor's
+[run](runs.md#network-and-console), one of its requests or a line it wrote
+to the console. The anchor's
 fields sit on the comment itself so line comments stored before the other
 anchors existed still parse. A capture or run is named by the id its commit
 keeps across versions, never by its blob, so a re-recorded picture keeps its
@@ -131,7 +132,7 @@ import {
 import type { InterdiffRow } from "./diff";
 import { Box, Capture, withCapture } from "./evidence";
 import { followLine, readPatch } from "./patch";
-import { Run, withRun } from "./runs";
+import { Logged, Run, withRun } from "./runs";
 
 const Comparison = z.object({
   reviewKey: z.string(),
@@ -189,6 +190,9 @@ export const Anchor = z.union([
     /** One request of the step, by method and address, or null for the
      *  whole step. */
     request: z.object({ method: z.string(), url: z.string() }).nullable(),
+    /** One line the step wrote to the console, or null. A comment written
+     *  before console lines took threads has none. */
+    console: Logged.nullable().default(null),
   }),
 ]);
 export type Anchor = z.infer<typeof Anchor>;
@@ -209,6 +213,9 @@ export function evidenceLabel(
           ...(anchor.request === null
             ? []
             : [`${anchor.request.method} ${anchor.request.url}`]),
+          ...(anchor.console === null
+            ? []
+            : [`${anchor.console.level} "${clipped(anchor.console.text)}"`]),
         ]
       : [
           anchor.capture,
@@ -219,6 +226,12 @@ export function evidenceLabel(
     ...(anchor.box === null ? [] : ["a box"]),
     ...(anchor.side === "before" ? ["parent"] : []),
   ].join(", ");
+}
+
+/** A console line short enough to name a thread by. */
+function clipped(text: string): string {
+  const line = text.split("\n")[0] ?? "";
+  return line.length > 40 ? `${line.slice(0, 39)}...` : line;
 }
 
 /** Whether a comment is about a file of its commit's diff. */
@@ -2015,6 +2028,7 @@ describe("ReviewDocument", () => {
           side: "after" as const,
           box: null,
           request: { method: "GET", url: "/api/cart" },
+          console: null,
         },
       ],
     };
@@ -2024,6 +2038,35 @@ describe("ReviewDocument", () => {
 
     // assert
     expect(document.comments).toEqual(stored.comments);
+  });
+
+  test("reads a step comment kept before console lines took threads as on no line", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          commitId: "a2",
+          body: "",
+          resolved: false,
+          createdAt: "2026-10-26T00:00:00.000Z",
+          kind: "step",
+          run: "checkout",
+          step: 0,
+          side: "after",
+          box: null,
+          request: null,
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]).toMatchObject({ kind: "step", console: null });
   });
 
   test("rejects a file comment with no path", () => {
@@ -2075,6 +2118,7 @@ describe("evidenceLabel", () => {
       side: "after",
       box: null,
       request: { method: "POST", url: "/api/pay" },
+      console: null,
     });
 
     // assert

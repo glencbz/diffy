@@ -22,7 +22,7 @@ says so the way it does for a capture with no parent.
 //| id: frontend-model-run-steps
 //| file: src/frontend/model/runSteps.ts
 import type { Capture } from "./evidence";
-import type { RowComment } from "./review";
+import type { Anchor, RowComment } from "./review";
 import type { Logged, Request, Run, RunStep } from "./runs";
 
 /** The step `index` of `run` drawn as a picture capture. */
@@ -120,8 +120,20 @@ function compare<T>(
   }
   return out;
 }
-/** The threads on the requests of one step of a run. */
-export function requestNotes(
+/** A request or a console line of a step, named by what pairs the two
+ *  sides rather than by what the recording answered. */
+export interface StepPart {
+  request: { method: string; url: string } | null;
+  console: Logged | null;
+}
+
+/** The anchor of a thread on one part of a step, on the commit's side. */
+export function partAnchor(run: string, step: number, part: StepPart): Anchor {
+  return { kind: "step", run, step, side: "after", box: null, ...part };
+}
+
+/** The threads on the requests and console lines of one step of a run. */
+export function partNotes(
   comments: RowComment[],
   run: string,
   step: number,
@@ -131,7 +143,7 @@ export function requestNotes(
       comment.kind === "step" &&
       comment.run === run &&
       comment.step === step &&
-      comment.request !== null,
+      (comment.request !== null || comment.console !== null),
   );
 }
 
@@ -146,6 +158,16 @@ export function isOnRequest(
     comment.request.url === request.url
   );
 }
+
+/** Whether a thread is on `line`. A console that writes one line twice
+ *  holds the thread on both, since nothing tells them apart. */
+export function isOnLogged(comment: RowComment, line: Logged): boolean {
+  return (
+    comment.kind === "step" &&
+    comment.console?.level === line.level &&
+    comment.console.text === line.text
+  );
+}
 ```
 
 ## Network and Console
@@ -156,25 +178,27 @@ that was never played marks nothing, since there is nothing to compare
 with. A request's answer opens under it, both sides when they differ, so a
 reader can see the response a change altered.
 
-A request takes a thread of its own, opened from the button at the end of
-its line, the way a line of code does. Its anchor names the step and the
-request's method and address, the key that pairs the two sides, rather
-than its place in the list: a re-recorded run can fetch in another order,
-and the thread should still find its request.
+A request or a console line takes a thread of its own, opened from the
+button at the end of its line, the way a line of code does. Its anchor
+names the step and the key that pairs the two sides: a request's method and
+address, a line's level and text. A place in the list would not do, since a
+re-recorded run can fetch or log in another order and the thread should
+still find its line.
 
 ```tsx
 //| id: frontend-view-network
 //| file: src/frontend/views/Runs/Network.tsx
 import { useState } from "react";
-import type { Anchor, ThreadReview } from "../../model/review";
+import type { Anchor, RowComment, ThreadReview } from "../../model/review";
 import { type Compared, isOnRequest } from "../../model/runSteps";
 import type { Request } from "../../model/runs";
 import { CommentComposer, CommentThreads } from "../Comments";
 
-/** The threads on the step's requests, and the anchor a new one takes. */
-export interface RequestNotes {
+/** The threads on the step's requests or console lines, and the anchor a
+ *  new one on `part` takes. */
+export interface PartNotes<T> {
   review: ThreadReview;
-  anchorOf: (request: { method: string; url: string }) => Anchor;
+  anchorOf: (part: T) => Anchor;
 }
 
 export function Network({
@@ -186,7 +210,7 @@ export function Network({
   label: string;
   requests: Compared<Request>[];
   /** Null where there is no review to keep comments in. */
-  notes: RequestNotes | null;
+  notes: PartNotes<Request> | null;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [composing, setComposing] = useState<string | null>(null);
@@ -227,14 +251,11 @@ export function Network({
                   <span className="run-row__type">{request.type}</span>
                 </button>
                 {notes !== null && (
-                  <button
-                    type="button"
-                    className="run-row__comment"
-                    aria-label={`comment on ${request.method} ${request.url}`}
+                  <CommentButton
+                    count={threads.length}
+                    what={`${request.method} ${request.url}`}
                     onClick={() => setComposing(key)}
-                  >
-                    {threads.length > 0 ? threads.length : "+"}
-                  </button>
+                  />
                 )}
                 {open === key && (
                   <div className="run-row__bodies">
@@ -252,35 +273,83 @@ export function Network({
                     )}
                   </div>
                 )}
-                {notes !== null &&
-                  (composing === key || threads.length > 0) && (
-                    <div className="run-row__notes">
-                      {composing === key && (
-                        <CommentComposer
-                          anchor={notes.anchorOf(request)}
-                          onCancel={() => setComposing(null)}
-                          onSubmit={(anchor, text) => {
-                            notes.review.onAddComment(anchor, text);
-                            setComposing(null);
-                          }}
-                        />
-                      )}
-                      <CommentThreads
-                        comments={threads}
-                        onEditComment={notes.review.onEditComment}
-                        onResolveComment={notes.review.onResolveComment}
-                        onDropComment={notes.review.onDropComment}
-                        onReplyToComment={notes.review.onReplyToComment}
-                        onEditReply={notes.review.onEditReply}
-                        onDropReply={notes.review.onDropReply}
-                      />
-                    </div>
-                  )}
+                {notes !== null && (
+                  <RowNotes
+                    review={notes.review}
+                    threads={threads}
+                    composing={
+                      composing === key ? notes.anchorOf(request) : null
+                    }
+                    onDone={() => setComposing(null)}
+                  />
+                )}
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** The button at the end of a row: how many threads it holds, or a way to
+ *  start one. */
+export function CommentButton({
+  count,
+  what,
+  onClick,
+}: {
+  count: number;
+  what: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="run-row__comment"
+      aria-label={`comment on ${what}`}
+      onClick={onClick}
+    >
+      {count > 0 ? count : "+"}
+    </button>
+  );
+}
+
+/** The threads under a row, and the composer while the reader writes one. */
+export function RowNotes({
+  review,
+  threads,
+  composing,
+  onDone,
+}: {
+  review: ThreadReview;
+  threads: RowComment[];
+  /** The anchor being written on, or null. */
+  composing: Anchor | null;
+  onDone: () => void;
+}) {
+  if (composing === null && threads.length === 0) return null;
+  return (
+    <div className="run-row__notes">
+      {composing !== null && (
+        <CommentComposer
+          anchor={composing}
+          onCancel={onDone}
+          onSubmit={(anchor, text) => {
+            review.onAddComment(anchor, text);
+            onDone();
+          }}
+        />
+      )}
+      <CommentThreads
+        comments={threads}
+        onEditComment={review.onEditComment}
+        onResolveComment={review.onResolveComment}
+        onDropComment={review.onDropComment}
+        onReplyToComment={review.onReplyToComment}
+        onEditReply={review.onEditReply}
+        onDropReply={review.onDropReply}
+      />
     </div>
   );
 }
@@ -317,17 +386,27 @@ export const CHANGE_MARK = {
 ```tsx
 //| id: frontend-view-console
 //| file: src/frontend/views/Runs/Console.tsx
-import type { Compared } from "../../model/runSteps";
+import { useState } from "react";
+import { type Compared, isOnLogged } from "../../model/runSteps";
 import type { Logged } from "../../model/runs";
-import { CHANGE_MARK } from "./Network";
+import {
+  CHANGE_MARK,
+  CommentButton,
+  type PartNotes,
+  RowNotes,
+} from "./Network";
 
 export function Console({
   label,
   lines,
+  notes,
 }: {
   label: string;
   lines: Compared<Logged>[];
+  /** Null where there is no review to keep comments in. */
+  notes: PartNotes<Logged> | null;
 }) {
+  const [composing, setComposing] = useState<number | null>(null);
   return (
     <div className="run-panel">
       <p className="run-panel__step">{label}</p>
@@ -337,17 +416,40 @@ export function Console({
         <ul className="run-list">
           {lines.map((each, index) => {
             const line = (each.after ?? each.before) as Logged;
+            const threads =
+              notes?.review.comments.filter((comment) =>
+                isOnLogged(comment, line),
+              ) ?? [];
             return (
               <li
                 // biome-ignore lint/suspicious/noArrayIndexKey: a console repeats itself, and the lines never reorder
                 key={index}
                 className={`run-row run-row--${each.change} run-log--${line.level}`}
               >
-                <span className="run-row__change">
-                  {CHANGE_MARK[each.change]}
+                <span className="run-row__head run-row__head--log">
+                  <span className="run-row__change">
+                    {CHANGE_MARK[each.change]}
+                  </span>
+                  <span className="run-log__level">{line.level}</span>
+                  <span className="run-log__text">{line.text}</span>
                 </span>
-                <span className="run-log__level">{line.level}</span>
-                <span className="run-log__text">{line.text}</span>
+                {notes !== null && (
+                  <>
+                    <CommentButton
+                      count={threads.length}
+                      what={`${line.level} ${line.text}`}
+                      onClick={() => setComposing(index)}
+                    />
+                    <RowNotes
+                      review={notes.review}
+                      threads={threads}
+                      composing={
+                        composing === index ? notes.anchorOf(line) : null
+                      }
+                      onDone={() => setComposing(null)}
+                    />
+                  </>
+                )}
               </li>
             );
           })}
@@ -427,8 +529,7 @@ export function Console({
     margin: var(--space-2) 0 var(--space-2) 1.2em;
   }
 
-  .run-row__head,
-  .run-row:not(:has(.run-row__head)) {
+  .run-row__head {
     display: grid;
     grid-template-columns: 1.2em 4em minmax(0, 1fr) auto auto;
     gap: var(--space-3);
@@ -451,7 +552,7 @@ export function Console({
   }
 
   /* A console line has no method or status; its text takes their room. */
-  .run-row:not(:has(.run-row__head)) {
+  .run-row__head--log {
     grid-template-columns: 1.2em 4em minmax(0, 1fr);
   }
 
@@ -617,7 +718,14 @@ function ruleFor(selectors: string[], mark: string): string[] {
 //| file: src/frontend/model/runSteps.test.ts
 import { describe, expect, test } from "bun:test";
 import { ranRules } from "./ranLines";
-import { compareLogged, compareRequests } from "./runSteps";
+import type { Anchor, RowComment } from "./review";
+import {
+  compareLogged,
+  compareRequests,
+  isOnLogged,
+  partAnchor,
+  partNotes,
+} from "./runSteps";
 import type { Request } from "./runs";
 
 const get = (
@@ -693,6 +801,55 @@ describe("marking the lines a step ran", () => {
 
     // assert
     expect(rules).toBe("");
+  });
+});
+
+describe("threads on a step's parts", () => {
+  const comment = (id: string, anchor: Anchor): RowComment => ({
+    id,
+    reviewKey: "change:a",
+    commitId: "c1",
+    body: "",
+    resolved: false,
+    createdAt: "2026-10-26T00:00:00Z",
+    author: "reader",
+    replies: [],
+    stale: false,
+    numberedOn: null,
+    ...anchor,
+  });
+  const warned = { level: "warn" as const, text: "slow theme" };
+  const comments = [
+    comment(
+      "request",
+      partAnchor("r", 1, {
+        request: { method: "GET", url: "/a" },
+        console: null,
+      }),
+    ),
+    comment("line", partAnchor("r", 1, { request: null, console: warned })),
+    comment("step", partAnchor("r", 1, { request: null, console: null })),
+    comment("other", partAnchor("r", 0, { request: null, console: warned })),
+  ];
+
+  test("finds a step's request and console threads, not the step's own", () => {
+    // act
+    const found = partNotes(comments, "r", 1);
+
+    // assert
+    expect(found.map((each) => each.id)).toEqual(["request", "line"]);
+  });
+
+  test("puts a console thread on the line with its level and text", () => {
+    // arrange
+    const [, line] = comments as [RowComment, RowComment];
+
+    // act
+    const same = isOnLogged(line, { level: "warn", text: "slow theme" });
+    const level = isOnLogged(line, { level: "error", text: "slow theme" });
+
+    // assert
+    expect([same, level]).toEqual([true, false]);
   });
 });
 ```

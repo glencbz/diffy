@@ -293,6 +293,7 @@ describe("the review tools", () => {
         side: "after",
         box: null,
         request: { method: "GET", url: "/api/cart" },
+        console: null,
       },
     });
 

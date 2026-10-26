@@ -231,6 +231,7 @@ describe("notesOn", () => {
       side: "after",
       box: null,
       request: null,
+      console: null,
     }),
     comment("on-request", {
       kind: "step",
@@ -239,6 +240,7 @@ describe("notesOn", () => {
       side: "after",
       box: null,
       request: { method: "GET", url: "/api/cart" },
+      console: null,
     }),
     comment("other-step", {
       kind: "step",
@@ -247,6 +249,7 @@ describe("notesOn", () => {
       side: "after",
       box: null,
       request: null,
+      console: null,
     }),
     comment("on-line", { kind: "line", path: "a.ts", side: "after", line: 1 }),
   ];
@@ -284,6 +287,7 @@ describe("anchorOn", () => {
       side: "before",
       box: [0, 0, 1, 1],
       request: null,
+      console: null,
     });
   });
 });

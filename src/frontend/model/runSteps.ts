@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-run-steps>>[init]
 import type { Capture } from "./evidence";
-import type { RowComment } from "./review";
+import type { Anchor, RowComment } from "./review";
 import type { Logged, Request, Run, RunStep } from "./runs";
 
 /** The step `index` of `run` drawn as a picture capture. */
@@ -98,8 +98,20 @@ function compare<T>(
   }
   return out;
 }
-/** The threads on the requests of one step of a run. */
-export function requestNotes(
+/** A request or a console line of a step, named by what pairs the two
+ *  sides rather than by what the recording answered. */
+export interface StepPart {
+  request: { method: string; url: string } | null;
+  console: Logged | null;
+}
+
+/** The anchor of a thread on one part of a step, on the commit's side. */
+export function partAnchor(run: string, step: number, part: StepPart): Anchor {
+  return { kind: "step", run, step, side: "after", box: null, ...part };
+}
+
+/** The threads on the requests and console lines of one step of a run. */
+export function partNotes(
   comments: RowComment[],
   run: string,
   step: number,
@@ -109,7 +121,7 @@ export function requestNotes(
       comment.kind === "step" &&
       comment.run === run &&
       comment.step === step &&
-      comment.request !== null,
+      (comment.request !== null || comment.console !== null),
   );
 }
 
@@ -122,6 +134,16 @@ export function isOnRequest(
     comment.kind === "step" &&
     comment.request?.method === request.method &&
     comment.request.url === request.url
+  );
+}
+
+/** Whether a thread is on `line`. A console that writes one line twice
+ *  holds the thread on both, since nothing tells them apart. */
+export function isOnLogged(comment: RowComment, line: Logged): boolean {
+  return (
+    comment.kind === "step" &&
+    comment.console?.level === line.level &&
+    comment.console.text === line.text
   );
 }
 // ~/~ end

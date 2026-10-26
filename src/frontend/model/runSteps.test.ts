@@ -1,7 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-run-steps-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { ranRules } from "./ranLines";
-import { compareLogged, compareRequests } from "./runSteps";
+import type { Anchor, RowComment } from "./review";
+import {
+  compareLogged,
+  compareRequests,
+  isOnLogged,
+  partAnchor,
+  partNotes,
+} from "./runSteps";
 import type { Request } from "./runs";
 
 const get = (
@@ -77,6 +84,55 @@ describe("marking the lines a step ran", () => {
 
     // assert
     expect(rules).toBe("");
+  });
+});
+
+describe("threads on a step's parts", () => {
+  const comment = (id: string, anchor: Anchor): RowComment => ({
+    id,
+    reviewKey: "change:a",
+    commitId: "c1",
+    body: "",
+    resolved: false,
+    createdAt: "2026-10-26T00:00:00Z",
+    author: "reader",
+    replies: [],
+    stale: false,
+    numberedOn: null,
+    ...anchor,
+  });
+  const warned = { level: "warn" as const, text: "slow theme" };
+  const comments = [
+    comment(
+      "request",
+      partAnchor("r", 1, {
+        request: { method: "GET", url: "/a" },
+        console: null,
+      }),
+    ),
+    comment("line", partAnchor("r", 1, { request: null, console: warned })),
+    comment("step", partAnchor("r", 1, { request: null, console: null })),
+    comment("other", partAnchor("r", 0, { request: null, console: warned })),
+  ];
+
+  test("finds a step's request and console threads, not the step's own", () => {
+    // act
+    const found = partNotes(comments, "r", 1);
+
+    // assert
+    expect(found.map((each) => each.id)).toEqual(["request", "line"]);
+  });
+
+  test("puts a console thread on the line with its level and text", () => {
+    // arrange
+    const [, line] = comments as [RowComment, RowComment];
+
+    // act
+    const same = isOnLogged(line, { level: "warn", text: "slow theme" });
+    const level = isOnLogged(line, { level: "error", text: "slow theme" });
+
+    // assert
+    expect([same, level]).toEqual([true, false]);
   });
 });
 // ~/~ end

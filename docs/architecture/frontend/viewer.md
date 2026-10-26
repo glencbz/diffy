@@ -223,11 +223,12 @@ export function anchorOn(subject: Subject, spot: Spot): Anchor {
         side: spot.side,
         box: spot.box,
         request: null,
+        console: null,
       };
 }
 
-/** The threads on `subject`, leaving a step's requests to the Network
- *  panel. */
+/** The threads on `subject`, leaving a step's requests and console lines
+ *  to their panels. */
 export function notesOn(
   comments: RowComment[],
   subject: Subject,
@@ -238,7 +239,8 @@ export function notesOn(
       : comment.kind === "step" &&
         comment.run === subject.run &&
         comment.step === subject.step &&
-        comment.request === null,
+        comment.request === null &&
+        comment.console === null,
   );
 }
 
@@ -1432,6 +1434,7 @@ describe("notesOn", () => {
       side: "after",
       box: null,
       request: null,
+      console: null,
     }),
     comment("on-request", {
       kind: "step",
@@ -1440,6 +1443,7 @@ describe("notesOn", () => {
       side: "after",
       box: null,
       request: { method: "GET", url: "/api/cart" },
+      console: null,
     }),
     comment("other-step", {
       kind: "step",
@@ -1448,6 +1452,7 @@ describe("notesOn", () => {
       side: "after",
       box: null,
       request: null,
+      console: null,
     }),
     comment("on-line", { kind: "line", path: "a.ts", side: "after", line: 1 }),
   ];
@@ -1485,6 +1490,7 @@ describe("anchorOn", () => {
       side: "before",
       box: [0, 0, 1, 1],
       request: null,
+      console: null,
     });
   });
 });

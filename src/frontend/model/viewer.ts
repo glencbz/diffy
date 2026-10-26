@@ -167,11 +167,12 @@ export function anchorOn(subject: Subject, spot: Spot): Anchor {
         side: spot.side,
         box: spot.box,
         request: null,
+        console: null,
       };
 }
 
-/** The threads on `subject`, leaving a step's requests to the Network
- *  panel. */
+/** The threads on `subject`, leaving a step's requests and console lines
+ *  to their panels. */
 export function notesOn(
   comments: RowComment[],
   subject: Subject,
@@ -182,7 +183,8 @@ export function notesOn(
       : comment.kind === "step" &&
         comment.run === subject.run &&
         comment.step === subject.step &&
-        comment.request === null,
+        comment.request === null &&
+        comment.console === null,
   );
 }
 
