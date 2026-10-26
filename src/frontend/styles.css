@@ -5426,8 +5426,7 @@
     margin: var(--space-2) 0 var(--space-2) 1.2em;
   }
 
-  .run-row__head,
-  .run-row:not(:has(.run-row__head)) {
+  .run-row__head {
     display: grid;
     grid-template-columns: 1.2em 4em minmax(0, 1fr) auto auto;
     gap: var(--space-3);
@@ -5450,7 +5449,7 @@
   }
 
   /* A console line has no method or status; its text takes their room. */
-  .run-row:not(:has(.run-row__head)) {
+  .run-row__head--log {
     grid-template-columns: 1.2em 4em minmax(0, 1fr);
   }
 

@@ -3,10 +3,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EMPTY_REVIEW, type ReviewDocument } from "../../frontend/model/review";
 import { FIXED } from "../../testing/history";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";
-import { INSTRUCTIONS, reviewTools } from "./review";
+import { anchorFor, INSTRUCTIONS, reviewTools } from "./review";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
@@ -293,6 +294,7 @@ describe("the review tools", () => {
         side: "after",
         box: null,
         request: { method: "GET", url: "/api/cart" },
+        console: null,
       },
     });
 
@@ -306,6 +308,43 @@ describe("the review tools", () => {
       "capture settings, a box [0.100, 0.200, 0.300, 0.400]",
       "run checkout, step 1, GET /api/cart",
     ]);
+  });
+
+  test("comments on a capture the commit has", async () => {
+    // arrange
+    await call("register_review", { name: "t", revset: TIP });
+    store.apply({
+      kind: "attach-capture",
+      capture: { ...CAPTURE, series: "local:t", commitId: FIXED.commit },
+    });
+
+    // act
+    const added = await call("add_comment", {
+      name: "t",
+      change: FIXED.changeId,
+      capture: "settings",
+      box: [0.1, 0.2, 0.3, 0.4],
+      body: "the switch is too faint",
+    });
+    const missing = await call("add_comment", {
+      name: "t",
+      change: FIXED.changeId,
+      capture: "nope",
+      body: "x",
+    });
+    const read = await call("read_comments", { name: "t" });
+
+    // assert
+    expect(added.isError).toBe(false);
+    expect(JSON.parse(read.text)).toEqual([
+      expect.objectContaining({
+        at: "capture settings, a box [0.100, 0.200, 0.300, 0.400]",
+      }),
+    ]);
+    expect(missing).toEqual({
+      text: "the commit has no capture nope; it has settings",
+      isError: true,
+    });
   });
 
   test("deletes a review so the reader can restore it", async () => {
@@ -421,6 +460,138 @@ describe("the review tools", () => {
       isError: true,
     });
     expect(nameless.isError).toBe(true);
+  });
+});
+
+const PNG = `${"a".repeat(64)}.png` as const;
+
+const CAPTURE = {
+  series: "local:r",
+  version: "1",
+  commitId: "c1",
+  id: "settings",
+  name: "Settings",
+  state: [],
+  about: "",
+  media: "image" as const,
+  before: PNG,
+  after: PNG,
+  shows: [],
+  attachedAt: "2026-10-26T00:00:00Z",
+};
+
+const RUN = {
+  series: "local:r",
+  version: "1",
+  commitId: "c1",
+  id: "checkout",
+  name: "Checkout",
+  state: [],
+  about: "",
+  before: null,
+  after: {
+    steps: [
+      {
+        label: "open",
+        shot: PNG,
+        requests: [
+          {
+            method: "GET",
+            url: "/api/cart",
+            status: 200,
+            type: "fetch",
+            body: null,
+          },
+        ],
+        console: [{ level: "warn" as const, text: "slow" }],
+        ran: [],
+      },
+    ],
+    stopped: null,
+  },
+  recordedAt: "2026-10-26T00:00:00Z",
+};
+
+describe("anchorFor", () => {
+  const document: ReviewDocument = {
+    ...EMPTY_REVIEW,
+    captures: [CAPTURE],
+    runs: [RUN],
+  };
+  const at = { series: "local:r", version: "1", commitId: "c1" };
+  const place = { side: "after" as const };
+
+  test("anchors a step's console line, counting steps from 1", () => {
+    // act
+    const anchor = anchorFor(
+      {
+        ...place,
+        run: "checkout",
+        step: 1,
+        console: { level: "warn", text: "slow" },
+      },
+      document,
+      at,
+    );
+
+    // assert
+    expect(anchor).toEqual({
+      kind: "step",
+      run: "checkout",
+      step: 0,
+      side: "after",
+      box: null,
+      request: null,
+      console: { level: "warn", text: "slow" },
+    });
+  });
+
+  test("refuses a request the step never made", () => {
+    // act
+    const anchor = () =>
+      anchorFor(
+        {
+          ...place,
+          run: "checkout",
+          step: 1,
+          request: { method: "POST", url: "/api/cart" },
+        },
+        document,
+        at,
+      );
+
+    // assert
+    expect(anchor).toThrow("step 1 of checkout made no POST /api/cart");
+  });
+
+  test("refuses a step past the run's last", () => {
+    // act
+    const anchor = () =>
+      anchorFor({ ...place, run: "checkout", step: 2 }, document, at);
+
+    // assert
+    expect(anchor).toThrow("checkout has steps 1 to 1; name one as step");
+  });
+
+  test("refuses a capture of another commit", () => {
+    // act
+    const anchor = () =>
+      anchorFor({ ...place, capture: "settings" }, document, {
+        ...at,
+        commitId: "c2",
+      });
+
+    // assert
+    expect(anchor).toThrow("the commit has no capture settings; it has none");
+  });
+
+  test("refuses two targets at once", () => {
+    // act
+    const anchor = () =>
+      anchorFor({ ...place, path: "a.ts", capture: "settings" }, document, at);
+
+    // assert
+    expect(anchor).toThrow("name one of path, capture or run");
   });
 });
 // ~/~ end

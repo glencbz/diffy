@@ -572,6 +572,7 @@ describe("ReviewDocument", () => {
           side: "after" as const,
           box: null,
           request: { method: "GET", url: "/api/cart" },
+          console: null,
         },
       ],
     };
@@ -581,6 +582,35 @@ describe("ReviewDocument", () => {
 
     // assert
     expect(document.comments).toEqual(stored.comments);
+  });
+
+  test("reads a step comment kept before console lines took threads as on no line", () => {
+    // arrange
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          id: "c1",
+          reviewKey: "change:a",
+          commitId: "a2",
+          body: "",
+          resolved: false,
+          createdAt: "2026-10-26T00:00:00.000Z",
+          kind: "step",
+          run: "checkout",
+          step: 0,
+          side: "after",
+          box: null,
+          request: null,
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments[0]).toMatchObject({ kind: "step", console: null });
   });
 
   test("rejects a file comment with no path", () => {
@@ -632,6 +662,7 @@ describe("evidenceLabel", () => {
       side: "after",
       box: null,
       request: { method: "POST", url: "/api/pay" },
+      console: null,
     });
 
     // assert

@@ -1,14 +1,15 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-view-network>>[init]
 import { useState } from "react";
-import type { Anchor, ThreadReview } from "../../model/review";
+import type { Anchor, RowComment, ThreadReview } from "../../model/review";
 import { type Compared, isOnRequest } from "../../model/runSteps";
 import type { Request } from "../../model/runs";
 import { CommentComposer, CommentThreads } from "../Comments";
 
-/** The threads on the step's requests, and the anchor a new one takes. */
-export interface RequestNotes {
+/** The threads on the step's requests or console lines, and the anchor a
+ *  new one on `part` takes. */
+export interface PartNotes<T> {
   review: ThreadReview;
-  anchorOf: (request: { method: string; url: string }) => Anchor;
+  anchorOf: (part: T) => Anchor;
 }
 
 export function Network({
@@ -20,7 +21,7 @@ export function Network({
   label: string;
   requests: Compared<Request>[];
   /** Null where there is no review to keep comments in. */
-  notes: RequestNotes | null;
+  notes: PartNotes<Request> | null;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [composing, setComposing] = useState<string | null>(null);
@@ -61,14 +62,11 @@ export function Network({
                   <span className="run-row__type">{request.type}</span>
                 </button>
                 {notes !== null && (
-                  <button
-                    type="button"
-                    className="run-row__comment"
-                    aria-label={`comment on ${request.method} ${request.url}`}
+                  <CommentButton
+                    count={threads.length}
+                    what={`${request.method} ${request.url}`}
                     onClick={() => setComposing(key)}
-                  >
-                    {threads.length > 0 ? threads.length : "+"}
-                  </button>
+                  />
                 )}
                 {open === key && (
                   <div className="run-row__bodies">
@@ -86,35 +84,83 @@ export function Network({
                     )}
                   </div>
                 )}
-                {notes !== null &&
-                  (composing === key || threads.length > 0) && (
-                    <div className="run-row__notes">
-                      {composing === key && (
-                        <CommentComposer
-                          anchor={notes.anchorOf(request)}
-                          onCancel={() => setComposing(null)}
-                          onSubmit={(anchor, text) => {
-                            notes.review.onAddComment(anchor, text);
-                            setComposing(null);
-                          }}
-                        />
-                      )}
-                      <CommentThreads
-                        comments={threads}
-                        onEditComment={notes.review.onEditComment}
-                        onResolveComment={notes.review.onResolveComment}
-                        onDropComment={notes.review.onDropComment}
-                        onReplyToComment={notes.review.onReplyToComment}
-                        onEditReply={notes.review.onEditReply}
-                        onDropReply={notes.review.onDropReply}
-                      />
-                    </div>
-                  )}
+                {notes !== null && (
+                  <RowNotes
+                    review={notes.review}
+                    threads={threads}
+                    composing={
+                      composing === key ? notes.anchorOf(request) : null
+                    }
+                    onDone={() => setComposing(null)}
+                  />
+                )}
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** The button at the end of a row: how many threads it holds, or a way to
+ *  start one. */
+export function CommentButton({
+  count,
+  what,
+  onClick,
+}: {
+  count: number;
+  what: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="run-row__comment"
+      aria-label={`comment on ${what}`}
+      onClick={onClick}
+    >
+      {count > 0 ? count : "+"}
+    </button>
+  );
+}
+
+/** The threads under a row, and the composer while the reader writes one. */
+export function RowNotes({
+  review,
+  threads,
+  composing,
+  onDone,
+}: {
+  review: ThreadReview;
+  threads: RowComment[];
+  /** The anchor being written on, or null. */
+  composing: Anchor | null;
+  onDone: () => void;
+}) {
+  if (composing === null && threads.length === 0) return null;
+  return (
+    <div className="run-row__notes">
+      {composing !== null && (
+        <CommentComposer
+          anchor={composing}
+          onCancel={onDone}
+          onSubmit={(anchor, text) => {
+            review.onAddComment(anchor, text);
+            onDone();
+          }}
+        />
+      )}
+      <CommentThreads
+        comments={threads}
+        onEditComment={review.onEditComment}
+        onResolveComment={review.onResolveComment}
+        onDropComment={review.onDropComment}
+        onReplyToComment={review.onReplyToComment}
+        onEditReply={review.onEditReply}
+        onDropReply={review.onDropReply}
+      />
     </div>
   );
 }

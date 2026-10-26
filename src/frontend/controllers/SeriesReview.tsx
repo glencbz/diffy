@@ -34,7 +34,8 @@ import {
 import {
   compareLogged,
   compareRequests,
-  requestNotes,
+  partAnchor,
+  partNotes,
   stepAsCapture,
   stepsAt,
 } from "../model/runSteps";
@@ -443,9 +444,13 @@ export function SeriesReview({
       }
       setRaise((now) => ({
         panel:
-          comment.kind === "step" && comment.request !== null
-            ? "network"
-            : "viewer",
+          comment.kind !== "step"
+            ? "viewer"
+            : comment.request !== null
+              ? "network"
+              : comment.console !== null
+                ? "console"
+                : "viewer",
         at: (now?.at ?? 0) + 1,
       }));
     }
@@ -627,11 +632,11 @@ export function SeriesReview({
       : threadsOf(captureShown.commitId, (comments) =>
           notesOn(comments, subject),
         );
-  const networkThreads =
+  const partThreads =
     runShown === null
       ? null
       : threadsOf(runShown.commitId, (comments) =>
-          requestNotes(comments, runShown.id, stepIndex),
+          partNotes(comments, runShown.id, stepIndex),
         );
   const pickItem = (key: string | null) =>
     setPicked(key === null ? null : { id: key, reading: readingComponent });
@@ -757,19 +762,15 @@ export function SeriesReview({
                 stepShown.after?.requests ?? [],
               )}
               notes={
-                networkThreads === null
+                partThreads === null
                   ? null
                   : {
-                      review: networkThreads,
-                      anchorOf: (request) => ({
-                        kind: "step",
-                        run: runShown.id,
-                        step: stepIndex,
-                        side: "after",
-                        box: null,
-                        // The answer is the recording's, not the comment's.
-                        request: { method: request.method, url: request.url },
-                      }),
+                      review: partThreads,
+                      anchorOf: (request) =>
+                        partAnchor(runShown.id, stepIndex, {
+                          request: { method: request.method, url: request.url },
+                          console: null,
+                        }),
                     }
               }
             />
@@ -786,6 +787,18 @@ export function SeriesReview({
                   : (stepShown.before?.console ?? []),
                 stepShown.after?.console ?? [],
               )}
+              notes={
+                partThreads === null
+                  ? null
+                  : {
+                      review: partThreads,
+                      anchorOf: (line) =>
+                        partAnchor(runShown.id, stepIndex, {
+                          request: null,
+                          console: { level: line.level, text: line.text },
+                        }),
+                    }
+              }
             />
           ),
         viewer:
