@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-review>>[init]
 import * as z from "zod";
+import { Box } from "../../frontend/model/evidence";
 import {
   type Anchor,
   evidenceLabel,
@@ -11,6 +12,7 @@ import {
   type ReviewDocument,
   reviewedIn,
 } from "../../frontend/model/review";
+import { Logged } from "../../frontend/model/runs";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
 import { type Tool, ToolError, tool } from "./mcp";
@@ -134,6 +136,166 @@ function where(anchor: Anchor): string {
 }
 
 const Name = z.string().min(1).describe("the local review's name");
+
+/** Where an agent's comment goes, as `add_comment` takes it. */
+const Place = z.object({
+  path: z.string().min(1).optional(),
+  line: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("a line number in the file as the commit leaves it"),
+  side: z
+    .enum(["before", "after"])
+    .default("after")
+    .describe(
+      "before for a line the commit removes, or for the parent's picture",
+    ),
+  capture: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("the id of a capture of the commit, to comment on it"),
+  run: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("the id of a run of the commit, to comment on one of its steps"),
+  step: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("the run's step, counting from 1"),
+  request: z
+    .object({ method: z.string(), url: z.string() })
+    .optional()
+    .describe(
+      "one request of the step: its method, and its path and query as the run recorded them",
+    ),
+  console: Logged.optional().describe("one line the step wrote to the console"),
+  box: Box.optional().describe(
+    "a region of the capture or step's picture: left, top, width and height, each a fraction of the picture",
+  ),
+  at: z.number().min(0).optional().describe("seconds into a clip"),
+});
+type Place = z.infer<typeof Place>;
+
+/** The anchor an agent's comment takes, checked against what the commit
+ *  has, so a thread never points at a capture, step or line the reader
+ *  cannot find. */
+export function anchorFor(
+  place: Place,
+  document: ReviewDocument,
+  at: { series: string; version: string; commitId: string },
+): Anchor {
+  const { path, line, side, capture, run, step, request, box } = place;
+  const targets = [path, capture, run].filter((each) => each !== undefined);
+  if (targets.length > 1) {
+    throw new ToolError("name one of path, capture or run");
+  }
+  if (line !== undefined && path === undefined) {
+    throw new ToolError("a line comment needs a path");
+  }
+  if (box !== undefined && capture === undefined && run === undefined) {
+    throw new ToolError("a box goes on a capture or a step");
+  }
+  if (place.at !== undefined && capture === undefined) {
+    throw new ToolError("a moment goes on a capture's clip");
+  }
+  const ofCommit = <
+    T extends { series: string; version: string; commitId: string; id: string },
+  >(
+    all: T[],
+  ) =>
+    all.filter(
+      (each) =>
+        each.series === at.series &&
+        each.version === at.version &&
+        each.commitId === at.commitId,
+    );
+  const named = (all: { id: string }[]) =>
+    all.length === 0 ? "none" : all.map((each) => each.id).join(", ");
+
+  if (capture !== undefined) {
+    const captures = ofCommit(document.captures);
+    if (!captures.some((each) => each.id === capture)) {
+      throw new ToolError(
+        `the commit has no capture ${capture}; it has ${named(captures)}`,
+      );
+    }
+    return {
+      kind: "capture",
+      capture,
+      side,
+      box: box ?? null,
+      at: place.at ?? null,
+    };
+  }
+  if (run !== undefined) {
+    const runs = ofCommit(document.runs);
+    const found = runs.find((each) => each.id === run);
+    if (found === undefined) {
+      throw new ToolError(
+        `the commit has no run ${run}; it has ${named(runs)}`,
+      );
+    }
+    const count = found.after.steps.length;
+    if (step === undefined || step > count) {
+      throw new ToolError(`${run} has steps 1 to ${count}; name one as step`);
+    }
+    if (request !== undefined && place.console !== undefined) {
+      throw new ToolError("name one of request or console");
+    }
+    const sides = [found.after.steps[step - 1], found.before?.steps[step - 1]];
+    if (
+      request !== undefined &&
+      !sides.some((each) =>
+        each?.requests.some(
+          (made) => made.method === request.method && made.url === request.url,
+        ),
+      )
+    ) {
+      throw new ToolError(
+        `step ${step} of ${run} made no ${request.method} ${request.url}`,
+      );
+    }
+    const logged = place.console;
+    if (
+      logged !== undefined &&
+      !sides.some((each) =>
+        each?.console.some(
+          (wrote) => wrote.level === logged.level && wrote.text === logged.text,
+        ),
+      )
+    ) {
+      throw new ToolError(
+        `step ${step} of ${run} wrote no such ${logged.level} line`,
+      );
+    }
+    return {
+      kind: "step",
+      run,
+      step: step - 1,
+      side,
+      box: box ?? null,
+      request: request ?? null,
+      console: logged ?? null,
+    };
+  }
+  if (
+    step !== undefined ||
+    request !== undefined ||
+    place.console !== undefined
+  ) {
+    throw new ToolError("a step, request or console line needs a run");
+  }
+  if (path === undefined) return { kind: "comparison" };
+  return line === undefined
+    ? { kind: "file", path }
+    : { kind: "line", path, side, line };
+}
 
 /** A time as milliseconds since the epoch. The document's own times are not
  *  all written the same way, so they compare as numbers, not strings. */
@@ -431,31 +593,22 @@ export function reviewTools(): Tool[] {
     tool({
       name: "add_comment",
       description:
-        "Comment on a change in the newest version of a local review: on a line of a file with path and line, on a whole file with path alone, or on the whole commit with neither.",
-      input: z.object({
+        "Comment on a change in the newest version of a local review: on a line of a file with path and line, on a whole file with path alone, on a capture with capture, on a step of a run with run and step, or on the whole commit with none of them. A comment on a capture or step can carry a box, and one on a step can name a request or a console line.",
+      input: Place.extend({
         name: Name,
         change: z
           .string()
           .min(1)
           .describe("a change id or commit id in the review, or a prefix"),
-        path: z.string().min(1).optional(),
-        line: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("a line number in the file as the commit leaves it"),
-        side: z
-          .enum(["before", "after"])
-          .default("after")
-          .describe("before for a line the commit removes"),
         body: z.string().min(1),
       }),
       call: async (
-        { name, change, path, line, side, body },
+        { name, change, body, ...place },
         { repo: { root, store }, now },
       ) => {
-        const version = newest(store.read().document, name);
+        const { document } = store.read();
+        const review = reviewNamed(document, name);
+        const version = newest(document, name);
         const matches = (await commitsOf(root, version)).filter(
           (entry) =>
             entry.changeId.startsWith(change) ||
@@ -467,15 +620,11 @@ export function reviewTools(): Tool[] {
             `${change} names ${matches.length} commits of ${name}'s newest version, not one`,
           );
         }
-        if (line !== undefined && path === undefined) {
-          throw new ToolError("a line comment needs a path");
-        }
-        const anchor: Anchor =
-          path === undefined
-            ? { kind: "comparison" }
-            : line === undefined
-              ? { kind: "file", path }
-              : { kind: "line", path, side, line };
+        const anchor = anchorFor(place, document, {
+          series: localSeries(name),
+          version: String(review.versions.length),
+          commitId: entry.commitId,
+        });
         const id = crypto.randomUUID();
         store.apply({
           kind: "add-comment",

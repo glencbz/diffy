@@ -405,6 +405,15 @@ It answers with [threads](../frontend/review.md#review-state), so an agent
 answers a comment with `reply_to_comment` on its thread rather than a comment
 beside it, which the reader would have to resolve as well.
 
+`add_comment` reaches everything the reader can comment on: a line or file
+of the code, a [capture](../frontend/viewer.md#comments-on-what-it-shows),
+or a step of a [run](../frontend/runs.md#network-and-console) with one of
+its requests or console lines. `anchorFor` checks each against what the
+commit has before writing, and names what there is when it refuses. A typo
+in a capture id would otherwise leave a thread the reader's screens never
+draw. A box comes as fractions of the picture, the form `read_comments`
+reads it back in, and a step counts from 1, as the reader's screens do.
+
 A review is the reader's turn until they mark its newest version reviewed,
 and the agent's after; `review_status` and `list_reviews` say which. Open
 comments do not make it the agent's turn, because the reader writes them
@@ -440,6 +449,7 @@ link uses the address the agent called.
 //| id: backend-agent-review
 //| file: src/backend/agent/review.ts
 import * as z from "zod";
+import { Box } from "../../frontend/model/evidence";
 import {
   type Anchor,
   evidenceLabel,
@@ -451,6 +461,7 @@ import {
   type ReviewDocument,
   reviewedIn,
 } from "../../frontend/model/review";
+import { Logged } from "../../frontend/model/runs";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
 import { type Tool, ToolError, tool } from "./mcp";
@@ -574,6 +585,166 @@ function where(anchor: Anchor): string {
 }
 
 const Name = z.string().min(1).describe("the local review's name");
+
+/** Where an agent's comment goes, as `add_comment` takes it. */
+const Place = z.object({
+  path: z.string().min(1).optional(),
+  line: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("a line number in the file as the commit leaves it"),
+  side: z
+    .enum(["before", "after"])
+    .default("after")
+    .describe(
+      "before for a line the commit removes, or for the parent's picture",
+    ),
+  capture: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("the id of a capture of the commit, to comment on it"),
+  run: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("the id of a run of the commit, to comment on one of its steps"),
+  step: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("the run's step, counting from 1"),
+  request: z
+    .object({ method: z.string(), url: z.string() })
+    .optional()
+    .describe(
+      "one request of the step: its method, and its path and query as the run recorded them",
+    ),
+  console: Logged.optional().describe("one line the step wrote to the console"),
+  box: Box.optional().describe(
+    "a region of the capture or step's picture: left, top, width and height, each a fraction of the picture",
+  ),
+  at: z.number().min(0).optional().describe("seconds into a clip"),
+});
+type Place = z.infer<typeof Place>;
+
+/** The anchor an agent's comment takes, checked against what the commit
+ *  has, so a thread never points at a capture, step or line the reader
+ *  cannot find. */
+export function anchorFor(
+  place: Place,
+  document: ReviewDocument,
+  at: { series: string; version: string; commitId: string },
+): Anchor {
+  const { path, line, side, capture, run, step, request, box } = place;
+  const targets = [path, capture, run].filter((each) => each !== undefined);
+  if (targets.length > 1) {
+    throw new ToolError("name one of path, capture or run");
+  }
+  if (line !== undefined && path === undefined) {
+    throw new ToolError("a line comment needs a path");
+  }
+  if (box !== undefined && capture === undefined && run === undefined) {
+    throw new ToolError("a box goes on a capture or a step");
+  }
+  if (place.at !== undefined && capture === undefined) {
+    throw new ToolError("a moment goes on a capture's clip");
+  }
+  const ofCommit = <
+    T extends { series: string; version: string; commitId: string; id: string },
+  >(
+    all: T[],
+  ) =>
+    all.filter(
+      (each) =>
+        each.series === at.series &&
+        each.version === at.version &&
+        each.commitId === at.commitId,
+    );
+  const named = (all: { id: string }[]) =>
+    all.length === 0 ? "none" : all.map((each) => each.id).join(", ");
+
+  if (capture !== undefined) {
+    const captures = ofCommit(document.captures);
+    if (!captures.some((each) => each.id === capture)) {
+      throw new ToolError(
+        `the commit has no capture ${capture}; it has ${named(captures)}`,
+      );
+    }
+    return {
+      kind: "capture",
+      capture,
+      side,
+      box: box ?? null,
+      at: place.at ?? null,
+    };
+  }
+  if (run !== undefined) {
+    const runs = ofCommit(document.runs);
+    const found = runs.find((each) => each.id === run);
+    if (found === undefined) {
+      throw new ToolError(
+        `the commit has no run ${run}; it has ${named(runs)}`,
+      );
+    }
+    const count = found.after.steps.length;
+    if (step === undefined || step > count) {
+      throw new ToolError(`${run} has steps 1 to ${count}; name one as step`);
+    }
+    if (request !== undefined && place.console !== undefined) {
+      throw new ToolError("name one of request or console");
+    }
+    const sides = [found.after.steps[step - 1], found.before?.steps[step - 1]];
+    if (
+      request !== undefined &&
+      !sides.some((each) =>
+        each?.requests.some(
+          (made) => made.method === request.method && made.url === request.url,
+        ),
+      )
+    ) {
+      throw new ToolError(
+        `step ${step} of ${run} made no ${request.method} ${request.url}`,
+      );
+    }
+    const logged = place.console;
+    if (
+      logged !== undefined &&
+      !sides.some((each) =>
+        each?.console.some(
+          (wrote) => wrote.level === logged.level && wrote.text === logged.text,
+        ),
+      )
+    ) {
+      throw new ToolError(
+        `step ${step} of ${run} wrote no such ${logged.level} line`,
+      );
+    }
+    return {
+      kind: "step",
+      run,
+      step: step - 1,
+      side,
+      box: box ?? null,
+      request: request ?? null,
+      console: logged ?? null,
+    };
+  }
+  if (
+    step !== undefined ||
+    request !== undefined ||
+    place.console !== undefined
+  ) {
+    throw new ToolError("a step, request or console line needs a run");
+  }
+  if (path === undefined) return { kind: "comparison" };
+  return line === undefined
+    ? { kind: "file", path }
+    : { kind: "line", path, side, line };
+}
 
 /** A time as milliseconds since the epoch. The document's own times are not
  *  all written the same way, so they compare as numbers, not strings. */
@@ -871,31 +1042,22 @@ export function reviewTools(): Tool[] {
     tool({
       name: "add_comment",
       description:
-        "Comment on a change in the newest version of a local review: on a line of a file with path and line, on a whole file with path alone, or on the whole commit with neither.",
-      input: z.object({
+        "Comment on a change in the newest version of a local review: on a line of a file with path and line, on a whole file with path alone, on a capture with capture, on a step of a run with run and step, or on the whole commit with none of them. A comment on a capture or step can carry a box, and one on a step can name a request or a console line.",
+      input: Place.extend({
         name: Name,
         change: z
           .string()
           .min(1)
           .describe("a change id or commit id in the review, or a prefix"),
-        path: z.string().min(1).optional(),
-        line: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("a line number in the file as the commit leaves it"),
-        side: z
-          .enum(["before", "after"])
-          .default("after")
-          .describe("before for a line the commit removes"),
         body: z.string().min(1),
       }),
       call: async (
-        { name, change, path, line, side, body },
+        { name, change, body, ...place },
         { repo: { root, store }, now },
       ) => {
-        const version = newest(store.read().document, name);
+        const { document } = store.read();
+        const review = reviewNamed(document, name);
+        const version = newest(document, name);
         const matches = (await commitsOf(root, version)).filter(
           (entry) =>
             entry.changeId.startsWith(change) ||
@@ -907,15 +1069,11 @@ export function reviewTools(): Tool[] {
             `${change} names ${matches.length} commits of ${name}'s newest version, not one`,
           );
         }
-        if (line !== undefined && path === undefined) {
-          throw new ToolError("a line comment needs a path");
-        }
-        const anchor: Anchor =
-          path === undefined
-            ? { kind: "comparison" }
-            : line === undefined
-              ? { kind: "file", path }
-              : { kind: "line", path, side, line };
+        const anchor = anchorFor(place, document, {
+          series: localSeries(name),
+          version: String(review.versions.length),
+          commitId: entry.commitId,
+        });
         const id = crypto.randomUUID();
         store.apply({
           kind: "add-comment",
@@ -1685,10 +1843,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EMPTY_REVIEW, type ReviewDocument } from "../../frontend/model/review";
 import { FIXED } from "../../testing/history";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";
-import { INSTRUCTIONS, reviewTools } from "./review";
+import { anchorFor, INSTRUCTIONS, reviewTools } from "./review";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();
@@ -1991,6 +2150,43 @@ describe("the review tools", () => {
     ]);
   });
 
+  test("comments on a capture the commit has", async () => {
+    // arrange
+    await call("register_review", { name: "t", revset: TIP });
+    store.apply({
+      kind: "attach-capture",
+      capture: { ...CAPTURE, series: "local:t", commitId: FIXED.commit },
+    });
+
+    // act
+    const added = await call("add_comment", {
+      name: "t",
+      change: FIXED.changeId,
+      capture: "settings",
+      box: [0.1, 0.2, 0.3, 0.4],
+      body: "the switch is too faint",
+    });
+    const missing = await call("add_comment", {
+      name: "t",
+      change: FIXED.changeId,
+      capture: "nope",
+      body: "x",
+    });
+    const read = await call("read_comments", { name: "t" });
+
+    // assert
+    expect(added.isError).toBe(false);
+    expect(JSON.parse(read.text)).toEqual([
+      expect.objectContaining({
+        at: "capture settings, a box [0.100, 0.200, 0.300, 0.400]",
+      }),
+    ]);
+    expect(missing).toEqual({
+      text: "the commit has no capture nope; it has settings",
+      isError: true,
+    });
+  });
+
   test("deletes a review so the reader can restore it", async () => {
     // arrange
     await call("register_review", { name: "t", revset: TIP });
@@ -2104,6 +2300,138 @@ describe("the review tools", () => {
       isError: true,
     });
     expect(nameless.isError).toBe(true);
+  });
+});
+
+const PNG = `${"a".repeat(64)}.png` as const;
+
+const CAPTURE = {
+  series: "local:r",
+  version: "1",
+  commitId: "c1",
+  id: "settings",
+  name: "Settings",
+  state: [],
+  about: "",
+  media: "image" as const,
+  before: PNG,
+  after: PNG,
+  shows: [],
+  attachedAt: "2026-10-26T00:00:00Z",
+};
+
+const RUN = {
+  series: "local:r",
+  version: "1",
+  commitId: "c1",
+  id: "checkout",
+  name: "Checkout",
+  state: [],
+  about: "",
+  before: null,
+  after: {
+    steps: [
+      {
+        label: "open",
+        shot: PNG,
+        requests: [
+          {
+            method: "GET",
+            url: "/api/cart",
+            status: 200,
+            type: "fetch",
+            body: null,
+          },
+        ],
+        console: [{ level: "warn" as const, text: "slow" }],
+        ran: [],
+      },
+    ],
+    stopped: null,
+  },
+  recordedAt: "2026-10-26T00:00:00Z",
+};
+
+describe("anchorFor", () => {
+  const document: ReviewDocument = {
+    ...EMPTY_REVIEW,
+    captures: [CAPTURE],
+    runs: [RUN],
+  };
+  const at = { series: "local:r", version: "1", commitId: "c1" };
+  const place = { side: "after" as const };
+
+  test("anchors a step's console line, counting steps from 1", () => {
+    // act
+    const anchor = anchorFor(
+      {
+        ...place,
+        run: "checkout",
+        step: 1,
+        console: { level: "warn", text: "slow" },
+      },
+      document,
+      at,
+    );
+
+    // assert
+    expect(anchor).toEqual({
+      kind: "step",
+      run: "checkout",
+      step: 0,
+      side: "after",
+      box: null,
+      request: null,
+      console: { level: "warn", text: "slow" },
+    });
+  });
+
+  test("refuses a request the step never made", () => {
+    // act
+    const anchor = () =>
+      anchorFor(
+        {
+          ...place,
+          run: "checkout",
+          step: 1,
+          request: { method: "POST", url: "/api/cart" },
+        },
+        document,
+        at,
+      );
+
+    // assert
+    expect(anchor).toThrow("step 1 of checkout made no POST /api/cart");
+  });
+
+  test("refuses a step past the run's last", () => {
+    // act
+    const anchor = () =>
+      anchorFor({ ...place, run: "checkout", step: 2 }, document, at);
+
+    // assert
+    expect(anchor).toThrow("checkout has steps 1 to 1; name one as step");
+  });
+
+  test("refuses a capture of another commit", () => {
+    // act
+    const anchor = () =>
+      anchorFor({ ...place, capture: "settings" }, document, {
+        ...at,
+        commitId: "c2",
+      });
+
+    // assert
+    expect(anchor).toThrow("the commit has no capture settings; it has none");
+  });
+
+  test("refuses two targets at once", () => {
+    // act
+    const anchor = () =>
+      anchorFor({ ...place, path: "a.ts", capture: "settings" }, document, at);
+
+    // assert
+    expect(anchor).toThrow("name one of path, capture or run");
   });
 });
 ```
