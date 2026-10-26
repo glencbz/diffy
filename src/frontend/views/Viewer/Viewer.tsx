@@ -101,8 +101,9 @@ export function Viewer({
     setLit(null);
   }, [shown.id, shown.commitId]);
 
-  const latest = useRef({ onStep, steps });
-  latest.current = { onStep, steps };
+  const root = useRef<HTMLDivElement>(null);
+  const latest = useRef({ onStep, steps, shown, time, drawing, notes });
+  latest.current = { onStep, steps, shown, time, drawing, notes };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target;
@@ -113,9 +114,25 @@ export function Viewer({
         return;
       }
       const now = latest.current;
+      // `c` is a copy with a modifier, and only means comment while the
+      // viewer is on screen rather than in a tab behind another panel.
+      const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+      const onScreen = (root.current?.getClientRects().length ?? 0) > 0;
       if (event.key === "Escape") {
         setDrawing(false);
         setDrag(null);
+      } else if (event.key === "c" && plain && onScreen && now.notes !== null) {
+        setDrawing(!now.drawing);
+        setDrag(null);
+      } else if (event.key === "Enter" && now.drawing) {
+        // Without a pointer, the whole picture of the commit's side.
+        event.preventDefault();
+        setDraft({
+          side: now.shown.after !== null ? "after" : "before",
+          box: null,
+          at: now.shown.media === "video" ? (now.time ?? 0) : null,
+        });
+        setDrawing(false);
       } else if (event.key === "[") now.onStep(-1);
       else if (event.key === "]") now.onStep(1);
       else if (now.steps !== null && (event.key === "," || event.key === ".")) {
@@ -249,7 +266,7 @@ export function Viewer({
   );
 
   return (
-    <div className="viewer">
+    <div className="viewer" ref={root}>
       <div className="viewer__head">
         <p className="viewer__title">
           <span className="viewer__name">{shown.name}</span>
@@ -264,7 +281,7 @@ export function Viewer({
             type="button"
             className="viewer__comment"
             aria-pressed={drawing}
-            title="Drag a box on a picture, or click one to comment on all of it"
+            title="Drag a box on a picture, or click one to comment on all of it (c; Enter for the whole picture)"
             onClick={() => {
               setDrawing(!drawing);
               setDrag(null);
