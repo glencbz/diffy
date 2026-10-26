@@ -1,16 +1,29 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-view-viewer>>[init]
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type PointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Component } from "../../model/components";
 import { type BlobName, blobUrl, type Capture } from "../../model/evidence";
+import type { Side, ThreadReview } from "../../model/review";
 import {
+  anchorOn,
+  boxBetween,
   boxStyle,
   type Item,
   itemKey,
   modesFor,
+  noteNear,
+  type Spot,
+  type Subject,
   shownAt,
   VIEW_MODE_NAMES,
   type ViewMode,
 } from "../../model/viewer";
+import { CommentComposer, CommentThreads } from "../Comments";
 
 /** A run's steps, when the item shown is a run. */
 export interface Steps {
@@ -21,6 +34,12 @@ export interface Steps {
   /** The files the step in focus ran lines of, which the code marks. */
   ran: string[];
   onAt: (index: number) => void;
+}
+
+/** The threads on what the viewer shows, and what they are on. */
+export interface Notes {
+  subject: Subject;
+  review: ThreadReview;
 }
 
 export function Viewer({
@@ -35,6 +54,7 @@ export function Viewer({
   onStep,
   onMode,
   onGo,
+  notes,
 }: {
   /** Every capture and run of the commit, for the strip. */
   items: Item[];
@@ -52,16 +72,33 @@ export function Viewer({
   onStep: (step: -1 | 1) => void;
   onMode: (mode: ViewMode) => void;
   onGo: (component: string) => void;
+  /** Null where there is no review to keep comments in. */
+  notes: Notes | null;
 }) {
   const modes = modesFor(shown);
   const showing = modes.includes(mode) ? mode : "side";
   const [time, setTime] = useState<number | null>(null);
   const [cut, setCut] = useState(0.5);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new capture starts its clip, and its cut, afresh
+  // Drawing is the reader's pick of where to comment; the draft is that
+  // place, waiting on the words.
+  const [drawing, setDrawing] = useState(false);
+  const [drag, setDrag] = useState<{
+    side: Side;
+    from: [number, number];
+    to: [number, number];
+  } | null>(null);
+  const [draft, setDraft] = useState<Spot | null>(null);
+  const [lit, setLit] = useState<string | null>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new capture starts its clip, its cut and its comment afresh
   useEffect(() => {
     setTime(null);
     setCut(0.5);
+    setDrawing(false);
+    setDrag(null);
+    setDraft(null);
+    setLit(null);
   }, [shown.id, shown.commitId]);
 
   const latest = useRef({ onStep, steps });
@@ -76,7 +113,10 @@ export function Viewer({
         return;
       }
       const now = latest.current;
-      if (event.key === "[") now.onStep(-1);
+      if (event.key === "Escape") {
+        setDrawing(false);
+        setDrag(null);
+      } else if (event.key === "[") now.onStep(-1);
       else if (event.key === "]") now.onStep(1);
       else if (now.steps !== null && (event.key === "," || event.key === ".")) {
         const next = now.steps.at + (event.key === "," ? -1 : 1);
@@ -111,6 +151,102 @@ export function Viewer({
     </span>
   );
   const boxesOn = shown.after !== null ? "after" : "before";
+  const clipTime = shown.media === "video" ? (time ?? 0) : null;
+
+  const fraction = (event: PointerEvent<HTMLElement>): [number, number] => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return [
+      (event.clientX - rect.left) / rect.width,
+      (event.clientY - rect.top) / rect.height,
+    ];
+  };
+  /** Over a picture while drawing: a drag draws a box, a click takes the
+   *  whole picture. */
+  const drawLayer = (side: Side) =>
+    drawing && (
+      <span
+        className="viewer-draw"
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          const at = fraction(event);
+          setDrag({ side, from: at, to: at });
+        }}
+        onPointerMove={(event) => {
+          const to = fraction(event);
+          setDrag((now) => (now === null ? null : { ...now, to }));
+        }}
+        onPointerUp={(event) => {
+          if (drag === null) return;
+          setDraft({
+            side: drag.side,
+            box: boxBetween(drag.from, fraction(event)),
+            at: clipTime,
+          });
+          setDrag(null);
+          setDrawing(false);
+        }}
+      >
+        {drag !== null && drag.side === side && (
+          <span
+            className="viewer-note viewer-note--draft"
+            style={boxStyle(
+              boxBetween(drag.from, drag.to) ?? [
+                drag.from[0],
+                drag.from[1],
+                0,
+                0,
+              ],
+            )}
+          />
+        )}
+      </span>
+    );
+
+  const threads = notes?.review.comments ?? [];
+  const noteNumber = new Map(
+    threads.map((each, index) => [each.id, index + 1]),
+  );
+  /** The boxes of the threads on one side, or on both where one picture
+   *  lays the two over each other. */
+  const noteBoxes = (side: Side | null) => (
+    <>
+      {threads.map((comment) => {
+        if (
+          (comment.kind !== "capture" && comment.kind !== "step") ||
+          comment.box === null ||
+          (side !== null && comment.side !== side) ||
+          !noteNear(comment.kind === "capture" ? comment.at : null, clipTime)
+        ) {
+          return null;
+        }
+        return (
+          <button
+            key={comment.id}
+            type="button"
+            style={boxStyle(comment.box)}
+            className={`viewer-note${comment.resolved ? " viewer-note--resolved" : ""}${lit === comment.id ? " viewer-note--lit" : ""}`}
+            aria-label={`thread ${noteNumber.get(comment.id)}`}
+            onClick={() => {
+              setLit(comment.id);
+              document
+                .getElementById(`viewer-thread-${comment.id}`)
+                ?.scrollIntoView({ block: "nearest" });
+            }}
+          >
+            <span className="viewer-note__number">
+              {noteNumber.get(comment.id)}
+            </span>
+          </button>
+        );
+      })}
+      {draft?.box != null && (side === null || draft.side === side) && (
+        <span
+          className="viewer-note viewer-note--draft"
+          style={boxStyle(draft.box)}
+        />
+      )}
+    </>
+  );
 
   return (
     <div className="viewer">
@@ -123,6 +259,20 @@ export function Viewer({
             </span>
           ))}
         </p>
+        {notes !== null && (
+          <button
+            type="button"
+            className="viewer__comment"
+            aria-pressed={drawing}
+            title="Drag a box on a picture, or click one to comment on all of it"
+            onClick={() => {
+              setDrawing(!drawing);
+              setDrag(null);
+            }}
+          >
+            {drawing ? "drag a box, or click" : "comment"}
+          </button>
+        )}
         {modes.length > 1 && (
           <span className="viewer__modes">
             {modes.map((each) => (
@@ -197,6 +347,8 @@ export function Viewer({
                     onTime={side === "after" ? setTime : null}
                   />
                   {side === boxesOn && boxes}
+                  {noteBoxes(side)}
+                  {drawLayer(side)}
                 </span>
               </figure>
             ),
@@ -219,6 +371,8 @@ export function Viewer({
               className="viewer__media viewer__media--top"
             />
             {boxes}
+            {noteBoxes(null)}
+            {drawLayer("after")}
           </span>
           {showing !== "difference" && (
             <label className="viewer__cut">
@@ -234,6 +388,42 @@ export function Viewer({
               <span>this commit</span>
             </label>
           )}
+        </div>
+      )}
+      {notes !== null && (draft !== null || threads.length > 0) && (
+        <div className="viewer__notes">
+          {draft !== null && (
+            <CommentComposer
+              anchor={anchorOn(notes.subject, draft)}
+              onCancel={() => setDraft(null)}
+              onSubmit={(anchor, body) => {
+                notes.review.onAddComment(anchor, body);
+                setDraft(null);
+              }}
+            />
+          )}
+          {threads.map((comment) => (
+            <div
+              key={comment.id}
+              id={`viewer-thread-${comment.id}`}
+              className={`viewer__thread${lit === comment.id ? " viewer__thread--lit" : ""}`}
+              onPointerEnter={() => setLit(comment.id)}
+              onPointerLeave={() => setLit(null)}
+            >
+              <span className="viewer__thread-number">
+                {noteNumber.get(comment.id)}
+              </span>
+              <CommentThreads
+                comments={[comment]}
+                onEditComment={notes.review.onEditComment}
+                onResolveComment={notes.review.onResolveComment}
+                onDropComment={notes.review.onDropComment}
+                onReplyToComment={notes.review.onReplyToComment}
+                onEditReply={notes.review.onEditReply}
+                onDropReply={notes.review.onDropReply}
+              />
+            </div>
+          ))}
         </div>
       )}
       {items.length > 1 && (

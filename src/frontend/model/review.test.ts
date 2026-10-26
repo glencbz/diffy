@@ -9,6 +9,7 @@ import {
   commentOn,
   drawnAt,
   EMPTY_REVIEW,
+  evidenceLabel,
   type FileVersion,
   isPlaceSeen,
   isViewed,
@@ -539,6 +540,49 @@ describe("ReviewDocument", () => {
     expect(document.comments).toEqual(stored.comments);
   });
 
+  test("reads capture and step comments back as themselves", () => {
+    // arrange
+    const written = {
+      reviewKey: "change:a",
+      commitId: "a2",
+      body: "",
+      resolved: false,
+      createdAt: "2026-09-14T09:00:00.000Z",
+      author: "reader",
+      replies: [],
+    };
+    const stored = {
+      marks: [],
+      comments: [
+        {
+          ...written,
+          id: "c1",
+          kind: "capture" as const,
+          capture: "settings",
+          side: "after" as const,
+          box: [0.1, 0.2, 0.3, 0.4] as [number, number, number, number],
+          at: 2.5,
+        },
+        {
+          ...written,
+          id: "c2",
+          kind: "step" as const,
+          run: "checkout",
+          step: 1,
+          side: "after" as const,
+          box: null,
+          request: { method: "GET", url: "/api/cart" },
+        },
+      ],
+    };
+
+    // act
+    const document = ReviewDocument.parse(stored);
+
+    // assert
+    expect(document.comments).toEqual(stored.comments);
+  });
+
   test("rejects a file comment with no path", () => {
     // arrange
     const stored = {
@@ -561,6 +605,37 @@ describe("ReviewDocument", () => {
 
     // assert
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("evidenceLabel", () => {
+  test("names a capture by its id, then its box, moment and side", () => {
+    // act
+    const label = evidenceLabel({
+      kind: "capture",
+      capture: "settings",
+      side: "before",
+      box: [0, 0, 0.5, 0.5],
+      at: 1.25,
+    });
+
+    // assert
+    expect(label).toBe("settings, at 1.3s, a box, parent");
+  });
+
+  test("names a step counting from 1, and its request", () => {
+    // act
+    const label = evidenceLabel({
+      kind: "step",
+      run: "checkout",
+      step: 0,
+      side: "after",
+      box: null,
+      request: { method: "POST", url: "/api/pay" },
+    });
+
+    // assert
+    expect(label).toBe("checkout, step 1, POST /api/pay");
   });
 });
 

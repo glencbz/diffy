@@ -25,12 +25,16 @@ import {
   type ComparisonReview,
   keptPairing,
   type ReviewDocument,
+  type RowComment,
   reviewComparison,
   reviewedIn,
+  type ThreadReview,
+  threadReview,
 } from "../model/review";
 import {
   compareLogged,
   compareRequests,
+  requestNotes,
   stepAsCapture,
   stepsAt,
 } from "../model/runSteps";
@@ -54,7 +58,9 @@ import {
   followItem,
   type Item,
   itemKey,
+  notesOn,
   type Pick,
+  type Subject,
   stepItem,
   type ViewMode,
 } from "../model/viewer";
@@ -418,8 +424,31 @@ export function SeriesReview({
           ),
         )
       : [];
+  const [raise, setRaise] = useState<{ panel: PanelId; at: number } | null>(
+    null,
+  );
   const goToThread = (thread: SeriesThread) => {
     onGo(threadPlace(thread, place, to));
+    // A thread on a capture or a run is read where it is drawn, so the
+    // viewer or the Network panel picks it and comes to the front.
+    const { comment } = thread;
+    if (comment.kind === "capture" || comment.kind === "step") {
+      const key =
+        comment.kind === "capture"
+          ? `capture:${comment.capture}`
+          : `run:${comment.run}`;
+      setPicked({ id: key, reading: readingComponent });
+      if (comment.kind === "step") {
+        setStepAt({ run: comment.run, index: comment.step });
+      }
+      setRaise((now) => ({
+        panel:
+          comment.kind === "step" && comment.request !== null
+            ? "network"
+            : "viewer",
+        at: (now?.at ?? 0) + 1,
+      }));
+    }
     // A thread on the whole commit picks no file, so nothing else opens a
     // quiet row to show it.
     const row = thread.drawn?.row;
@@ -575,6 +604,35 @@ export function SeriesReview({
       : itemShown.kind === "capture"
         ? itemShown.capture
         : stepAsCapture(itemShown.run, stepIndex);
+  // A capture or run is about its commit, so its threads are filed with
+  // that commit's row and drawn where the row's are.
+  const threadsOf = (
+    commitId: string,
+    which: (comments: RowComment[]) => RowComment[],
+  ): ThreadReview | null => {
+    const row = rows.find((each) => each.commit.commitId === commitId);
+    if (row === undefined || review.status !== "ready") return null;
+    const kept = reviewOf(row);
+    return threadReview(review.actions, kept, which(kept.comments));
+  };
+  const subject: Subject | null =
+    itemShown === null
+      ? null
+      : itemShown.kind === "capture"
+        ? { kind: "capture", capture: itemShown.capture.id }
+        : { kind: "step", run: itemShown.run.id, step: stepIndex };
+  const viewerThreads =
+    subject === null || captureShown === null
+      ? null
+      : threadsOf(captureShown.commitId, (comments) =>
+          notesOn(comments, subject),
+        );
+  const networkThreads =
+    runShown === null
+      ? null
+      : threadsOf(runShown.commitId, (comments) =>
+          requestNotes(comments, runShown.id, stepIndex),
+        );
   const pickItem = (key: string | null) =>
     setPicked(key === null ? null : { id: key, reading: readingComponent });
   const empty = new Set<PanelId>();
@@ -598,6 +656,7 @@ export function SeriesReview({
       onUndo={panels.undo}
       onReset={panels.reset}
       empty={empty}
+      raise={raise}
       badges={{
         ...(openThreads > 0 && { threads: `${openThreads} open` }),
         ...(items.length > 0 && { viewer: `${items.length}` }),
@@ -697,6 +756,22 @@ export function SeriesReview({
                   : (stepShown.before?.requests ?? []),
                 stepShown.after?.requests ?? [],
               )}
+              notes={
+                networkThreads === null
+                  ? null
+                  : {
+                      review: networkThreads,
+                      anchorOf: (request) => ({
+                        kind: "step",
+                        run: runShown.id,
+                        step: stepIndex,
+                        side: "after",
+                        box: null,
+                        // The answer is the recording's, not the comment's.
+                        request: { method: request.method, url: request.url },
+                      }),
+                    }
+              }
             />
           ),
         console:
@@ -746,6 +821,11 @@ export function SeriesReview({
               onPick={pickItem}
               onStep={(by) => pickItem(stepItem(items, itemKey(itemShown), by))}
               onMode={setViewMode}
+              notes={
+                subject === null || viewerThreads === null
+                  ? null
+                  : { subject, review: viewerThreads }
+              }
               onGo={(component) =>
                 focus.ask({
                   kind: "component",

@@ -1,12 +1,16 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { Capture } from "./evidence";
+import type { Anchor, RowComment } from "./review";
 import type { Run } from "./runs";
 import {
+  anchorOn,
+  boxBetween,
   followCapture,
   followItem,
   type Item,
   modesFor,
+  notesOn,
   shownAt,
   stepItem,
 } from "./viewer";
@@ -166,6 +170,121 @@ describe("the viewer's choices", () => {
 
     // assert
     expect(early).toEqual(["header"]);
+  });
+});
+describe("boxBetween", () => {
+  test("draws the same box whichever corner the drag starts from", () => {
+    // act
+    const down = boxBetween([0.1, 0.2], [0.4, 0.6]);
+    const up = boxBetween([0.4, 0.6], [0.1, 0.2]);
+
+    // assert
+    expect(down).toEqual(up);
+    expect(down?.map((each) => Number(each.toFixed(3)))).toEqual([
+      0.1, 0.2, 0.3, 0.4,
+    ]);
+  });
+
+  test("keeps a drag past the edge on the picture", () => {
+    // act
+    const box = boxBetween([0.5, 0.5], [1.4, -0.2]);
+
+    // assert
+    expect(box).toEqual([0.5, 0, 0.5, 0.5]);
+  });
+
+  test("reads a drag too small to see as a click on the whole picture", () => {
+    // act
+    const box = boxBetween([0.5, 0.5], [0.505, 0.502]);
+
+    // assert
+    expect(box).toBeNull();
+  });
+});
+
+describe("notesOn", () => {
+  const comment = (id: string, anchor: Anchor): RowComment => ({
+    id,
+    reviewKey: "change:a",
+    commitId: "c1",
+    body: "",
+    resolved: false,
+    createdAt: "2026-10-26T00:00:00Z",
+    author: "reader",
+    replies: [],
+    stale: false,
+    numberedOn: null,
+    ...anchor,
+  });
+  const comments = [
+    comment("on-capture", {
+      kind: "capture",
+      capture: "settings",
+      side: "after",
+      box: null,
+      at: null,
+    }),
+    comment("on-step", {
+      kind: "step",
+      run: "checkout",
+      step: 1,
+      side: "after",
+      box: null,
+      request: null,
+    }),
+    comment("on-request", {
+      kind: "step",
+      run: "checkout",
+      step: 1,
+      side: "after",
+      box: null,
+      request: { method: "GET", url: "/api/cart" },
+    }),
+    comment("other-step", {
+      kind: "step",
+      run: "checkout",
+      step: 0,
+      side: "after",
+      box: null,
+      request: null,
+    }),
+    comment("on-line", { kind: "line", path: "a.ts", side: "after", line: 1 }),
+  ];
+
+  test("finds a capture's threads", () => {
+    // act
+    const found = notesOn(comments, { kind: "capture", capture: "settings" });
+
+    // assert
+    expect(found.map((each) => each.id)).toEqual(["on-capture"]);
+  });
+
+  test("finds one step's threads and leaves its requests to Network", () => {
+    // act
+    const found = notesOn(comments, { kind: "step", run: "checkout", step: 1 });
+
+    // assert
+    expect(found.map((each) => each.id)).toEqual(["on-step"]);
+  });
+});
+
+describe("anchorOn", () => {
+  test("anchors a spot on a step to the whole step, not a request", () => {
+    // act
+    const anchor = anchorOn(
+      { kind: "step", run: "checkout", step: 2 },
+      { side: "before", box: [0, 0, 1, 1], at: null },
+    );
+
+    // assert
+    expect(anchor).toEqual({
+      kind: "step",
+      run: "checkout",
+      step: 2,
+      side: "before",
+      box: [0, 0, 1, 1],
+      request: null,
+    });
   });
 });
 // ~/~ end

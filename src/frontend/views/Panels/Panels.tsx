@@ -37,6 +37,7 @@ export function Panels({
   badges,
   tools,
   bar,
+  raise = null,
 }: {
   tree: Tile;
   layouts: { id: string; name: string }[];
@@ -53,6 +54,9 @@ export function Panels({
   tools: Partial<Record<PanelId, ReactNode>>;
   /** What the bar holds at its left. */
   bar: ReactNode;
+  /** The last panel something on screen asked to bring to the front,
+   *  numbered so the same one asked twice comes forward again. */
+  raise?: { panel: PanelId; at: number } | null;
 }) {
   const [hosts] = useState(() => {
     const out = new Map<PanelId, HTMLElement>();
@@ -88,6 +92,17 @@ export function Panels({
     setFront((now) => new Map(now).set(leafId, panel));
     setFolds((now) => new Map(now).set(leafId, false));
   };
+
+  const raised = useRef({ all, show });
+  raised.current = { all, show };
+  useEffect(() => {
+    if (raise === null) return;
+    const now = raised.current;
+    // A panel the reader closed stays closed: the ask is to look, not to
+    // rearrange their layout.
+    const leaf = now.all.find((each) => each.tabs.includes(raise.panel));
+    if (leaf !== undefined) now.show(leaf.id, raise.panel);
+  }, [raise]);
 
   const latest = useRef({ layouts, onChoose, onUndo, zoom, focusedLeaf, all });
   latest.current = { layouts, onChoose, onUndo, zoom, focusedLeaf, all };

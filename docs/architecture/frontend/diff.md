@@ -178,6 +178,7 @@ import {
   type CompareOffer,
   type DiffReview,
   isViewed,
+  onFile,
 } from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
@@ -246,12 +247,11 @@ export function DiffView({
                 : {
                     kind: "review",
                     comments: review.comments.filter(
-                      (comment) =>
-                        comment.kind !== "comparison" && comment.path === path,
+                      (comment) => onFile(comment) && comment.path === path,
                     ),
                     composer:
                       composer !== null &&
-                      composer.kind !== "comparison" &&
+                      onFile(composer) &&
                       composer.path === path
                         ? composer
                         : null,
@@ -1730,6 +1730,7 @@ import { useState } from "react";
 import {
   type Anchor,
   drawnAt,
+  evidenceLabel,
   type LineAnchor,
   type Reply,
   type RowComment,
@@ -1750,6 +1751,9 @@ function composerLabel(anchor: Anchor): string {
       return "whole file";
     case "comparison":
       return "whole comparison";
+    case "capture":
+    case "step":
+      return evidenceLabel(anchor);
   }
 }
 
@@ -1796,6 +1800,9 @@ function threadLabel(comment: Anchor, at: LineAnchor | null): string {
       return comment.path;
     case "comparison":
       return "whole comparison";
+    case "capture":
+    case "step":
+      return evidenceLabel(comment);
   }
 }
 

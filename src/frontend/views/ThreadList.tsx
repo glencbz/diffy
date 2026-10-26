@@ -1,6 +1,10 @@
 // ~/~ begin <<docs/architecture/frontend/threads.md#frontend-view-thread-list>>[init]
 import { useState } from "react";
-import type { ReviewActions, RowComment } from "../model/review";
+import {
+  evidenceLabel,
+  type ReviewActions,
+  type RowComment,
+} from "../model/review";
 import {
   byVersion,
   type SeriesThread,
@@ -187,6 +191,9 @@ function shown(thread: SeriesThread): Shown {
  *  thread's commit is a click away. */
 function whereOf({ comment }: SeriesThread): string {
   if (comment.kind === "comparison") return "whole commit";
+  if (comment.kind === "capture" || comment.kind === "step") {
+    return evidenceLabel(comment);
+  }
   const name = comment.path.split("/").at(-1) ?? comment.path;
   if (comment.kind === "file") return name;
   return comment.side === "after"

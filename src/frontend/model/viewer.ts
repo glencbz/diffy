@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer>>[init]
 import type { Box, Capture, Shown } from "./evidence";
+import type { Anchor, RowComment, Side } from "./review";
 import type { Run } from "./runs";
 
 export const VIEW_MODES = ["side", "swipe", "fade", "difference"] as const;
@@ -139,5 +140,73 @@ export function boxStyle([left, top, width, height]: Box) {
     width: percent(width),
     height: percent(height),
   };
+}
+// ~/~ end
+// ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer>>[1]
+/** What the viewer's comments are on: the capture shown, or the step of the
+ *  run in focus. */
+export type Subject =
+  | { kind: "capture"; capture: string }
+  | { kind: "step"; run: string; step: number };
+
+/** Where on the picture shown the reader commented: the side, a box or all
+ *  of it, and for a clip the moment. */
+export interface Spot {
+  side: Side;
+  box: Box | null;
+  at: number | null;
+}
+
+export function anchorOn(subject: Subject, spot: Spot): Anchor {
+  return subject.kind === "capture"
+    ? { kind: "capture", capture: subject.capture, ...spot }
+    : {
+        kind: "step",
+        run: subject.run,
+        step: subject.step,
+        side: spot.side,
+        box: spot.box,
+        request: null,
+      };
+}
+
+/** The threads on `subject`, leaving a step's requests to the Network
+ *  panel. */
+export function notesOn(
+  comments: RowComment[],
+  subject: Subject,
+): RowComment[] {
+  return comments.filter((comment) =>
+    subject.kind === "capture"
+      ? comment.kind === "capture" && comment.capture === subject.capture
+      : comment.kind === "step" &&
+        comment.run === subject.run &&
+        comment.step === subject.step &&
+        comment.request === null,
+  );
+}
+
+/** Whether a note on a clip is near enough `time` to draw. */
+export function noteNear(at: number | null, time: number | null): boolean {
+  return at === null || time === null || Math.abs(at - time) <= 1;
+}
+
+/** The box a drag from `from` to `to` draws, each a fraction of the
+ *  picture, or null for a drag too small to mean one: a click. */
+export function boxBetween(
+  from: [number, number],
+  to: [number, number],
+): Box | null {
+  const clamp = (value: number) => Math.min(1, Math.max(0, value));
+  const [x0, x1] = [clamp(from[0]), clamp(to[0])].sort((a, b) => a - b) as [
+    number,
+    number,
+  ];
+  const [y0, y1] = [clamp(from[1]), clamp(to[1])].sort((a, b) => a - b) as [
+    number,
+    number,
+  ];
+  if (x1 - x0 < 0.01 && y1 - y0 < 0.01) return null;
+  return [x0, y0, x1 - x0, y1 - y0];
 }
 // ~/~ end

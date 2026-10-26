@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   type Anchor,
   drawnAt,
+  evidenceLabel,
   type LineAnchor,
   type Reply,
   type RowComment,
@@ -23,6 +24,9 @@ function composerLabel(anchor: Anchor): string {
       return "whole file";
     case "comparison":
       return "whole comparison";
+    case "capture":
+    case "step":
+      return evidenceLabel(anchor);
   }
 }
 
@@ -69,6 +73,9 @@ function threadLabel(comment: Anchor, at: LineAnchor | null): string {
       return comment.path;
     case "comparison":
       return "whole comparison";
+    case "capture":
+    case "step":
+      return evidenceLabel(comment);
   }
 }
 
