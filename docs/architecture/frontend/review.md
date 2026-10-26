@@ -477,10 +477,8 @@ export function drawnAt(comment: RowComment, patch: string): LineAnchor | null {
   }
 }
 
-/** Review memory for the files on screen. A diff that has one lets every
- * file, and every line of it on either side, be commented on; a diff that
- * has none renders read-only. */
-export interface DiffReview {
+/** The threads on one thing of a row, and what the reader can do to them. */
+export interface ThreadReview {
   comments: RowComment[];
   onAddComment: (anchor: Anchor, body: string) => void;
   onEditComment: (id: string, body: string) => void;
@@ -489,6 +487,12 @@ export interface DiffReview {
   onReplyToComment: (id: string, body: string) => void;
   onEditReply: (commentId: string, replyId: string, body: string) => void;
   onDropReply: (commentId: string, replyId: string) => void;
+}
+
+/** Review memory for the files on screen. A diff that has one lets every
+ * file, and every line of it on either side, be commented on; a diff that
+ * has none renders read-only. */
+export interface DiffReview extends ThreadReview {
   viewed: ViewedFile[];
   onToggleViewed: (file: FileVersion) => void;
   /** Null for a diff with no after side to compare from. */
@@ -1261,6 +1265,24 @@ export interface ReviewActions {
   ) => void;
   forgetReview: (name: string) => void;
   restoreReview: (name: string) => void;
+}
+
+/** `comments` of `row`, written to through `actions`. */
+export function threadReview(
+  actions: ReviewActions,
+  row: ComparisonReview,
+  comments: RowComment[],
+): ThreadReview {
+  return {
+    comments,
+    onAddComment: (anchor, body) => actions.addComment(row, anchor, body),
+    onEditComment: actions.editComment,
+    onResolveComment: actions.resolveComment,
+    onDropComment: actions.dropComment,
+    onReplyToComment: actions.replyToComment,
+    onEditReply: actions.editReply,
+    onDropReply: actions.dropReply,
+  };
 }
 
 /** The comparison a row stands for, as a mark names it. */

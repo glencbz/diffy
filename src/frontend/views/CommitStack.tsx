@@ -11,11 +11,12 @@ import { type BeforePaths, compareOffer } from "../model/compared";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
 import type { DiffLinks } from "../model/place";
-import type {
-  ComparisonReview,
-  DiffReview,
-  ReviewActions,
-  ReviewBarVariant,
+import {
+  type ComparisonReview,
+  type DiffReview,
+  type ReviewActions,
+  type ReviewBarVariant,
+  threadReview,
 } from "../model/review";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
@@ -389,14 +390,7 @@ function partsOf(
       </>
     ),
     diff: {
-      comments: review.comments,
-      onAddComment: (anchor, body) => actions.addComment(review, anchor, body),
-      onEditComment: actions.editComment,
-      onResolveComment: actions.resolveComment,
-      onDropComment: actions.dropComment,
-      onReplyToComment: actions.replyToComment,
-      onEditReply: actions.editReply,
-      onDropReply: actions.dropReply,
+      ...threadReview(actions, review, review.comments),
       viewed: review.viewed,
       onToggleViewed: (file) => actions.toggleViewed(review, file),
       compare: compareOffer(review, beforePaths, actions.compare),
