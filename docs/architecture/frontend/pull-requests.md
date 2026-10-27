@@ -767,7 +767,6 @@ import {
   threadPlace,
 } from "../model/threads";
 import {
-  capturesAt,
   followItem,
   type Item,
   itemKey,
@@ -1285,29 +1284,28 @@ export function SeriesReview({
     (thread) => !thread.comment.resolved,
   ).length;
 
-  // The viewer shows the captures and runs of the commit picked or being
-  // read; Network and Console show the step in focus of the run shown.
+  // The viewer holds every capture and run of the version and starts on
+  // those of the commit picked or being read; Network and Console show the
+  // step in focus of the run shown.
   const inView = currentRow?.commit.commitId ?? focus.reading?.commit ?? null;
-  const atCommit = capturesAt(
+  const versionCaptures =
     review.status === "ready"
       ? capturesOf(review.document.captures, series, to)
-      : [],
-    inView,
-  );
-  const runsAtCommit = (
-    review.status === "ready" ? runsOf(review.document.runs, series, to) : []
-  ).filter((run) => inView === null || run.commitId === inView);
+      : [];
+  const versionRuns =
+    review.status === "ready" ? runsOf(review.document.runs, series, to) : [];
   const items: Item[] = [
-    ...atCommit.map((capture): Item => ({ kind: "capture", capture })),
-    ...runsAtCommit.map((run): Item => ({ kind: "run", run })),
+    ...versionCaptures.map((capture): Item => ({ kind: "capture", capture })),
+    ...versionRuns.map((run): Item => ({ kind: "run", run })),
   ];
   const readingComponent =
     focus.reading?.kind === "component" ? focus.reading.component : null;
   const itemShown = followItem(
-    atCommit,
-    runsAtCommit,
+    versionCaptures,
+    versionRuns,
     picked,
     readingComponent,
+    inView,
   );
   const runShown = itemShown?.kind === "run" ? itemShown.run : null;
   const stepIndex =
@@ -1515,10 +1513,11 @@ export function SeriesReview({
           ),
         viewer:
           captureShown === null || itemShown === null ? (
-            <Message>No captures of this commit.</Message>
+            <Message>No captures of this version.</Message>
           ) : (
             <Viewer
               items={items}
+              inView={inView}
               shownKey={itemKey(itemShown)}
               shown={captureShown}
               steps={

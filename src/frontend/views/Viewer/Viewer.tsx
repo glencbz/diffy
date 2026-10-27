@@ -50,14 +50,18 @@ export function Viewer({
   mode,
   components,
   reading,
+  inView,
   onPick,
   onStep,
   onMode,
   onGo,
   notes,
 }: {
-  /** Every capture and run of the commit, for the strip. */
+  /** Every capture and run of the version, for the strip. */
   items: Item[];
+  /** The commit in view, whose items the strip draws brighter, or null
+   *  while none is. */
+  inView: string | null;
   /** The key of the item shown. */
   shownKey: string;
   /** The capture shown, or the run's step in focus as one. */
@@ -463,13 +467,18 @@ export function Viewer({
                   : null;
             const about =
               item.kind === "capture" ? item.capture.about : item.run.about;
+            const commitId =
+              item.kind === "capture"
+                ? item.capture.commitId
+                : item.run.commitId;
+            const elsewhere = inView !== null && commitId !== inView;
             return (
               <button
                 key={key}
                 type="button"
                 aria-pressed={key === shownKey}
-                className={`viewer__thumb viewer__thumb--${item.kind}`}
-                title={about || named[0]}
+                className={`viewer__thumb viewer__thumb--${item.kind}${elsewhere ? " viewer__thumb--elsewhere" : ""}`}
+                title={`${about || named[0]}${elsewhere ? ` (commit ${commitId.slice(0, 8)})` : ""}`}
                 onClick={() => onPick(key)}
               >
                 {thumb !== null ? (

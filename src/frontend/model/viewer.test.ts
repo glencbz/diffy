@@ -111,6 +111,48 @@ describe("following the reading", () => {
     // assert
     expect(shown?.id).toBe("home");
   });
+
+  test("starts on the first capture of the commit in view", () => {
+    // arrange
+    const later = capture("later", [], { commitId: "c2" });
+
+    // act
+    const shown = followCapture([...captures, later], null, null, "c2");
+
+    // assert
+    expect(shown?.id).toBe("later");
+  });
+
+  test("keeps showing a capture on a commit that has none", () => {
+    // act
+    const shown = followCapture(captures, null, null, "c2");
+
+    // assert
+    expect(shown?.id).toBe("home");
+  });
+
+  test("lets a pick of another commit go once the reader reads on", () => {
+    // arrange
+    const later = capture("later", [], { commitId: "c2" });
+
+    // act
+    const held = followCapture(
+      [...captures, later],
+      { id: "home", reading: "card" },
+      "card",
+      "c2",
+    );
+    const moved = followCapture(
+      [...captures, later],
+      { id: "home", reading: "card" },
+      "plan",
+      "c2",
+    );
+
+    // assert
+    expect(held?.id).toBe("home");
+    expect(moved?.id).toBe("later");
+  });
 });
 
 describe("the viewer's choices", () => {
@@ -141,6 +183,18 @@ describe("the viewer's choices", () => {
     // assert
     expect(held?.kind).toBe("run");
     expect(moved?.kind).toBe("capture");
+  });
+
+  test("a commit with only runs shows its run, not another's capture", () => {
+    // arrange
+    const captures = [capture("settings", ["switch"])];
+    const runs = [{ ...run("switching"), commitId: "c2" }];
+
+    // act
+    const shown = followItem(captures, runs, null, null, "c2");
+
+    // assert
+    expect(shown?.kind).toBe("run");
   });
 
   test("only lays a picture over its other side", () => {

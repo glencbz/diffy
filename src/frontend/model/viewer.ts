@@ -13,17 +13,6 @@ export const VIEW_MODE_NAMES: Record<ViewMode, string> = {
   difference: "Difference",
 };
 
-/** The captures of one commit, or of every commit while none is in
- *  view, in the order they came. */
-export function capturesAt(
-  captures: Capture[],
-  commitId: string | null,
-): Capture[] {
-  return commitId === null
-    ? captures
-    : captures.filter((each) => each.commitId === commitId);
-}
-
 /** A capture or run the reader picked, by its key, and the component they
  *  were reading when they picked it. */
 export interface Pick {
@@ -31,13 +20,21 @@ export interface Pick {
   reading: string | null;
 }
 
+/** Whether `item` is of the commit in view, which every item is while no
+ *  commit is. */
+function isAt(commitId: string, inView: string | null): boolean {
+  return inView === null || commitId === inView;
+}
+
 /** The capture to show: the pick until the reader reads on, or while it
- *  shows what they read; else the first that shows it; else the pick,
- *  else the first. */
+ *  shows what they read; else the first that shows it; else the pick, if
+ *  it is of the commit in view; else that commit's first, the pick, or the
+ *  first. */
 export function followCapture(
   captures: Capture[],
   picked: Pick | null,
   reading: string | null,
+  inView: string | null = null,
 ): Capture | null {
   const pick = captures.find((each) => each.id === picked?.id);
   const shows = (capture: Capture) =>
@@ -49,7 +46,15 @@ export function followCapture(
   ) {
     return pick;
   }
-  return captures.find(shows) ?? pick ?? captures[0] ?? null;
+  const here = (capture: Capture) => isAt(capture.commitId, inView);
+  return (
+    captures.find(shows) ??
+    (pick !== undefined && here(pick) ? pick : undefined) ??
+    captures.find(here) ??
+    pick ??
+    captures[0] ??
+    null
+  );
 }
 
 /** What the strip holds: a capture, or a [run](runs.md) of steps. */
@@ -65,14 +70,15 @@ export function itemKey(item: Item): string {
 }
 
 /** The item to show. A picked run holds as a picked capture does, until the
- *  reader reads on to a component some capture shows; captures follow the
- *  reading as `followCapture` says; a commit with only runs shows its
- *  first. */
+ *  reader reads on to a component some capture shows, or, if it is of
+ *  another commit, reads on at all; captures follow the reading as
+ *  `followCapture` says; a commit with only runs shows its first. */
 export function followItem(
   captures: Capture[],
   runs: Run[],
   picked: Pick | null,
   reading: string | null,
+  inView: string | null = null,
 ): Item | null {
   const run = runs.find((each) => `run:${each.id}` === picked?.id);
   const shownSomewhere =
@@ -82,7 +88,9 @@ export function followItem(
     );
   if (
     run !== undefined &&
-    (reading === null || reading === picked?.reading || !shownSomewhere)
+    (reading === null ||
+      reading === picked?.reading ||
+      (!shownSomewhere && isAt(run.commitId, inView)))
   ) {
     return { kind: "run", run };
   }
@@ -92,9 +100,16 @@ export function followItem(
       ? null
       : { id: picked.id.replace(/^capture:/, ""), reading: picked.reading },
     reading,
+    inView,
   );
-  if (capture !== null) return { kind: "capture", capture };
-  const first = runs[0];
+  const runHere = runs.find((each) => isAt(each.commitId, inView));
+  if (
+    capture !== null &&
+    (runHere === undefined || isAt(capture.commitId, inView))
+  ) {
+    return { kind: "capture", capture };
+  }
+  const first = runHere ?? runs[0];
   return first === undefined ? null : { kind: "run", run: first };
 }
 
