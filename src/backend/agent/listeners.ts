@@ -4,18 +4,25 @@ import { jjRepoDir } from "../commit/jj";
 /** Where `diffy wait` listens, beside the `/mcp` the bridge posts to. */
 export const LISTEN_PATH = "/mcp/listen";
 
-/** What a waiter hears: the version the reader submitted, or why there is
- *  nothing to wait for. */
-export type Heard = { review: string; version: number } | { error: string };
+/** What the reader did to a review: submitted a version of it, or deleted
+ *  it. */
+export type ReviewEvent =
+  | { review: string; version: number }
+  | { review: string; deleted: true };
+
+/** What a waiter hears: what the reader did, or why there is nothing to
+ *  wait for. */
+export type Heard = ReviewEvent | { error: string };
 
 export interface Listener {
   /** A directory in the repository whose review is waited on. */
   root: string;
-  review: string;
+  /** The review waited on, or `null` to follow every review. */
+  review: string | null;
   send: (line: string) => void;
 }
 
-/** The waiters at `LISTEN_PATH`, for the reader's submits. */
+/** The waiters at `LISTEN_PATH`, for what the reader does to reviews. */
 export class AgentListeners {
   #listening = new Set<Listener>();
 
@@ -25,14 +32,17 @@ export class AgentListeners {
     return () => this.#listening.delete(listener);
   }
 
-  /** Tells each waiter on the review in `root`'s repository that the reader
-   *  submitted `version`, and says how many it told. */
-  async submitted(root: string, review: string, version: number) {
-    const line = JSON.stringify({ review, version } satisfies Heard);
+  /** Tells each waiter on the event's review in `root`'s repository what
+   *  the reader did, and says how many it told. */
+  async tell(root: string, event: ReviewEvent) {
+    const { review } = event;
+    const line = JSON.stringify(event satisfies Heard);
     const repo = await jjRepoDir(root).catch(() => null);
     const told = await Promise.all(
       [...this.#listening].map(async (listener) => {
-        if (listener.review !== review) return false;
+        if (listener.review !== null && listener.review !== review) {
+          return false;
+        }
         const theirs = await jjRepoDir(listener.root).catch(() => null);
         if (theirs === null || theirs !== repo) return false;
         listener.send(line);
@@ -43,9 +53,9 @@ export class AgentListeners {
   }
 }
 
-/** Waits at the running server for the reader to submit `review`, looking
- *  for a server again whenever none is up or the one listened on goes
- *  away. */
+/** Waits at the running server for the reader to submit or delete
+ *  `review`, looking for a server again whenever none is up or the one
+ *  listened on goes away. */
 export async function waitFor(
   review: string,
   workspace: string,
@@ -55,12 +65,8 @@ export async function waitFor(
   for (;;) {
     const server = await running().catch(() => null);
     if (server !== null) {
-      const url = new URL(LISTEN_PATH, server);
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("workspace", workspace);
-      url.searchParams.set("review", review);
       const heard = await new Promise<Heard | null>((resolve) => {
-        const socket = new WebSocket(url);
+        const socket = new WebSocket(listenUrl(server, workspace, review));
         socket.onmessage = (event) => {
           resolve(JSON.parse(String(event.data)) as Heard);
           socket.close();
@@ -71,5 +77,44 @@ export async function waitFor(
     }
     await Bun.sleep(retryMs);
   }
+}
+
+/** Follows every review at the running server, handing each event to
+ *  `hear` until the server answers with an error, and looking for a server
+ *  again whenever none is up or the one followed goes away. */
+export async function follow(
+  workspace: string,
+  running: () => Promise<URL | null>,
+  hear: (event: ReviewEvent) => void,
+  retryMs = 1000,
+): Promise<{ error: string }> {
+  for (;;) {
+    const server = await running().catch(() => null);
+    if (server !== null) {
+      const failed = await new Promise<{ error: string } | null>((resolve) => {
+        const socket = new WebSocket(listenUrl(server, workspace, null));
+        socket.onmessage = (event) => {
+          const heard = JSON.parse(String(event.data)) as Heard;
+          if ("error" in heard) {
+            resolve(heard);
+            socket.close();
+          } else {
+            hear(heard);
+          }
+        };
+        socket.onclose = () => resolve(null);
+      });
+      if (failed !== null) return failed;
+    }
+    await Bun.sleep(retryMs);
+  }
+}
+
+function listenUrl(server: URL, workspace: string, review: string | null) {
+  const url = new URL(LISTEN_PATH, server);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("workspace", workspace);
+  if (review !== null) url.searchParams.set("review", review);
+  return url;
 }
 // ~/~ end

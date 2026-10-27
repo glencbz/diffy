@@ -29,6 +29,7 @@ import {
   type AgentListeners,
   type Heard,
   LISTEN_PATH,
+  type ReviewEvent,
 } from "./backend/agent/listeners";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
 import { recordingTools } from "./backend/agent/recording";
@@ -578,7 +579,7 @@ A bad body is a 400 naming what is wrong, for writers other than the browser.
 ```ts
 //| id: backend-server
 
-export const reviewRoute = (listeners: Pick<AgentListeners, "submitted">) => ({
+export const reviewRoute = (listeners: Pick<AgentListeners, "tell">) => ({
   GET: (_req: Request, { store }: RepoContext) => Response.json(store.read()),
   POST: async (req: Request, { root, store }: RepoContext) => {
     const command = ReviewCommand.safeParse(
@@ -590,28 +591,37 @@ export const reviewRoute = (listeners: Pick<AgentListeners, "submitted">) => ({
         { status: 400 },
       );
     }
+    const before = store.read().document;
     const document = store.apply(command.data);
-    const submit = submittedBy(command.data, document.document);
-    if (submit !== null) {
+    const event = eventOf(command.data, before, document.document);
+    if (event !== null) {
       // The reader is not kept waiting on the agents' workspaces.
-      void listeners.submitted(root, submit.name, submit.version);
+      void listeners.tell(root, event);
     }
     return Response.json(document);
   },
 });
 
-/** The local review a command submits: a mark of its newest version. */
-function submittedBy(
+/** What a command tells the agents: a mark of a local review's newest
+ *  version submits it, and forgetting one that was not forgotten deletes
+ *  it. */
+function eventOf(
   command: ReviewCommand,
-  document: ReviewDocument,
-): { name: string; version: number } | null {
+  before: ReviewDocument,
+  after: ReviewDocument,
+): ReviewEvent | null {
+  if (command.kind === "forget-review") {
+    const review = localReview(before, command.name);
+    if (review === undefined || review.forgottenAt !== undefined) return null;
+    return { review: review.name, deleted: true };
+  }
   if (command.kind !== "mark-reviewed") return null;
-  const review = document.localReviews.find(
+  const review = after.localReviews.find(
     (each) => localSeries(each.name) === command.series,
   );
   const version = Number(command.version);
   if (review === undefined || version !== review.versions.length) return null;
-  return { name: review.name, version };
+  return { review: review.name, version };
 }
 ```
 
@@ -621,8 +631,9 @@ moves. Writes still go through `POST`, so there is one way to write.
 `LISTEN_PATH` is the socket an agent
 [waits on the reader at](agents.md#telling-an-agent-the-reader-submitted).
 It reads the review as the upgrade is asked for, so a review already
-submitted, or one that does not exist, is answered as soon as the socket
-opens.
+submitted or deleted, or one that does not exist, is answered as soon as the
+socket opens. A socket that names no review follows every review in the workspace's
+repository, so only a workspace it cannot open answers it at once.
 
 ```ts
 //| id: backend-server
@@ -636,7 +647,7 @@ export type SocketData =
   | {
       kind: "agent";
       root: string;
-      review: string;
+      review: string | null;
       now: Heard | null;
       stop?: () => void;
     };
@@ -652,7 +663,8 @@ export function reviewChanges(
   return Response.json({ error: "expected a WebSocket" }, { status: 400 });
 }
 
-/** `LISTEN_PATH`, for the agent in `workspace` waiting on `review`. */
+/** `LISTEN_PATH`, for the agent in `workspace` waiting on `review`, or
+ *  following every review when it names none. */
 export function agentListen(
   context: (workspace: string) => Promise<RepoContext>,
 ) {
@@ -660,11 +672,8 @@ export function agentListen(
     const asked = new URL(req.url).searchParams;
     const workspace = asked.get("workspace");
     const review = asked.get("review");
-    if (workspace === null || review === null) {
-      return Response.json(
-        { error: "name a workspace and a review" },
-        { status: 400 },
-      );
+    if (workspace === null) {
+      return Response.json({ error: "name a workspace" }, { status: 400 });
     }
     const data = await waiting(context, workspace, review);
     if (server.upgrade(req, { data })) return undefined;
@@ -675,7 +684,7 @@ export function agentListen(
 async function waiting(
   context: (workspace: string) => Promise<RepoContext>,
   workspace: string,
-  review: string,
+  review: string | null,
 ): Promise<SocketData> {
   const at = (now: Heard | null, root = workspace): SocketData => ({
     kind: "agent",
@@ -689,10 +698,14 @@ async function waiting(
   } catch (error) {
     return at({ error: (error as Error).message });
   }
+  if (review === null) return at(null, repo.root);
   const { document } = repo.store.read();
   const named = localReview(document, review);
   if (named === undefined || named.versions.length === 0) {
     return at({ error: `no local review is named ${review}` });
+  }
+  if (named.forgottenAt !== undefined) {
+    return at({ review, deleted: true }, repo.root);
   }
   const { turn, newest } = turnOf(document, named);
   return at(turn === "agent" ? { review, version: newest } : null, repo.root);
@@ -976,6 +989,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 import {
   AgentListeners,
+  follow,
   LISTEN_PATH,
   waitFor,
 } from "./backend/agent/listeners";
@@ -1406,7 +1420,7 @@ describe("the review route", () => {
   }
 
   async function withStore(
-    run: (route: Route, submits: unknown[][]) => Promise<void>,
+    run: (route: Route, told: unknown[][]) => Promise<void>,
   ) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const repo = {
@@ -1414,10 +1428,10 @@ describe("the review route", () => {
       store: openReviewStore(join(dir, "r.sqlite")),
       topic: "t",
     };
-    const submits: unknown[][] = [];
+    const told: unknown[][] = [];
     const route = reviewRoute({
-      submitted: async (...args) => {
-        submits.push(args);
+      tell: async (...args) => {
+        told.push(args);
         return 0;
       },
     });
@@ -1427,7 +1441,7 @@ describe("the review route", () => {
           GET: () => route.GET(new Request("http://test/"), repo),
           POST: (req) => route.POST(req, repo),
         },
-        submits,
+        told,
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -1466,8 +1480,8 @@ describe("the review route", () => {
       expect(read.document.marks).toHaveLength(1);
     }));
 
-  test("tells agents only of a mark on a local review's newest version", () =>
-    withStore(async (route, submits) => {
+  test("tells agents only of a mark on a local review's newest version, and its first delete", () =>
+    withStore(async (route, told) => {
       // arrange
       for (const commit of ["a", "b"]) {
         const version = {
@@ -1492,9 +1506,19 @@ describe("the review route", () => {
       await mark("local:t", "1");
       await mark("pull:o/r#1", "abc");
       await mark("local:t", "2");
+      for (const at of [
+        "2026-10-22T11:00:00.000Z",
+        "2026-10-22T12:00:00.000Z",
+      ]) {
+        await route.POST(post({ kind: "forget-review", name: "t", at }));
+      }
+      await route.POST(post({ kind: "forget-review", name: "u", at: "t" }));
 
       // assert
-      expect(submits).toEqual([[ROOT, "t", 2]]);
+      expect(told).toEqual([
+        [ROOT, { review: "t", version: 2 }],
+        [ROOT, { review: "t", deleted: true }],
+      ]);
     }));
 
   test("reports a body that is not a command as 400 and writes nothing", () =>
@@ -1583,7 +1607,7 @@ describe("the review route", () => {
     }
   });
 
-  test("tells a waiting agent of a submit, and a late one at once", async () => {
+  test("tells waiting and following agents of a submit, and a late one of a submit or delete at once", async () => {
     // arrange
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const store = openReviewStore(join(dir, "r.sqlite"));
@@ -1613,11 +1637,20 @@ describe("the review route", () => {
       },
     });
 
+    const followed: unknown[] = [];
+    let up = true;
+    void follow(
+      ROOT,
+      async () => (up ? new URL("/mcp", server.url) : null),
+      (event) => followed.push(event),
+      10,
+    );
+
     try {
       // act
       const waited = wait("t");
       // The route tells the listeners once the reader's mark is written.
-      while ((await listeners.submitted(ROOT, "t", 1)) === 0) {
+      while ((await listeners.tell(ROOT, { review: "t", version: 1 })) < 2) {
         await Bun.sleep(10);
       }
       store.apply({
@@ -1627,15 +1660,31 @@ describe("the review route", () => {
         at: "2026-10-24T10:00:00.000Z",
       });
       const late = await wait("t");
+      store.apply({
+        kind: "forget-review",
+        name: "t",
+        at: "2026-10-24T11:00:00.000Z",
+      });
+      const gone = await wait("t");
       const missing = await wait("u");
       const stranger = await wait("t", "/nowhere");
+      const lost = await follow(
+        "/nowhere",
+        async () => new URL("/mcp", server.url),
+        () => {},
+        10,
+      );
 
       // assert
       expect(await waited).toEqual({ review: "t", version: 1 });
       expect(late).toEqual({ review: "t", version: 1 });
+      expect(gone).toEqual({ review: "t", deleted: true });
       expect(missing).toEqual({ error: "no local review is named u" });
       expect(stranger).toEqual({ error: "no workspace at /nowhere" });
+      expect(lost).toEqual({ error: "no workspace at /nowhere" });
+      expect(followed.at(-1)).toEqual({ review: "t", version: 1 });
     } finally {
+      up = false;
       server.stop(true);
       await rm(dir, { recursive: true, force: true });
     }

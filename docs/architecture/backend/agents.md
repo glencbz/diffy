@@ -315,6 +315,17 @@ not hold is answered with `{"error": ...}`. A waiter hears only of its own
 review in its own repository, since two repositories may each hold a review
 of the same name.
 
+When the reader deletes the review instead, the waiter is told
+`{"review": name, "deleted": true}`, since no submit is coming. One that
+connects after the delete is told at once.
+
+A waiter that names no review follows every review in its repository
+instead, and stays connected, so a session that tracks the reader's submits
+and deletes as they come runs one command rather than one per review. It
+hears only what happens while it is connected: it is told nothing at once,
+and nothing of what happened while it was away, since `review_status` and
+`list_reviews` already answer what is waiting.
+
 ```ts
 //| id: backend-agent-listeners
 //| file: src/backend/agent/listeners.ts
@@ -323,18 +334,25 @@ import { jjRepoDir } from "../commit/jj";
 /** Where `diffy wait` listens, beside the `/mcp` the bridge posts to. */
 export const LISTEN_PATH = "/mcp/listen";
 
-/** What a waiter hears: the version the reader submitted, or why there is
- *  nothing to wait for. */
-export type Heard = { review: string; version: number } | { error: string };
+/** What the reader did to a review: submitted a version of it, or deleted
+ *  it. */
+export type ReviewEvent =
+  | { review: string; version: number }
+  | { review: string; deleted: true };
+
+/** What a waiter hears: what the reader did, or why there is nothing to
+ *  wait for. */
+export type Heard = ReviewEvent | { error: string };
 
 export interface Listener {
   /** A directory in the repository whose review is waited on. */
   root: string;
-  review: string;
+  /** The review waited on, or `null` to follow every review. */
+  review: string | null;
   send: (line: string) => void;
 }
 
-/** The waiters at `LISTEN_PATH`, for the reader's submits. */
+/** The waiters at `LISTEN_PATH`, for what the reader does to reviews. */
 export class AgentListeners {
   #listening = new Set<Listener>();
 
@@ -344,14 +362,17 @@ export class AgentListeners {
     return () => this.#listening.delete(listener);
   }
 
-  /** Tells each waiter on the review in `root`'s repository that the reader
-   *  submitted `version`, and says how many it told. */
-  async submitted(root: string, review: string, version: number) {
-    const line = JSON.stringify({ review, version } satisfies Heard);
+  /** Tells each waiter on the event's review in `root`'s repository what
+   *  the reader did, and says how many it told. */
+  async tell(root: string, event: ReviewEvent) {
+    const { review } = event;
+    const line = JSON.stringify(event satisfies Heard);
     const repo = await jjRepoDir(root).catch(() => null);
     const told = await Promise.all(
       [...this.#listening].map(async (listener) => {
-        if (listener.review !== review) return false;
+        if (listener.review !== null && listener.review !== review) {
+          return false;
+        }
         const theirs = await jjRepoDir(listener.root).catch(() => null);
         if (theirs === null || theirs !== repo) return false;
         listener.send(line);
@@ -362,9 +383,9 @@ export class AgentListeners {
   }
 }
 
-/** Waits at the running server for the reader to submit `review`, looking
- *  for a server again whenever none is up or the one listened on goes
- *  away. */
+/** Waits at the running server for the reader to submit or delete
+ *  `review`, looking for a server again whenever none is up or the one
+ *  listened on goes away. */
 export async function waitFor(
   review: string,
   workspace: string,
@@ -374,12 +395,8 @@ export async function waitFor(
   for (;;) {
     const server = await running().catch(() => null);
     if (server !== null) {
-      const url = new URL(LISTEN_PATH, server);
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("workspace", workspace);
-      url.searchParams.set("review", review);
       const heard = await new Promise<Heard | null>((resolve) => {
-        const socket = new WebSocket(url);
+        const socket = new WebSocket(listenUrl(server, workspace, review));
         socket.onmessage = (event) => {
           resolve(JSON.parse(String(event.data)) as Heard);
           socket.close();
@@ -390,6 +407,45 @@ export async function waitFor(
     }
     await Bun.sleep(retryMs);
   }
+}
+
+/** Follows every review at the running server, handing each event to
+ *  `hear` until the server answers with an error, and looking for a server
+ *  again whenever none is up or the one followed goes away. */
+export async function follow(
+  workspace: string,
+  running: () => Promise<URL | null>,
+  hear: (event: ReviewEvent) => void,
+  retryMs = 1000,
+): Promise<{ error: string }> {
+  for (;;) {
+    const server = await running().catch(() => null);
+    if (server !== null) {
+      const failed = await new Promise<{ error: string } | null>((resolve) => {
+        const socket = new WebSocket(listenUrl(server, workspace, null));
+        socket.onmessage = (event) => {
+          const heard = JSON.parse(String(event.data)) as Heard;
+          if ("error" in heard) {
+            resolve(heard);
+            socket.close();
+          } else {
+            hear(heard);
+          }
+        };
+        socket.onclose = () => resolve(null);
+      });
+      if (failed !== null) return failed;
+    }
+    await Bun.sleep(retryMs);
+  }
+}
+
+function listenUrl(server: URL, workspace: string, review: string | null) {
+  const url = new URL(LISTEN_PATH, server);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("workspace", workspace);
+  if (review !== null) url.searchParams.set("review", review);
+  return url;
 }
 ```
 
@@ -2976,7 +3032,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
-import { AgentListeners, waitFor } from "./listeners";
+import { AgentListeners, follow, waitFor } from "./listeners";
 
 test("tells only the waiters on the review in its repository", async () => {
   // arrange
@@ -2989,7 +3045,7 @@ test("tells only the waiters on the review in its repository", async () => {
     await $`jj workspace add ${second}`.cwd(main).quiet();
     const listeners = new AgentListeners();
     const heard: string[] = [];
-    const wait = (root: string, review: string, as: string) =>
+    const wait = (root: string, review: string | null, as: string) =>
       listeners.add({
         root,
         review,
@@ -2999,15 +3055,20 @@ test("tells only the waiters on the review in its repository", async () => {
     wait(main, "u", "other review");
     wait(apart, "t", "other repo");
     wait(dir, "t", "no repo");
+    wait(second, null, "every review");
+    wait(apart, null, "every review apart");
     const gone = wait(main, "t", "gone");
     gone();
 
     // act
-    const told = await listeners.submitted(main, "t", 2);
+    const told = await listeners.tell(main, { review: "t", version: 2 });
 
     // assert
-    expect(told).toBe(1);
-    expect(heard).toEqual(['second {"review":"t","version":2}']);
+    expect(told).toBe(2);
+    expect(heard).toEqual([
+      'second {"review":"t","version":2}',
+      'every review {"review":"t","version":2}',
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -3044,6 +3105,59 @@ test("waits for a server, then for what it sends", async () => {
     // assert
     expect(heard).toEqual({ error: "t in /src/a" });
     expect(asked).toBe(2);
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("follows every event, across a server going away", async () => {
+  // arrange
+  let opened = 0;
+  const server = Bun.serve({
+    port: 0,
+    routes: {
+      "/mcp/listen": (req: Request, server: Bun.Server<string>) => {
+        const asked = new URL(req.url).searchParams;
+        const data = `${asked.get("review")} in ${asked.get("workspace")}`;
+        return server.upgrade(req, { data })
+          ? undefined
+          : new Response(null, { status: 400 });
+      },
+    },
+    websocket: {
+      open(ws: Bun.ServerWebSocket<string>) {
+        if (opened++ === 0) {
+          ws.send(JSON.stringify({ review: "t", version: 1 }));
+          ws.send(JSON.stringify({ review: "u", version: 2 }));
+          ws.close();
+        } else {
+          ws.send(JSON.stringify({ review: "t", version: 3 }));
+          ws.send(JSON.stringify({ review: "u", deleted: true }));
+          ws.send(JSON.stringify({ error: ws.data }));
+        }
+      },
+      message() {},
+    },
+  });
+  const heard: string[] = [];
+
+  try {
+    // act
+    const ended = await follow(
+      "/src/a",
+      async () => new URL("/mcp", server.url),
+      (event) =>
+        heard.push(
+          "deleted" in event
+            ? `${event.review} deleted`
+            : `${event.review} v${event.version}`,
+        ),
+      10,
+    );
+
+    // assert
+    expect(heard).toEqual(["t v1", "u v2", "t v3", "u deleted"]);
+    expect(ended).toEqual({ error: "null in /src/a" });
   } finally {
     server.stop(true);
   }

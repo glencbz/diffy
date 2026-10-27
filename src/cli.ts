@@ -5,7 +5,12 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { bridge } from "./backend/agent/bridge";
-import { AgentListeners, waitFor } from "./backend/agent/listeners";
+import {
+  AgentListeners,
+  follow,
+  type ReviewEvent,
+  waitFor,
+} from "./backend/agent/listeners";
 import { difftDirectories } from "./backend/commit/difft";
 import { type Host, hostFrom } from "./backend/host/host";
 import {
@@ -29,7 +34,7 @@ import { routes, type SocketData, sockets } from "./server";
 
 const USAGE = `usage: diffy [<path>] [--port <n>] [--no-open]
        diffy mcp [--url <server>]
-       diffy wait <review> [--url <server>]`;
+       diffy wait [<review>] [--url <server>]`;
 
 // A typed port is held to and a busy one ends the run; otherwise diffy is
 // this user's one server, on the port it keeps across runs.
@@ -38,7 +43,7 @@ export type PortChoice = { kind: "given"; port: number } | { kind: "sticky" };
 export type Command =
   | { kind: "serve"; path?: string; port: PortChoice; open: boolean }
   | { kind: "mcp"; url?: string }
-  | { kind: "wait"; review: string; url?: string }
+  | { kind: "wait"; review: string | null; url?: string }
   | { kind: "difft"; left: string; right: string }
   | { kind: "help" }
   | { kind: "usage-error"; reason: string };
@@ -116,9 +121,9 @@ function parseWait(argv: string[]): Command {
   } catch (error) {
     return { kind: "usage-error", reason: (error as Error).message };
   }
-  const [review, ...rest] = positionals;
-  if (review === undefined || rest.length > 0) {
-    return { kind: "usage-error", reason: "wait takes one review" };
+  const [review = null, ...rest] = positionals;
+  if (rest.length > 0) {
+    return { kind: "usage-error", reason: "wait takes at most one review" };
   }
   if (url === undefined) return { kind: "wait", review };
   return URL.canParse(url)
@@ -308,20 +313,35 @@ async function mcp(host: Host, url: string | undefined) {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/cli.md#cli-module>>[4]
 
-async function wait(host: Host, review: string, url: string | undefined) {
+async function wait(
+  host: Host,
+  review: string | null,
+  url: string | undefined,
+) {
   const here = await probeRepo(process.cwd(), host.home);
   if (here.kind !== "jj") fail(2, "diffy wait runs in a jj workspace");
   const serverFile = serverFilePath(host.stateDir);
   const given = url === undefined ? null : new URL("/mcp", url);
-  const heard = await waitFor(review, here.root, async () => {
+  const running = async () => {
     if (given !== null) return given;
     const found = await findServer(serverFile);
     return found === null ? null : new URL("/mcp", found.url);
-  });
+  };
+  if (review === null) {
+    const ended = await follow(here.root, running, (event) =>
+      console.log(eventLine(event)),
+    );
+    fail(1, ended.error);
+  }
+  const heard = await waitFor(review, here.root, running);
   if ("error" in heard) fail(1, heard.error);
-  console.log(
-    `The reader submitted their review of ${heard.review} at v${heard.version}. Read its comments with read_comments and address them.`,
-  );
+  console.log(eventLine(heard));
+}
+
+function eventLine(event: ReviewEvent) {
+  return "deleted" in event
+    ? `The reader deleted the review ${event.review}.`
+    : `The reader submitted their review of ${event.review} at v${event.version}. Read its comments with read_comments and address them.`;
 }
 
 if (import.meta.main) {

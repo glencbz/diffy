@@ -14,7 +14,8 @@ diffy ~/src/third  # switches it to third, from anywhere
 diffy --no-open    # the same without the browser
 diffy . --port 4100  # a second server on 4100, or fails if 4100 is taken
 diffy mcp          # the agent's end of MCP, for Claude Code to start
-diffy wait t       # exits when the reader submits the review t
+diffy wait t       # exits when the reader submits or deletes the review t
+diffy wait         # prints a line each time the reader submits or deletes any review
 ```
 
 Where `diffy` is typed never picks the repository. diffy is one app for the
@@ -37,7 +38,12 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { bridge } from "./backend/agent/bridge";
-import { AgentListeners, waitFor } from "./backend/agent/listeners";
+import {
+  AgentListeners,
+  follow,
+  type ReviewEvent,
+  waitFor,
+} from "./backend/agent/listeners";
 import { difftDirectories } from "./backend/commit/difft";
 import { type Host, hostFrom } from "./backend/host/host";
 import {
@@ -61,7 +67,7 @@ import { routes, type SocketData, sockets } from "./server";
 
 const USAGE = `usage: diffy [<path>] [--port <n>] [--no-open]
        diffy mcp [--url <server>]
-       diffy wait <review> [--url <server>]`;
+       diffy wait [<review>] [--url <server>]`;
 
 // A typed port is held to and a busy one ends the run; otherwise diffy is
 // this user's one server, on the port it keeps across runs.
@@ -70,7 +76,7 @@ export type PortChoice = { kind: "given"; port: number } | { kind: "sticky" };
 export type Command =
   | { kind: "serve"; path?: string; port: PortChoice; open: boolean }
   | { kind: "mcp"; url?: string }
-  | { kind: "wait"; review: string; url?: string }
+  | { kind: "wait"; review: string | null; url?: string }
   | { kind: "difft"; left: string; right: string }
   | { kind: "help" }
   | { kind: "usage-error"; reason: string };
@@ -148,9 +154,9 @@ function parseWait(argv: string[]): Command {
   } catch (error) {
     return { kind: "usage-error", reason: (error as Error).message };
   }
-  const [review, ...rest] = positionals;
-  if (review === undefined || rest.length > 0) {
-    return { kind: "usage-error", reason: "wait takes one review" };
+  const [review = null, ...rest] = positionals;
+  if (rest.length > 0) {
+    return { kind: "usage-error", reason: "wait takes at most one review" };
   }
   if (url === undefined) return { kind: "wait", review };
   return URL.canParse(url)
@@ -383,7 +389,7 @@ async function mcp(host: Host, url: string | undefined) {
 
 An agent runs `diffy wait <review>` in the background once it has handed the
 reader a review, and the command
-[exits when the reader submits it](agents.md#telling-an-agent-the-reader-submitted),
+[exits when the reader submits or deletes it](agents.md#telling-an-agent-the-reader-submitted),
 printing what the agent should do next. It finds the server the way the
 bridge does, or takes `--url`, but never starts one: the reader needs a
 server up to submit at all. Until one is up it keeps looking.
@@ -393,23 +399,46 @@ called, so an agent that reaches diffy over HTTP need not have `diffy` on its
 workspace, ends it with an error, so the agent is not left waiting on
 nothing.
 
+`diffy wait` with no review
+[follows every review](agents.md#telling-an-agent-the-reader-submitted) in
+the repository instead, and never exits on its own. It prints one line for
+each submit or delete as it comes, which a tool that wakes the agent on each
+line of output, such as Claude Code's `Monitor`, turns into a turn each.
+When the server goes away it looks for one again, and what happens in
+between is not printed.
+
 ```ts
 //| id: cli-module
 
-async function wait(host: Host, review: string, url: string | undefined) {
+async function wait(
+  host: Host,
+  review: string | null,
+  url: string | undefined,
+) {
   const here = await probeRepo(process.cwd(), host.home);
   if (here.kind !== "jj") fail(2, "diffy wait runs in a jj workspace");
   const serverFile = serverFilePath(host.stateDir);
   const given = url === undefined ? null : new URL("/mcp", url);
-  const heard = await waitFor(review, here.root, async () => {
+  const running = async () => {
     if (given !== null) return given;
     const found = await findServer(serverFile);
     return found === null ? null : new URL("/mcp", found.url);
-  });
+  };
+  if (review === null) {
+    const ended = await follow(here.root, running, (event) =>
+      console.log(eventLine(event)),
+    );
+    fail(1, ended.error);
+  }
+  const heard = await waitFor(review, here.root, running);
   if ("error" in heard) fail(1, heard.error);
-  console.log(
-    `The reader submitted their review of ${heard.review} at v${heard.version}. Read its comments with read_comments and address them.`,
-  );
+  console.log(eventLine(heard));
+}
+
+function eventLine(event: ReviewEvent) {
+  return "deleted" in event
+    ? `The reader deleted the review ${event.review}.`
+    : `The reader submitted their review of ${event.review} at v${event.version}. Read its comments with read_comments and address them.`;
 }
 
 if (import.meta.main) {
@@ -515,12 +544,12 @@ test("mcp takes an optional server URL", () => {
   expect(parseCommand(["mcp", "--port", "1"]).kind).toBe("usage-error");
 });
 
-test("wait takes one review and an optional server URL", () => {
+test("wait takes at most one review and an optional server URL", () => {
   expect(parseCommand(["wait", "t"])).toEqual({ kind: "wait", review: "t" });
+  expect(parseCommand(["wait"])).toEqual({ kind: "wait", review: null });
   expect(parseCommand(["wait", "t", "--url", "http://localhost:4000"])).toEqual(
     { kind: "wait", review: "t", url: "http://localhost:4000" },
   );
-  expect(parseCommand(["wait"]).kind).toBe("usage-error");
   expect(parseCommand(["wait", "t", "u"]).kind).toBe("usage-error");
   expect(parseCommand(["wait", "t", "--url", "nope"]).kind).toBe("usage-error");
 });
