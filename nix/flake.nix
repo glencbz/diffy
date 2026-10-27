@@ -47,8 +47,10 @@
           };
       
           nodeModules = pkgs.stdenvNoCC.mkDerivation {
-            pname = "diffy-node-modules";
-            version = "0";
+            # The lock's hash in the name gives each lock its own store path. A
+            # fixed-output path is found by hash alone, so without it a stale
+            # node_modules already in the store would pass for the new one.
+            name = "diffy-node-modules-${builtins.hashFile "sha256" ../bun.lock}";
             inherit src;
             nativeBuildInputs = [ pkgs.bun ];
             dontConfigure = true;
@@ -62,7 +64,7 @@
             outputHashAlgo = "sha256";
             # Fixed-output, so it may fetch. A bun.lock change fails the build with
             # the new hash, which goes here.
-            outputHash = "sha256-DhZ6xo336k5VWKj4IUf/hDi5TsfAntVISnK+UDZG6kM=";
+            outputHash = "sha256-cNvhgNSzQ0pDfKKTDpF3z21Y2unkRo7SXo61HKcQ6Go=";
           };
         in
         pkgs.stdenvNoCC.mkDerivation {
@@ -78,12 +80,17 @@
           # path, and a store path has no node_modules above it.
           buildPhase = ''
             cp -r ${nodeModules} node_modules
-            bun build --compile --minify src/cli.ts --outfile diffy
+            # playwright-core finds its own files through __dirname, which a bundle
+            # breaks, so it stays on disk beside the binary.
+            bun build --compile --minify --external playwright-core src/cli.ts --outfile diffy
           '';
           installPhase = ''
             install -Dm755 diffy $out/libexec/diffy
+            mkdir -p $out/lib/node_modules
+            cp -r node_modules/playwright-core $out/lib/node_modules
             makeBinaryWrapper $out/libexec/diffy $out/bin/diffy \
               --set NODE_ENV production \
+              --set NODE_PATH $out/lib/node_modules \
               --prefix PATH : ${pkgs.lib.makeBinPath (tools pkgs)}
           '';
           meta.mainProgram = "diffy";
