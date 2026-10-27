@@ -8,14 +8,21 @@ commit's, with a box on each component the capture shows. It is one of the
 
 ## Which capture
 
-The viewer shows one capture of the commit in view at a time, or of the
-whole version while the reader has not reached a commit yet, so a review
-that opens on its full stack still shows what the author recorded. The
-reader picks one from the strip under the picture, and it holds while they
-read the component they were on. Once they read on, the viewer moves to a
-capture that shows the new component, and back to the pick if it shows it.
-Following never rewrites the pick: a viewer that did would forget what the
-reader chose the moment they scrolled past it.
+The strip under the picture holds every capture and run of the version,
+whichever commit is in view, so nothing the author recorded is out of reach
+and the viewer has something to show on any commit of a version that has
+any. The commit in view only decides which one the viewer starts on: its
+first, or the version's first while the reader has not reached a commit or
+the commit has none. A strip that held only the commit's own emptied and
+folded on every commit the author recorded nothing for.
+
+The reader picks one from the strip, and it holds while they read the
+component they were on. Once they read on, the viewer moves to a capture
+that shows the new component, and back to the pick if it shows it. A pick
+from another commit holds only until the reader reads on, since stepping to
+a commit asks to see that commit. Following never rewrites the pick: a
+viewer that did would forget what the reader chose the moment they
+scrolled past it.
 
 A capture can only be laid over its other side when both sides are
 pictures, so a clip, or a capture with one side missing, is shown side by
@@ -38,17 +45,6 @@ export const VIEW_MODE_NAMES: Record<ViewMode, string> = {
   difference: "Difference",
 };
 
-/** The captures of one commit, or of every commit while none is in
- *  view, in the order they came. */
-export function capturesAt(
-  captures: Capture[],
-  commitId: string | null,
-): Capture[] {
-  return commitId === null
-    ? captures
-    : captures.filter((each) => each.commitId === commitId);
-}
-
 /** A capture or run the reader picked, by its key, and the component they
  *  were reading when they picked it. */
 export interface Pick {
@@ -56,13 +52,21 @@ export interface Pick {
   reading: string | null;
 }
 
+/** Whether `item` is of the commit in view, which every item is while no
+ *  commit is. */
+function isAt(commitId: string, inView: string | null): boolean {
+  return inView === null || commitId === inView;
+}
+
 /** The capture to show: the pick until the reader reads on, or while it
- *  shows what they read; else the first that shows it; else the pick,
- *  else the first. */
+ *  shows what they read; else the first that shows it; else the pick, if
+ *  it is of the commit in view; else that commit's first, the pick, or the
+ *  first. */
 export function followCapture(
   captures: Capture[],
   picked: Pick | null,
   reading: string | null,
+  inView: string | null = null,
 ): Capture | null {
   const pick = captures.find((each) => each.id === picked?.id);
   const shows = (capture: Capture) =>
@@ -74,7 +78,15 @@ export function followCapture(
   ) {
     return pick;
   }
-  return captures.find(shows) ?? pick ?? captures[0] ?? null;
+  const here = (capture: Capture) => isAt(capture.commitId, inView);
+  return (
+    captures.find(shows) ??
+    (pick !== undefined && here(pick) ? pick : undefined) ??
+    captures.find(here) ??
+    pick ??
+    captures[0] ??
+    null
+  );
 }
 
 /** What the strip holds: a capture, or a [run](runs.md) of steps. */
@@ -90,14 +102,15 @@ export function itemKey(item: Item): string {
 }
 
 /** The item to show. A picked run holds as a picked capture does, until the
- *  reader reads on to a component some capture shows; captures follow the
- *  reading as `followCapture` says; a commit with only runs shows its
- *  first. */
+ *  reader reads on to a component some capture shows, or, if it is of
+ *  another commit, reads on at all; captures follow the reading as
+ *  `followCapture` says; a commit with only runs shows its first. */
 export function followItem(
   captures: Capture[],
   runs: Run[],
   picked: Pick | null,
   reading: string | null,
+  inView: string | null = null,
 ): Item | null {
   const run = runs.find((each) => `run:${each.id}` === picked?.id);
   const shownSomewhere =
@@ -107,7 +120,9 @@ export function followItem(
     );
   if (
     run !== undefined &&
-    (reading === null || reading === picked?.reading || !shownSomewhere)
+    (reading === null ||
+      reading === picked?.reading ||
+      (!shownSomewhere && isAt(run.commitId, inView)))
   ) {
     return { kind: "run", run };
   }
@@ -117,9 +132,16 @@ export function followItem(
       ? null
       : { id: picked.id.replace(/^capture:/, ""), reading: picked.reading },
     reading,
+    inView,
   );
-  if (capture !== null) return { kind: "capture", capture };
-  const first = runs[0];
+  const runHere = runs.find((each) => isAt(each.commitId, inView));
+  if (
+    capture !== null &&
+    (runHere === undefined || isAt(capture.commitId, inView))
+  ) {
+    return { kind: "capture", capture };
+  }
+  const first = runHere ?? runs[0];
   return first === undefined ? null : { kind: "run", run: first };
 }
 
@@ -282,7 +304,7 @@ being read, every box is drawn alike.
 
 A clip plays both sides together: playing, pausing or seeking the commit's
 side does the same to its parent's, and the boxes follow the commit's time.
-`[` and `]` step through the commit's captures and runs from anywhere on
+`[` and `]` step through the version's captures and runs from anywhere on
 the screen, as the panels' own keys do. A run lists its steps under its
 name, and `,` and `.` move between them; the step in focus is drawn as a
 capture of its two windows, as [runs](runs.md#the-step-in-focus) says.
@@ -341,14 +363,18 @@ export function Viewer({
   mode,
   components,
   reading,
+  inView,
   onPick,
   onStep,
   onMode,
   onGo,
   notes,
 }: {
-  /** Every capture and run of the commit, for the strip. */
+  /** Every capture and run of the version, for the strip. */
   items: Item[];
+  /** The commit in view, whose items the strip draws brighter, or null
+   *  while none is. */
+  inView: string | null;
   /** The key of the item shown. */
   shownKey: string;
   /** The capture shown, or the run's step in focus as one. */
@@ -754,13 +780,18 @@ export function Viewer({
                   : null;
             const about =
               item.kind === "capture" ? item.capture.about : item.run.about;
+            const commitId =
+              item.kind === "capture"
+                ? item.capture.commitId
+                : item.run.commitId;
+            const elsewhere = inView !== null && commitId !== inView;
             return (
               <button
                 key={key}
                 type="button"
                 aria-pressed={key === shownKey}
-                className={`viewer__thumb viewer__thumb--${item.kind}`}
-                title={about || named[0]}
+                className={`viewer__thumb viewer__thumb--${item.kind}${elsewhere ? " viewer__thumb--elsewhere" : ""}`}
+                title={`${about || named[0]}${elsewhere ? ` (commit ${commitId.slice(0, 8)})` : ""}`}
                 onClick={() => onPick(key)}
               >
                 {thumb !== null ? (
@@ -1086,6 +1117,11 @@ function Media({
     border-color: var(--accent);
   }
 
+  /* Of another commit than the one in view: there, but not about it. */
+  .viewer__thumb--elsewhere:not([aria-pressed="true"]) {
+    opacity: 0.55;
+  }
+
   .viewer__thumb img,
   .viewer__thumb-clip {
     display: block;
@@ -1333,6 +1369,48 @@ describe("following the reading", () => {
     // assert
     expect(shown?.id).toBe("home");
   });
+
+  test("starts on the first capture of the commit in view", () => {
+    // arrange
+    const later = capture("later", [], { commitId: "c2" });
+
+    // act
+    const shown = followCapture([...captures, later], null, null, "c2");
+
+    // assert
+    expect(shown?.id).toBe("later");
+  });
+
+  test("keeps showing a capture on a commit that has none", () => {
+    // act
+    const shown = followCapture(captures, null, null, "c2");
+
+    // assert
+    expect(shown?.id).toBe("home");
+  });
+
+  test("lets a pick of another commit go once the reader reads on", () => {
+    // arrange
+    const later = capture("later", [], { commitId: "c2" });
+
+    // act
+    const held = followCapture(
+      [...captures, later],
+      { id: "home", reading: "card" },
+      "card",
+      "c2",
+    );
+    const moved = followCapture(
+      [...captures, later],
+      { id: "home", reading: "card" },
+      "plan",
+      "c2",
+    );
+
+    // assert
+    expect(held?.id).toBe("home");
+    expect(moved?.id).toBe("later");
+  });
 });
 
 describe("the viewer's choices", () => {
@@ -1363,6 +1441,18 @@ describe("the viewer's choices", () => {
     // assert
     expect(held?.kind).toBe("run");
     expect(moved?.kind).toBe("capture");
+  });
+
+  test("a commit with only runs shows its run, not another's capture", () => {
+    // arrange
+    const captures = [capture("settings", ["switch"])];
+    const runs = [{ ...run("switching"), commitId: "c2" }];
+
+    // act
+    const shown = followItem(captures, runs, null, null, "c2");
+
+    // assert
+    expect(shown?.kind).toBe("run");
   });
 
   test("only lays a picture over its other side", () => {

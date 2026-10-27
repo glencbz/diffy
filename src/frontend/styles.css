@@ -5228,6 +5228,11 @@
     border-color: var(--accent);
   }
 
+  /* Of another commit than the one in view: there, but not about it. */
+  .viewer__thumb--elsewhere:not([aria-pressed="true"]) {
+    opacity: 0.55;
+  }
+
   .viewer__thumb img,
   .viewer__thumb-clip {
     display: block;
