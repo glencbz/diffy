@@ -7,10 +7,15 @@ says why a review is registered rather than read off every bookmark.
 
 ## The screen
 
+The page title carries the open review's name, so a browser tab or the
+history list says which review it holds. It goes back to `Diffy` when the
+review closes or the screen goes.
+
 ```tsx
 //| id: frontend-screen-local-reviews
 //| file: src/frontend/screens/LocalReviewsScreen.tsx
 
+import { useEffect } from "react";
 import { LocalReviews } from "../controllers/LocalReviews";
 import { RepoMenu } from "../controllers/RepoMenu";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
@@ -27,6 +32,15 @@ export function LocalReviewsScreen({
   onGo: (place: Place, visit?: Visit) => void;
 }) {
   const review = useReviewContext();
+  const name = place?.name;
+
+  useEffect(() => {
+    if (name === undefined) return;
+    document.title = `${name} · Diffy`;
+    return () => {
+      document.title = "Diffy";
+    };
+  }, [name]);
 
   return (
     <div className="app">
