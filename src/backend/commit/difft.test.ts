@@ -102,6 +102,46 @@ describe("readDifft", () => {
     ]);
   });
 
+  test("reads a blank line on one side only as changed", () => {
+    // arrange
+    const oldText = "f() {\n  a;\n}\n";
+    const newText = "f() {\n\n  a;\n}\n\ng() {\n}\n";
+    const file = DifftFile.parse({
+      aligned_lines: [
+        [0, 0],
+        [null, 1],
+        [1, 2],
+        [2, 3],
+        [null, 4],
+        [null, 5],
+        [null, 6],
+        [3, 7],
+      ],
+      chunks: [
+        [
+          { rhs: { line_number: 5, changes: [{ start: 0, end: 1 }] } },
+          { rhs: { line_number: 6, changes: [{ start: 0, end: 1 }] } },
+        ],
+      ],
+      language: "TypeScript",
+      status: "changed",
+    });
+
+    // act
+    const hunks = readDifft(file, oldText, newText);
+
+    // assert
+    expect(hunks?.[0]?.lines.map((line) => [line.kind, line.code])).toEqual([
+      ["context", "f() {"],
+      ["added", ""],
+      ["context", "  a;"],
+      ["context", "}"],
+      ["added", ""],
+      ["added", "g() {"],
+      ["added", "}"],
+    ]);
+  });
+
   test("numbers every line from 1 on the side it is read from", () => {
     // arrange
     // act

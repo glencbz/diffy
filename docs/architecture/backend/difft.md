@@ -18,7 +18,10 @@ A structural diff is turned into the same hunks a patch gives, the after side
 with removed lines interleaved, so the gutter, comments, and hidden lines work
 on it unchanged. Difftastic's verdict on what is unchanged wins even when the
 text differs: a line that only moved in a reformat is context, and its
-before-side twin is left out. A context line keeps its before-side number
+before-side twin is left out. The exception is a blank line on one side
+only: difftastic marks no tokens on it, having none, but it was still added
+or removed, and reading it as context breaks the band of an added block where
+it has a gap. A context line keeps its before-side number
 where it has a partner, for the [side-by-side](../frontend/diff.md#side-by-side)
 before column.
 
@@ -191,10 +194,15 @@ export function readDifft(
 
   const oldChanges = changesBySide(chunks, "lhs", oldLines);
   const newChanges = changesBySide(chunks, "rhs", newLines);
+  // A blank line has no tokens to mark, so one on only one side is changed
+  // by being there.
+  const blank = (line: string | undefined) => line?.trim() === "";
   const changed = rows.map(
     ([old, now]) =>
       (old !== null && oldChanges.has(old)) ||
-      (now !== null && newChanges.has(now)),
+      (now !== null && newChanges.has(now)) ||
+      (old === null && blank(newLines[now ?? -1])) ||
+      (now === null && blank(oldLines[old ?? -1])),
   );
 
   const kept = rows.map((_, index) =>
@@ -518,6 +526,46 @@ describe("readDifft", () => {
       ["added", "  log(a);"],
       ["context", "  return a;"],
       ["context", "}"],
+    ]);
+  });
+
+  test("reads a blank line on one side only as changed", () => {
+    // arrange
+    const oldText = "f() {\n  a;\n}\n";
+    const newText = "f() {\n\n  a;\n}\n\ng() {\n}\n";
+    const file = DifftFile.parse({
+      aligned_lines: [
+        [0, 0],
+        [null, 1],
+        [1, 2],
+        [2, 3],
+        [null, 4],
+        [null, 5],
+        [null, 6],
+        [3, 7],
+      ],
+      chunks: [
+        [
+          { rhs: { line_number: 5, changes: [{ start: 0, end: 1 }] } },
+          { rhs: { line_number: 6, changes: [{ start: 0, end: 1 }] } },
+        ],
+      ],
+      language: "TypeScript",
+      status: "changed",
+    });
+
+    // act
+    const hunks = readDifft(file, oldText, newText);
+
+    // assert
+    expect(hunks?.[0]?.lines.map((line) => [line.kind, line.code])).toEqual([
+      ["context", "f() {"],
+      ["added", ""],
+      ["context", "  a;"],
+      ["context", "}"],
+      ["added", ""],
+      ["added", "g() {"],
+      ["added", "}"],
     ]);
   });
 
