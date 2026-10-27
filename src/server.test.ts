@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 import {
   AgentListeners,
+  follow,
   LISTEN_PATH,
   waitFor,
 } from "./backend/agent/listeners";
@@ -428,7 +429,7 @@ describe("the review route", () => {
   }
 
   async function withStore(
-    run: (route: Route, submits: unknown[][]) => Promise<void>,
+    run: (route: Route, told: unknown[][]) => Promise<void>,
   ) {
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const repo = {
@@ -436,10 +437,10 @@ describe("the review route", () => {
       store: openReviewStore(join(dir, "r.sqlite")),
       topic: "t",
     };
-    const submits: unknown[][] = [];
+    const told: unknown[][] = [];
     const route = reviewRoute({
-      submitted: async (...args) => {
-        submits.push(args);
+      tell: async (...args) => {
+        told.push(args);
         return 0;
       },
     });
@@ -449,7 +450,7 @@ describe("the review route", () => {
           GET: () => route.GET(new Request("http://test/"), repo),
           POST: (req) => route.POST(req, repo),
         },
-        submits,
+        told,
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -488,8 +489,8 @@ describe("the review route", () => {
       expect(read.document.marks).toHaveLength(1);
     }));
 
-  test("tells agents only of a mark on a local review's newest version", () =>
-    withStore(async (route, submits) => {
+  test("tells agents only of a mark on a local review's newest version, and its first delete", () =>
+    withStore(async (route, told) => {
       // arrange
       for (const commit of ["a", "b"]) {
         const version = {
@@ -514,9 +515,19 @@ describe("the review route", () => {
       await mark("local:t", "1");
       await mark("pull:o/r#1", "abc");
       await mark("local:t", "2");
+      for (const at of [
+        "2026-10-22T11:00:00.000Z",
+        "2026-10-22T12:00:00.000Z",
+      ]) {
+        await route.POST(post({ kind: "forget-review", name: "t", at }));
+      }
+      await route.POST(post({ kind: "forget-review", name: "u", at: "t" }));
 
       // assert
-      expect(submits).toEqual([[ROOT, "t", 2]]);
+      expect(told).toEqual([
+        [ROOT, { review: "t", version: 2 }],
+        [ROOT, { review: "t", deleted: true }],
+      ]);
     }));
 
   test("reports a body that is not a command as 400 and writes nothing", () =>
@@ -605,7 +616,7 @@ describe("the review route", () => {
     }
   });
 
-  test("tells a waiting agent of a submit, and a late one at once", async () => {
+  test("tells waiting and following agents of a submit, and a late one of a submit or delete at once", async () => {
     // arrange
     const dir = await mkdtemp(join(tmpdir(), "diffy-route-"));
     const store = openReviewStore(join(dir, "r.sqlite"));
@@ -635,11 +646,20 @@ describe("the review route", () => {
       },
     });
 
+    const followed: unknown[] = [];
+    let up = true;
+    void follow(
+      ROOT,
+      async () => (up ? new URL("/mcp", server.url) : null),
+      (event) => followed.push(event),
+      10,
+    );
+
     try {
       // act
       const waited = wait("t");
       // The route tells the listeners once the reader's mark is written.
-      while ((await listeners.submitted(ROOT, "t", 1)) === 0) {
+      while ((await listeners.tell(ROOT, { review: "t", version: 1 })) < 2) {
         await Bun.sleep(10);
       }
       store.apply({
@@ -649,15 +669,31 @@ describe("the review route", () => {
         at: "2026-10-24T10:00:00.000Z",
       });
       const late = await wait("t");
+      store.apply({
+        kind: "forget-review",
+        name: "t",
+        at: "2026-10-24T11:00:00.000Z",
+      });
+      const gone = await wait("t");
       const missing = await wait("u");
       const stranger = await wait("t", "/nowhere");
+      const lost = await follow(
+        "/nowhere",
+        async () => new URL("/mcp", server.url),
+        () => {},
+        10,
+      );
 
       // assert
       expect(await waited).toEqual({ review: "t", version: 1 });
       expect(late).toEqual({ review: "t", version: 1 });
+      expect(gone).toEqual({ review: "t", deleted: true });
       expect(missing).toEqual({ error: "no local review is named u" });
       expect(stranger).toEqual({ error: "no workspace at /nowhere" });
+      expect(lost).toEqual({ error: "no workspace at /nowhere" });
+      expect(followed.at(-1)).toEqual({ review: "t", version: 1 });
     } finally {
+      up = false;
       server.stop(true);
       await rm(dir, { recursive: true, force: true });
     }

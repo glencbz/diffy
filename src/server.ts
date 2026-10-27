@@ -7,6 +7,7 @@ import {
   type AgentListeners,
   type Heard,
   LISTEN_PATH,
+  type ReviewEvent,
 } from "./backend/agent/listeners";
 import { mcpRoute, type ToolContext, ToolError } from "./backend/agent/mcp";
 import { recordingTools } from "./backend/agent/recording";
@@ -477,7 +478,7 @@ async function pullDiffFiles(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
 
-export const reviewRoute = (listeners: Pick<AgentListeners, "submitted">) => ({
+export const reviewRoute = (listeners: Pick<AgentListeners, "tell">) => ({
   GET: (_req: Request, { store }: RepoContext) => Response.json(store.read()),
   POST: async (req: Request, { root, store }: RepoContext) => {
     const command = ReviewCommand.safeParse(
@@ -489,28 +490,37 @@ export const reviewRoute = (listeners: Pick<AgentListeners, "submitted">) => ({
         { status: 400 },
       );
     }
+    const before = store.read().document;
     const document = store.apply(command.data);
-    const submit = submittedBy(command.data, document.document);
-    if (submit !== null) {
+    const event = eventOf(command.data, before, document.document);
+    if (event !== null) {
       // The reader is not kept waiting on the agents' workspaces.
-      void listeners.submitted(root, submit.name, submit.version);
+      void listeners.tell(root, event);
     }
     return Response.json(document);
   },
 });
 
-/** The local review a command submits: a mark of its newest version. */
-function submittedBy(
+/** What a command tells the agents: a mark of a local review's newest
+ *  version submits it, and forgetting one that was not forgotten deletes
+ *  it. */
+function eventOf(
   command: ReviewCommand,
-  document: ReviewDocument,
-): { name: string; version: number } | null {
+  before: ReviewDocument,
+  after: ReviewDocument,
+): ReviewEvent | null {
+  if (command.kind === "forget-review") {
+    const review = localReview(before, command.name);
+    if (review === undefined || review.forgottenAt !== undefined) return null;
+    return { review: review.name, deleted: true };
+  }
   if (command.kind !== "mark-reviewed") return null;
-  const review = document.localReviews.find(
+  const review = after.localReviews.find(
     (each) => localSeries(each.name) === command.series,
   );
   const version = Number(command.version);
   if (review === undefined || version !== review.versions.length) return null;
-  return { name: review.name, version };
+  return { review: review.name, version };
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
@@ -524,7 +534,7 @@ export type SocketData =
   | {
       kind: "agent";
       root: string;
-      review: string;
+      review: string | null;
       now: Heard | null;
       stop?: () => void;
     };
@@ -540,7 +550,8 @@ export function reviewChanges(
   return Response.json({ error: "expected a WebSocket" }, { status: 400 });
 }
 
-/** `LISTEN_PATH`, for the agent in `workspace` waiting on `review`. */
+/** `LISTEN_PATH`, for the agent in `workspace` waiting on `review`, or
+ *  following every review when it names none. */
 export function agentListen(
   context: (workspace: string) => Promise<RepoContext>,
 ) {
@@ -548,11 +559,8 @@ export function agentListen(
     const asked = new URL(req.url).searchParams;
     const workspace = asked.get("workspace");
     const review = asked.get("review");
-    if (workspace === null || review === null) {
-      return Response.json(
-        { error: "name a workspace and a review" },
-        { status: 400 },
-      );
+    if (workspace === null) {
+      return Response.json({ error: "name a workspace" }, { status: 400 });
     }
     const data = await waiting(context, workspace, review);
     if (server.upgrade(req, { data })) return undefined;
@@ -563,7 +571,7 @@ export function agentListen(
 async function waiting(
   context: (workspace: string) => Promise<RepoContext>,
   workspace: string,
-  review: string,
+  review: string | null,
 ): Promise<SocketData> {
   const at = (now: Heard | null, root = workspace): SocketData => ({
     kind: "agent",
@@ -577,10 +585,14 @@ async function waiting(
   } catch (error) {
     return at({ error: (error as Error).message });
   }
+  if (review === null) return at(null, repo.root);
   const { document } = repo.store.read();
   const named = localReview(document, review);
   if (named === undefined || named.versions.length === 0) {
     return at({ error: `no local review is named ${review}` });
+  }
+  if (named.forgottenAt !== undefined) {
+    return at({ review, deleted: true }, repo.root);
   }
   const { turn, newest } = turnOf(document, named);
   return at(turn === "agent" ? { review, version: newest } : null, repo.root);
