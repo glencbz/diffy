@@ -165,10 +165,15 @@ export function readDifft(
 
   const oldChanges = changesBySide(chunks, "lhs", oldLines);
   const newChanges = changesBySide(chunks, "rhs", newLines);
+  // A blank line has no tokens to mark, so one on only one side is changed
+  // by being there.
+  const blank = (line: string | undefined) => line?.trim() === "";
   const changed = rows.map(
     ([old, now]) =>
       (old !== null && oldChanges.has(old)) ||
-      (now !== null && newChanges.has(now)),
+      (now !== null && newChanges.has(now)) ||
+      (old === null && blank(newLines[now ?? -1])) ||
+      (now === null && blank(oldLines[old ?? -1])),
   );
 
   const kept = rows.map((_, index) =>
