@@ -1,5 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-screen-local-reviews>>[init]
 
+import { useEffect } from "react";
 import { LocalReviews } from "../controllers/LocalReviews";
 import { RepoMenu } from "../controllers/RepoMenu";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
@@ -16,6 +17,15 @@ export function LocalReviewsScreen({
   onGo: (place: Place, visit?: Visit) => void;
 }) {
   const review = useReviewContext();
+  const name = place?.name;
+
+  useEffect(() => {
+    if (name === undefined) return;
+    document.title = `${name} · Diffy`;
+    return () => {
+      document.title = "Diffy";
+    };
+  }, [name]);
 
   return (
     <div className="app">
