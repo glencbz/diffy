@@ -7,8 +7,9 @@ says why a review is registered rather than read off every bookmark.
 
 ## The screen
 
-The page title carries the open review's name, so a browser tab or the
-history list says which review it holds. It goes back to `Diffy` when the
+The page title carries the open review's subject, or its name while it has
+no [message](#the-reviews-message), so a browser tab or the history list
+says which review it holds. It goes back to `Diffy` when the
 review closes or the screen goes.
 
 ```tsx
@@ -19,6 +20,7 @@ import { useEffect } from "react";
 import { LocalReviews } from "../controllers/LocalReviews";
 import { RepoMenu } from "../controllers/RepoMenu";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
+import { localReview, reviewSubject } from "../model/review";
 import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
 import { ModeTabs } from "../views/ModeTabs";
@@ -33,14 +35,17 @@ export function LocalReviewsScreen({
 }) {
   const review = useReviewContext();
   const name = place?.name;
+  const open =
+    name === undefined ? undefined : localReview(review.document, name);
+  const title = open === undefined ? name : reviewSubject(open);
 
   useEffect(() => {
-    if (name === undefined) return;
-    document.title = `${name} · Diffy`;
+    if (title === undefined) return;
+    document.title = `${title} · Diffy`;
     return () => {
       document.title = "Diffy";
     };
-  }, [name]);
+  }, [title]);
 
   return (
     <div className="app">
@@ -99,6 +104,7 @@ import {
   localReview,
   localRowKey,
   localSeries,
+  reviewSubject,
   sortForgottenReviews,
   sortLocalReviews,
 } from "../model/review";
@@ -107,6 +113,7 @@ import type { Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
 import { LocalReviewList } from "../views/LocalReviewList";
 import { Message } from "../views/Message";
+import { ReviewCover } from "../views/ReviewCover";
 import { CommitLog } from "./CommitLog";
 import { SeriesReview, type SeriesScreen } from "./SeriesReview";
 
@@ -228,12 +235,33 @@ function LocalReviewScreen({
     history: localHistory(local),
     header: (
       <header className="pull-header">
-        <strong className="pull-header__title">{name}</strong>
+        <strong className="pull-header__title">{reviewSubject(local)}</strong>
         <span className="pull-header__meta">
-          {local.versions.at(-1)?.revset}
+          {name} · {local.versions.at(-1)?.revset}
         </span>
       </header>
     ),
+    cover: (to, from, commits, onPick) => {
+      const version = local.versions[Number(to) - 1];
+      if (version === undefined) return null;
+      const older =
+        from === null ? undefined : local.versions[Number(from) - 1];
+      return (
+        <ReviewCover
+          name={name}
+          version={`v${to}`}
+          description={version.description}
+          commits={commits}
+          registeredAt={version.registeredAt}
+          since={
+            from === null
+              ? null
+              : { name: `v${from}`, description: older?.description }
+          }
+          onPick={onPick}
+        />
+      );
+    },
     wholeLabel: "whole review",
     markLabel: { mark: "Submit review of", marked: "Submitted" },
     keyOf: (_document, before, after) => localRowKey(before, after),
@@ -257,8 +285,9 @@ function LocalReviewScreen({
 
 ## The list
 
-An entry is its name, how many versions it has, and the newest version's
-revset over that version's commits. The graph comes in through `commits`,
+An entry is its subject and how many versions it has, over the newest
+version's commits. Under the subject sits the review's name, or the revset
+while the subject is the name. The graph comes in through `commits`,
 since loading commits is a controller's job and the list is a view. The
 graph picks nothing, so a click anywhere on the entry opens the review.
 `delete` sits beside the name. Forgotten reviews wait under the list with
@@ -277,7 +306,11 @@ import type {
   LocalReviewOrder,
   LocalVersion,
 } from "../model/review";
-import { FORGOTTEN_REVIEW_ORDERS, LOCAL_REVIEW_ORDERS } from "../model/review";
+import {
+  FORGOTTEN_REVIEW_ORDERS,
+  LOCAL_REVIEW_ORDERS,
+  reviewSubject,
+} from "../model/review";
 
 const ORDER_LABELS: Record<LocalReviewOrder, string> = {
   "modified-newest": "Modified, newest first",
@@ -372,10 +405,16 @@ export function LocalReviewList({
                   <span className="pull-list__number">
                     v{review.versions.length}
                   </span>
-                  <span className="pull-list__title">{review.name}</span>
+                  <span className="pull-list__title">
+                    {reviewSubject(review)}
+                  </span>
                 </span>
                 {newest !== undefined && (
-                  <span className="pull-list__base">{newest.revset}</span>
+                  <span className="pull-list__base">
+                    {newest.description === undefined
+                      ? newest.revset
+                      : review.name}
+                  </span>
                 )}
               </button>
               {variant.kind === "writable" && (
@@ -538,6 +577,197 @@ nothing.
   .local-review__commits {
     margin-top: var(--space-3);
     cursor: pointer;
+  }
+
+  /* A review's subject is a sentence, so it wraps rather than losing its
+     end. */
+  .local-review .pull-list__title {
+    white-space: normal;
+    overflow: visible;
+  }
+}
+```
+
+## The review's message
+
+A version can carry a message, which the agent writes when it registers the
+version, so that a reader opening a review learns what it is for before
+reading any commit. It is written like a commit message, and drawn like one:
+`ReviewCover` is the first row of the [commit stack](commit-stack.md), with
+the same spine, meta line and [`CommitMessage`](commit-message.md), and it
+folds the way a commit does. The list, the screen's header and the page
+title go by its subject, through `reviewSubject`, and fall back to the
+review's name while it has none.
+
+A message names commits by their subjects, and each subject it quotes whole
+links to that commit's row, split out by `commitRuns`. Matching the subjects
+the reader can see beats a link syntax that the agent would have to learn
+and that would read as noise in the message.
+
+Against an older version, the spine says whether the message changed, as a
+reworded commit's does, and the older message opens beneath. A version
+registered without a message keeps the one before it, so a review only loses
+its message when the agent replaces it.
+
+```tsx
+//| id: frontend-view-review-cover
+//| file: src/frontend/views/ReviewCover.tsx
+import { useState } from "react";
+import { commitRuns, type NamedCommit } from "../model/review";
+import { CommitMessage, splitMessage } from "./CommitMessage";
+
+export function ReviewCover({
+  name,
+  version,
+  description,
+  commits,
+  registeredAt,
+  since,
+  onPick,
+}: {
+  name: string;
+  /** The version being read, as its chip names it: `v2`. */
+  version: string;
+  description: string | undefined;
+  /** The commits read, oldest first, whose subjects the message can name. */
+  commits: NamedCommit[];
+  registeredAt: string;
+  /** The older version the comparison reads against, with its message, or
+   *  null against the base. */
+  since: { name: string; description: string | undefined } | null;
+  /** Takes the stack to a commit's row. */
+  onPick: (commitId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [showOld, setShowOld] = useState(false);
+  const [folded, setFolded] = useState(false);
+
+  if (description === undefined) return null;
+
+  const { subject } = splitMessage(description);
+  const changed =
+    since !== null &&
+    since.description !== undefined &&
+    since.description !== description;
+  const plural = commits.length === 1 ? "commit" : "commits";
+
+  return (
+    <section className="commit-stack__row review-cover">
+      <header className="commit-stack__spine">
+        <button
+          type="button"
+          className="commit-stack__shut"
+          aria-expanded={!folded}
+          aria-label={
+            folded ? "unfold the review's message" : "fold the review's message"
+          }
+          onClick={() => setFolded((now) => !now)}
+        >
+          {folded ? "▸" : "▾"}
+        </button>
+        <span className="commit-stack__id">{version}</span>
+        <span className="commit-stack__subject">{subject}</span>
+        {since !== null && (
+          <span
+            className={`review-chip ${changed ? "review-chip--stale" : "review-chip--resolved"}`}
+          >
+            {changed
+              ? `message changed since ${since.name}`
+              : `same message as ${since.name}`}
+          </span>
+        )}
+      </header>
+      {!folded && (
+        <>
+          <p className="commit-stack__meta">
+            review {name} · {commits.length} {plural} · registered{" "}
+            {registeredAt.slice(0, 10)}
+          </p>
+          <CommitMessage
+            description={description}
+            className="commit-stack__message"
+            isExpanded={expanded}
+            onExpand={() => setExpanded((now) => !now)}
+            words={(text) =>
+              commitRuns(text, commits).map((run, index) =>
+                run.kind === "text" ? (
+                  run.text
+                ) : (
+                  <button
+                    // biome-ignore lint/suspicious/noArrayIndexKey: runs of one fixed text
+                    key={index}
+                    type="button"
+                    className="review-cover__commit"
+                    onClick={() => onPick(run.commit)}
+                  >
+                    {run.text}
+                  </button>
+                ),
+              )
+            }
+          />
+          {changed && (
+            <div className="review-cover__old">
+              <button
+                type="button"
+                className="commit-message__expand"
+                onClick={() => setShowOld((now) => !now)}
+              >
+                {showOld
+                  ? `hide ${since.name}'s message`
+                  : `read ${since.name}'s message`}
+              </button>
+              {showOld && (
+                <CommitMessage
+                  description={since.description ?? ""}
+                  className="commit-stack__message review-cover__was"
+                  isExpanded
+                  onExpand={() => setShowOld(false)}
+                />
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+```
+
+The message's row is set off from the commits below it by a heavier rule,
+and a linked subject keeps the monospace a subject has in the spine.
+
+```css
+/*| id: design-review-cover
+@layer components {
+  .review-cover {
+    border-bottom: 2px solid var(--border);
+  }
+
+  .review-cover__old {
+    padding: 0 var(--space-5) var(--space-3);
+  }
+
+  .review-cover__was {
+    margin-top: var(--space-2);
+    padding-left: var(--space-3);
+    color: var(--text-muted);
+    border-left: 2px solid var(--border);
+  }
+
+  .review-cover__commit {
+    padding: 0;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-size-small);
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: 0;
+  }
+
+  .review-cover__commit:hover {
+    text-decoration: underline;
   }
 }
 ```

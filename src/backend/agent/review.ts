@@ -19,7 +19,7 @@ import { type Tool, ToolError, tool } from "./mcp";
 
 export const AGENT = "claude";
 
-export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. review_status says whose turn a review is. Then run the wait command register_review answers with as a background command: it exits when the reader submits the newest version, which marks it reviewed and makes it your turn, and until then you leave the review alone, since the reader may still refine their comments. When it exits, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind. When a change shows in the app, record it after the map with record_captures: serve the app at the commit and at its parent, and give recipes that say which element shows each component. When what changes is what the app does, such as a request, an error or which code runs, record it with record_runs the same way. attach_capture takes pictures you made yourself.`;
+export const INSTRUCTIONS = `diffy is where the reader reviews your work. When a piece of work is ready, register it with register_review under its bookmark, write that version's component map with write_components, using the kinds read_component_kinds lists and grouping the components into the parts a reader would check one at a time, and give the reader the link it returns. Give register_review a description, written like a commit message for the review as a whole: a subject line that says what the work does, a blank line, then a body that tells the reader why, which commit to read closest, and anything you want them to decide. Name commits by their exact subjects, which link to them. A new version keeps the description before it, so pass one again only when what the review is has changed, and then say what changed since the version before. review_status says whose turn a review is. Then run the wait command register_review answers with as a background command: it exits when the reader submits the newest version, which marks it reviewed and makes it your turn, and until then you leave the review alone, since the reader may still refine their comments. When it exits, read_comments on it, answer each thread with reply_to_comment, resolve what your change settles, amend the changes, register_review again, and write the new version's map, keeping the ids read_components gives for the version before. The reader decides the kinds a map uses: when they ask to change them, do it with define_component_kind and remove_component_kind. When a change shows in the app, record it after the map with record_captures: serve the app at the commit and at its parent, and give recipes that say which element shows each component. When what changes is what the app does, such as a request, an error or which code runs, record it with record_runs the same way. attach_capture takes pictures you made yourself.`;
 
 function reviewNamed(document: ReviewDocument, name: string): LocalReview {
   const review = localReview(document, name);
@@ -319,9 +319,17 @@ export function reviewTools(): Tool[] {
           .min(1)
           .optional()
           .describe("the commits to review, oldest to newest"),
+        description: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "what the review is for, written like a commit message: a subject line, a blank line, then a body; commits named by their exact subjects link to them. Left out, the version keeps the one before",
+          ),
       }),
       call: async (
-        { name, revset },
+        { name, revset, description },
         { repo: { root, store }, link, wait, now },
       ) => {
         const waiting = `Run in the background to hear when the reader submits: ${wait(name)}`;
@@ -346,8 +354,22 @@ export function reviewTools(): Tool[] {
           previous !== undefined &&
           previous.commits.join() === version.commits.join()
         ) {
-          return `${link(reviewPath(name))}\nv${before?.versions.length} already has these commits, so nothing was registered\n${waiting}`;
+          const number = before?.versions.length;
+          if (
+            description === undefined ||
+            description === previous.description
+          ) {
+            return `${link(reviewPath(name))}\nv${number} already has these commits, so nothing was registered\n${waiting}`;
+          }
+          // Same operation, so the register replaces the version in place.
+          store.apply({
+            kind: "register",
+            name,
+            version: { ...previous, description },
+          });
+          return `${link(reviewPath(name))}\nv${number} already has these commits, so only its description was replaced\n${waiting}`;
         }
+        if (description !== undefined) version = { ...version, description };
         store.apply({ kind: "register", name, version });
         // Counted after the write: re-registering at the newest version's
         // operation replaces it rather than adding one.

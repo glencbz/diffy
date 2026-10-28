@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { LocalReviews } from "../controllers/LocalReviews";
 import { RepoMenu } from "../controllers/RepoMenu";
 import { type LocalPlace, type Place, tabPlace } from "../model/place";
+import { localReview, reviewSubject } from "../model/review";
 import type { Visit } from "../state/place";
 import { useReviewContext } from "../state/review";
 import { ModeTabs } from "../views/ModeTabs";
@@ -18,14 +19,17 @@ export function LocalReviewsScreen({
 }) {
   const review = useReviewContext();
   const name = place?.name;
+  const open =
+    name === undefined ? undefined : localReview(review.document, name);
+  const title = open === undefined ? name : reviewSubject(open);
 
   useEffect(() => {
-    if (name === undefined) return;
-    document.title = `${name} · Diffy`;
+    if (title === undefined) return;
+    document.title = `${title} · Diffy`;
     return () => {
       document.title = "Diffy";
     };
-  }, [name]);
+  }, [title]);
 
   return (
     <div className="app">

@@ -120,6 +120,38 @@ describe("the protocol", () => {
 });
 
 describe("the review tools", () => {
+  test("keeps a description across versions until it is replaced", async () => {
+    // arrange
+    const versions = () =>
+      store.read().document.localReviews.find((review) => review.name === "t")
+        ?.versions ?? [];
+    await call("register_review", {
+      name: "t",
+      revset: TIP,
+      description: "Say what the work is for\n\nWhy it matters.",
+    });
+
+    // act
+    const same = await call("register_review", { name: "t" });
+    const replaced = await call("register_review", {
+      name: "t",
+      description: "Say it better",
+    });
+    await call("register_review", {
+      name: "t",
+      revset: `${TIP} | ${FIXED.parent}`,
+    });
+
+    // assert
+    expect(same.text).toContain("v1 already has these commits");
+    expect(replaced.text).toContain("only its description was replaced");
+    // The repository has not moved, so the last register reads at the same
+    // operation and replaces v1 rather than adding a version.
+    expect(versions()).toMatchObject([
+      { commits: [FIXED.parent, FIXED.commit], description: "Say it better" },
+    ]);
+  });
+
   test("registers a review, comments on it, and reads the comment back", async () => {
     // arrange
     const tip = { commitId: FIXED.commit, changeId: FIXED.changeId };

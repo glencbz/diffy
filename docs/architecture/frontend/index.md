@@ -258,6 +258,8 @@ with its markup. The references below are an inventory, not an order.
 
 <<design-commit-stack>>
 
+<<design-review-cover>>
+
 <<design-responsive-panes>>
 
 <<design-components>>
