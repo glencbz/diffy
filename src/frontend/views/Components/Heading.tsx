@@ -54,7 +54,8 @@ export function Heading({
   fold,
   seen,
   onLeave,
-}: HeadingParts) {
+  pinned = false,
+}: HeadingParts & { pinned?: boolean }) {
   const { component, place } = at;
   const heading = (event: MouseEvent<HTMLElement>) =>
     event.currentTarget.closest<HTMLElement>("[data-components-key]");
@@ -74,7 +75,11 @@ export function Heading({
   return (
     <div
       className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}${fold.folded ? " components-heading--folded" : ""}`}
-      data-components-key={`${component.commitId}:${component.id}/${place}`}
+      // A pinned copy is no place of its own: the page finds, numbers and
+      // steps between headings by this key.
+      data-components-key={
+        pinned ? undefined : `${component.commitId}:${component.id}/${place}`
+      }
       data-components-commit={component.commitId}
       data-components-id={component.id}
       data-path={path}
