@@ -8,6 +8,7 @@ import {
   localReview,
   localRowKey,
   localSeries,
+  reviewSubject,
   sortForgottenReviews,
   sortLocalReviews,
 } from "../model/review";
@@ -16,6 +17,7 @@ import type { Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
 import { LocalReviewList } from "../views/LocalReviewList";
 import { Message } from "../views/Message";
+import { ReviewCover } from "../views/ReviewCover";
 import { CommitLog } from "./CommitLog";
 import { SeriesReview, type SeriesScreen } from "./SeriesReview";
 
@@ -137,12 +139,33 @@ function LocalReviewScreen({
     history: localHistory(local),
     header: (
       <header className="pull-header">
-        <strong className="pull-header__title">{name}</strong>
+        <strong className="pull-header__title">{reviewSubject(local)}</strong>
         <span className="pull-header__meta">
-          {local.versions.at(-1)?.revset}
+          {name} · {local.versions.at(-1)?.revset}
         </span>
       </header>
     ),
+    cover: (to, from, commits, onPick) => {
+      const version = local.versions[Number(to) - 1];
+      if (version === undefined) return null;
+      const older =
+        from === null ? undefined : local.versions[Number(from) - 1];
+      return (
+        <ReviewCover
+          name={name}
+          version={`v${to}`}
+          description={version.description}
+          commits={commits}
+          registeredAt={version.registeredAt}
+          since={
+            from === null
+              ? null
+              : { name: `v${from}`, description: older?.description }
+          }
+          onPick={onPick}
+        />
+      );
+    },
     wholeLabel: "whole review",
     markLabel: { mark: "Submit review of", marked: "Submitted" },
     keyOf: (_document, before, after) => localRowKey(before, after),

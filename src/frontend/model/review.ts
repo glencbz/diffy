@@ -221,6 +221,9 @@ export const LocalVersion = z.object({
   revset: z.string(),
   commits: z.array(z.string()),
   registeredAt: z.string(),
+  /** What the version is for, written like a commit message: a subject
+   *  line, then a body. Older versions have none. */
+  description: z.string().optional(),
 });
 export type LocalVersion = z.infer<typeof LocalVersion>;
 
@@ -233,6 +236,47 @@ export const LocalReview = z.object({
   forgottenAt: z.string().optional(),
 });
 export type LocalReview = z.infer<typeof LocalReview>;
+
+/** The subject a review goes by: the first line of its newest version's
+ *  message, or its name while it has none. */
+export function reviewSubject(review: LocalReview): string {
+  const subject = review.versions.at(-1)?.description?.split("\n")[0]?.trim();
+  return subject === undefined || subject === "" ? review.name : subject;
+}
+
+/** A commit that a review's message can name by its subject. */
+export interface NamedCommit {
+  id: string;
+  subject: string;
+}
+
+/** A run of a review's message: plain text, or a commit's subject. */
+export type MessageRun =
+  | { kind: "text"; text: string }
+  | { kind: "commit"; text: string; commit: string };
+
+/** Splits a run of a review's message wherever it quotes a commit's
+ *  subject whole, so the view can link the subject to that commit. */
+export function commitRuns(text: string, commits: NamedCommit[]): MessageRun[] {
+  const found = commits
+    .filter((commit) => commit.subject !== "")
+    .flatMap((commit) => {
+      const at = text.indexOf(commit.subject);
+      return at === -1 ? [] : [{ at, commit }];
+    })
+    .sort((a, b) => a.at - b.at);
+  const runs: MessageRun[] = [];
+  let from = 0;
+  for (const { at, commit } of found) {
+    // A subject inside one already taken stays part of it.
+    if (at < from) continue;
+    if (at > from) runs.push({ kind: "text", text: text.slice(from, at) });
+    runs.push({ kind: "commit", text: commit.subject, commit: commit.id });
+    from = at + commit.subject.length;
+  }
+  if (from < text.length) runs.push({ kind: "text", text: text.slice(from) });
+  return runs;
+}
 
 /** How long a forgotten local review waits to be restored before it is
  *  purged. */
@@ -1143,14 +1187,17 @@ export function purgeable(
 /** `reviews` with `version` added to the review called `name`, which is
  *  started if there is none, or restored if it was forgotten. A version read at an operation the review
  *  already has a version for replaces it, since both describe the same
- *  moment of the repository. */
+ *  moment of the repository. A version with no description keeps the
+ *  newest one's. */
 function registered(
   reviews: LocalReview[],
   name: string,
-  version: LocalVersion,
+  added: LocalVersion,
 ): LocalReview[] {
   const review = reviews.find((candidate) => candidate.name === name);
-  if (review === undefined) return [...reviews, { name, versions: [version] }];
+  if (review === undefined) return [...reviews, { name, versions: [added] }];
+  const description = added.description ?? review.versions.at(-1)?.description;
+  const version = description === undefined ? added : { ...added, description };
   const at = review.versions.findIndex(
     (kept) => kept.operation === version.operation,
   );

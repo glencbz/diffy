@@ -143,6 +143,8 @@ export interface CommitStackProps {
   /** How the reader asked for diffs to be drawn. */
   display: Display;
   layer?: StackLayer;
+  /** Drawn ahead of the rows, such as the review's own message. */
+  cover?: ReactNode;
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
@@ -198,6 +200,7 @@ export function CommitStack({
   beforePaths,
   display,
   layer,
+  cover,
 }: CommitStackProps): ReactElement {
   const stack = useRef<HTMLDivElement>(null);
   const revealedAt = useRef<number | null>(null);
@@ -250,31 +253,34 @@ export function CommitStack({
   };
 
   return (
-    <div ref={stack} className="commit-stack">
-      {rows.map((row) => (
-        <StackSection
-          key={row.key}
-          row={row}
-          sources={sources}
-          isOpen={open.has(row.key)}
-          onToggle={() => onToggle(row.key)}
-          isExpanded={expanded.has(row.key)}
-          onExpand={() => onExpand(row.key)}
-          isFolded={folded.has(row.key)}
-          onFold={() => onFold(row.key)}
-          isCurrent={current === row.key}
-          reveal={reveal}
-          onRevealed={onRevealed}
-          links={links(row)}
-          since={since}
-          review={reviewOf(row)}
-          actions={actions}
-          beforePaths={beforePaths}
-          display={display}
-          layer={layer}
-        />
-      ))}
-    </div>
+    <>
+      {cover}
+      <div ref={stack} className="commit-stack">
+        {rows.map((row) => (
+          <StackSection
+            key={row.key}
+            row={row}
+            sources={sources}
+            isOpen={open.has(row.key)}
+            onToggle={() => onToggle(row.key)}
+            isExpanded={expanded.has(row.key)}
+            onExpand={() => onExpand(row.key)}
+            isFolded={folded.has(row.key)}
+            onFold={() => onFold(row.key)}
+            isCurrent={current === row.key}
+            reveal={reveal}
+            onRevealed={onRevealed}
+            links={links(row)}
+            since={since}
+            review={reviewOf(row)}
+            actions={actions}
+            beforePaths={beforePaths}
+            display={display}
+            layer={layer}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 

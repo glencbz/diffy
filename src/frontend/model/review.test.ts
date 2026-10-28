@@ -7,6 +7,7 @@ import {
   applyCommand,
   type Comment,
   commentOn,
+  commitRuns,
   drawnAt,
   EMPTY_REVIEW,
   evidenceLabel,
@@ -29,6 +30,7 @@ import {
   reviewComparison,
   reviewKey,
   reviewRows,
+  reviewSubject,
   sortForgottenReviews,
 } from "./review";
 
@@ -1578,6 +1580,114 @@ describe("drawnAt", () => {
 
   test("draws nowhere a comment from a commit the row does not show", () => {
     expect(drawn(lineComment("a0", "after", 6))).toBeNull();
+  });
+});
+
+describe("reviewSubject", () => {
+  const version = {
+    operation: "op",
+    revset: "trunk()..x",
+    commits: ["c1"],
+    registeredAt: "2026-10-28T00:00:00Z",
+  };
+
+  test("is the first line of the newest version's message", () => {
+    // arrange
+    const review = {
+      name: "x",
+      versions: [
+        { ...version, description: "Old subject" },
+        { ...version, description: "New subject\n\nWhy it matters." },
+      ],
+    };
+
+    // act
+    // assert
+    expect(reviewSubject(review)).toBe("New subject");
+  });
+
+  test("carries over to a version registered without one", () => {
+    // arrange
+    const first = applyCommand(EMPTY_REVIEW, {
+      kind: "register",
+      name: "x",
+      version: { ...version, description: "What it is for" },
+    });
+
+    // act
+    const next = applyCommand(first, {
+      kind: "register",
+      name: "x",
+      version: { ...version, operation: "later" },
+    });
+
+    // assert
+    expect(next.localReviews[0]?.versions.at(-1)?.description).toBe(
+      "What it is for",
+    );
+  });
+
+  test("is the name while the review has no message", () => {
+    // arrange
+    const review = { name: "x", versions: [version] };
+
+    // act
+    // assert
+    expect(reviewSubject(review)).toBe("x");
+  });
+});
+
+describe("commitRuns", () => {
+  const commits = [
+    { id: "a", subject: "runs: comment on a console line" },
+    { id: "b", subject: "viewer: comment with a key" },
+  ];
+
+  test("splits out each subject the text quotes, in order", () => {
+    // arrange
+    const text =
+      "First viewer: comment with a key, then runs: comment on a console line.";
+
+    // act
+    const runs = commitRuns(text, commits);
+
+    // assert
+    expect(runs).toEqual([
+      { kind: "text", text: "First " },
+      { kind: "commit", text: "viewer: comment with a key", commit: "b" },
+      { kind: "text", text: ", then " },
+      { kind: "commit", text: "runs: comment on a console line", commit: "a" },
+      { kind: "text", text: "." },
+    ]);
+  });
+
+  test("leaves text that names no subject whole", () => {
+    // arrange
+    // act
+    const runs = commitRuns("nothing here", commits);
+
+    // assert
+    expect(runs).toEqual([{ kind: "text", text: "nothing here" }]);
+  });
+
+  test("keeps a subject inside a longer one as part of it", () => {
+    // arrange
+    const nested = [
+      { id: "long", subject: "panels: zoom over the whole window" },
+      { id: "short", subject: "zoom over" },
+    ];
+
+    // act
+    const runs = commitRuns("panels: zoom over the whole window", nested);
+
+    // assert
+    expect(runs).toEqual([
+      {
+        kind: "commit",
+        text: "panels: zoom over the whole window",
+        commit: "long",
+      },
+    ]);
   });
 });
 // ~/~ end

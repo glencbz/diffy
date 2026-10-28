@@ -7,7 +7,11 @@ import type {
   LocalReviewOrder,
   LocalVersion,
 } from "../model/review";
-import { FORGOTTEN_REVIEW_ORDERS, LOCAL_REVIEW_ORDERS } from "../model/review";
+import {
+  FORGOTTEN_REVIEW_ORDERS,
+  LOCAL_REVIEW_ORDERS,
+  reviewSubject,
+} from "../model/review";
 
 const ORDER_LABELS: Record<LocalReviewOrder, string> = {
   "modified-newest": "Modified, newest first",
@@ -102,10 +106,16 @@ export function LocalReviewList({
                   <span className="pull-list__number">
                     v{review.versions.length}
                   </span>
-                  <span className="pull-list__title">{review.name}</span>
+                  <span className="pull-list__title">
+                    {reviewSubject(review)}
+                  </span>
                 </span>
                 {newest !== undefined && (
-                  <span className="pull-list__base">{newest.revset}</span>
+                  <span className="pull-list__base">
+                    {newest.description === undefined
+                      ? newest.revset
+                      : review.name}
+                  </span>
                 )}
               </button>
               {variant.kind === "writable" && (

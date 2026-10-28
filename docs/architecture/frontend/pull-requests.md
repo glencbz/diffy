@@ -736,6 +736,7 @@ import { ranRules } from "../model/ranLines";
 import {
   type ComparisonReview,
   keptPairing,
+  type NamedCommit,
   type ReviewDocument,
   type RowComment,
   reviewComparison,
@@ -967,6 +968,15 @@ export interface SeriesScreen {
   ) => { reviewKey: string; keeps: string | null };
   /** Where the single lane of a base comparison reads one version from. */
   lane: (id: string) => Source;
+  /** What the series says about itself, drawn ahead of the commits, given
+   *  the version read, the older version it is read against, and the
+   *  commits it can send the reader to. */
+  cover?: (
+    to: string,
+    from: string | null,
+    commits: NamedCommit[],
+    onPick: (commitId: string) => void,
+  ) => ReactNode;
 }
 
 export function SeriesReview({
@@ -1278,6 +1288,15 @@ export function SeriesReview({
         from.kind === "version" ? versionName(versions, from.id) : "the base"
       }
       layer={layer}
+      cover={screen.cover?.(
+        to,
+        from.kind === "version" ? from.id : null,
+        rows.map((row) => ({
+          id: row.commit.commitId,
+          subject: row.commit.description.split("\n")[0] ?? "",
+        })),
+        pick,
+      )}
     />
   );
 
