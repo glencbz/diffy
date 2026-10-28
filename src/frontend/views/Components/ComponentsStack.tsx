@@ -59,6 +59,7 @@ import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
 import { Heading, type HeadingParts, type Switch } from "./Heading";
 import { Peek, type Peeked } from "./Peek";
+import { Pinned } from "./Pinned";
 import { Rail, type RailEntry } from "./Rail";
 import { Trail } from "./Trail";
 
@@ -1256,7 +1257,22 @@ export function ComponentsStack(props: ComponentsStackProps) {
             return folded;
           };
           return {
-            header: null,
+            header: (
+              <Pinned
+                draw={(key, side) => {
+                  const drawn = places.find(
+                    (each) => placeKey(each.ref) === key && each.path === path,
+                  );
+                  return drawn === undefined ? null : (
+                    <Heading
+                      {...live.current.headingParts(row, file, drawn, side)}
+                      pinned
+                    />
+                  );
+                }}
+                lineClass={(id) => `components-of--${ident(id)}`}
+              />
+            ),
             lineClass: (line) => {
               // A line that uses a component is marked with it, so an open
               // list of its uses can light them with one rule.

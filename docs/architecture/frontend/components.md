@@ -1221,6 +1221,7 @@ import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
 import { Heading, type HeadingParts, type Switch } from "./Heading";
 import { Peek, type Peeked } from "./Peek";
+import { Pinned } from "./Pinned";
 import { Rail, type RailEntry } from "./Rail";
 import { Trail } from "./Trail";
 
@@ -2418,7 +2419,22 @@ export function ComponentsStack(props: ComponentsStackProps) {
             return folded;
           };
           return {
-            header: null,
+            header: (
+              <Pinned
+                draw={(key, side) => {
+                  const drawn = places.find(
+                    (each) => placeKey(each.ref) === key && each.path === path,
+                  );
+                  return drawn === undefined ? null : (
+                    <Heading
+                      {...live.current.headingParts(row, file, drawn, side)}
+                      pinned
+                    />
+                  );
+                }}
+                lineClass={(id) => `components-of--${ident(id)}`}
+              />
+            ),
             lineClass: (line) => {
               // A line that uses a component is marked with it, so an open
               // list of its uses can light them with one rule.
@@ -2924,7 +2940,8 @@ export function Heading({
   fold,
   seen,
   onLeave,
-}: HeadingParts) {
+  pinned = false,
+}: HeadingParts & { pinned?: boolean }) {
   const { component, place } = at;
   const heading = (event: MouseEvent<HTMLElement>) =>
     event.currentTarget.closest<HTMLElement>("[data-components-key]");
@@ -2944,7 +2961,11 @@ export function Heading({
   return (
     <div
       className={`components-heading components-kind--${component.kind}${component.role === "wires" ? " components-heading--minor" : ""}${fold.folded ? " components-heading--folded" : ""}`}
-      data-components-key={`${component.commitId}:${component.id}/${place}`}
+      // A pinned copy is no place of its own: the page finds, numbers and
+      // steps between headings by this key.
+      data-components-key={
+        pinned ? undefined : `${component.commitId}:${component.id}/${place}`
+      }
       data-components-commit={component.commitId}
       data-components-id={component.id}
       data-path={path}
@@ -3067,6 +3088,210 @@ export function Heading({
       </span>
     </div>
   );
+}
+```
+
+### Pinned heading
+
+A file's header sticks while its lines scroll under it, but a heading
+cannot: it sits among the lines, and the patch scrolls sideways, which
+makes the patch the heading's scroll container in the top-to-bottom
+direction too. So the header carries a copy of the heading of the run
+under it, reached through the [decor](diff.md)'s header slot. Wrapping
+lines instead of scrolling them would let the heading stick on its own,
+but long lines are easier to read whole.
+
+The copy follows the scroll by reading the page, not by drawing the diff
+again: the last heading above the header's lower edge, while that run
+still has a line below the edge. Its place count is copied from the
+heading it stands for, because the page numbers headings after drawing
+them.
+
+```tsx
+//| id: frontend-view-components-pinned
+//| file: src/frontend/views/Components/Pinned.tsx
+import {
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
+type Side = "before" | "after";
+interface Under {
+  heading: HTMLElement;
+  key: string;
+  side: Side;
+}
+
+/** The heading of the run under a file's header, drawn again in the
+ *  header so it stays in reach while the run scrolls under it. */
+export function Pinned({
+  draw,
+  lineClass,
+}: {
+  draw: (key: string, side: Side) => ReactNode;
+  /** The class a line of the component takes. */
+  lineClass: (id: string) => string;
+}) {
+  const slot = useRef<HTMLDivElement>(null);
+  const [under, setUnder] = useState<Under | null>(null);
+  const shown = under === null ? null : draw(under.key, under.side);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: lineClass is the same rule on every drawing
+  useEffect(() => {
+    const own = slot.current;
+    const file = own?.closest<HTMLElement>(".diff-file");
+    const header = file?.querySelector<HTMLElement>(":scope > header");
+    if (!own || !file || !header) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      // Empty, the slot is not laid out; drawn, it starts where the
+      // header's own row ends, so showing it never moves the edge.
+      const edge = own.hasChildNodes()
+        ? own.getBoundingClientRect().top
+        : header.getBoundingClientRect().bottom;
+      const next = runUnder(file, edge, lineClass);
+      setUnder((was) =>
+        was?.heading === next?.heading && was?.side === next?.side ? was : next,
+      );
+    };
+    const schedule = () => {
+      if (frame === 0) frame = requestAnimationFrame(update);
+    };
+    // Captured, so the scroll of whichever pane holds the diff reaches it.
+    document.addEventListener("scroll", schedule, {
+      capture: true,
+      passive: true,
+    });
+    const resized = new ResizeObserver(schedule);
+    resized.observe(file);
+    update();
+    return () => {
+      document.removeEventListener("scroll", schedule, { capture: true });
+      resized.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const copy = slot.current?.firstElementChild;
+    if (!under || !copy) return;
+    copy.toggleAttribute(
+      "data-components-again",
+      under.heading.hasAttribute("data-components-again"),
+    );
+    const count = copy.querySelector(".components-heading__count");
+    if (count) {
+      count.textContent =
+        under.heading.querySelector(".components-heading__count")
+          ?.textContent ?? "";
+    }
+    copy
+      .querySelector(".components-heading__places")
+      ?.toggleAttribute(
+        "hidden",
+        under.heading
+          .querySelector(".components-heading__places")
+          ?.hasAttribute("hidden") ?? true,
+      );
+  });
+
+  // Seen folds a run, as the chevron does, and folding it from the copy
+  // would pull whatever follows up past the reader. The heading takes the
+  // copy's place instead, so the next run starts under it.
+  const settle = (event: MouseEvent) => {
+    const target = event.target as Element;
+    if (
+      !under ||
+      !target.closest(".components-heading__seen, .components-heading__fold")
+    ) {
+      return;
+    }
+    const { heading } = under;
+    const file = heading.closest<HTMLElement>(".diff-file");
+    const header = file?.querySelector(":scope > header");
+    let pane = file?.parentElement ?? null;
+    while (pane && !/auto|scroll/.test(getComputedStyle(pane).overflowY)) {
+      pane = pane.parentElement;
+    }
+    if (!file || !header) return;
+    // The fold lands when the review answers, so wait for the file to
+    // shrink rather than for a frame. Observing reports the size it has
+    // now first; the fold is the change after.
+    let sized = false;
+    const folded = new ResizeObserver(() => {
+      if (!sized) {
+        sized = true;
+        return;
+      }
+      folded.disconnect();
+      (pane ?? document.scrollingElement)?.scrollBy(
+        0,
+        heading.getBoundingClientRect().top -
+          header.getBoundingClientRect().bottom,
+      );
+    });
+    folded.observe(file);
+    setTimeout(() => folded.disconnect(), 1000);
+  };
+
+  return (
+    <div className="components-pinned" ref={slot} onClickCapture={settle}>
+      {shown}
+    </div>
+  );
+}
+
+/** The heading whose run crosses `edge`, if one does. */
+function runUnder(
+  file: HTMLElement,
+  edge: number,
+  lineClass: (id: string) => string,
+): Under | null {
+  const box = file.getBoundingClientRect();
+  const patch = file.querySelector(".diff-file__patch");
+  if (patch === null || box.top >= edge || box.bottom <= edge) return null;
+  let heading: HTMLElement | null = null;
+  for (const each of patch.querySelectorAll<HTMLElement>(
+    "[data-components-key]",
+  )) {
+    if (each.getBoundingClientRect().top >= edge) break;
+    heading = each;
+  }
+  const key = heading?.dataset.componentsKey;
+  const id = heading?.dataset.componentsId;
+  if (!heading || key === undefined || id === undefined) return null;
+  // The run is the component's lines up to the next heading of any run.
+  const own = lineClass(id);
+  let row: Element = heading;
+  while (row.parentElement !== patch && row.parentElement !== null) {
+    row = row.parentElement;
+  }
+  let last: Element | null = null;
+  for (
+    let each = row.nextElementSibling;
+    each;
+    each = each.nextElementSibling
+  ) {
+    if (
+      each.matches("[data-components-key]") ||
+      each.querySelector("[data-components-key]")
+    ) {
+      break;
+    }
+    if (each.classList.contains(own) || each.querySelector(`.${own}`)) {
+      last = each;
+    }
+  }
+  if (last === null || last.getBoundingClientRect().bottom <= edge) {
+    return null;
+  }
+  const side = heading.closest(".diff-line--before") ? "before" : "after";
+  return { heading, key, side };
 }
 ```
 
@@ -4379,6 +4604,20 @@ export function ComponentsSwitch({
     font-family: var(--font-mono);
     font-size: var(--text-size-small);
     white-space: nowrap;
+  }
+  /* The pinned heading takes a row of the file's header to itself, last
+   * and edge to edge, so it reads as the heading it stands for. */
+  .components-pinned {
+    order: 1;
+    flex: 0 0 calc(100% + 2 * var(--space-4));
+    margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-2));
+    font-weight: normal;
+  }
+  .components-pinned:empty {
+    display: none;
+  }
+  .components-pinned .components-heading {
+    position: static;
   }
   /* A column of a side-by-side diff is narrow; its controls wrap rather
    * than widen it. */

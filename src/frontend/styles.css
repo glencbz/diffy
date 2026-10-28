@@ -3863,6 +3863,20 @@
     font-size: var(--text-size-small);
     white-space: nowrap;
   }
+  /* The pinned heading takes a row of the file's header to itself, last
+   * and edge to edge, so it reads as the heading it stands for. */
+  .components-pinned {
+    order: 1;
+    flex: 0 0 calc(100% + 2 * var(--space-4));
+    margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-2));
+    font-weight: normal;
+  }
+  .components-pinned:empty {
+    display: none;
+  }
+  .components-pinned .components-heading {
+    position: static;
+  }
   /* A column of a side-by-side diff is narrow; its controls wrap rather
    * than widen it. */
   :where(.diff-file__patch--split) .components-heading,
