@@ -281,6 +281,7 @@ export function SeriesReview({
   const place = opening(asked, reviewed, versions);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const [picks, setPicks] = useState(0);
   const panels = usePanelLayouts();
   const focus = useFocus();
@@ -540,6 +541,8 @@ export function SeriesReview({
       onToggle={(key) => setOpen((now) => toggled(now, key))}
       expanded={expanded}
       onExpand={(key) => setExpanded((now) => toggled(now, key))}
+      folded={folded}
+      onFold={(key) => setFolded((now) => toggled(now, key))}
       current={currentKey}
       onInView={(key) => {
         const row = rows.find((candidate) => candidate.key === key);
@@ -876,9 +879,12 @@ export function SeriesReview({
               onPeekFiles={peekAt}
               current={currentKey}
               open={open}
-              onOpenRow={(key) =>
-                setOpen((now) => (now.has(key) ? now : toggled(now, key)))
-              }
+              onOpenRow={(key) => {
+                setOpen((now) => (now.has(key) ? now : toggled(now, key)));
+                // Going to a component unfolds its commit, or it would
+                // land on a spine.
+                setFolded((now) => (now.has(key) ? toggled(now, key) : now));
+              }}
               onExpandMessage={(key) =>
                 setExpanded((now) => (now.has(key) ? now : toggled(now, key)))
               }

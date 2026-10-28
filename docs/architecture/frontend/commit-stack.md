@@ -49,6 +49,12 @@ and takes comments and viewed marks like a comparison does, reading
 [interdiff rows](diff.md#interdiff-rows), `partsOf` is the one place a row
 checks for the document.
 
+Any row folds to its spine from a control at the spine's start, so a
+reader can put away the commits they have read. A dropped or unchanged row
+answers the same control by opening, since it starts out shut. Folds live in
+the screen that holds the stack, beside its open rows; going to a component
+in a folded commit unfolds it, rather than landing on a bare spine.
+
 The current row carries no highlight: its spine, stuck to the top of the
 pane, already says which commit is on screen, and a tint over a whole commit
 reads as an alarm about it.
@@ -115,6 +121,9 @@ export interface CommitStackProps {
   /** Rows whose whole message is showing. */
   expanded: ReadonlySet<string>;
   onExpand: (key: string) => void;
+  /** Rows the reader folded down to their spine. */
+  folded: ReadonlySet<string>;
+  onFold: (key: string) => void;
   /** The row the graph pane last picked, or the reader last scrolled to. */
   current: string | null;
   /** The reader has scrolled a row other than `current` to the top. */
@@ -177,6 +186,8 @@ export function CommitStack({
   onToggle,
   expanded,
   onExpand,
+  folded,
+  onFold,
   current,
   onInView,
   reveal,
@@ -249,6 +260,8 @@ export function CommitStack({
           onToggle={() => onToggle(row.key)}
           isExpanded={expanded.has(row.key)}
           onExpand={() => onExpand(row.key)}
+          isFolded={folded.has(row.key)}
+          onFold={() => onFold(row.key)}
           isCurrent={current === row.key}
           reveal={reveal}
           onRevealed={onRevealed}
@@ -272,6 +285,8 @@ function StackSection({
   onToggle,
   isExpanded,
   onExpand,
+  isFolded,
+  onFold,
   isCurrent,
   reveal,
   onRevealed,
@@ -289,6 +304,8 @@ function StackSection({
   onToggle: () => void;
   isExpanded: boolean;
   onExpand: () => void;
+  isFolded: boolean;
+  onFold: () => void;
   isCurrent: boolean;
   reveal: number;
   onRevealed: () => void;
@@ -334,8 +351,14 @@ function StackSection({
       className="commit-stack__row"
       data-commit={row.commit.commitId}
     >
-      <StackSpine row={row} since={since} />
-      {isQuiet(row.kind) && !isOpen ? (
+      <StackSpine
+        row={row}
+        since={since}
+        isShut={isFolded || (isQuiet(row.kind) && !isOpen)}
+        // A quiet row is shut until opened; folding is for the rest.
+        onShut={isQuiet(row.kind) && !isOpen && !isFolded ? onToggle : onFold}
+      />
+      {isFolded ? null : isQuiet(row.kind) && !isOpen ? (
         <QuietLine kind={row.kind} onOpen={onToggle} />
       ) : (
         <>
@@ -430,12 +453,32 @@ function partsOf(
   };
 }
 
-function StackSpine({ row, since }: { row: StackRow; since: string }) {
+function StackSpine({
+  row,
+  since,
+  isShut,
+  onShut,
+}: {
+  row: StackRow;
+  since: string;
+  /** Only the spine shows. */
+  isShut: boolean;
+  onShut: () => void;
+}) {
   const shortId = row.commit.commitId.slice(0, 8);
   const subject = row.commit.description.split("\n")[0] ?? "";
 
   return (
     <header className="commit-stack__spine">
+      <button
+        type="button"
+        className="commit-stack__shut"
+        aria-expanded={!isShut}
+        aria-label={isShut ? "unfold this commit" : "fold this commit"}
+        onClick={onShut}
+      >
+        {isShut ? "▸" : "▾"}
+      </button>
       <span className="commit-stack__id">{shortId}</span>
       <span
         className={
@@ -626,6 +669,21 @@ muted alone would read as "unchanged".
     padding: var(--space-3) var(--space-5);
     background: var(--surface-raised);
     border-bottom: 1px solid var(--border);
+  }
+
+  .commit-stack__shut {
+    align-self: center;
+    width: 1.5em;
+    padding: 0;
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .commit-stack__shut:hover {
+    color: var(--accent);
   }
 
   .commit-stack__id {
