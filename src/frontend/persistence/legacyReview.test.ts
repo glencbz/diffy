@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-persistence-legacy-review-test>>[init]
 import { beforeEach, describe, expect, test } from "bun:test";
-import { EMPTY_REVIEW } from "../model/review";
+import { EMPTY_REVIEW } from "../../model/review";
 import { clearLegacyReview, legacyReview } from "./legacyReview";
 import { memoryStorage } from "./memoryStorage";
 

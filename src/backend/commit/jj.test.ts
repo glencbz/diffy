@@ -1,12 +1,13 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module-test>>[init]
+
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import { COMMIT_MARKERS } from "../../model/history";
 import { FIXED, type ScratchRepo, scratchRepo } from "../../testing/history";
 import {
-  COMMIT_MARKERS,
   JjError,
   jjCommits,
   jjDiff,

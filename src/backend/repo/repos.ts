@@ -1,8 +1,17 @@
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[init]
+
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
+import {
+  type FoundRepo,
+  type Probe,
+  RecentEntry,
+  type RepoSummary,
+  type ServedRepo,
+} from "../../model/repo";
+import { READS } from "../../model/routes";
 import type { Host } from "../host/host";
 import {
   openReviewStore,
@@ -45,12 +54,6 @@ export class DefaultRepo {
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[1]
-
-/** What a path turned out to be, by the root of the repository holding it. */
-export type Probe =
-  | { kind: "jj"; root: string }
-  | { kind: "git"; root: string }
-  | { kind: "none" };
 
 export function expandHome(path: string, home: string): string {
   if (path === "~") return home;
@@ -113,12 +116,6 @@ export async function startingRepo(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[3]
 
-export const RecentEntry = z.object({
-  root: z.string(),
-  openedAt: z.string(),
-});
-export type RecentEntry = z.infer<typeof RecentEntry>;
-
 const RECENT_LIMIT = 20;
 
 export function withOpened(
@@ -179,14 +176,6 @@ export class RecentRepos {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[4]
 
-export interface RepoSummary {
-  root: string;
-  /** The first line of the working copy's description, empty if it has none. */
-  workingCopy: string;
-  reviews: number;
-  openedAt: string | null;
-}
-
 export async function summarize(
   root: string,
   openedAt: string | null,
@@ -222,11 +211,6 @@ async function countReviews(root: string, dataDir: string): Promise<number> {
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[5]
-
-export interface FoundRepo {
-  root: string;
-  kind: "jj" | "git";
-}
 
 const SKIPPED = new Set(["node_modules", "vendor", "target", "dist", "build"]);
 
@@ -343,14 +327,15 @@ export function repoRoutes(
 ) {
   const foundUnderHome = cachedFind(host);
   return {
-    "/api/repo": {
-      GET: () =>
-        Response.json({
-          // How the per-user server's probe tells diffy from another program.
-          diffy: 1,
+    [READS.repo.path]: {
+      GET: () => {
+        const served: ServedRepo = {
           home: host.home,
           current: defaultRepo.root,
-        }),
+        };
+        // How the per-user server's probe tells diffy from another program.
+        return Response.json({ diffy: 1, ...served });
+      },
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
         if (!body.success) return refuse("expected { path }");
@@ -362,13 +347,13 @@ export function repoRoutes(
         return Response.json({ root: found.root });
       },
     },
-    "/api/repo/probe": async (req: Request) => {
+    [READS.repoProbe.path]: async (req: Request) => {
       const path = new URL(req.url).searchParams.get("path") ?? "";
-      return Response.json(
-        path === "" ? { kind: "none" } : await probeRepo(path, host.home),
-      );
+      const probe: Probe =
+        path === "" ? { kind: "none" } : await probeRepo(path, host.home);
+      return Response.json(probe);
     },
-    "/api/repo/recent": {
+    [READS.recentRepos.path]: {
       GET: async () =>
         Response.json(await recentSummaries(recent, host.dataDir)),
       DELETE: async (req: Request) => {
@@ -383,11 +368,12 @@ export function repoRoutes(
         return Response.json({ restored: body.data });
       },
     },
-    "/api/repo/found": async () => {
+    [READS.foundRepos.path]: async () => {
       const known = new Set((await recent.read()).map((entry) => entry.root));
-      return Response.json(
-        (await foundUnderHome()).filter((repo) => !known.has(repo.root)),
+      const found: FoundRepo[] = (await foundUnderHome()).filter(
+        (repo) => !known.has(repo.root),
       );
+      return Response.json(found);
     },
   };
 }

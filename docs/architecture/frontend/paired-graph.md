@@ -23,7 +23,7 @@ native drag is unreachable or fights the scroll.
 //| id: frontend-view-paired-graph
 //| file: src/frontend/views/PairedGraph.tsx
 import { Fragment, type RefObject, useRef, useState } from "react";
-import type { GitCommit } from "../model/history";
+import type { GitCommit } from "../../model/history";
 import type { Pairing, Side, Slot } from "../model/pairing";
 
 export type RowKind = "added" | "dropped" | "paired";

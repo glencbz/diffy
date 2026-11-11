@@ -26,7 +26,7 @@ losing its captures, and the other way round.
 
 ```ts
 //| id: frontend-model-evidence
-//| file: src/frontend/model/evidence.ts
+//| file: src/model/evidence.ts
 import * as z from "zod";
 
 /** A file the evidence store holds: its content's hash and extension. */
@@ -121,7 +121,7 @@ by asking for the part it needs, and `Bun.file` sends whole files.
 //| file: src/backend/evidence/store.ts
 import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { BlobName } from "../../frontend/model/evidence";
+import { BlobName } from "../../model/evidence";
 
 /** The largest file a capture may be. A minute of screen video at the
  *  sizes a review shows is a few megabytes. */
@@ -228,13 +228,13 @@ not the size measured in.
 //| id: backend-agent-evidence
 //| file: src/backend/agent/evidence.ts
 import * as z from "zod";
-import { componentsTo } from "../../frontend/model/components";
+import { componentsTo } from "../../model/components";
 import {
   type Box,
   type Capture,
   capturesOf,
   type Shown,
-} from "../../frontend/model/evidence";
+} from "../../model/evidence";
 import type { EvidenceStore } from "../evidence/store";
 import type { RepoContext } from "../repo/repos";
 import { type Tool, type ToolContext, ToolError, tool } from "./mcp";
@@ -597,7 +597,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capturesOf } from "../../frontend/model/evidence";
+import { capturesOf } from "../../model/evidence";
 import { EvidenceStore } from "../evidence/store";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { evidenceTools } from "./evidence";

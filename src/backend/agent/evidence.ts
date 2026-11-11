@@ -1,12 +1,12 @@
 // ~/~ begin <<docs/architecture/backend/evidence.md#backend-agent-evidence>>[init]
 import * as z from "zod";
-import { componentsTo } from "../../frontend/model/components";
+import { componentsTo } from "../../model/components";
 import {
   type Box,
   type Capture,
   capturesOf,
   type Shown,
-} from "../../frontend/model/evidence";
+} from "../../model/evidence";
 import type { EvidenceStore } from "../evidence/store";
 import type { RepoContext } from "../repo/repos";
 import { type Tool, type ToolContext, ToolError, tool } from "./mcp";

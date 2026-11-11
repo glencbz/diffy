@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/runs.md#backend-evidence-play-run-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { lineRuns } from "../../frontend/model/runs";
+import { lineRuns } from "../../model/runs";
 import { labelOf, linesRun } from "./playRun";
 
 describe("the lines a step ran", () => {

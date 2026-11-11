@@ -4,7 +4,7 @@ import {
   evidenceLabel,
   type ReviewActions,
   type RowComment,
-} from "../model/review";
+} from "../../model/review";
 import {
   byVersion,
   type SeriesThread,

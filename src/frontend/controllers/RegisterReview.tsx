@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-controller-register-review>>[init]
 import { useEffect, useRef, useState } from "react";
-import { localReview } from "../model/review";
+import { localReview } from "../../model/review";
 import { reviewNameFor, revsetFor } from "../model/revset";
 import { useCommits } from "../state/commits";
 import { useRegister, useRevsetMatch, useTrunk } from "../state/registration";

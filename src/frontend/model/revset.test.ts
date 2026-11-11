@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-model-revset-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { CommitRef, LogEntry } from "./history";
+import type { CommitRef, LogEntry } from "../../model/history";
 import { reviewNameFor, revsetFor } from "./revset";
 
 function commit(

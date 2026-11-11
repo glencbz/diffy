@@ -34,20 +34,15 @@ a merge has no single parent.
 ```ts
 //| id: backend-local-reviews
 //| file: src/backend/review/local.ts
+
+import type { ServedFileDiff } from "../../model/diff";
+import { type GitCommit, GitOid } from "../../model/history";
 import {
   type LocalVersion,
   localReview,
   type ReviewDocument,
-} from "../../frontend/model/review";
-import { type GitCommit, GitOid } from "../commit/git";
-import {
-  type JjFileDiff,
-  jjCommits,
-  jjDiff,
-  jjInterdiff,
-  jjLog,
-  jjOpLog,
-} from "../commit/jj";
+} from "../../model/review";
+import { jjCommits, jjDiff, jjInterdiff, jjLog, jjOpLog } from "../commit/jj";
 
 /** What a caller asked to register. Anything left out takes its default. */
 export interface Registration {
@@ -161,7 +156,7 @@ export function localDiff(
   root: string,
   from: string | null,
   to: string | null,
-): Promise<JjFileDiff[]> {
+): Promise<ServedFileDiff[]> {
   if (from !== null && to !== null) return jjInterdiff(root, { from, to });
   const lone = from ?? to;
   return lone === null ? Promise.resolve([]) : jjDiff(root, { revision: lone });
@@ -170,7 +165,10 @@ export function localDiff(
 /** A whole version against what it was built on: one diff from the parents
  *  of its roots to its heads. jj refuses a set with a gap in it, and the
  *  screen shows that error in place of a size. */
-export function localSize(root: string, ids: string[]): Promise<JjFileDiff[]> {
+export function localSize(
+  root: string,
+  ids: string[],
+): Promise<ServedFileDiff[]> {
   return jjDiff(root, { revision: ids.join("|") });
 }
 ```
@@ -184,7 +182,7 @@ trunk, since trunk itself is an empty merge whenever a branch lands as a merge c
 //| id: backend-local-reviews-test
 //| file: src/backend/review/local.test.ts
 import { describe, expect, test } from "bun:test";
-import { applyCommand, EMPTY_REVIEW } from "../../frontend/model/review";
+import { applyCommand, EMPTY_REVIEW } from "../../model/review";
 import { FIXED } from "../../testing/history";
 import {
   localCommits,

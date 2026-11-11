@@ -1,16 +1,18 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-view-components-peek>>[init]
+
 import type { ReactNode } from "react";
-import type { AsyncState } from "../../model/asyncState";
+import type { AsyncState } from "../../../model/asyncState";
 import {
   type Component,
   placeAt,
   type Reference,
   type RowTrees,
-} from "../../model/components";
-import type { FileDiff } from "../../model/diff";
-import { type HunkLine, readPatch } from "../../model/patch";
-import type { Comment } from "../../model/review";
-import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
+} from "../../../model/components";
+import type { FileDiff } from "../../../model/diff";
+import { type HunkLine, readPatch } from "../../../model/patch";
+import type { Comment } from "../../../model/review";
+import type { SourceFile, SyntaxToken } from "../../../model/source";
+import type { SourceLookup } from "../../model/source";
 import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
 /** What a peek shows: a component's lines in some diff, its threads, or

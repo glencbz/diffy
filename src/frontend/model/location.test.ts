@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/panels.md#frontend-model-location-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { Component, ComponentPlace } from "./components";
+import type { Component, ComponentPlace } from "../../model/components";
 import { codeAt, componentsAt, type Location, sameLocation } from "./location";
 
 function component(

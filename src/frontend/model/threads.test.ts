@@ -1,9 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/threads.md#frontend-model-threads-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "./diff";
-import { type GitCommit, GitOid } from "./history";
+import type { FileDiff } from "../../model/diff";
+import { type GitCommit, GitOid } from "../../model/history";
+import type { Comment, RowComment } from "../../model/review";
 import type { SeriesPlace } from "./place";
-import type { Comment, RowComment } from "./review";
 import {
   byVersion,
   type Drawn,

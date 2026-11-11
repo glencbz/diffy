@@ -12,9 +12,9 @@ commit so one file in two rows gets two ids.
 ```ts
 //| id: frontend-model-changed-files
 //| file: src/frontend/model/changedFiles.ts
-import type { FileDiff } from "./diff";
-import { readPatch } from "./patch";
-import { type FileVersion, onFile, type RowComment } from "./review";
+import type { FileDiff } from "../../model/diff";
+import { readPatch } from "../../model/patch";
+import { type FileVersion, onFile, type RowComment } from "../../model/review";
 
 /** One changed file, read once from whichever `FileDiff` shape it came
  *  from, for every reader that only wants to know what changed. */
@@ -194,6 +194,8 @@ function fold(node: MutableNode): TreeNode {
 //| id: frontend-model-changed-files-test
 //| file: src/frontend/model/changedFiles.test.ts
 import { describe, expect, test } from "bun:test";
+import type { FileDiff } from "../../model/diff";
+import type { RowComment } from "../../model/review";
 import {
   type ChangedFile,
   changedFile,
@@ -202,8 +204,6 @@ import {
   fileTree,
   shownPathOf,
 } from "./changedFiles";
-import type { FileDiff } from "./diff";
-import type { RowComment } from "./review";
 
 const PATCH = ["@@ -1,2 +1,3 @@", " keep", "-old", "+new", "+another"].join(
   "\n",
@@ -425,8 +425,8 @@ sees everything a diff touched before folding anything.
 //| id: frontend-view-file-tree
 //| file: src/frontend/views/FileTree.tsx
 import { type CSSProperties, useState } from "react";
+import type { FileDiff } from "../../model/diff";
 import type { ChangedFile, TreeNode } from "../model/changedFiles";
-import type { FileDiff } from "../model/diff";
 
 const STATUS_LETTER: Record<FileDiff["status"], string> = {
   added: "A",

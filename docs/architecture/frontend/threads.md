@@ -41,11 +41,17 @@ could only show the thread as stale, at a line its commit may no longer have.
 ```ts
 //| id: frontend-model-threads
 //| file: src/frontend/model/threads.ts
+
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
+import {
+  type Comment,
+  drawnAt,
+  onFile,
+  type RowComment,
+} from "../../model/review";
 import { shownPathOf } from "./changedFiles";
-import type { FileDiff } from "./diff";
-import type { GitCommit } from "./history";
 import type { FileSpot, SeriesPlace } from "./place";
-import { type Comment, drawnAt, onFile, type RowComment } from "./review";
 import type { SeriesVersion } from "./series";
 
 /** One version of a series and its commits, oldest first. */
@@ -230,7 +236,7 @@ import {
   evidenceLabel,
   type ReviewActions,
   type RowComment,
-} from "../model/review";
+} from "../../model/review";
 import {
   byVersion,
   type SeriesThread,
@@ -586,10 +592,10 @@ function asDrawn(thread: SeriesThread): RowComment {
 //| id: frontend-model-threads-test
 //| file: src/frontend/model/threads.test.ts
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "./diff";
-import { type GitCommit, GitOid } from "./history";
+import type { FileDiff } from "../../model/diff";
+import { type GitCommit, GitOid } from "../../model/history";
+import type { Comment, RowComment } from "../../model/review";
 import type { SeriesPlace } from "./place";
-import type { Comment, RowComment } from "./review";
 import {
   byVersion,
   type Drawn,

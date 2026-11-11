@@ -1,8 +1,7 @@
 # Local git object store
 
 File content comes from the local git object store via the `git` CLI: a
-blob's contents and the files of a commit's tree. `GitCommit` is the shape in
-which [local reviews](local-reviews.md) hand commits to the browser.
+blob's contents and the files of a commit's tree.
 
 Every function takes the workspace root to run git in, as the
 [jj backend](jj.md) does.
@@ -11,28 +10,7 @@ Every function takes the workspace root to run git in, as the
 //| id: git-module
 //| file: src/backend/commit/git.ts
 import { $ } from "bun";
-import * as z from "zod";
-
-/** A full 40-hex git object id. Abbreviations are refused. */
-export const GitOid = z
-  .string()
-  .regex(/^[0-9a-f]{40}$/, "expected a full 40-character git object id")
-  .brand("GitOid");
-export type GitOid = z.infer<typeof GitOid>;
-
-/** One commit as the browser reads it. */
-export interface GitCommit {
-  commitId: GitOid;
-  parents: GitOid[];
-  /** Full commit message, subject and body, matching JjLogEntry.description. */
-  description: string;
-  author: string;
-  /** ISO 8601 author date. */
-  authoredAt: string;
-  /** What lines this commit up against another across a rewrite: its jj
-   *  change id, or null when it has none. */
-  changeId: string | null;
-}
+import type { BlobId } from "../../model/history";
 ```
 
 ### Reading a file's contents
@@ -44,13 +22,6 @@ abbreviated ids that line prints; an unknown or ambiguous id answers null.
 
 ```ts
 //| id: git-module
-
-/** A git blob id, whole or abbreviated the way a patch's `index` line prints it. */
-export const BlobId = z
-  .string()
-  .regex(/^[0-9a-f]{4,64}$/, "expected a hex git blob id")
-  .brand("BlobId");
-export type BlobId = z.infer<typeof BlobId>;
 
 /** A blob's contents as text, or null when the store has no one blob by that id. */
 export async function gitBlob(
@@ -70,10 +41,12 @@ of this repository.
 ```ts
 //| id: git-module-test
 //| file: src/backend/commit/git.test.ts
+
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
+import { BlobId, GitOid } from "../../model/history";
 import { FIXED } from "../../testing/history";
-import { BlobId, GitOid, gitBlob, gitFiles } from "./git";
+import { gitBlob, gitFiles } from "./git";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();

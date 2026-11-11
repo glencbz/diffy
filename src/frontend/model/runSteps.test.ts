@@ -1,7 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-run-steps-test>>[init]
 import { describe, expect, test } from "bun:test";
+import type { Anchor, RowComment } from "../../model/review";
+import type { Request } from "../../model/runs";
 import { ranRules } from "./ranLines";
-import type { Anchor, RowComment } from "./review";
 import {
   compareLogged,
   compareRequests,
@@ -9,7 +10,6 @@ import {
   partAnchor,
   partNotes,
 } from "./runSteps";
-import type { Request } from "./runs";
 
 const get = (
   url: string,

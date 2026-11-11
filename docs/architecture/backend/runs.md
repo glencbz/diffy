@@ -22,7 +22,7 @@ without measuring anything again.
 
 ```ts
 //| id: frontend-model-runs
-//| file: src/frontend/model/runs.ts
+//| file: src/model/runs.ts
 import * as z from "zod";
 import { BlobName } from "./evidence";
 
@@ -146,7 +146,7 @@ import {
   lineRuns,
   type Ran,
   type Request,
-} from "../../frontend/model/runs";
+} from "../../model/runs";
 import type { Step } from "./recipe";
 import {
   mappedLinesRun,
@@ -694,7 +694,7 @@ import {
   type Run,
   type RunSide,
   type RunStep,
-} from "../../frontend/model/runs";
+} from "../../model/runs";
 import type { PlayedStep } from "../evidence/playRun";
 import { Recipe, Step } from "../evidence/recipe";
 import type { Recorder } from "../evidence/recorder";
@@ -903,7 +903,7 @@ plays nothing, as [recording](recording.md#tests) is.
 //| id: backend-evidence-play-run-test
 //| file: src/backend/evidence/playRun.test.ts
 import { describe, expect, test } from "bun:test";
-import { lineRuns } from "../../frontend/model/runs";
+import { lineRuns } from "../../model/runs";
 import { labelOf, linesRun } from "./playRun";
 
 describe("the lines a step ran", () => {
@@ -1050,7 +1050,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runsOf } from "../../frontend/model/runs";
+import { runsOf } from "../../model/runs";
 import type { PlayedStep } from "../evidence/playRun";
 import type { Recorder } from "../evidence/recorder";
 import type { Played } from "../evidence/recordRun";

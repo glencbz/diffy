@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/panels.md#frontend-view-panels-split>>[init]
 import { type ReactNode, useRef, useState } from "react";
-import type { Split } from "../../model/panels";
+import type { Split } from "../../../model/panels";
 
 /** What a drag always leaves either side of a divider, in pixels. */
 const LEAST = 80;

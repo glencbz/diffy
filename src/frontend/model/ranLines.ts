@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-ran-lines>>[init]
-import type { Ran } from "./runs";
+import type { Ran } from "../../model/runs";
 
 /** The rules that mark, in the row of `commitId`, the lines a step ran:
  *  the commit's on the side after it, the parent's on the side before. */

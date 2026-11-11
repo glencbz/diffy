@@ -16,8 +16,9 @@ title as a review and hide everything after it.
 ```ts
 //| id: frontend-model-last-reviewed
 //| file: src/frontend/model/lastReviewed.ts
+
+import type { ReviewedVersion } from "../../model/review";
 import type { SeriesPlace } from "./place";
-import type { ReviewedVersion } from "./review";
 import type { SeriesVersion } from "./series";
 
 /** The version the reader last reviewed, out of every version they marked
@@ -69,9 +70,9 @@ export function opening<P extends SeriesPlace>(
 //| id: frontend-model-last-reviewed-test
 //| file: src/frontend/model/lastReviewed.test.ts
 import { describe, expect, test } from "bun:test";
+import type { ReviewedVersion } from "../../model/review";
 import { lastReviewed, opening } from "./lastReviewed";
 import { type LocalPlace, openLocal } from "./place";
-import type { ReviewedVersion } from "./review";
 import type { SeriesVersion } from "./series";
 
 function version(number: number, id: string): SeriesVersion {
@@ -316,9 +317,9 @@ id names the same comparison in every version.
 //| id: frontend-state-row-diffs
 //| file: src/frontend/state/rowDiffs.ts
 import { useEffect, useRef, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
 import { fetchLocalDiff } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
 import type { Slot } from "../model/pairing";
 import { useWorkspace } from "./repo";
 
@@ -457,21 +458,16 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { AsyncState } from "../model/asyncState";
-import { compareAsks, withCompared } from "../model/compared";
+import type { AsyncState } from "../../model/asyncState";
 import {
   componentsTo,
   DEFAULT_KINDS,
   seriesComponents,
-} from "../model/components";
-import type { FileDiff } from "../model/diff";
-import { capturesOf } from "../model/evidence";
-import type { GitCommit, Source } from "../model/history";
-import { lastReviewed, opening } from "../model/lastReviewed";
-import type { Slot } from "../model/pairing";
-import type { PanelId } from "../model/panels";
-import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
-import { ranRules } from "../model/ranLines";
+} from "../../model/components";
+import type { FileDiff } from "../../model/diff";
+import { capturesOf } from "../../model/evidence";
+import type { GitCommit, Source } from "../../model/history";
+import type { PanelId } from "../../model/panels";
 import {
   type ComparisonReview,
   keptPairing,
@@ -481,7 +477,13 @@ import {
   reviewedIn,
   type ThreadReview,
   threadReview,
-} from "../model/review";
+} from "../../model/review";
+import { runsOf } from "../../model/runs";
+import { compareAsks, withCompared } from "../model/compared";
+import { lastReviewed, opening } from "../model/lastReviewed";
+import type { Slot } from "../model/pairing";
+import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
+import { ranRules } from "../model/ranLines";
 import {
   compareLogged,
   compareRequests,
@@ -490,7 +492,6 @@ import {
   stepAsCapture,
   stepsAt,
 } from "../model/runSteps";
-import { runsOf } from "../model/runs";
 import {
   type MarkLabel,
   type SeriesHistory,
@@ -1414,7 +1415,7 @@ say.
 ```tsx
 //| id: frontend-view-series-comparison-picker
 //| file: src/frontend/views/SeriesComparisonPicker.tsx
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   type SeriesBaseline,
   type SeriesHistory,

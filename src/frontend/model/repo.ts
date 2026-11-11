@@ -1,31 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/repos.md#frontend-model-repo>>[init]
-export interface ServedRepo {
-  home: string;
-  /** The workspace this tab reads, or null before the reader picks one. */
-  current: string | null;
-}
+import type { Probe } from "../../model/repo";
 
-export interface RepoSummary {
-  root: string;
-  workingCopy: string;
-  reviews: number;
-  openedAt: string | null;
-}
-
-export interface FoundRepo {
-  root: string;
-  kind: "jj" | "git";
-}
-
-export interface RecentEntry {
-  root: string;
-  openedAt: string;
-}
-
-export type RepoProbe =
-  | { kind: "jj" | "git"; root: string }
-  | { kind: "none" }
-  | { kind: "checking" };
+/** What the path in the picker turned out to be, or that the server is
+ *  still looking. */
+export type RepoProbe = Probe | { kind: "checking" };
 
 export function tildePath(path: string, home: string): string {
   if (path === home) return "~";

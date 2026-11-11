@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/panels.md#frontend-persistence-layouts>>[init]
-import { LayoutsDocument } from "../model/panels";
+import { LayoutsDocument } from "../../model/panels";
 
 export const layoutsStore = {
   async load(): Promise<LayoutsDocument> {

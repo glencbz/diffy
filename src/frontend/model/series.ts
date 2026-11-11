@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/series.md#frontend-model-series>>[init]
-import type { LocalReview } from "./review";
+import type { LocalReview } from "../../model/review";
 
 /** One version of a series, named the way a reader tells versions apart. */
 export interface SeriesVersion {

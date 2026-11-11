@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/pairing.md#frontend-state-pairing>>[init]
 import { useState } from "react";
-import type { SeriesCommit } from "../../backend/commit/series";
+import type { SeriesCommit } from "../../model/alignment";
 import {
   fits,
   heuristicSlots,

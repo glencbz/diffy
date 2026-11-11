@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-view-components-rail>>[init]
 import type { ComponentProps } from "react";
-import type { Component, Fate, FileShare } from "../../model/components";
+import type { Component, Fate, FileShare } from "../../../model/components";
 import { Groups } from "./Groups";
 import { CommentIcon, MessageIcon } from "./icons";
 

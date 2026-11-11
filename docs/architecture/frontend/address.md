@@ -29,7 +29,7 @@ version id, which is a number.
 ```ts
 //| id: frontend-model-place
 //| file: src/frontend/model/place.ts
-import { GitOid } from "./history";
+import { GitOid } from "../../model/history";
 import type { SeriesBaseline } from "./series";
 
 export type Place =
@@ -294,7 +294,7 @@ export function useArrivals(): number {
 //| id: frontend-model-place-test
 //| file: src/frontend/model/place.test.ts
 import { describe, expect, test } from "bun:test";
-import { GitOid } from "./history";
+import { GitOid } from "../../model/history";
 import { type Place, readPlace, readRepo, withRepo, writePlace } from "./place";
 
 function oid(ch: string): GitOid {

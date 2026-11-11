@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place>>[init]
-import { GitOid } from "./history";
+import { GitOid } from "../../model/history";
 import type { SeriesBaseline } from "./series";
 
 export type Place =

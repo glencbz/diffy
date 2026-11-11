@@ -31,9 +31,9 @@ side whatever mode the reader chose.
 ```ts
 //| id: frontend-model-viewer
 //| file: src/frontend/model/viewer.ts
-import type { Box, Capture, Shown } from "./evidence";
-import type { Anchor, RowComment, Side } from "./review";
-import type { Run } from "./runs";
+import type { Box, Capture, Shown } from "../../model/evidence";
+import type { Anchor, RowComment, Side } from "../../model/review";
+import type { Run } from "../../model/runs";
 
 export const VIEW_MODES = ["side", "swipe", "fade", "difference"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
@@ -319,9 +319,9 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Component } from "../../model/components";
-import { type BlobName, blobUrl, type Capture } from "../../model/evidence";
-import type { Side, ThreadReview } from "../../model/review";
+import type { Component } from "../../../model/components";
+import { type BlobName, blobUrl, type Capture } from "../../../model/evidence";
+import type { Side, ThreadReview } from "../../../model/review";
 import {
   anchorOn,
   boxBetween,
@@ -1258,9 +1258,9 @@ function Media({
 //| id: frontend-model-viewer-test
 //| file: src/frontend/model/viewer.test.ts
 import { describe, expect, test } from "bun:test";
-import type { Capture } from "./evidence";
-import type { Anchor, RowComment } from "./review";
-import type { Run } from "./runs";
+import type { Capture } from "../../model/evidence";
+import type { Anchor, RowComment } from "../../model/review";
+import type { Run } from "../../model/runs";
 import {
   anchorOn,
   boxBetween,

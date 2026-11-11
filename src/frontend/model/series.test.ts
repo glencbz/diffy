@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/series.md#frontend-model-series-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { LocalReview } from "./review";
+import type { LocalReview } from "../../model/review";
 import { localHistory, versionAsk } from "./series";
 
 const review: LocalReview = {

@@ -1,4 +1,5 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-components>>[init]
+
 import * as z from "zod";
 import {
   type Component,
@@ -10,9 +11,9 @@ import {
   coloursOf,
   componentsTo,
   KindColour,
-} from "../../frontend/model/components";
-import { readPatch } from "../../frontend/model/patch";
-import type { JjFileDiff } from "../commit/jj";
+} from "../../model/components";
+import type { ServedFileDiff } from "../../model/diff";
+import { readPatch } from "../../model/patch";
 import type { RepoContext } from "../repo/repos";
 import { type Tool, ToolError, tool } from "./mcp";
 import { AGENT } from "./review";
@@ -93,7 +94,7 @@ const GroupInput = z.object({
 });
 
 /** A file's changed lines on each side. */
-function changedLines(file: JjFileDiff) {
+function changedLines(file: ServedFileDiff) {
   const before: number[] = [];
   const after: number[] = [];
   for (const hunk of readPatch(file.patch).hunks) {
@@ -126,7 +127,7 @@ const spaced = (text: string) => text.replace(/\s+/g, " ");
 /** Why `input` cannot be drawn on its commit, or null. */
 function refusal(
   input: ComponentInput,
-  files: JjFileDiff[],
+  files: ServedFileDiff[],
   message: string,
 ): string | null {
   const paths = new Set(files.flatMap(pathsOf));
@@ -164,7 +165,7 @@ function refusal(
 
 /** The changed lines of `files` no place of `components` covers, one line
  *  per file. */
-function unclaimed(files: JjFileDiff[], components: Component[]): string[] {
+function unclaimed(files: ServedFileDiff[], components: Component[]): string[] {
   return files.flatMap((file) => {
     const paths = pathsOf(file);
     const places = components.flatMap((each) =>

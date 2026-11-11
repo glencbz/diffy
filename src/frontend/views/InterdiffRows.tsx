@@ -1,12 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-interdiff-rows>>[init]
 import { type ReactNode, useState } from "react";
-import { type BeforePaths, compareOffer } from "../model/compared";
 import type {
   DiffReview,
   ReviewActions,
   ReviewBarVariant,
   ReviewedRow,
-} from "../model/review";
+} from "../../model/review";
+import { type BeforePaths, compareOffer } from "../model/compared";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommentComposer, CommentThreads } from "./Comments";

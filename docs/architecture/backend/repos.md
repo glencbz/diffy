@@ -25,10 +25,19 @@ every tab already open where it was.
 ```ts
 //| id: backend-repos
 //| file: src/backend/repo/repos.ts
+
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
+import {
+  type FoundRepo,
+  type Probe,
+  RecentEntry,
+  type RepoSummary,
+  type ServedRepo,
+} from "../../model/repo";
+import { READS } from "../../model/routes";
 import type { Host } from "../host/host";
 import {
   openReviewStore,
@@ -71,6 +80,52 @@ export class DefaultRepo {
 }
 ```
 
+## What the picker reads
+
+The shapes these routes answer with are declared once, in the shared model,
+and the browser parses each response against the same schema.
+
+```ts
+//| id: model-repo
+//| file: src/model/repo.ts
+import * as z from "zod";
+
+export const ServedRepo = z.object({
+  home: z.string(),
+  /** The workspace this tab reads, or null before the reader picks one. */
+  current: z.string().nullable(),
+});
+export type ServedRepo = z.infer<typeof ServedRepo>;
+
+/** What a path turned out to be, by the root of the repository holding it. */
+export const Probe = z.discriminatedUnion("kind", [
+  z.object({ kind: z.enum(["jj", "git"]), root: z.string() }),
+  z.object({ kind: z.literal("none") }),
+]);
+export type Probe = z.infer<typeof Probe>;
+
+export const RecentEntry = z.object({
+  root: z.string(),
+  openedAt: z.string(),
+});
+export type RecentEntry = z.infer<typeof RecentEntry>;
+
+export const RepoSummary = z.object({
+  root: z.string(),
+  /** The first line of the working copy's description, empty if it has none. */
+  workingCopy: z.string(),
+  reviews: z.number(),
+  openedAt: z.string().nullable(),
+});
+export type RepoSummary = z.infer<typeof RepoSummary>;
+
+export const FoundRepo = z.object({
+  root: z.string(),
+  kind: z.enum(["jj", "git"]),
+});
+export type FoundRepo = z.infer<typeof FoundRepo>;
+```
+
 ## Probing a path
 
 A path the reader typed or named on the command line is a jj workspace, a Git
@@ -81,12 +136,6 @@ only looked at.
 
 ```ts
 //| id: backend-repos
-
-/** What a path turned out to be, by the root of the repository holding it. */
-export type Probe =
-  | { kind: "jj"; root: string }
-  | { kind: "git"; root: string }
-  | { kind: "none" };
 
 export function expandHome(path: string, home: string): string {
   if (path === "~") return home;
@@ -173,12 +222,6 @@ back with its time when the reader undoes it.
 ```ts
 //| id: backend-repos
 
-export const RecentEntry = z.object({
-  root: z.string(),
-  openedAt: z.string(),
-});
-export type RecentEntry = z.infer<typeof RecentEntry>;
-
 const RECENT_LIMIT = 20;
 
 export function withOpened(
@@ -248,14 +291,6 @@ dropped from the file, so a drive that comes back brings it back.
 ```ts
 //| id: backend-repos
 
-export interface RepoSummary {
-  root: string;
-  /** The first line of the working copy's description, empty if it has none. */
-  workingCopy: string;
-  reviews: number;
-  openedAt: string | null;
-}
-
 export async function summarize(
   root: string,
   openedAt: string | null,
@@ -301,11 +336,6 @@ a moment on a large home directory, so its answer is kept for five minutes.
 
 ```ts
 //| id: backend-repos
-
-export interface FoundRepo {
-  root: string;
-  kind: "jj" | "git";
-}
 
 const SKIPPED = new Set(["node_modules", "vendor", "target", "dist", "build"]);
 
@@ -450,14 +480,15 @@ export function repoRoutes(
 ) {
   const foundUnderHome = cachedFind(host);
   return {
-    "/api/repo": {
-      GET: () =>
-        Response.json({
-          // How the per-user server's probe tells diffy from another program.
-          diffy: 1,
+    [READS.repo.path]: {
+      GET: () => {
+        const served: ServedRepo = {
           home: host.home,
           current: defaultRepo.root,
-        }),
+        };
+        // How the per-user server's probe tells diffy from another program.
+        return Response.json({ diffy: 1, ...served });
+      },
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
         if (!body.success) return refuse("expected { path }");
@@ -469,13 +500,13 @@ export function repoRoutes(
         return Response.json({ root: found.root });
       },
     },
-    "/api/repo/probe": async (req: Request) => {
+    [READS.repoProbe.path]: async (req: Request) => {
       const path = new URL(req.url).searchParams.get("path") ?? "";
-      return Response.json(
-        path === "" ? { kind: "none" } : await probeRepo(path, host.home),
-      );
+      const probe: Probe =
+        path === "" ? { kind: "none" } : await probeRepo(path, host.home);
+      return Response.json(probe);
     },
-    "/api/repo/recent": {
+    [READS.recentRepos.path]: {
       GET: async () =>
         Response.json(await recentSummaries(recent, host.dataDir)),
       DELETE: async (req: Request) => {
@@ -490,11 +521,12 @@ export function repoRoutes(
         return Response.json({ restored: body.data });
       },
     },
-    "/api/repo/found": async () => {
+    [READS.foundRepos.path]: async () => {
       const known = new Set((await recent.read()).map((entry) => entry.root));
-      return Response.json(
-        (await foundUnderHome()).filter((repo) => !known.has(repo.root)),
+      const found: FoundRepo[] = (await foundUnderHome()).filter(
+        (repo) => !known.has(repo.root),
       );
+      return Response.json(found);
     },
   };
 }
@@ -505,14 +537,15 @@ export function repoRoutes(
 ```ts
 //| id: backend-repos-test
 //| file: src/backend/repo/repos.test.ts
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Probe } from "../../model/repo";
 import {
   expandHome,
   findRepos,
-  type Probe,
   RecentRepos,
   startingRepo,
   withOpened,

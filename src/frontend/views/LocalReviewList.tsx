@@ -6,8 +6,11 @@ import type {
   LocalReviewListVariant,
   LocalReviewOrder,
   LocalVersion,
-} from "../model/review";
-import { FORGOTTEN_REVIEW_ORDERS, LOCAL_REVIEW_ORDERS } from "../model/review";
+} from "../../model/review";
+import {
+  FORGOTTEN_REVIEW_ORDERS,
+  LOCAL_REVIEW_ORDERS,
+} from "../../model/review";
 
 const ORDER_LABELS: Record<LocalReviewOrder, string> = {
   "modified-newest": "Modified, newest first",

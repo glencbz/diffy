@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_LAYOUTS } from "../../frontend/model/panels";
+import { DEFAULT_LAYOUTS } from "../../model/panels";
 import { LayoutStore, layoutRoutes } from "./layouts";
 
 let dir: string;

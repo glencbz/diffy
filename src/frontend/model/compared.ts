@@ -1,8 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-compared>>[init]
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
+import type {
+  CompareOffer,
+  ComparisonReview,
+  ReviewActions,
+} from "../../model/review";
 import { afterPathOf } from "./changedFiles";
-import type { FileDiff } from "./diff";
-import type { CompareOffer, ComparisonReview, ReviewActions } from "./review";
 
 /** One file of a row read against another, as the server is asked for it:
  *  `oldPath` on the before side, `newPath` on the after side. */

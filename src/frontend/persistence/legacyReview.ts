@@ -1,5 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-persistence-legacy-review>>[init]
-import { EMPTY_REVIEW, isEmptyReview, ReviewDocument } from "../model/review";
+import {
+  EMPTY_REVIEW,
+  isEmptyReview,
+  ReviewDocument,
+} from "../../model/review";
 import { localRepository } from "./local";
 
 const SESSION_KEY = "diffy.session.v1";

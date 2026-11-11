@@ -1,14 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-state-components>>[init]
 import { useState } from "react";
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   type ComponentMap,
   type Counterparts,
   componentsTo,
   type RowCounterpart,
-} from "../model/components";
-import type { FileDiff } from "../model/diff";
-import type { GitCommit } from "../model/history";
+} from "../../model/components";
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
 import type { Slot } from "../model/pairing";
 import {
   type SeriesSource,

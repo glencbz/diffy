@@ -1,16 +1,16 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff-file-row>>[init]
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { shownPathOf } from "../../../model/changedFiles";
-import { collapseReason } from "../../../model/collapse";
-import type { FileCompare } from "../../../model/compared";
-import type { FileDiff } from "../../../model/diff";
-import type { DiffLinks } from "../../../model/place";
+import type { FileDiff } from "../../../../model/diff";
 import {
   type Anchor,
   drawnAt,
   type LineAnchor,
   type RowComment,
-} from "../../../model/review";
+} from "../../../../model/review";
+import { shownPathOf } from "../../../model/changedFiles";
+import { collapseReason } from "../../../model/collapse";
+import type { FileCompare } from "../../../model/compared";
+import type { DiffLinks } from "../../../model/place";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";

@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-model-review-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { alignSeries } from "../../backend/commit/series";
+import { alignSeries } from "./alignment";
 import type { InterdiffRow } from "./diff";
 import type { LogEntry } from "./history";
 import {

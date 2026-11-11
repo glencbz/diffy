@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { OpLogEntry } from "../model/history";
+import type { OpLogEntry } from "../../model/history";
 
 export function OperationPicker({
   operations,

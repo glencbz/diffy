@@ -1,13 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/repos.md#frontend-view-repo-list>>[init]
+
 import { useEffect, useRef, useState } from "react";
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
+import type { FoundRepo, RecentEntry, RepoSummary } from "../../model/repo";
 import {
-  type FoundRepo,
   matchesQuery,
   pathParts,
-  type RecentEntry,
   type RepoProbe,
-  type RepoSummary,
   since,
   tildePath,
 } from "../model/repo";

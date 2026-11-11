@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/review.md#frontend-persistence-review>>[init]
 import * as z from "zod";
+import { type ReviewCommand, ReviewSnapshot } from "../../model/review";
 import { inWorkspace } from "../model/repo";
-import { type ReviewCommand, ReviewSnapshot } from "../model/review";
 
 const ErrorAnswer = z.object({ error: z.string() });
 

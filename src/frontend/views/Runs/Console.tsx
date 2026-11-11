@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-view-console>>[init]
 import { useState } from "react";
+import type { Logged } from "../../../model/runs";
 import { type Compared, isOnLogged } from "../../model/runSteps";
-import type { Logged } from "../../model/runs";
 import {
   CHANGE_MARK,
   CommentButton,

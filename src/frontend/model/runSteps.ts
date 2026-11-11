@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-model-run-steps>>[init]
-import type { Capture } from "./evidence";
-import type { Anchor, RowComment } from "./review";
-import type { Logged, Request, Run, RunStep } from "./runs";
+import type { Capture } from "../../model/evidence";
+import type { Anchor, RowComment } from "../../model/review";
+import type { Logged, Request, Run, RunStep } from "../../model/runs";
 
 /** The step `index` of `run` drawn as a picture capture. */
 export function stepAsCapture(run: Run, index: number): Capture {

@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-review>>[init]
+
 import * as z from "zod";
-import { Box } from "../../frontend/model/evidence";
+import { Box } from "../../model/evidence";
 import {
   type Anchor,
   evidenceLabel,
@@ -11,8 +12,8 @@ import {
   localSeries,
   type ReviewDocument,
   reviewedIn,
-} from "../../frontend/model/review";
-import { Logged } from "../../frontend/model/runs";
+} from "../../model/review";
+import { Logged } from "../../model/runs";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
 import { type Tool, ToolError, tool } from "./mcp";

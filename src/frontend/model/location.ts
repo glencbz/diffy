@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/panels.md#frontend-model-location>>[init]
-import type { Component } from "./components";
+import type { Component } from "../../model/components";
 
 /** A spot in a review that a panel can show or point at. */
 export type Location = CodeLocation | ComponentLocation;

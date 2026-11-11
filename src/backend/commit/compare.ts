@@ -1,11 +1,13 @@
 // ~/~ begin <<docs/architecture/backend/compare.md#compare-module>>[init]
+
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { $ } from "bun";
+import type { ServedFileDiff } from "../../model/diff";
+import type { GitOid } from "../../model/history";
 import { difftFile } from "./difft";
-import type { GitOid } from "./git";
-import { type JjFileDiff, parseFileDiff } from "./jj";
+import { parseFileDiff } from "./jj";
 
 /** A pair that cannot be compared: a side with no tree, or a path the side
  *  does not hold. */
@@ -77,7 +79,7 @@ export async function compareFiles(
   sides: CompareSides,
   oldPath: string,
   newPath: string,
-): Promise<JjFileDiff> {
+): Promise<ServedFileDiff> {
   const before = await beforeCommit(root, sides);
   if (before === null) {
     throw new CompareError("a root commit has nothing before it to compare");
@@ -122,7 +124,7 @@ async function structural(
   oldPath: string,
   newBlob: string,
   newPath: string,
-): Promise<JjFileDiff["structural"]> {
+): Promise<ServedFileDiff["structural"]> {
   const dir = await mkdtemp(join(tmpdir(), "diffy-compare-"));
   try {
     const left = join(dir, "before", basename(oldPath));

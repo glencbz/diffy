@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/local-reviews.md#backend-local-reviews-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { applyCommand, EMPTY_REVIEW } from "../../frontend/model/review";
+import { applyCommand, EMPTY_REVIEW } from "../../model/review";
 import { FIXED } from "../../testing/history";
 import {
   localCommits,

@@ -122,7 +122,7 @@ the browser kept never had one.
 
 ```ts
 //| id: frontend-model-review
-//| file: src/frontend/model/review.ts
+//| file: src/model/review.ts
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import {
@@ -1389,9 +1389,9 @@ could encode the same wrong assumption the code makes.
 
 ```ts
 //| id: frontend-model-review-test
-//| file: src/frontend/model/review.test.ts
+//| file: src/model/review.test.ts
 import { describe, expect, test } from "bun:test";
-import { alignSeries } from "../../backend/commit/series";
+import { alignSeries } from "./alignment";
 import type { InterdiffRow } from "./diff";
 import type { LogEntry } from "./history";
 import {
@@ -3172,14 +3172,14 @@ together, so a `ReviewBarVariant` either carries both handlers or neither.
 //| id: frontend-view-review-bar
 //| file: src/frontend/views/ReviewBar.tsx
 import type { ReactNode } from "react";
-import { fileVersionOf } from "../model/changedFiles";
-import type { FileDiff } from "../model/diff";
+import type { FileDiff } from "../../model/diff";
 import {
   type ComparisonReview,
   isViewed,
   type ReviewBarVariant,
   type RowReview,
-} from "../model/review";
+} from "../../model/review";
+import { fileVersionOf } from "../model/changedFiles";
 
 /** Where the reader stands on one comparison, and the two things they can do
  *  about the whole of it. */
@@ -3295,8 +3295,8 @@ message.
 //| id: frontend-persistence-review
 //| file: src/frontend/persistence/review.ts
 import * as z from "zod";
+import { type ReviewCommand, ReviewSnapshot } from "../../model/review";
 import { inWorkspace } from "../model/repo";
-import { type ReviewCommand, ReviewSnapshot } from "../model/review";
 
 const ErrorAnswer = z.object({ error: z.string() });
 
@@ -3394,7 +3394,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   applyCommand,
   commentOn,
@@ -3406,7 +3406,7 @@ import {
   type ReviewCommand,
   type ReviewDocument,
   type ReviewSnapshot,
-} from "../model/review";
+} from "../../model/review";
 import { clearLegacyReview, legacyReview } from "../persistence/legacyReview";
 import { reviewStoreIn } from "../persistence/review";
 import { useWorkspace } from "./repo";
@@ -3677,7 +3677,11 @@ first.
 ```ts
 //| id: frontend-persistence-legacy-review
 //| file: src/frontend/persistence/legacyReview.ts
-import { EMPTY_REVIEW, isEmptyReview, ReviewDocument } from "../model/review";
+import {
+  EMPTY_REVIEW,
+  isEmptyReview,
+  ReviewDocument,
+} from "../../model/review";
 import { localRepository } from "./local";
 
 const SESSION_KEY = "diffy.session.v1";
@@ -3707,7 +3711,7 @@ export function clearLegacyReview(): void {
 //| id: frontend-persistence-legacy-review-test
 //| file: src/frontend/persistence/legacyReview.test.ts
 import { beforeEach, describe, expect, test } from "bun:test";
-import { EMPTY_REVIEW } from "../model/review";
+import { EMPTY_REVIEW } from "../../model/review";
 import { clearLegacyReview, legacyReview } from "./legacyReview";
 import { memoryStorage } from "./memoryStorage";
 

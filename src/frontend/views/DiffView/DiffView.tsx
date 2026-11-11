@@ -1,5 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff>>[init]
 import { useMemo, useState } from "react";
+import type { FileDiff } from "../../../model/diff";
+import {
+  type Anchor,
+  type CompareOffer,
+  type DiffReview,
+  isViewed,
+  onFile,
+} from "../../../model/review";
 import {
   afterPathOf,
   changedFile,
@@ -8,15 +16,7 @@ import {
   shownPathOf,
 } from "../../model/changedFiles";
 import { beforePathsOf, type FileCompare } from "../../model/compared";
-import type { FileDiff } from "../../model/diff";
 import type { DiffLinks } from "../../model/place";
-import {
-  type Anchor,
-  type CompareOffer,
-  type DiffReview,
-  isViewed,
-  onFile,
-} from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
 import { FileRow, type LineDecor } from "./FileRow/FileRow";

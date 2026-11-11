@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EMPTY_REVIEW, type ReviewCommand } from "../../frontend/model/review";
+import { EMPTY_REVIEW, type ReviewCommand } from "../../model/review";
 import {
   openReviewStore,
   purgeForgotten,

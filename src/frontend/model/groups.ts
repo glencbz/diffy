@@ -1,5 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-model-groups>>[init]
-import type { Component, ComponentGroup, ComponentRole } from "./components";
+import type {
+  Component,
+  ComponentGroup,
+  ComponentRole,
+} from "../../model/components";
 
 /** A way of grouping a commit's components. */
 export type Arrangement = "piece" | "layer" | "role";

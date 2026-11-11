@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   applyCommand,
   commentOn,
@@ -20,7 +20,7 @@ import {
   type ReviewCommand,
   type ReviewDocument,
   type ReviewSnapshot,
-} from "../model/review";
+} from "../../model/review";
 import { clearLegacyReview, legacyReview } from "../persistence/legacyReview";
 import { reviewStoreIn } from "../persistence/review";
 import { useWorkspace } from "./repo";

@@ -504,8 +504,9 @@ link uses the address the agent called.
 ```ts
 //| id: backend-agent-review
 //| file: src/backend/agent/review.ts
+
 import * as z from "zod";
-import { Box } from "../../frontend/model/evidence";
+import { Box } from "../../model/evidence";
 import {
   type Anchor,
   evidenceLabel,
@@ -516,8 +517,8 @@ import {
   localSeries,
   type ReviewDocument,
   reviewedIn,
-} from "../../frontend/model/review";
-import { Logged } from "../../frontend/model/runs";
+} from "../../model/review";
+import { Logged } from "../../model/runs";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
 import { type Tool, ToolError, tool } from "./mcp";
@@ -1204,10 +1205,12 @@ version, the one the reader opens. The tools read their series through
 ```ts
 //| id: backend-agent-series
 //| file: src/backend/agent/series.ts
+
 import * as z from "zod";
-import { localReview, localSeries } from "../../frontend/model/review";
+import type { ServedFileDiff } from "../../model/diff";
+import { localReview, localSeries } from "../../model/review";
 import { gitFiles } from "../commit/git";
-import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
+import { JjError, jjCommits, jjDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
 import { ToolError } from "./mcp";
 
@@ -1237,7 +1240,7 @@ export interface SeriesTarget {
 /** Where a tool reads a series and its commits from. */
 export interface SeriesSources {
   local: (name: string) => Promise<SeriesTarget>;
-  diff: (commitId: string) => Promise<JjFileDiff[]>;
+  diff: (commitId: string) => Promise<ServedFileDiff[]>;
   /** Every file of a revision git names, such as `<commit id>^`. */
   files: (revision: string) => Promise<string[]>;
 }
@@ -1301,7 +1304,7 @@ export function short(commit: SeriesCommit): string {
   return (commit.changeId ?? commit.commitId).slice(0, 8);
 }
 
-export function pathsOf(file: JjFileDiff): string[] {
+export function pathsOf(file: ServedFileDiff): string[] {
   return "path" in file ? [file.path] : [file.oldPath, file.newPath];
 }
 
@@ -1367,6 +1370,7 @@ agent picks the reader's colour, or else one no kind is drawn in.
 ```ts
 //| id: backend-agent-components
 //| file: src/backend/agent/components.ts
+
 import * as z from "zod";
 import {
   type Component,
@@ -1378,9 +1382,9 @@ import {
   coloursOf,
   componentsTo,
   KindColour,
-} from "../../frontend/model/components";
-import { readPatch } from "../../frontend/model/patch";
-import type { JjFileDiff } from "../commit/jj";
+} from "../../model/components";
+import type { ServedFileDiff } from "../../model/diff";
+import { readPatch } from "../../model/patch";
 import type { RepoContext } from "../repo/repos";
 import { type Tool, ToolError, tool } from "./mcp";
 import { AGENT } from "./review";
@@ -1461,7 +1465,7 @@ const GroupInput = z.object({
 });
 
 /** A file's changed lines on each side. */
-function changedLines(file: JjFileDiff) {
+function changedLines(file: ServedFileDiff) {
   const before: number[] = [];
   const after: number[] = [];
   for (const hunk of readPatch(file.patch).hunks) {
@@ -1494,7 +1498,7 @@ const spaced = (text: string) => text.replace(/\s+/g, " ");
 /** Why `input` cannot be drawn on its commit, or null. */
 function refusal(
   input: ComponentInput,
-  files: JjFileDiff[],
+  files: ServedFileDiff[],
   message: string,
 ): string | null {
   const paths = new Set(files.flatMap(pathsOf));
@@ -1532,7 +1536,7 @@ function refusal(
 
 /** The changed lines of `files` no place of `components` covers, one line
  *  per file. */
-function unclaimed(files: JjFileDiff[], components: Component[]): string[] {
+function unclaimed(files: ServedFileDiff[], components: Component[]): string[] {
   return files.flatMap((file) => {
     const paths = pathsOf(file);
     const places = components.flatMap((each) =>
@@ -1824,7 +1828,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EMPTY_REVIEW, type ReviewDocument } from "../../frontend/model/review";
+import { EMPTY_REVIEW, type ReviewDocument } from "../../model/review";
 import { FIXED } from "../../testing/history";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";

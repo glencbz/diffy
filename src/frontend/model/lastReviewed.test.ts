@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-model-last-reviewed-test>>[init]
 import { describe, expect, test } from "bun:test";
+import type { ReviewedVersion } from "../../model/review";
 import { lastReviewed, opening } from "./lastReviewed";
 import { type LocalPlace, openLocal } from "./place";
-import type { ReviewedVersion } from "./review";
 import type { SeriesVersion } from "./series";
 
 function version(number: number, id: string): SeriesVersion {

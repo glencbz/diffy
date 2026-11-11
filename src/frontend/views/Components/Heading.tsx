@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-view-components-heading>>[init]
 import type { MouseEvent, ReactNode } from "react";
-import type { Fate, PlaceRef } from "../../model/components";
+import type { Fate, PlaceRef } from "../../../model/components";
 import { CommentIcon, MessageIcon, SwapIcon } from "./icons";
 
 /** A way to the same place in another comparison, peeked at on hover. */

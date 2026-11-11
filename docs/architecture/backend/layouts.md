@@ -19,7 +19,7 @@ that does not parse reads as the defaults rather than stopping the screen.
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import * as z from "zod";
-import { DEFAULT_LAYOUTS, LayoutsDocument } from "../../frontend/model/panels";
+import { DEFAULT_LAYOUTS, LayoutsDocument } from "../../model/panels";
 
 export class LayoutStore {
   constructor(private readonly path: string) {}
@@ -74,7 +74,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_LAYOUTS } from "../../frontend/model/panels";
+import { DEFAULT_LAYOUTS } from "../../model/panels";
 import { LayoutStore, layoutRoutes } from "./layouts";
 
 let dir: string;

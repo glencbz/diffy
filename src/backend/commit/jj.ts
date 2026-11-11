@@ -1,9 +1,22 @@
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[init]
+
 import { realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
-import { type StructuralDiff, StructuralDiffs } from "./difft";
+import type {
+  PatchFile,
+  ServedFileDiff,
+  StructuralDiff,
+} from "../../model/diff";
+import {
+  COMMIT_MARKERS,
+  type CommitMarker,
+  type CommitRef,
+  type LogEntry,
+  type OpLogEntry,
+} from "../../model/history";
+import { StructuralDiffs } from "./difft";
 
 /** The `jj` CLI ran and exited non-zero, usually an unresolvable revset. */
 export class JjError extends Error {
@@ -47,23 +60,6 @@ async function runJj(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[1]
 
-/** A name `jj log` prints beside a commit. */
-export interface CommitRef {
-  kind: "bookmark" | "tag" | "working-copy";
-  /** The name jj shows: `name`, or `name@remote` for a drifted remote ref. */
-  name: string;
-}
-
-/** The standings `jj log` reports about a commit, in the order jj shows them. */
-export const COMMIT_MARKERS = [
-  "working-copy",
-  "empty",
-  "conflict",
-  "divergent",
-  "hidden",
-] as const;
-export type CommitMarker = (typeof COMMIT_MARKERS)[number];
-
 const MARKER_KEYWORDS = {
   "working-copy": "current_working_copy",
   empty: "empty",
@@ -72,20 +68,8 @@ const MARKER_KEYWORDS = {
   hidden: "hidden",
 } satisfies Record<CommitMarker, string>;
 
-export interface JjLogEntry {
-  commitId: string;
-  changeId: string;
-  description: string;
-  /** Parent commit IDs, in jj's order. Empty only for the root commit. */
-  parents: string[];
-  /** The author's email, the identity `jj log` prints. */
-  author: string;
-  /** ISO 8601 committer timestamp, the time `jj log` prints. */
-  timestamp: string;
-  /** Bookmarks, then tags, then working copies, as `jj log` orders them. */
-  refs: CommitRef[];
-  markers: CommitMarker[];
-}
+/** A commit as `jj log` reads it, which always has a change id. */
+export type JjLogEntry = LogEntry & { changeId: string };
 
 const CommitRefWire = z.object({
   name: z.string(),
@@ -204,16 +188,6 @@ export async function jjCommits(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[3]
 
-/** One entry from `jj op log`: a recorded mutation of the repo. */
-export interface JjOpLogEntry {
-  id: string;
-  description: string;
-  /** ISO 8601 time the operation finished. */
-  time: string;
-  /** The `jj` command line that produced the operation. */
-  args: string;
-}
-
 const JjOpLogEntryWire = z.object({
   id: z.string(),
   description: z.string(),
@@ -232,7 +206,7 @@ const OP_LOG_TEMPLATE = 'json(self) ++ "\n"';
 export async function jjOpLog(
   root: string,
   options: JjOpLogOptions = {},
-): Promise<JjOpLogEntry[]> {
+): Promise<OpLogEntry[]> {
   const args = ["op", "log", "--no-graph", "-T", OP_LOG_TEMPLATE];
   if (options.limit !== undefined) args.push("-n", String(options.limit));
 
@@ -277,26 +251,6 @@ export async function jjRepoDir(dir: string): Promise<string> {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/jj.md#jj-module>>[5]
 
-/** How one file changed between a revision and its parent, as its patch says. */
-export type JjPatchFile = (
-  | { status: "added" | "deleted" | "modified"; path: string }
-  | { status: "renamed" | "copied"; oldPath: string; newPath: string }
-) & {
-  /** True when jj emitted "Binary files ... differ" in place of a text hunk. */
-  binary: boolean;
-  /** The git blob each side's contents are stored under, as abbreviated on
-   *  the `index` line. Null for a side that does not exist, and for both
-   *  sides when the patch has no `index` line at all. */
-  oldBlob: string | null;
-  newBlob: string | null;
-  /** The verbatim `git`-format unified diff for just this file. */
-  patch: string;
-};
-
-/** A file's patch, and the same change as difftastic reads it or why it
- *  cannot. */
-export type JjFileDiff = JjPatchFile & { structural: StructuralDiff };
-
 export interface JjDiffOptions {
   /** Revision to diff against its parent(s). Defaults to `@`. */
   revision?: string;
@@ -307,7 +261,7 @@ export interface JjDiffOptions {
 export function jjDiff(
   root: string,
   options: JjDiffOptions = {},
-): Promise<JjFileDiff[]> {
+): Promise<ServedFileDiff[]> {
   const revision = options.revision ?? "@";
   const args = ["diff", "-r", revision];
   if (options.atOperation !== undefined) {
@@ -329,7 +283,10 @@ function splitFileDiffs(diff: string): string[] {
 
 /** Run a jj diff command both ways, one file at a time: as a `git`-format
  *  patch, and through difftastic. */
-async function diffFiles(root: string, args: string[]): Promise<JjFileDiff[]> {
+async function diffFiles(
+  root: string,
+  args: string[],
+): Promise<ServedFileDiff[]> {
   const [patch, structural] = await Promise.all([
     runJj(root, [...args, "--git", "--color=never"]),
     structuralDiffs(root, args),
@@ -373,7 +330,7 @@ async function structuralDiffs(
 }
 
 function structuralFor(
-  file: JjPatchFile,
+  file: PatchFile,
   answer: Record<string, StructuralDiff> | string,
 ): StructuralDiff {
   const unavailable = (reason: string) =>
@@ -412,11 +369,11 @@ function blobOf(id: string | undefined): string | null {
 /** Exported for unit tests: turn one file's `git`-format patch into metadata.
  *  Paths come from `---`/`+++`, `rename`/`copy`, or `Binary files` lines; a
  *  patch with no path is a parser bug and throws. */
-export function parseFileDiff(patch: string): JjPatchFile {
+export function parseFileDiff(patch: string): PatchFile {
   const lines = patch.split("\n");
   const header = lines[0]?.match(DIFF_GIT_HEADER);
 
-  let kind: JjPatchFile["status"] = "modified";
+  let kind: PatchFile["status"] = "modified";
   let oldPath: string | null = null;
   let newPath: string | null = null;
   let binary = false;
@@ -484,7 +441,7 @@ export interface JjInterdiffOptions {
 export function jjInterdiff(
   root: string,
   options: JjInterdiffOptions,
-): Promise<JjFileDiff[]> {
+): Promise<ServedFileDiff[]> {
   return diffFiles(root, [
     "interdiff",
     "--from",
@@ -506,7 +463,7 @@ export interface JjDiffBetweenOptions {
 export function jjDiffBetween(
   root: string,
   options: JjDiffBetweenOptions,
-): Promise<JjFileDiff[]> {
+): Promise<ServedFileDiff[]> {
   return diffFiles(root, ["diff", "--from", options.from, "--to", options.to]);
 }
 // ~/~ end

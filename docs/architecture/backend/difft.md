@@ -28,59 +28,16 @@ before column.
 ```ts
 //| id: difft-module
 //| file: src/backend/commit/difft.ts
+
 import { availableParallelism } from "node:os";
 import { Glob } from "bun";
 import * as z from "zod";
-
-/** A token difftastic says changed: a range of UTF-16 code units in `code`. */
-export const ChangedRange = z.object({ start: z.number(), end: z.number() });
-export type ChangedRange = z.infer<typeof ChangedRange>;
-
-/** A line of a structural hunk. Numbers count from 1, as a patch's do. */
-export const StructuralLine = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("context"),
-    code: z.string(),
-    newLine: z.number(),
-    oldLine: z.number().optional(),
-  }),
-  z.object({
-    kind: z.literal("removed"),
-    code: z.string(),
-    oldLine: z.number(),
-    changes: z.array(ChangedRange),
-  }),
-  z.object({
-    kind: z.literal("added"),
-    code: z.string(),
-    newLine: z.number(),
-    changes: z.array(ChangedRange),
-  }),
-]);
-export type StructuralLine = z.infer<typeof StructuralLine>;
-
-export const StructuralHunk = z.object({
-  /** A `@@ -a,b +c,d @@` line, so both views label a hunk the same way. */
-  header: z.string(),
-  /** The after-side number of the hunk's first line, or of the line that
-   *  would follow it when the hunk only removes. */
-  newStart: z.number(),
-  /** The same on the before side. */
-  oldStart: z.number(),
-  lines: z.array(StructuralLine),
-});
-export type StructuralHunk = z.infer<typeof StructuralHunk>;
-
-/** One file's structural diff, or why it has none. */
-export const StructuralDiff = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("structural"),
-    language: z.string(),
-    hunks: z.array(StructuralHunk),
-  }),
-  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
-]);
-export type StructuralDiff = z.infer<typeof StructuralDiff>;
+import {
+  type ChangedRange,
+  StructuralDiff,
+  type StructuralHunk,
+  type StructuralLine,
+} from "../../model/diff";
 
 /** What the tool prints: every file it diffed, by path. */
 export const StructuralDiffs = z.record(z.string(), StructuralDiff);

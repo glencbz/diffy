@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/backend/evidence.md#backend-evidence-store>>[init]
 import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { BlobName } from "../../frontend/model/evidence";
+import { BlobName } from "../../model/evidence";
 
 /** The largest file a capture may be. A minute of screen video at the
  *  sizes a review shows is a few megabytes. */

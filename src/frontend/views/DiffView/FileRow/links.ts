@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff-file-links>>[init]
 import type { MouseEvent } from "react";
+import type { FileDiff } from "../../../../model/diff";
 import { afterPathOf } from "../../../model/changedFiles";
-import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks, FileSpot } from "../../../model/place";
 
 /** `DiffLinks` narrowed to one file. */

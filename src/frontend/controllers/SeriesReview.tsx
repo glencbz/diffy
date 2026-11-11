@@ -6,21 +6,16 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { AsyncState } from "../model/asyncState";
-import { compareAsks, withCompared } from "../model/compared";
+import type { AsyncState } from "../../model/asyncState";
 import {
   componentsTo,
   DEFAULT_KINDS,
   seriesComponents,
-} from "../model/components";
-import type { FileDiff } from "../model/diff";
-import { capturesOf } from "../model/evidence";
-import type { GitCommit, Source } from "../model/history";
-import { lastReviewed, opening } from "../model/lastReviewed";
-import type { Slot } from "../model/pairing";
-import type { PanelId } from "../model/panels";
-import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
-import { ranRules } from "../model/ranLines";
+} from "../../model/components";
+import type { FileDiff } from "../../model/diff";
+import { capturesOf } from "../../model/evidence";
+import type { GitCommit, Source } from "../../model/history";
+import type { PanelId } from "../../model/panels";
 import {
   type ComparisonReview,
   keptPairing,
@@ -30,7 +25,13 @@ import {
   reviewedIn,
   type ThreadReview,
   threadReview,
-} from "../model/review";
+} from "../../model/review";
+import { runsOf } from "../../model/runs";
+import { compareAsks, withCompared } from "../model/compared";
+import { lastReviewed, opening } from "../model/lastReviewed";
+import type { Slot } from "../model/pairing";
+import type { DiffLinks, FileSpot, SeriesPlace } from "../model/place";
+import { ranRules } from "../model/ranLines";
 import {
   compareLogged,
   compareRequests,
@@ -39,7 +40,6 @@ import {
   stepAsCapture,
   stepsAt,
 } from "../model/runSteps";
-import { runsOf } from "../model/runs";
 import {
   type MarkLabel,
   type SeriesHistory,

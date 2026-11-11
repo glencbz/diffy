@@ -7,7 +7,7 @@ import {
   type Run,
   type RunSide,
   type RunStep,
-} from "../../frontend/model/runs";
+} from "../../model/runs";
 import type { PlayedStep } from "../evidence/playRun";
 import { Recipe, Step } from "../evidence/recipe";
 import type { Recorder } from "../evidence/recorder";
