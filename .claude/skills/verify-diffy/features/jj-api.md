@@ -16,10 +16,7 @@ beside them, and so do the routes the Local reviews screen reads.
   both repeatable, as `{rows}`: one row per aligned pair of the two series,
   carrying the `from` and `to` log entries, either of which may be `null`, and
   the `files` between them.
-- `api-diff` returns `GET /api/diff?rev=<revset>` as `{revision, files}`, and
-  defaults to `@` when `rev` is absent. The page itself no longer calls it; the
-  comparison pane asks `/api/interdiff` even for a single commit.
-- `api-file` is the shape of each file both diff routes return: a status, path,
+- `api-file` is the shape of each file `/api/interdiff` returns: a status, path,
   `binary` flag and `--git` patch, the `oldBlob` and `newBlob` ids of its two
   sides, and `structural`, difftastic's reading of the same change. That is
   `{kind: "structural", language, hunks}`, or `{kind: "unavailable", reason}`
@@ -61,18 +58,16 @@ Preconditions:
   `parents`; every other non-root entry has one.
 - **Operations.** `curl -fsS "$URL/api/operations"` returns entries whose `id` is
   a 128-character hex string and whose `time` is ISO 8601.
-- **Diff default.** `curl -fsS "$URL/api/diff"` returns `revision: "@"` and an
-  empty `files` array, matching the fixture's empty working copy.
 - **Interdiff of one commit.** `curl -fsS "$URL/api/interdiff?to=<commitId>"`
   for `fixture: add a sidecar file` returns one row whose `from` is `null` and
   whose `files` hold the `added` `sidecar.txt`.
 - **Interdiff of a pair.** Passing `from` and `to` for two commits returns one
   row carrying both log entries and the patch between the two versions.
-- **Diff content.** `curl -fsS "$URL/api/diff?rev=<changeId>"` for the change
-  described `fixture: extend the notes file` returns one `modified` file
+- **Diff content.** `curl -fsS "$URL/api/interdiff?to=<commitId>"` for the commit
+  described `fixture: extend the notes file` returns one row holding one `modified` file
   `notes.txt` whose patch contains `+line two`.
 - **Structural field.** For `fixture: edit the long file and the script`,
-  `/api/diff?rev=<changeId>` returns `greet.js` with `structural.kind` of
+  `/api/interdiff?to=<commitId>` returns, in its one row, `greet.js` with `structural.kind` of
   `structural` and `language` `JavaScript`, and the deleted `bun.lock` with
   `unavailable` and the reason `deleted file`.
 - **Source.** Take `greet.js`'s `newBlob` from the same answer and run
@@ -80,10 +75,9 @@ Preconditions:
   `language: "js"` and a first line starting with a `keyword` token `function`.
   An empty `blob` is a 400; a well-formed id the store lacks, such as
   `deadbeef`, is a 404.
-- **Error path.** `curl -s -o /dev/null -w '%{http_code}' "$URL/api/diff?rev=nope-no-such"`
-  prints `400`, and the body is
-  `{"error":"Error: Revision \`nope-no-such\` doesn't exist"}`. The same holds
-  for `/api/log?op=` with an unknown operation id.
+- **Error path.** `curl -s -o /dev/null -w '%{http_code}' "$URL/api/log?op=nope-no-such"`
+  prints `400`, and the body is a JSON object with a string `error` carrying
+  jj's message.
 - **Review store.** `curl -fsS "$URL/api/review"` on a fresh fixture returns
   `revision: 0` and a document whose lists are all empty. After a drive it
   holds what the UI wrote.

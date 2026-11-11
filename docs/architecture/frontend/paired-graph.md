@@ -354,14 +354,6 @@ id give up room instead.
     background: var(--surface);
   }
 
-  /* A subject is longer than half a pane and every commit here starts with
-     the same area prefix, so the end of the line is what tells two apart.
-     It wraps rather than truncating. */
-  .paired-graph__open {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-
   .paired-graph__card--current {
     border-color: var(--accent);
     background: var(--surface-selected);

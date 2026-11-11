@@ -147,4 +147,33 @@ _free-port start:
 @format:
   bunx biome format --write .
 # ~/~ end
+
+# ~/~ begin <<docs/devtools/entangled.md#just-check>>[init]
+# Prove the tree is healthy: tangle, types, lint and tests all agree
+check: check-tangle typecheck lint test
+
+# Fail unless src/, the justfile and nix/flake.nix match a fresh tangle
+check-tangle:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  cp -r docs entangled.toml "$tmp"
+  # entangled exits 0 after logging an ERROR, so the log decides, not the status.
+  log="$(cd "$tmp" && uv run --project "{{justfile_directory()}}" entangled tangle 2>&1)" || true
+  if grep -q ERROR <<<"$log"; then
+    echo "$log" >&2
+    echo "entangled failed to tangle the docs (not drift in the tree)" >&2
+    exit 1
+  fi
+  drift=0
+  diff -rq "$tmp/src" src || drift=1
+  for file in justfile nix/flake.nix; do
+    diff -q "$tmp/$file" "$file" || drift=1
+  done
+  if [ "$drift" = 1 ]; then
+    echo "tangled output differs from the tree; edit docs/ and run just en-tangle" >&2
+    exit 1
+  fi
+# ~/~ end
 # ~/~ end

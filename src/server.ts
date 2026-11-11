@@ -109,19 +109,6 @@ export function handleOperations(
   // The one read that snapshots: live refresh sees an edit as an operation.
   return jjJson(() => jjOpLog(root, { limit: 200, snapshot: true }));
 }
-
-export function handleDiff(
-  req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-  const revision = params.get("rev") ?? "@";
-  const atOperation = params.get("op") ?? undefined;
-  return jjJson(async () => ({
-    revision,
-    files: await jjDiff(root, { revision, atOperation }),
-  }));
-}
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[1]
 
@@ -749,7 +736,6 @@ export function routes(
     "/api/*": () => new Response("Not found", { status: 404 }),
     "/api/log": inRepo(handleLog),
     "/api/operations": inRepo(handleOperations),
-    "/api/diff": inRepo(handleDiff),
     "/api/interdiff": inRepo(handleInterdiff),
     "/api/source": inRepo(handleSource),
     "/api/compare": inRepo(handleCompare),
