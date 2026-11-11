@@ -428,7 +428,7 @@ export function evidenceTools(
     tool({
       name: "attach_capture",
       description:
-        "Attach a screenshot or a clip of the app to a commit of the newest version of a local review or a pull request: the app at the commit, and at its parent where it can be shown, with where it shows each of the commit's components. Write the version's component map first; a capture names its components by their ids. Attaching an id the commit already has replaces it.",
+        "Attach a screenshot or a clip of the app to a commit of the newest version of a local review: the app at the commit, and at its parent where it can be shown, with where it shows each of the commit's components. Write the version's component map first; a capture names its components by their ids. Attaching an id the commit already has replaces it.",
       input: AttachInput,
       call: (input, context) =>
         attachCapture(input, context, store, sourcesOf(context.repo)),
@@ -436,7 +436,7 @@ export function evidenceTools(
     tool({
       name: "read_captures",
       description:
-        "Read the captures attached to the newest version of a local review or a pull request, as JSON, with what each shows.",
+        "Read the captures attached to the newest version of a local review, as JSON, with what each shows.",
       input: z.object({ ...Target }),
       call: async (input, { repo }) => {
         const target = await targetOf(sourcesOf(repo), input);
@@ -462,7 +462,7 @@ export function evidenceTools(
     tool({
       name: "detach_capture",
       description:
-        "Take a capture off a commit of the newest version of a local review or a pull request.",
+        "Take a capture off a commit of the newest version of a local review.",
       input: z.object({
         ...Target,
         commit: z
@@ -615,8 +615,8 @@ beforeEach(async () => {
   store.apply({
     kind: "write-components",
     map: {
-      series: "pull:o/r#7",
-      version: "h".repeat(40),
+      series: "local:stack",
+      version: "2",
       author: "claude",
       writtenAt: "t",
       components: [
@@ -641,13 +641,12 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const PULL: SeriesSources = {
-  local: () => Promise.reject(new Error("not asked")),
-  pull: async (number) => ({
-    series: `pull:o/r#${number}`,
-    version: "h".repeat(40),
+const LOCAL: SeriesSources = {
+  local: async (name) => ({
+    series: `local:${name}`,
+    version: "2",
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/reviews/${name}`,
     commits: [
       {
         commitId: "aaaa1111",
@@ -666,7 +665,7 @@ async function call(
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
   const route = mcpRoute(
-    evidenceTools(EvidenceStore.in(join(dir, "data")), () => PULL),
+    evidenceTools(EvidenceStore.in(join(dir, "data")), () => LOCAL),
     INSTRUCTIONS,
     async () => ({
       repo: { root: "/repo", store, topic: "t" },
@@ -696,7 +695,7 @@ async function call(
 }
 
 const CAPTURE = {
-  pull: 7,
+  review: "stack",
   commit: "aaaa",
   id: "settings",
   name: "Settings",
@@ -725,8 +724,8 @@ describe("the evidence tools", () => {
     expect(answer.isError).toBe(false);
     const [capture] = capturesOf(
       store.read().document.captures,
-      "pull:o/r#7",
-      "h".repeat(40),
+      "local:stack",
+      "2",
     );
     expect(capture?.before).toBeNull();
     expect(capture?.media).toBe("image");
@@ -776,12 +775,12 @@ describe("the evidence tools", () => {
       after: join(dir, "after.png"),
     });
     const kept = () =>
-      capturesOf(store.read().document.captures, "pull:o/r#7", "h".repeat(40));
+      capturesOf(store.read().document.captures, "local:stack", "2");
     const replaced = kept().map((each) => each.name);
 
     // act
     const answer = await call("detach_capture", {
-      pull: 7,
+      review: "stack",
       commit: "aaaa",
       id: "settings",
     });

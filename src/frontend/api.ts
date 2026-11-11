@@ -8,14 +8,6 @@ import {
   type LogEntry,
   type OpLogEntry,
 } from "./model/history";
-import type {
-  PullBaseline,
-  PullCommitsResponse,
-  PullDiffResponse,
-  PullDiffScope,
-  PullHistory,
-  PullSummary,
-} from "./model/pull";
 import {
   type FoundRepo,
   inWorkspace,
@@ -214,137 +206,8 @@ const gitCommit = z.object({
   authoredAt: z.string(),
   changeId: z.string().nullable(),
 });
-
-const pullCommitsResponse = z.object({
-  head: GitOid,
-  version: z.number(),
-  base: GitOid,
-  commits: z.array(gitCommit),
-});
-
-export async function fetchPullCommits(
-  workspace: string,
-  repo: string,
-  number: number,
-  head: GitOid,
-): Promise<PullCommitsResponse> {
-  const params = new URLSearchParams({ repo, number: String(number), head });
-  return pullCommitsResponse.parse(
-    await getJson(
-      inWorkspace(`/api/github/pull/commits?${params}`, workspace),
-      "GET /api/github/pull/commits",
-    ),
-  );
-}
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[2]
-
-const pullSummary = z.object({
-  number: z.number(),
-  title: z.string(),
-  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
-  author: z.string(),
-  updatedAt: z.string(),
-  headRefOid: GitOid,
-  baseRefName: z.string(),
-  url: z.string(),
-});
-
-const pullVersion = z.object({
-  version: z.number(),
-  head: GitOid,
-  origin: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("opened") }),
-    z.object({ kind: z.literal("force-pushed"), at: z.string() }),
-    z.object({ kind: z.literal("current") }),
-  ]),
-});
-
-const pullHistory = z.object({
-  number: z.number(),
-  baseRefName: z.string(),
-  baseRefOid: GitOid,
-  states: z.array(pullVersion),
-  truncated: z.boolean(),
-});
-
-const pullBaseline = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("base") }),
-  z.object({ kind: z.literal("version"), head: GitOid }),
-]);
-
-const pullDiffResponse = z.object({
-  from: pullBaseline,
-  to: GitOid,
-  files: z.array(fileDiff),
-});
-
-/** The GitHub repository behind the one served, as `owner/name`. */
-export async function fetchRepo(workspace: string): Promise<string> {
-  const body = z
-    .object({ repo: z.string() })
-    .parse(
-      await getJson(
-        inWorkspace("/api/github/repo", workspace),
-        "GET /api/github/repo",
-      ),
-    );
-  return body.repo;
-}
-
-export async function fetchPulls(
-  repo: string,
-  state: "open" | "closed" | "merged" | "all",
-): Promise<PullSummary[]> {
-  const params = new URLSearchParams({ repo, state });
-  return z
-    .array(pullSummary)
-    .parse(
-      await getJson(`/api/github/pulls?${params}`, "GET /api/github/pulls"),
-    );
-}
-
-export async function fetchPullHistory(
-  repo: string,
-  number: number,
-): Promise<PullHistory> {
-  const params = new URLSearchParams({ repo, number: String(number) });
-  return pullHistory.parse(
-    await getJson(
-      `/api/github/pull/history?${params}`,
-      "GET /api/github/pull/history",
-    ),
-  );
-}
-export async function fetchPullDiff(
-  workspace: string,
-  repo: string,
-  number: number,
-  to: GitOid,
-  from: PullBaseline,
-  scope: PullDiffScope,
-): Promise<PullDiffResponse> {
-  const params = new URLSearchParams({
-    repo,
-    number: String(number),
-    to,
-    from: from.kind === "base" ? "base" : from.head,
-  });
-  if (scope.kind === "pair") {
-    params.set("fromCommit", scope.from);
-    params.set("toCommit", scope.to);
-  } else if (scope.kind === "commit") {
-    params.set("toCommit", scope.commit);
-  }
-  return pullDiffResponse.parse(
-    await getJson(
-      inWorkspace(`/api/github/pull/diff?${params}`, workspace),
-      "GET /api/github/pull/diff",
-    ),
-  );
-}
-// ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[3]
 
 const syntaxToken = z.object({
   text: z.string(),
@@ -382,7 +245,7 @@ export async function fetchSource(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[3]
 
 /** `ask.newPath` on the row's after side, read against `ask.oldPath` on its
  *  before side. */
@@ -428,7 +291,7 @@ export async function fetchBeforePaths(
     ).paths;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
 
 /** The commits `ids` name, in that order. */
 export async function fetchLocalCommits(
@@ -477,7 +340,7 @@ export async function fetchLocalSize(
   return filesResponse.parse(body).files;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[6]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
 
 /** Register a version of a local review at `operation`, and answer the name
  *  it went under. The review document announces the change to every open
@@ -505,7 +368,7 @@ export async function registerLocalReview(
   return z.object({ name: z.string() }).parse(body).name;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[7]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[6]
 
 const servedRepo = z.object({
   home: z.string(),

@@ -108,8 +108,8 @@ export interface CommitStackProps {
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
- *  pull request against its base has no older version to relate to, so
- *  `plain` is absent here and its rows wear no chip. */
+ *  series against its base has no older version to relate to, so `plain` is
+ *  absent here and its rows wear no chip. */
 const KIND_LABEL: Record<Exclude<StackRowKind, "plain">, string> = {
   added: "new",
   dropped: "dropped",

@@ -84,7 +84,7 @@ describe("compareAsks", () => {
     };
 
     // act
-    const asks = compareAsks(reviewComparison(document, "k", "x", null, null));
+    const asks = compareAsks(reviewComparison(document, "k", "x", null));
 
     // assert
     expect(asks).toEqual([]);
@@ -101,7 +101,7 @@ describe("compareAsks", () => {
     };
 
     // act
-    const asks = compareAsks(reviewComparison(document, "k", "x", "y", null));
+    const asks = compareAsks(reviewComparison(document, "k", "x", "y"));
 
     // assert
     expect(asks).toEqual([

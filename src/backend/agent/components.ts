@@ -208,7 +208,7 @@ export function componentTools(
     tool({
       name: "write_components",
       description:
-        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one, and the groups those components form. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
+        "Write the component map of the newest version of a local review, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one, and the groups those components form. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
       input: z.object({
         ...Target,
         components: z.array(ComponentInput).min(1),
@@ -219,10 +219,7 @@ export function componentTools(
             "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
           ),
       }),
-      call: async (
-        { review, pull, components, groups },
-        { repo, link, now },
-      ) => {
+      call: async ({ review, components, groups }, { repo, link, now }) => {
         const { store } = repo;
         const sources = sourcesOf(repo);
         const kinds = store.read().document.componentKinds;
@@ -235,7 +232,7 @@ export function componentTools(
             `${unknown.id} is a ${unknown.kind}, which is not a kind this repository uses. Its kinds are:\n${vocabulary(kinds)}`,
           );
         }
-        const target = await targetOf(sources, { review, pull });
+        const target = await targetOf(sources, { review });
         const resolved = components.map(
           ({ commit, ...rest }): Component => ({
             ...rest,
@@ -325,7 +322,7 @@ export function componentTools(
     tool({
       name: "read_components",
       description:
-        "Read the component map of the newest version of a local review or a pull request as JSON, in the shape write_components takes, so it can be edited and written back. Read the previous version's map before writing a new one, to keep its ids.",
+        "Read the component map of the newest version of a local review as JSON, in the shape write_components takes, so it can be edited and written back. Read the previous version's map before writing a new one, to keep its ids.",
       input: z.object({
         ...Target,
         version: z
@@ -333,20 +330,11 @@ export function componentTools(
           .optional()
           .describe("an older version to read instead, such as v1"),
       }),
-      call: async ({ review, pull, version }, { repo }) => {
+      call: async ({ review, version }, { repo }) => {
         const { store } = repo;
-        const target = await targetOf(sourcesOf(repo), { review, pull });
+        const target = await targetOf(sourcesOf(repo), { review });
         const asked =
-          version === undefined
-            ? target.version
-            : review !== undefined
-              ? version.replace(/^v/, "")
-              : null;
-        if (asked === null) {
-          throw new ToolError(
-            "an older version of a pull request is read by its newest only",
-          );
-        }
+          version === undefined ? target.version : version.replace(/^v/, "");
         const map = componentsTo(
           store.read().document.componentMaps,
           target.series,

@@ -14,36 +14,27 @@ const mark = {
   toCommitId: "a2",
   seenAt: "2026-09-14T09:00:00.000Z",
 };
-const head = "b".repeat(40);
 
 describe("legacyReview", () => {
   test("reads nothing when the browser kept nothing", () => {
     // arrange
     // act
     // assert
-    expect(legacyReview("now")).toBeNull();
+    expect(legacyReview()).toBeNull();
   });
 
-  test("reads the session and each pull request's head into one document", () => {
+  test("reads the session into one document", () => {
     // arrange
     localStorage.setItem(
       "diffy.session.v1",
       JSON.stringify({ marks: [mark], comments: [] }),
     );
-    localStorage.setItem(
-      "diffy.last-reviewed.v1:o/r#7",
-      JSON.stringify({ head }),
-    );
 
     // act
-    const document = legacyReview("now");
+    const document = legacyReview();
 
     // assert
-    expect(document).toEqual({
-      ...EMPTY_REVIEW,
-      marks: [mark],
-      reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "now" }],
-    });
+    expect(document).toEqual({ ...EMPTY_REVIEW, marks: [mark] });
   });
 
   test("keeps the comments of a session saved before comments had kinds", () => {
@@ -65,7 +56,7 @@ describe("legacyReview", () => {
 
     // act
     // assert
-    expect(legacyReview("now")?.comments).toEqual([
+    expect(legacyReview()?.comments).toEqual([
       {
         ...comment,
         kind: "line",
@@ -75,22 +66,12 @@ describe("legacyReview", () => {
       },
     ]);
   });
-
-  test("skips a pull request's head that does not parse", () => {
-    // arrange
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
-
-    // act
-    // assert
-    expect(legacyReview("now")).toBeNull();
-  });
 });
 
 describe("clearLegacyReview", () => {
-  test("forgets the review keys and leaves the settings", () => {
+  test("forgets the session and leaves the settings", () => {
     // arrange
     localStorage.setItem("diffy.session.v1", "{}");
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#7", "{}");
     localStorage.setItem("diffy.settings.v1", "{}");
 
     // act

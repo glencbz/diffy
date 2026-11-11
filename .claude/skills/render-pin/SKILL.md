@@ -54,7 +54,8 @@ Run the pin once before the first move. A fixture that fails on the before
 side is a broken fixture, not evidence. Then rerun it after each step.
 
 `examples/nest-views.tsx` is the pin for PR #90, which nested `DiffView` and
-the pull request views. Start a new fixture from it.
+the pull request views. Those views no longer exist, so it shows the shape of
+a fixture, not one that runs; start a new fixture from its structure.
 
 ## Evidence
 

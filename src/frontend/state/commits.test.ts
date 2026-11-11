@@ -58,47 +58,32 @@ describe("commitsFrom", () => {
     expect(asked).toEqual(["/api/log?op=0a1b2c&workspace=%2Fw"]);
   });
 
-  test("reads a pull source out of that head's commits", async () => {
+  test("reads a local source out of its commits, newest first", async () => {
     // arrange
-    const asked = serve({
-      head: HEAD,
-      version: 7,
-      base: BASE,
-      commits: [
-        {
-          commitId: HEAD,
-          parents: [BASE],
-          description: "frontend: give the graph side-by-side branch lanes",
-          author: "glencbz",
-          authoredAt: "2026-09-10T09:00:00Z",
-          changeId: "frontend: give the graph side-by-side branch lanes",
-        },
-      ],
+    const commit = (id: GitOid, parent: GitOid, changeId: string) => ({
+      commitId: id,
+      parents: [parent],
+      description: "frontend: give the graph side-by-side branch lanes",
+      author: "glencbz",
+      authoredAt: "2026-09-10T09:00:00Z",
+      changeId,
     });
+    const asked = serve([commit(BASE, HEAD, "kx"), commit(HEAD, BASE, "ky")]);
 
     // act
     const commits = await commitsFrom("/w", {
-      kind: "pull",
-      repo: "glencbz/diffy",
-      number: 9,
-      head: HEAD,
+      kind: "local",
+      commits: [BASE, HEAD],
     });
 
     // assert
-    expect(commits).toEqual([
-      {
-        commitId: HEAD,
-        changeId: null,
-        description: "frontend: give the graph side-by-side branch lanes",
-        parents: [BASE],
-        author: "glencbz",
-        timestamp: "2026-09-10T09:00:00Z",
-        refs: [],
-        markers: [],
-      },
+    expect(commits.map((entry) => [entry.commitId, entry.changeId])).toEqual([
+      [HEAD, "ky"],
+      [BASE, "kx"],
     ]);
+    expect(commits[0]?.timestamp).toBe("2026-09-10T09:00:00Z");
     expect(asked[0]).toBe(
-      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}&workspace=%2Fw`,
+      `/api/local/commits?id=${BASE}&id=${HEAD}&workspace=%2Fw`,
     );
   });
 });

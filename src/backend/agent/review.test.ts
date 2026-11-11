@@ -390,7 +390,9 @@ describe("the review tools", () => {
     });
     store.apply(comment("before", "2026-09-01T00:00:00Z", tip.commitId));
     store.apply(comment("inside", "2026-10-02T00:00:00.000Z", tip.commitId));
-    store.apply(comment("on a pull", "2026-10-03T00:00:00Z", "f".repeat(40)));
+    store.apply(
+      comment("on no review", "2026-10-03T00:00:00Z", "f".repeat(40)),
+    );
     const agents = await call("add_comment", {
       name: "t",
       change: tip.changeId,
@@ -432,7 +434,11 @@ describe("the review tools", () => {
         link: "https://vm:4000/reviews/t",
         change: tip.changeId.slice(0, 8),
       }),
-      expect.objectContaining({ id: "on a pull", review: null, change: null }),
+      expect.objectContaining({
+        id: "on no review",
+        review: null,
+        change: null,
+      }),
       expect.objectContaining({
         id: agents.text,
         author: "claude",

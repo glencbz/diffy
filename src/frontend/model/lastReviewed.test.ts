@@ -1,7 +1,7 @@
-// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-model-last-reviewed-test>>[init]
+// ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-model-last-reviewed-test>>[init]
 import { describe, expect, test } from "bun:test";
 import { lastReviewed, opening } from "./lastReviewed";
-import { openPull, type PullPlace } from "./place";
+import { type LocalPlace, openLocal } from "./place";
 import type { ReviewedVersion } from "./review";
 import type { SeriesVersion } from "./series";
 
@@ -13,8 +13,8 @@ describe("opening", () => {
   const versions = [version(1, "a"), version(2, "b"), version(3, "c")];
 
   test("opens a bare address on the changes since the version last reviewed", () => {
-    expect(opening(openPull(7), "a", versions)).toEqual({
-      number: 7,
+    expect(opening(openLocal("stack"), "a", versions)).toEqual({
+      name: "stack",
       from: { kind: "version", id: "a" },
       to: null,
       spot: null,
@@ -22,22 +22,28 @@ describe("opening", () => {
   });
 
   test("opens whole when nothing was reviewed", () => {
-    expect(opening(openPull(7), null, versions)).toEqual(openPull(7));
+    expect(opening(openLocal("stack"), null, versions)).toEqual(
+      openLocal("stack"),
+    );
   });
 
   test("opens whole when the latest version is the one reviewed", () => {
-    expect(opening(openPull(7), "c", versions)).toEqual(openPull(7));
+    expect(opening(openLocal("stack"), "c", versions)).toEqual(
+      openLocal("stack"),
+    );
   });
 
   test("opens whole when the version reviewed is no longer in the history", () => {
-    expect(opening(openPull(7), "f", versions)).toEqual(openPull(7));
+    expect(opening(openLocal("stack"), "f", versions)).toEqual(
+      openLocal("stack"),
+    );
   });
 
-  test("leaves an address that names anything past the number alone", () => {
-    const places: PullPlace[] = [
-      { ...openPull(7), to: "c" },
-      { ...openPull(7), from: { kind: "version", id: "b" } },
-      { ...openPull(7), to: "c", spot: { commit: "d", file: null } },
+  test("leaves an address that names anything past the name alone", () => {
+    const places: LocalPlace[] = [
+      { ...openLocal("stack"), to: "c" },
+      { ...openLocal("stack"), from: { kind: "version", id: "b" } },
+      { ...openLocal("stack"), to: "c", spot: { commit: "d", file: null } },
     ];
 
     for (const place of places) {
@@ -50,7 +56,7 @@ describe("lastReviewed", () => {
   const versions = [version(1, "a"), version(2, "b"), version(3, "c")];
 
   function mark(id: string, reviewedAt: string): ReviewedVersion {
-    return { series: "pull:o/r#7", version: id, reviewedAt };
+    return { series: "local:stack", version: id, reviewedAt };
   }
 
   test("takes the newest version marked, whenever it was marked", () => {

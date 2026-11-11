@@ -98,7 +98,7 @@ export async function resolveRegistration(
   };
 }
 
-/** The commits `ids` name, in that order, in a pull request's shape. */
+/** The commits `ids` name, in that order. */
 export async function localCommits(
   root: string,
   ids: string[],

@@ -28,7 +28,7 @@ export type TreeNode =
   | { kind: "file"; name: string; file: ChangedFile };
 
 /** A DOM id unique to one file within one scope: a comparison row's key, or
- *  a pull request stack's commit id. */
+ *  a stack's commit id. */
 export function fileAnchor(scope: string, path: string): string {
   const slug = (value: string) => value.replace(/[^a-zA-Z0-9_-]+/g, "-");
   return `file-${slug(scope)}-${slug(path)}`;

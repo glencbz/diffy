@@ -177,8 +177,7 @@ export const SeenPlace = PlaceVersion.extend({
 });
 export type SeenPlace = z.infer<typeof SeenPlace>;
 
-/** One version of a series the reader said they reviewed: a head of a pull
- *  request, named by its oid. */
+/** One version of a series the reader said they reviewed. */
 export const ReviewedVersion = z.object({
   series: z.string(),
   version: z.string(),
@@ -186,15 +185,7 @@ export const ReviewedVersion = z.object({
 });
 export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
 
-/** The key a commit was last written on under, for a commit whose own id
- *  does not survive a rewrite. */
-export const KeptKey = z.object({
-  commitId: z.string(),
-  reviewKey: z.string(),
-});
-export type KeptKey = z.infer<typeof KeptKey>;
-
-/** A pairing the reader corrected by hand, for the two heads it pairs. */
+/** A pairing the reader corrected by hand, for the two versions it pairs. */
 export const KeptPairing = z.object({
   series: z.string(),
   before: z.string(),
@@ -246,7 +237,6 @@ export const ReviewDocument = z.looseObject({
   viewed: z.array(ViewedFile).default([]),
   seenPlaces: z.array(SeenPlace).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
-  keys: z.array(KeptKey).default([]),
   pairings: z.array(KeptPairing).default([]),
   compared: z.array(ComparedFile).default([]),
   localReviews: z.array(LocalReview).default([]),
@@ -267,7 +257,6 @@ export const EMPTY_REVIEW: ReviewDocument = {
   viewed: [],
   seenPlaces: [],
   reviewed: [],
-  keys: [],
   pairings: [],
   compared: [],
   localReviews: [],
@@ -284,7 +273,6 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.viewed.length === 0 &&
     document.seenPlaces.length === 0 &&
     document.reviewed.length === 0 &&
-    document.keys.length === 0 &&
     document.pairings.length === 0 &&
     document.compared.length === 0 &&
     document.localReviews.length === 0 &&
@@ -292,11 +280,6 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.captures.length === 0 &&
     document.runs.length === 0
   );
-}
-
-/** The series a pull request's versions are marked reviewed under. */
-export function pullSeries(repo: string, number: number): string {
-  return `pull:${repo}#${number}`;
 }
 
 /** The series a local review's versions are marked reviewed under. */
@@ -478,10 +461,6 @@ export interface ComparisonReview {
   reviewKey: string;
   fromCommitId: string | null;
   toCommitId: string | null;
-  /** The commit to record under `reviewKey` when the reader writes anything
-   *  here, so that the row it becomes in a later version inherits the key.
-   *  Null for a key that survives a rewrite on its own, as a change id does. */
-  keeps: string | null;
   review: RowReview;
   comments: RowComment[];
   viewed: ViewedFile[];
@@ -561,7 +540,6 @@ export function reviewComparison(
   key: string,
   fromCommitId: string | null,
   toCommitId: string | null,
-  keeps: string | null,
 ): ComparisonReview {
   const comments = document.comments
     .filter((comment) => comment.reviewKey === key)
@@ -576,7 +554,6 @@ export function reviewComparison(
     reviewKey: key,
     fromCommitId,
     toCommitId,
-    keeps,
     review: reviewFor(
       document.marks.filter((mark) => mark.reviewKey === key),
       fromCommitId,
@@ -600,44 +577,21 @@ export function reviewRows(
       reviewKey(row),
       row.from?.commitId ?? null,
       row.to?.commitId ?? null,
-      null,
     ),
   }));
 }
 
-/** The key a pull request row is filed under. A commit has no id of its own
- *  that survives a force push, so a row takes the key its before commit was
- *  given when the reader last wrote on it, and a row whose before commit was
- *  never written on, or that has none, starts a key from its own commit.
- *  Writing on the row records that key for the row's own commit, which is
- *  what the row it becomes in the next version inherits. */
-export function pullRowKey(
-  document: ReviewDocument,
-  before: string | null,
-  after: string | null,
-): { reviewKey: string; keeps: string } {
-  const own = after ?? before;
-  if (own === null) throw new Error("a pull request row has no commit");
-  const kept = (commitId: string | null) =>
-    commitId === null
-      ? undefined
-      : document.keys.find((key) => key.commitId === commitId)?.reviewKey;
-  const inherited = before !== null ? kept(before) : kept(after);
-  return { reviewKey: inherited ?? `rev:${own}`, keeps: own };
-}
-
 /** The key a local review's row is filed under: its change id, which
- *  survives the rewrites between one registration and the next, so there is
- *  nothing to record for the next version to inherit. */
+ *  survives the rewrites between one registration and the next. */
 export function localRowKey(
   before: { commitId: string; changeId: string | null } | null,
   after: { commitId: string; changeId: string | null } | null,
-): { reviewKey: string; keeps: null } {
+): { reviewKey: string } {
   const own = after ?? before;
   if (own === null) throw new Error("a local review row has no commit");
   const reviewKey =
     own.changeId === null ? `rev:${own.commitId}` : `change:${own.changeId}`;
-  return { reviewKey, keeps: null };
+  return { reviewKey };
 }
 
 /** Whether two marks (or a mark and a comparison) name the same row: the
@@ -729,11 +683,6 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     series: z.string(),
     version: z.string(),
     at: z.string(),
-  }),
-  z.object({
-    kind: z.literal("set-key"),
-    commitId: z.string(),
-    reviewKey: z.string(),
   }),
   z.object({
     kind: z.literal("set-compared"),
@@ -927,14 +876,6 @@ export function applyCommand(
           sameReviewedVersion,
         ),
       };
-    case "set-key":
-      return {
-        ...document,
-        keys: [
-          ...document.keys.filter((key) => key.commitId !== command.commitId),
-          { commitId: command.commitId, reviewKey: command.reviewKey },
-        ],
-      };
     case "set-pairing": {
       const pairings = document.pairings.filter(
         (kept) => !samePairing(kept, command),
@@ -1078,11 +1019,6 @@ export function applyCommand(
           command.document.reviewed,
           sameReviewedVersion,
         ),
-        keys: added(
-          document.keys,
-          command.document.keys,
-          (a, b) => a.commitId === b.commitId,
-        ),
         pairings: added(
           document.pairings,
           command.document.pairings,
@@ -1169,7 +1105,7 @@ function samePairing(a: PairingHeads, b: PairingHeads): boolean {
   return a.series === b.series && a.before === b.before && a.after === b.after;
 }
 
-/** The pairing the reader kept for two heads of a series, if they kept one. */
+/** The pairing the reader kept for two versions of a series, if they kept one. */
 export function keptPairing(
   document: ReviewDocument,
   heads: PairingHeads,
@@ -1321,12 +1257,5 @@ export function commentOn(
       replies: [],
     },
   };
-}
-
-/** What writing on a row records first, so its key outlives the row. */
-export function keepKey(row: ComparisonReview): ReviewCommand[] {
-  return row.keeps === null
-    ? []
-    : [{ kind: "set-key", commitId: row.keeps, reviewKey: row.reviewKey }];
 }
 // ~/~ end

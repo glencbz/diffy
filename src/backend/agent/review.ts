@@ -510,7 +510,7 @@ export function reviewTools(): Tool[] {
     tool({
       name: "read_review_history",
       description:
-        "Read everything the reader wrote while reviewing between two times, across every review, as JSON: the versions they marked reviewed, and each thread they started or replied to in the window, whole, with the agent's side of it. A thread names its local review and change, or no review when it is on a pull request. Use it to learn how the reader reviews.",
+        "Read everything the reader wrote while reviewing between two times, across every review, as JSON: the versions they marked reviewed, and each thread they started or replied to in the window, whole, with the agent's side of it. A thread names its local review and change, or no review when its commit is in none. Use it to learn how the reader reviews.",
       input: z.object({
         since: Moment.describe(
           "the start of the window, as an ISO date or time",
@@ -544,8 +544,7 @@ export function reviewTools(): Tool[] {
             ),
           ),
         );
-        // Only local reviews' commits: a pull request's are fetched where
-        // jj cannot see them, and one unknown id fails the whole lookup.
+        // Only local reviews' commits: one unknown id fails the whole lookup.
         const entries = await jjCommits(root, [
           ...new Set(
             threads.flatMap((comment) =>

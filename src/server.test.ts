@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[init]
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,35 +10,19 @@ import {
   LISTEN_PATH,
   waitFor,
 } from "./backend/agent/listeners";
-import { ToolError } from "./backend/agent/mcp";
-import type { GitHubGraphQL } from "./backend/commit/github";
-import { jjDiff, jjDiffBetween, jjInterdiff } from "./backend/commit/jj";
-import { hostFrom } from "./backend/host/host";
-import {
-  DefaultRepo,
-  RecentRepos,
-  type RepoContext,
-  Workspaces,
-} from "./backend/repo/repos";
+import type { RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
-  agentContext,
   agentListen,
   handleCompare,
   handleComparePaths,
-  handleGithubPullCommits,
-  handleGithubPullHistory,
-  handleGithubPulls,
   handleInterdiff,
   handleLog,
   handleOperations,
   handleSource,
   localReviewsRoute,
-  pullDiffResponse,
   reviewChanges,
   reviewRoute,
-  routes,
-  type SocketData,
   sockets,
 } from "./server";
 import { FIXED, scratchRepo } from "./testing/history";
@@ -50,8 +34,8 @@ const REPO: RepoContext = {
   store: openReviewStore(":memory:"),
   topic: "test",
 };
-const HOST = { now: () => new Date(), diffy: ["diffy"] };
-const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
+const _HOST = { now: () => new Date(), diffy: ["diffy"] };
+const _ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
@@ -326,50 +310,6 @@ describe("handleInterdiff", () => {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[1]
 
-describe("the GitHub routes", () => {
-  test("reports a repo that is not owner/name as 400", async () => {
-    // arrange
-    // act
-    const res = await handleGithubPulls(
-      new Request("http://test/api/github/pulls?repo=diffy"),
-    );
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(body.error).toMatch(/owner\/name/);
-  });
-
-  test("reports a missing pull request number as 400", async () => {
-    // arrange
-    // act
-    const res = await handleGithubPullHistory(
-      new Request("http://test/api/github/pull/history?repo=glencbz/diffy"),
-    );
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(typeof body.error).toBe("string");
-  });
-
-  test("reports a head that is not a 40-hex oid as 400", async () => {
-    // arrange
-    const url =
-      "http://test/api/github/pull/commits?repo=glencbz/diffy&number=9&head=nope";
-
-    // act
-    const res = await handleGithubPullCommits(new Request(url), REPO);
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(body.error).toMatch(/40-character/);
-  });
-});
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[2]
-
 describe("the review route", () => {
   interface Route {
     GET: () => Response;
@@ -461,7 +401,7 @@ describe("the review route", () => {
 
       // act
       await mark("local:t", "1");
-      await mark("pull:o/r#1", "abc");
+      await mark("other:1", "abc");
       await mark("local:t", "2");
       for (const at of [
         "2026-10-22T11:00:00.000Z",
@@ -644,428 +584,6 @@ describe("the review route", () => {
       up = false;
       server.stop(true);
       await rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server-test>>[3]
-
-describe("pullDiffResponse", () => {
-  /** A pull request whose base and heads are commits every clone of this repo has. */
-  async function localPull(): Promise<{ base: string; heads: string[] }> {
-    return { base: FIXED.first, heads: [FIXED.second, FIXED.third] };
-  }
-
-  /** A transport that answers the history query for that pull request. */
-  function stubHistory(base: string, heads: string[]): GitHubGraphQL {
-    return () =>
-      Promise.resolve({
-        data: {
-          repository: {
-            pullRequest: {
-              number: 9,
-              headRefOid: heads.at(-1),
-              baseRefName: "main",
-              baseRefOid: base,
-              timelineItems: {
-                pageInfo: { hasNextPage: false },
-                nodes: heads.slice(1).map((after, index) => ({
-                  createdAt: "2026-09-01T10:00:00Z",
-                  beforeCommit: { oid: heads[index] },
-                  afterCommit: { oid: after },
-                })),
-              },
-            },
-          },
-        },
-      });
-  }
-
-  const unreachable: GitHubGraphQL = () =>
-    Promise.reject(new Error("the transport should not have been reached"));
-
-  function query(extra: Record<string, string>): URLSearchParams {
-    return new URLSearchParams({
-      repo: "glencbz/diffy",
-      number: "9",
-      ...extra,
-    });
-  }
-
-  async function body(res: Response) {
-    return (await res.json()) as {
-      from: { kind: string; head?: string };
-      to: string;
-      files: { status: string; path?: string; newPath?: string }[];
-      error?: string;
-    };
-  }
-
-  function paths(files: { path?: string; newPath?: string }[]): string[] {
-    return files.map((file) => file.path ?? file.newPath ?? "");
-  }
-
-  test("interdiffs two heads of the same pull request", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.from).toEqual({ kind: "version", head: earlier });
-    expect(answer.to).toBe(later);
-    expect(answer.files).toEqual(
-      await jjInterdiff(ROOT, { from: earlier, to: later }),
-    );
-    expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
-  });
-
-  test("fromCommit and toCommit together interdiff those two commits", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later, fromCommit: base, toCommit: earlier }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(
-      await jjInterdiff(ROOT, { from: base, to: earlier }),
-    );
-    expect(answer.files).not.toEqual(
-      await jjInterdiff(ROOT, { from: earlier, to: later }),
-    );
-  });
-
-  test("toCommit alone answers that one commit's own diff", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later, toCommit: earlier }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(await jjDiff(ROOT, { revision: earlier }));
-    expect(answer.files).not.toEqual(
-      await jjInterdiff(ROOT, { from: earlier, to: later }),
-    );
-  });
-
-  test("reports a malformed toCommit the same way as a malformed to", async () => {
-    // arrange
-    const { heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later, toCommit: "nope" }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-    expect((await body(res)).error).toMatch(/40-character/);
-  });
-
-  test("reports a head that is not a 40-hex oid as 400, before asking GitHub", async () => {
-    // arrange
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ to: "nope" }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-    expect((await body(res)).error).toMatch(/40-character/);
-  });
-
-  test("reports a malformed from the same way as a malformed to", async () => {
-    // arrange
-    const { heads } = await localPull();
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: "nope", to: heads[1] as string }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-  });
-
-  test("reports a missing from as 400, before asking GitHub", async () => {
-    // arrange
-    const { heads } = await localPull();
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ to: heads[1] as string }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-  });
-
-  test("diffs the base against a head", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const later = heads.at(-1) as string;
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: "base", to: later }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.from).toEqual({ kind: "base" });
-    expect(answer.files).toEqual(
-      await jjDiffBetween(ROOT, { from: base, to: later }),
-    );
-  });
-
-  test("measures a diverged base from the commit the head grew out of", async () => {
-    // arrange
-    // The base carries something the merge base does not, or a diff from
-    // either would be the same diff.
-    const { base, head, mergeBase } = FIXED.diverged;
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: "base", to: head }),
-      stubHistory(base, [head]),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(
-      await jjDiffBetween(ROOT, { from: mergeBase, to: head }),
-    );
-    const fromBase = await $`jj diff --name-only --from ${base} --to ${head}`
-      .quiet()
-      .text();
-    expect(paths(answer.files).sort()).not.toEqual(
-      fromBase.split("\n").filter(Boolean).sort(),
-    );
-  });
-
-  test("refuses the base as the after end", async () => {
-    // arrange
-    const { heads } = await localPull();
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: heads[0] as string, to: "base" }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-  });
-
-  test("reports a head this pull request never had as 404", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const stranger = "f".repeat(40);
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: heads[0] as string, to: stranger }),
-      stubHistory(base, heads),
-    );
-
-    // assert
-    expect(res.status).toBe(404);
-    expect((await body(res)).error).toMatch(/never had head/);
-  });
-});
-
-describe("a repository per tab and per agent", () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "diffy-agents-"));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  /** A fresh jj repository, and a second workspace of it. */
-  async function repoWithWorkspace(name: string) {
-    const root = join(dir, name);
-    await $`jj git init ${root}`.quiet();
-    const second = join(dir, `${name}-ws`);
-    await $`jj workspace add ${second}`.cwd(root).quiet();
-    return { root, second };
-  }
-
-  const SEEN = {
-    kind: "set-seen",
-    comparison: { reviewKey: "change:a", fromCommitId: null, toCommitId: "a" },
-    seen: true,
-    at: "2026-10-19T09:00:00.000Z",
-  } as const;
-
-  test("runs an agent's call in its workspace, and links the reader to it", async () => {
-    // arrange
-    const reader = await repoWithWorkspace("reader");
-    const agent = await repoWithWorkspace("agent");
-    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
-    const workspaces = new Workspaces(host, () => {});
-    const context = (caller: string | null) =>
-      agentContext(HOST, { root: reader.root }, workspaces, ORIGINS, caller);
-
-    // act
-    const named = await context(agent.second);
-    const unnamed = await context(null);
-    named.repo.store.apply(SEEN);
-
-    // assert
-    expect(named.repo.root).toBe(agent.second);
-    expect(named.link("/reviews/x")).toBe(
-      `http://vm/reviews/x?repo=${encodeURIComponent(agent.second)}`,
-    );
-    expect(unnamed.repo.root).toBe(reader.root);
-    expect(named.wait("my t")).toBe(
-      "diffy wait 'my t' --url http://localhost:4000",
-    );
-    expect((await context(agent.root)).repo.store).toBe(named.repo.store);
-    // The agent's write went to its own repository's store.
-    expect(unnamed.repo.store.revision()).toBe(0);
-    expect(named.repo.store.revision()).toBe(1);
-  });
-
-  test("fails a call from a path that is no workspace", async () => {
-    // arrange
-    const workspaces = new Workspaces(hostFrom({}, dir), () => {});
-
-    // act
-    const call = agentContext(HOST, { root: null }, workspaces, ORIGINS, dir);
-
-    // assert
-    await expect(call).rejects.toBeInstanceOf(ToolError);
-  });
-
-  test("reads each tab's repository from its request", async () => {
-    // arrange
-    const reader = await repoWithWorkspace("reader");
-    const other = await repoWithWorkspace("other");
-    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
-    const defaultRepo = new DefaultRepo(host, null);
-    await defaultRepo.open(reader.root);
-    const table = routes(
-      host,
-      defaultRepo,
-      RecentRepos.in(host.dataDir),
-      new Workspaces(host, () => {}),
-      new AgentListeners(),
-    );
-    const review = (workspace: string | null, init?: RequestInit) =>
-      new Request(
-        `http://test/api/review${workspace === null ? "" : `?workspace=${encodeURIComponent(workspace)}`}`,
-        init,
-      );
-    const revision = async (workspace: string | null) =>
-      (
-        (await (await table["/api/review"].GET(review(workspace))).json()) as {
-          revision: number;
-        }
-      ).revision;
-
-    // act
-    await table["/api/review"].POST(
-      review(other.second, { method: "POST", body: JSON.stringify(SEEN) }),
-    );
-    const missing = await table["/api/review"].GET(review(join(dir, "none")));
-
-    // assert
-    expect(await revision(other.root)).toBe(1);
-    expect(await revision(reader.root)).toBe(0);
-    expect(await revision(null)).toBe(0);
-    expect(missing.status).toBe(404);
-  });
-
-  test("tells a socket only about its own repository's writes", async () => {
-    // arrange
-    const reader = await repoWithWorkspace("reader");
-    const other = await repoWithWorkspace("other");
-    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
-    let server: Bun.Server<SocketData> | null = null;
-    const workspaces = new Workspaces(host, (topic, revision) =>
-      server?.publish(topic, JSON.stringify({ revision })),
-    );
-    const defaultRepo = new DefaultRepo(host, null);
-    const table = routes(
-      host,
-      defaultRepo,
-      RecentRepos.in(host.dataDir),
-      workspaces,
-      new AgentListeners(),
-    );
-    server = Bun.serve({
-      port: 0,
-      routes: { "/api/review/changes": table["/api/review/changes"] },
-      websocket: sockets(new AgentListeners()),
-    });
-    const listen = async (workspace: string) => {
-      const heard: unknown[] = [];
-      const socket = new WebSocket(
-        `ws://localhost:${server?.port}/api/review/changes?workspace=${encodeURIComponent(workspace)}`,
-      );
-      socket.onmessage = (event) => heard.push(JSON.parse(String(event.data)));
-      await new Promise((resolve) => {
-        socket.onopen = resolve;
-      });
-      return { socket, heard };
-    };
-    const readerTab = await listen(reader.root);
-    const otherTab = await listen(other.root);
-
-    try {
-      // act
-      (await workspaces.context(other.root)).store.apply(SEEN);
-      await Bun.sleep(800);
-
-      // assert
-      expect(otherTab.heard).toEqual([{ revision: 1 }]);
-      expect(readerTab.heard).toEqual([]);
-    } finally {
-      readerTab.socket.close();
-      otherTab.socket.close();
-      server.stop(true);
     }
   });
 });

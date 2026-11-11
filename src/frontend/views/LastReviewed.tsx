@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-last-reviewed>>[init]
+// ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-view-last-reviewed>>[init]
 import {
   type MarkLabel,
   type SeriesBaseline,
@@ -24,8 +24,7 @@ export function LastReviewed({
   /** The after version's mark. */
   mark: VersionMark;
   markLabel: MarkLabel;
-  /** What reading the newest version whole is called: `the whole pull
-   *  request`. */
+  /** What reading the newest version whole is called: `whole review`. */
   wholeLabel: string;
   onWhole: () => void;
 }) {

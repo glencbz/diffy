@@ -11,9 +11,7 @@ single page. Its landing screen, `Operations`, draws the repo's commit graph
 beside the diff of the commits ticked in it, and can split the graph in two to
 interdiff one operation against another. `Local reviews` reads series
 registered for review, review state lives in a server-side store, and narrow
-screens get one pane at a time. The same app also reviews GitHub pull
-requests, a mode this harness does not reach; see the scope note in
-`features/README.md`.
+screens get one pane at a time.
 
 A verification run starts its own instance on an ephemeral port, pointed at a
 throwaway jj repo with known commits. It never touches port 3000, the repo you
@@ -121,7 +119,7 @@ Stable handles in this UI:
 | Viewed | `checkbox "Viewed"` in each file header |
 | File summary | `region "Files changed"`, rows named `<status letter> <path> <counts>` |
 | File navigator | `button "Previous file"`, `"Show changed files"`, `"Next file"`; `dialog "Changed files"` |
-| Top tabs | `nav button:text-is("Operations")`, or `"Local reviews"`, `"Pull requests"`, `"Settings"` |
+| Top tabs | `nav button:text-is("Operations")`, or `"Local reviews"`, `"Settings"` |
 | Narrow pane tabs | `button "commits <what it holds>"` (or `before`/`after` with the interdiff open), `"diff"`, below 1000px |
 | Local reviews | `button "show the local review list"`, `combobox "from"`, `combobox "to"`, list entries `v<n> <name> <revset>` |
 | Empty states | `Select commits to see their diff.`, `No changes in this commit.`, `Both commits make the same change.`, `Select a local review to read it.` |

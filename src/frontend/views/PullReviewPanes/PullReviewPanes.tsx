@@ -18,8 +18,7 @@ export function PullReviewPanes({
   onStep,
   ...panels
 }: {
-  /** The series screen's header, which a pull request and a local review
-   *  each fill in for themselves. */
+  /** The series screen's header. */
   header: ReactNode;
   picker: ReactNode;
   position: StackPosition;

@@ -37,14 +37,13 @@ index 1111111..2222222 100644
  twenty-two
 `;
 
-/** A pull request of one commit that changes `a.ts` in two places. */
-const PULL: SeriesSources = {
-  local: () => Promise.reject(new Error("not asked")),
-  pull: async (number) => ({
-    series: `pull:o/r#${number}`,
-    version: "h".repeat(40),
+/** A local review of one commit that changes `a.ts` in two places. */
+const LOCAL: SeriesSources = {
+  local: async (name) => ({
+    series: `local:${name}`,
+    version: "2",
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/reviews/${name}`,
     commits: [
       {
         commitId: "aaaa1111",
@@ -75,7 +74,7 @@ async function call(
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
   const route = mcpRoute(
-    componentTools(() => PULL),
+    componentTools(() => LOCAL),
     INSTRUCTIONS,
     async () => ({
       repo: { root: "/repo", store, topic: "t" },
@@ -122,14 +121,14 @@ describe("the component tools", () => {
     // arrange
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
     });
 
     // assert
     expect(written).toEqual({
       text: [
-        "https://vm:4000/pulls/7",
+        "https://vm:4000/reviews/stack",
         "the components of v2: 1 over 1 of 1 commits",
         "no component claims:",
         "  aaaa1111 a.ts: added 21",
@@ -137,16 +136,16 @@ describe("the component tools", () => {
       isError: false,
     });
     const [map] = store.read().document.componentMaps;
-    expect(map?.series).toBe("pull:o/r#7");
+    expect(map?.series).toBe("local:stack");
     expect(map?.components[0]?.commitId).toBe("aaaa1111");
   });
 
   test("read a map back in the shape it was written", async () => {
     // arrange
-    await call("write_components", { pull: 7, components: [LOUDER] });
+    await call("write_components", { review: "stack", components: [LOUDER] });
 
     // act
-    const read = await call("read_components", { pull: 7 });
+    const read = await call("read_components", { review: "stack" });
 
     // assert
     const [component] = JSON.parse(read.text).components;
@@ -159,7 +158,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [quoted],
     });
 
@@ -181,7 +180,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [sideways],
     });
 
@@ -199,7 +198,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [stray],
     });
 
@@ -220,11 +219,11 @@ describe("the component tools", () => {
 
     // act
     await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
       groups: [group],
     });
-    const read = await call("read_components", { pull: 7 });
+    const read = await call("read_components", { review: "stack" });
 
     // assert
     const { commit: _, ...stored } = group;
@@ -240,7 +239,7 @@ describe("the component tools", () => {
     // arrange
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
       groups: [{ commit: "aaaa", id: "g", name: "G", components: ["quiet"] }],
     });
@@ -262,7 +261,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
       groups: [twice("a"), twice("b")],
     });
@@ -280,7 +279,7 @@ describe("the vocabulary tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [model],
     });
 
@@ -302,7 +301,7 @@ describe("the vocabulary tools", () => {
       colour: "blue",
     });
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [{ ...LOUDER, kind: "model" }],
     });
 
@@ -402,7 +401,7 @@ describe("the vocabulary tools", () => {
     // act
     const read = await call("read_component_kinds", {});
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [{ ...LOUDER, kind: "anything" }],
     });
 

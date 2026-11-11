@@ -1,12 +1,12 @@
 # Frontend
 
-The review UI is a small [React](https://react.dev/) app with two screens.
-**Local history** has a *before* and an *after* commit graph, each read at an
-operation of its own, and a diff panel. Pick commits on each side and the
-panel shows one interdiff row per pair [`alignSeries`](../backend/series.md)
-lines up; a commit with nothing opposite shows its own diff, so reading a
-single commit needs no separate mode. **Pull requests** is the same
-comparison over a pull request's force-pushed heads.
+The review UI is a small [React](https://react.dev/) app. **Operations** has
+a *before* and an *after* commit graph, each read at an operation of its own,
+and a diff panel. Pick commits on each side and the panel shows one interdiff
+row per pair [`alignSeries`](../backend/series.md) lines up; a commit with
+nothing opposite shows its own diff, so reading a single commit needs no
+separate mode. **Local reviews** is the same comparison over the versions a
+series was registered at.
 
 ## Architecture
 
@@ -96,9 +96,7 @@ storage pattern; the reviewed repository is spelled `repo`.)
 ### controllers
 
 A controller wires one state hook to one view and renders the view or a
-`Message`; it has no markup of its own. `PullReview` mounts several, because
-nothing can be asked for until the pull request's history says which head is
-latest.
+`Message`; it has no markup of its own.
 
 ### screens
 
@@ -112,7 +110,7 @@ no frame, so each reads top to bottom on its own.
 [settings](settings.md#sharing-the-settings), the
 [review document](review.md#holding-it-while-it-changes), and
 [local history](local-history.md#polling-the-operation-log). Where the reader
-is (tab, pull request, heads, commit, file, line) is the
+is (tab, review, versions, commit, file, line) is the
 [address](address.md), read through `usePlace`.
 
 ### Keeping the boundary honest
@@ -237,8 +235,6 @@ with its markup. The references below are an inventory, not an order.
 <<design-diff-view>>
 
 <<design-syntax>>
-
-<<design-pull-state-chip>>
 
 <<design-pull-list>>
 

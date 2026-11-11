@@ -1,12 +1,11 @@
 // ~/~ begin <<docs/architecture/frontend/shell.md#frontend-view-mode-tabs>>[init]
 import type { ReactNode } from "react";
 
-export type Mode = "reviews" | "local" | "pulls" | "settings";
+export type Mode = "reviews" | "local" | "settings";
 
 const CAPTIONS: Record<Mode, string> = {
   reviews: "Local reviews",
   local: "Operations",
-  pulls: "Pull requests",
   settings: "Settings",
 };
 

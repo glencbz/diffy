@@ -1,6 +1,6 @@
 # Commit stack
 
-`CommitStack` reads a pull request one section per commit, top to bottom,
+`CommitStack` reads a review one section per commit, top to bottom,
 rather than as one squashed patch that loses which commit each hunk came
 from. Each section shows its message (a [`CommitMessage`](commit-message.md),
 cut to its opening) and keeps its diff folded until asked for, so a reader
@@ -146,8 +146,8 @@ export interface CommitStackProps {
 }
 
 /** A row that stands in some relation to an older version says so. Reading a
- *  pull request against its base has no older version to relate to, so
- *  `plain` is absent here and its rows wear no chip. */
+ *  series against its base has no older version to relate to, so `plain` is
+ *  absent here and its rows wear no chip. */
 const KIND_LABEL: Record<Exclude<StackRowKind, "plain">, string> = {
   added: "new",
   dropped: "dropped",

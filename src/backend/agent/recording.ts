@@ -78,7 +78,7 @@ export function recordingTools(
     tool({
       name: "record_captures",
       description:
-        "Record screenshots or clips of the app for a commit of the newest version of a local review or a pull request, and attach them. Serve the app at the commit and at its parent yourself, each on its own port, and give their addresses. diffy plays each recipe on both sides in a browser, measures each component's element by its selector, and attaches the result as attach_capture would. Write the version's component map first.",
+        "Record screenshots or clips of the app for a commit of the newest version of a local review, and attach them. Serve the app at the commit and at its parent yourself, each on its own port, and give their addresses. diffy plays each recipe on both sides in a browser, measures each component's element by its selector, and attaches the result as attach_capture would. Write the version's component map first.",
       input: z.object({
         ...Target,
         commit: z

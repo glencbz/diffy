@@ -21,8 +21,8 @@ beforeEach(async () => {
   store.apply({
     kind: "write-components",
     map: {
-      series: "pull:o/r#7",
-      version: "h".repeat(40),
+      series: "local:stack",
+      version: "2",
       author: "claude",
       writtenAt: "t",
       components: [
@@ -47,13 +47,12 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const PULL: SeriesSources = {
-  local: () => Promise.reject(new Error("not asked")),
-  pull: async (number) => ({
-    series: `pull:o/r#${number}`,
-    version: "h".repeat(40),
+const LOCAL: SeriesSources = {
+  local: async (name) => ({
+    series: `local:${name}`,
+    version: "2",
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/reviews/${name}`,
     commits: [
       {
         commitId: "aaaa1111",
@@ -72,7 +71,7 @@ async function call(
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
   const route = mcpRoute(
-    evidenceTools(EvidenceStore.in(join(dir, "data")), () => PULL),
+    evidenceTools(EvidenceStore.in(join(dir, "data")), () => LOCAL),
     INSTRUCTIONS,
     async () => ({
       repo: { root: "/repo", store, topic: "t" },
@@ -102,7 +101,7 @@ async function call(
 }
 
 const CAPTURE = {
-  pull: 7,
+  review: "stack",
   commit: "aaaa",
   id: "settings",
   name: "Settings",
@@ -131,8 +130,8 @@ describe("the evidence tools", () => {
     expect(answer.isError).toBe(false);
     const [capture] = capturesOf(
       store.read().document.captures,
-      "pull:o/r#7",
-      "h".repeat(40),
+      "local:stack",
+      "2",
     );
     expect(capture?.before).toBeNull();
     expect(capture?.media).toBe("image");
@@ -182,12 +181,12 @@ describe("the evidence tools", () => {
       after: join(dir, "after.png"),
     });
     const kept = () =>
-      capturesOf(store.read().document.captures, "pull:o/r#7", "h".repeat(40));
+      capturesOf(store.read().document.captures, "local:stack", "2");
     const replaced = kept().map((each) => each.name);
 
     // act
     const answer = await call("detach_capture", {
-      pull: 7,
+      review: "stack",
       commit: "aaaa",
       id: "settings",
     });

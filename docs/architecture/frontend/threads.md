@@ -13,9 +13,7 @@ draws them.
 A thread belongs to a series when the commit it was written on is in one of
 the series' versions. A comment's key alone cannot say this. A local
 review's key is a change id, so it would name the right change but not which
-version the comment was written on. A pull request's key starts at the commit
-the reader first wrote on and follows [`pullRowKey`](review.md#review-state)
-from there, and no version's commit list names it. Every version's commits are
+version the comment was written on. Every version's commits are
 loaded once for this ([`useEveryVersion`](series.md#reading-a-series)).
 
 A thread is written on the oldest version that has its commit. A commit can sit

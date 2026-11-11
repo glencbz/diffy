@@ -3,26 +3,24 @@
 Where a reader is lives in the address, so a link can be shared and a reload
 returns to the same place:
 
-A pull request opened on a line reads like this, with the ids cut short here:
+A local review opened on a line reads like this, with the id cut short here:
 
 ```
-/pulls/41/commits/77d2…/files/src/server.ts?from=4c1e…&to=9a0b…#L120
+/reviews/stack/commits/77d2…/files/src/server.ts?from=1&to=2#L120
 ```
 
 The path is the place's hierarchy, screen down to file, and reading stops at
 the first segment that does not parse, so a cut-short or mistyped link opens
 as much as still makes sense. The file path comes last because it holds
-slashes; the line is the fragment, as GitHub writes it. A flat query string
-(`?pull=41&commit=…&file=…`) would hide that nesting. The two heads go in the
-query because they are settings on the view, each with a default that is
-left out (no `from` is the base, no `to` the latest head). A head the pull
-request never had is not caught here; it reads as the commit list's fetch
+slashes; the line is the fragment. A flat query string
+(`?review=stack&commit=…&file=…`) would hide that nesting. The two versions go
+in the query because they are settings on the view, each with a default that
+is left out (no `from` is the base, no `to` the latest version). A version
+the review never had is not caught here; it reads as the commit list's fetch
 error.
 
-A local review's address has the same shape, with its name where the number
-is and version numbers in the query, `/reviews/stack/commits/77d2…?from=1&to=2`.
-Both kinds read what follows the series through one `readSeries`, handed the
-rule for a version id: a head oid, or a number.
+What follows the series is read through `readSeries`, handed the rule for a
+version id, which is a number.
 
 ## The place
 
@@ -32,13 +30,11 @@ rule for a version id: a head oid, or a number.
 //| id: frontend-model-place
 //| file: src/frontend/model/place.ts
 import { GitOid } from "./history";
-import type { PullSummary } from "./pull";
 import type { SeriesBaseline } from "./series";
 
 export type Place =
   | { tab: "local" }
   | { tab: "settings" }
-  | { tab: "pulls"; pull: PullPlace | null }
   | { tab: "reviews"; review: LocalPlace | null };
 
 /** Where the reader is in one series: the two versions compared, and what
@@ -52,10 +48,6 @@ export interface SeriesPlace {
   spot: CommitSpot | null;
 }
 
-export interface PullPlace extends SeriesPlace {
-  number: number;
-}
-
 export interface LocalPlace extends SeriesPlace {
   name: string;
 }
@@ -65,13 +57,6 @@ export interface CommitSpot {
   commit: string;
   file: FileSpot | null;
 }
-
-/** What the pull request screen shows for a place: the list alone, a pull
- *  request under review, or the list held over one as a sheet. */
-export type PullChoice =
-  | { phase: "browsing" }
-  | { phase: "reviewing"; pull: PullSummary }
-  | { phase: "picking"; pull: PullSummary };
 
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {
@@ -92,17 +77,12 @@ export interface DiffLinks {
 
 const OPENED: SeriesPlace = { from: { kind: "base" }, to: null, spot: null };
 
-export function openPull(number: number): PullPlace {
-  return { number, ...OPENED };
-}
-
 export function openLocal(name: string): LocalPlace {
   return { name, ...OPENED };
 }
 
 /** A screen as it opens from its tab, with nothing picked on it yet. */
 export function tabPlace(tab: Place["tab"]): Place {
-  if (tab === "pulls") return { tab: "pulls", pull: null };
   if (tab === "reviews") return { tab: "reviews", review: null };
   return { tab };
 }
@@ -136,13 +116,6 @@ export function withRepo(address: string, repo: string | null): string {
 export function readPlace(address: Address): Place {
   const [tab, ...rest] = address.pathname.split("/").filter((s) => s !== "");
   if (tab === "settings") return { tab: "settings" };
-  if (tab === "pulls") {
-    const [numberSegment, ...after] = rest;
-    const number = positive(numberSegment);
-    if (number === null) return { tab: "pulls", pull: null };
-    const place = readSeries(after, address, oid);
-    return { tab: "pulls", pull: { number, ...place } };
-  }
   if (tab === "reviews") {
     const [nameSegment, ...after] = rest;
     const name = nameSegment === undefined ? null : decoded(nameSegment);
@@ -157,7 +130,7 @@ export function readPlace(address: Address): Place {
 }
 
 /** A place in one series, from what follows the series in the address.
- *  `version` reads a version id, and a pull request's is a head oid. */
+ *  `version` reads a version id. */
 function readSeries(
   [commits, commitSegment, files, ...pathSegments]: string[],
   { search, hash }: Address,
@@ -214,10 +187,6 @@ function decoded(value: string): string | null {
 export function writePlace(place: Place): string {
   if (place.tab === "local") return "/";
   if (place.tab === "settings") return "/settings";
-  if (place.tab === "pulls") {
-    if (place.pull === null) return "/pulls";
-    return writeSeries(["pulls", String(place.pull.number)], place.pull);
-  }
   if (place.review === null) return "/reviews";
   return writeSeries(["reviews", place.review.name], place.review);
 }
@@ -244,11 +213,6 @@ function writeSeries(
   return `/${path}${search === "" ? "" : `?${search}`}${hash}`;
 }
 
-/** The href a link to a place on the pull request screen carries. */
-export function pullHref(pull: PullPlace): string {
-  return writePlace({ tab: "pulls", pull });
-}
-
 /** The href a link to a place in a local review carries. */
 export function localHref(review: LocalPlace): string {
   return writePlace({ tab: "reviews", review });
@@ -258,7 +222,7 @@ export function localHref(review: LocalPlace): string {
 ## Following the address
 
 `usePlace` is the only code that touches `window.history`. A move the reader
-did not ask for as a step, such as the pull request screen following the
+did not ask for as a step, such as the review screen following the
 commit scrolled to, replaces the entry instead of pushing one, so back skips
 the scroll and returns to the place the reader came from.
 
@@ -346,20 +310,20 @@ describe("readPlace", () => {
     expect(at("/")).toEqual({ tab: "local" });
   });
 
-  test("reads every part of a pull request down to a line", () => {
+  test("reads every part of a local review down to a line", () => {
     // arrange
-    const address = `/pulls/41/commits/${oid("c")}/files/src/server.ts?from=${oid("a")}&to=${oid("b")}#L120`;
+    const address = `/reviews/stack/commits/${oid("c")}/files/src/server.ts?from=1&to=2#L120`;
 
     // act
     const place = at(address);
 
     // assert
     expect(place).toEqual({
-      tab: "pulls",
-      pull: {
-        number: 41,
-        from: { kind: "version", id: oid("a") },
-        to: oid("b"),
+      tab: "reviews",
+      review: {
+        name: "stack",
+        from: { kind: "version", id: "1" },
+        to: "2",
         spot: {
           commit: oid("c"),
           file: { path: "src/server.ts", line: 120 },
@@ -369,12 +333,12 @@ describe("readPlace", () => {
   });
 
   test("keeps the file when its line does not parse", () => {
-    const place = at(`/pulls/41/commits/${oid("c")}/files/a.ts#L0`);
+    const place = at(`/reviews/x/commits/${oid("c")}/files/a.ts#L0`);
 
     expect(place).toEqual({
-      tab: "pulls",
-      pull: {
-        number: 41,
+      tab: "reviews",
+      review: {
+        name: "x",
         from: { kind: "base" },
         to: null,
         spot: { commit: oid("c"), file: { path: "a.ts", line: null } },
@@ -383,39 +347,26 @@ describe("readPlace", () => {
   });
 
   test("drops a file whose commit does not parse", () => {
-    const place = at("/pulls/41/commits/abc/files/a.ts#L3");
+    const place = at("/reviews/x/commits/abc/files/a.ts#L3");
 
     expect(place).toEqual({
-      tab: "pulls",
-      pull: { number: 41, from: { kind: "base" }, to: null, spot: null },
+      tab: "reviews",
+      review: { name: "x", from: { kind: "base" }, to: null, spot: null },
     });
   });
 
   test("keeps the commit when its file does not decode", () => {
-    const place = at(`/pulls/41/commits/${oid("c")}/files/%E0%A4%A#L3`);
+    const place = at(`/reviews/x/commits/${oid("c")}/files/%E0%A4%A#L3`);
 
     expect(place).toEqual({
-      tab: "pulls",
-      pull: {
-        number: 41,
+      tab: "reviews",
+      review: {
+        name: "x",
         from: { kind: "base" },
         to: null,
         spot: { commit: oid("c"), file: null },
       },
     });
-  });
-
-  test("opens the pull request afresh when a head does not parse", () => {
-    const place = at(`/pulls/41/commits/${oid("c")}/files/a.ts?to=abc`);
-
-    expect(place).toEqual({
-      tab: "pulls",
-      pull: { number: 41, from: { kind: "base" }, to: null, spot: null },
-    });
-  });
-
-  test("reads a pull number that is not a number as the list", () => {
-    expect(at("/pulls/x")).toEqual({ tab: "pulls", pull: null });
   });
 
   test("reads a local review by name, its versions by number", () => {
@@ -448,26 +399,12 @@ describe("writePlace", () => {
   const places: Place[] = [
     { tab: "local" },
     { tab: "settings" },
-    { tab: "pulls", pull: null },
     {
-      tab: "pulls",
-      pull: { number: 7, from: { kind: "base" }, to: null, spot: null },
-    },
-    {
-      tab: "pulls",
-      pull: {
-        number: 7,
-        from: { kind: "version", id: oid("a") },
-        to: oid("b"),
-        spot: { commit: oid("c"), file: null },
-      },
-    },
-    {
-      tab: "pulls",
-      pull: {
-        number: 7,
+      tab: "reviews",
+      review: {
+        name: "stack",
         from: { kind: "base" },
-        to: oid("b"),
+        to: "2",
         spot: {
           commit: oid("c"),
           file: { path: "dir/a file&more#?.ts", line: 3 },
@@ -494,16 +431,18 @@ describe("writePlace", () => {
 
   test("keeps the slashes of a file's path readable", () => {
     const address = writePlace({
-      tab: "pulls",
-      pull: {
-        number: 7,
+      tab: "reviews",
+      review: {
+        name: "stack",
         from: { kind: "base" },
         to: null,
         spot: { commit: oid("c"), file: { path: "src/a.ts", line: 3 } },
       },
     });
 
-    expect(address).toBe(`/pulls/7/commits/${oid("c")}/files/src/a.ts#L3`);
+    expect(address).toBe(
+      `/reviews/stack/commits/${oid("c")}/files/src/a.ts#L3`,
+    );
   });
 });
 

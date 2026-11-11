@@ -11,10 +11,10 @@ Each module taking the environment as a defaulted parameter would let a test
 pass another, but every caller that left it out would still read the real one,
 and a test that forgets writes into the reader's own review stores.
 
-The `jj`, `git`, `gh` and `difft` processes diffy runs are the exception. They
-are found on `PATH` and inherit the process's environment, so `GH_HOST` and
-jj's own configuration reach them the way they reach the same command typed in
-a shell.
+The `jj`, `git` and `difft` processes diffy runs are the exception. They
+are found on `PATH` and inherit the process's environment, so jj's own
+configuration reaches them the way it reaches the same command typed in a
+shell.
 
 ```ts
 //| id: backend-host

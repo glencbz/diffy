@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-view-series-comparison-picker>>[init]
+// ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-view-series-comparison-picker>>[init]
 import type { AsyncState } from "../model/asyncState";
 import {
   type SeriesBaseline,
@@ -22,12 +22,12 @@ export function SeriesComparisonPicker({
   to: string;
   /** The size of the comparison on screen, whichever ends it has. */
   size: AsyncState<ChangeSize>;
-  /** What the whole of one version is called: `whole pull request`. */
+  /** What the whole of one version is called: `whole review`. */
   wholeLabel: string;
   onPickFrom: (from: SeriesBaseline) => void;
   onPickTo: (id: string) => void;
 }) {
-  const { versions, baseLabel, truncated } = history;
+  const { versions, baseLabel } = history;
 
   return (
     <div className="pull-compare">
@@ -68,13 +68,6 @@ export function SeriesComparisonPicker({
           <ChangeCount size={size.data} />
         </span>
       )}
-      {truncated ? (
-        <p className="pull-compare__truncated">
-          Some versions are missing here. This pull request was force-pushed
-          more times than GitHub's history holds, and it does not say which ones
-          were lost.
-        </p>
-      ) : null}
       <p className="pull-compare__caption">{caption(history, from, to)}</p>
     </div>
   );

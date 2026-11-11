@@ -1,4 +1,4 @@
-// ~/~ begin <<docs/architecture/frontend/pull-requests.md#frontend-controller-series-review>>[init]
+// ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-controller-series-review>>[init]
 import {
   type ReactNode,
   useCallback,
@@ -42,7 +42,6 @@ import {
 import { runsOf } from "../model/runs";
 import {
   type MarkLabel,
-  rowAsk,
   type SeriesHistory,
   type SeriesSource,
   versionAsk,
@@ -244,7 +243,7 @@ export interface SeriesScreen {
   /** Every version, at least one, oldest first. */
   history: SeriesHistory;
   header: ReactNode;
-  /** What the whole of one version is called: `whole pull request`. */
+  /** What the whole of one version is called: `whole review`. */
   wholeLabel: string;
   markLabel: MarkLabel;
   /** The key a row comparing these two commits is filed under. */
@@ -252,7 +251,7 @@ export interface SeriesScreen {
     document: ReviewDocument,
     before: GitCommit | null,
     after: GitCommit | null,
-  ) => { reviewKey: string; keeps: string | null };
+  ) => { reviewKey: string };
   /** Where the single lane of a base comparison reads one version from. */
   lane: (id: string) => Source;
 }
@@ -333,18 +332,17 @@ export function SeriesReview({
             ),
         },
   );
-  const diffs = useRowDiffs(rowAsk(source, from, to), pairing.slots);
+  const diffs = useRowDiffs(pairing.slots);
 
   const reviewOf = (row: StackRow): ComparisonReview => {
     const before = row.kind === "dropped" ? row.commit : row.was;
     const after = row.kind === "dropped" ? null : row.commit;
-    const { reviewKey, keeps } = screen.keyOf(review.document, before, after);
+    const { reviewKey } = screen.keyOf(review.document, before, after);
     return reviewComparison(
       review.document,
       reviewKey,
       before?.commitId ?? null,
       after?.commitId ?? null,
-      keeps,
     );
   };
 
@@ -378,9 +376,6 @@ export function SeriesReview({
     enabled: componentsOn && from.kind === "base",
   });
   const [ownDiffs, wantOwn] = useOwnDiffs({
-    source,
-    from: from.kind === "version" ? from.id : null,
-    to,
     fromCommits: beforeCommits,
     toCommits: afterCommits,
   });

@@ -489,7 +489,7 @@ with what the reader wrote in a window of time, for an agent working out how
 the reader reviews. It hands back whole threads rather than the reader's
 comments alone, since a reply only makes sense beside what it answers. It
 finds a comment's review by the commit it was written on, which the review
-store records only for local reviews, so a pull request's threads come back
+store records only for local reviews, so a thread on any other commit comes back
 with no review named.
 
 Registering commits identical to the newest version's adds nothing. The
@@ -1015,7 +1015,7 @@ export function reviewTools(): Tool[] {
     tool({
       name: "read_review_history",
       description:
-        "Read everything the reader wrote while reviewing between two times, across every review, as JSON: the versions they marked reviewed, and each thread they started or replied to in the window, whole, with the agent's side of it. A thread names its local review and change, or no review when it is on a pull request. Use it to learn how the reader reviews.",
+        "Read everything the reader wrote while reviewing between two times, across every review, as JSON: the versions they marked reviewed, and each thread they started or replied to in the window, whole, with the agent's side of it. A thread names its local review and change, or no review when its commit is in none. Use it to learn how the reader reviews.",
       input: z.object({
         since: Moment.describe(
           "the start of the window, as an ISO date or time",
@@ -1049,8 +1049,7 @@ export function reviewTools(): Tool[] {
             ),
           ),
         );
-        // Only local reviews' commits: a pull request's are fetched where
-        // jj cannot see them, and one unknown id fails the whole lookup.
+        // Only local reviews' commits: one unknown id fails the whole lookup.
         const entries = await jjCommits(root, [
           ...new Set(
             threads.flatMap((comment) =>
@@ -1198,36 +1197,21 @@ export function reviewTools(): Tool[] {
 
 ## Naming a series
 
-A tool that writes to a series names it by `review` or `pull` and writes to
-its newest version, the one the reader opens. A pull request's newest head is
-read from GitHub and fetched the way the [pull request screen](github.md)
-fetches it, and its commits are named by commit id, since git gives them no
-change id. The tools read their series through `SeriesSources`, so a test can
-stand a pull request in without asking GitHub.
+A tool that writes to a series names it by `review` and writes to its newest
+version, the one the reader opens. The tools read their series through
+`SeriesSources`, so a test can stand a review in without a repository.
 
 ```ts
 //| id: backend-agent-series
 //| file: src/backend/agent/series.ts
 import * as z from "zod";
-import {
-  localReview,
-  localSeries,
-  pullSeries,
-} from "../../frontend/model/review";
-import { GitError, gitFiles, gitLog, gitMaterialize } from "../commit/git";
-import {
-  GitHubError,
-  githubPullRequestHistory,
-  originRepo,
-  PullNumber,
-  pullPins,
-} from "../commit/github";
+import { localReview, localSeries } from "../../frontend/model/review";
+import { gitFiles } from "../commit/git";
 import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
 import { ToolError } from "./mcp";
 
-/** A commit as a tool names it to the agent. A pull request's commits
- *  have no change ids, so they are named by commit id alone. */
+/** A commit as a tool names it to the agent. */
 export interface SeriesCommit {
   commitId: string;
   changeId: string | null;
@@ -1253,7 +1237,6 @@ export interface SeriesTarget {
 /** Where a tool reads a series and its commits from. */
 export interface SeriesSources {
   local: (name: string) => Promise<SeriesTarget>;
-  pull: (number: number) => Promise<SeriesTarget>;
   diff: (commitId: string) => Promise<JjFileDiff[]>;
   /** Every file of a revision git names, such as `<commit id>^`. */
   files: (revision: string) => Promise<string[]>;
@@ -1292,33 +1275,6 @@ export function liveSources({ root, store }: RepoContext): SeriesSources {
         }),
       };
     },
-    pull: async (number) => {
-      const { owner, name } = await originRepo(root);
-      const repo = `${owner}/${name}`;
-      const history = await githubPullRequestHistory(
-        { owner, name },
-        PullNumber.parse(number),
-      );
-      const state = history.states.at(-1);
-      if (state === undefined) throw new ToolError(`#${number} has no head`);
-      const [base, tip] = await gitMaterialize(root, pullPins(history, state));
-      if (base === undefined || tip === undefined) {
-        throw new Error("gitMaterialize returned fewer oids than asked");
-      }
-      const commits = await gitLog(root, { from: base, to: tip, limit: 200 });
-      return {
-        series: pullSeries(repo, number),
-        version: state.head,
-        label: `v${state.version}`,
-        path: `/pulls/${number}`,
-        commits: commits.reverse().map((commit) => ({
-          commitId: commit.commitId,
-          changeId: null,
-          subject: subject(commit.description),
-          description: commit.description,
-        })),
-      };
-    },
     diff: (commitId) => jjDiff(root, { revision: commitId }),
     files: (revision) => gitFiles(root, revision),
   };
@@ -1352,34 +1308,15 @@ export function pathsOf(file: JjFileDiff): string[] {
 /** The lines a hunk spans on each side, as `[first, last]`. */
 
 export const Target = {
-  review: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("the local review's name, for a local review"),
-  pull: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe("the pull request's number, for a pull request"),
+  review: z.string().min(1).describe("the local review's name"),
 };
 
 export function targetOf(
   sources: SeriesSources,
-  { review, pull }: { review?: string | undefined; pull?: number | undefined },
+  { review }: { review: string },
 ): Promise<SeriesTarget> {
-  if ((review === undefined) === (pull === undefined)) {
-    throw new ToolError("name one of review or pull");
-  }
-  const target =
-    review !== undefined ? sources.local(review) : sources.pull(pull as number);
-  return target.catch((error: unknown) => {
-    if (
-      error instanceof JjError ||
-      error instanceof GitError ||
-      error instanceof GitHubError
-    ) {
+  return sources.local(review).catch((error: unknown) => {
+    if (error instanceof JjError) {
       throw new ToolError(error.message);
     }
     throw error;
@@ -1639,7 +1576,7 @@ export function componentTools(
     tool({
       name: "write_components",
       description:
-        "Write the component map of the newest version of a local review or a pull request, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one, and the groups those components form. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
+        "Write the component map of the newest version of a local review, replacing any map of that version: for each commit, the components it builds, each of a kind from the repository's vocabulary (read_component_kinds), and the changed lines that make each one, and the groups those components form. Keep a component's id from version to version, so the reader is told what is new, gone or changed. Answers with the reader's link and the changed lines no component claims.",
       input: z.object({
         ...Target,
         components: z.array(ComponentInput).min(1),
@@ -1650,10 +1587,7 @@ export function componentTools(
             "each commit's components grouped into the parts of the change a reader would check one at a time, such as the stored data, the command that changes it and the view that draws it; a component is in one group at most",
           ),
       }),
-      call: async (
-        { review, pull, components, groups },
-        { repo, link, now },
-      ) => {
+      call: async ({ review, components, groups }, { repo, link, now }) => {
         const { store } = repo;
         const sources = sourcesOf(repo);
         const kinds = store.read().document.componentKinds;
@@ -1666,7 +1600,7 @@ export function componentTools(
             `${unknown.id} is a ${unknown.kind}, which is not a kind this repository uses. Its kinds are:\n${vocabulary(kinds)}`,
           );
         }
-        const target = await targetOf(sources, { review, pull });
+        const target = await targetOf(sources, { review });
         const resolved = components.map(
           ({ commit, ...rest }): Component => ({
             ...rest,
@@ -1756,7 +1690,7 @@ export function componentTools(
     tool({
       name: "read_components",
       description:
-        "Read the component map of the newest version of a local review or a pull request as JSON, in the shape write_components takes, so it can be edited and written back. Read the previous version's map before writing a new one, to keep its ids.",
+        "Read the component map of the newest version of a local review as JSON, in the shape write_components takes, so it can be edited and written back. Read the previous version's map before writing a new one, to keep its ids.",
       input: z.object({
         ...Target,
         version: z
@@ -1764,20 +1698,11 @@ export function componentTools(
           .optional()
           .describe("an older version to read instead, such as v1"),
       }),
-      call: async ({ review, pull, version }, { repo }) => {
+      call: async ({ review, version }, { repo }) => {
         const { store } = repo;
-        const target = await targetOf(sourcesOf(repo), { review, pull });
+        const target = await targetOf(sourcesOf(repo), { review });
         const asked =
-          version === undefined
-            ? target.version
-            : review !== undefined
-              ? version.replace(/^v/, "")
-              : null;
-        if (asked === null) {
-          throw new ToolError(
-            "an older version of a pull request is read by its newest only",
-          );
-        }
+          version === undefined ? target.version : version.replace(/^v/, "");
         const map = componentsTo(
           store.read().document.componentMaps,
           target.series,
@@ -2286,7 +2211,9 @@ describe("the review tools", () => {
     });
     store.apply(comment("before", "2026-09-01T00:00:00Z", tip.commitId));
     store.apply(comment("inside", "2026-10-02T00:00:00.000Z", tip.commitId));
-    store.apply(comment("on a pull", "2026-10-03T00:00:00Z", "f".repeat(40)));
+    store.apply(
+      comment("on no review", "2026-10-03T00:00:00Z", "f".repeat(40)),
+    );
     const agents = await call("add_comment", {
       name: "t",
       change: tip.changeId,
@@ -2328,7 +2255,11 @@ describe("the review tools", () => {
         link: "https://vm:4000/reviews/t",
         change: tip.changeId.slice(0, 8),
       }),
-      expect.objectContaining({ id: "on a pull", review: null, change: null }),
+      expect.objectContaining({
+        id: "on no review",
+        review: null,
+        change: null,
+      }),
       expect.objectContaining({
         id: agents.text,
         author: "claude",
@@ -2533,14 +2464,13 @@ index 1111111..2222222 100644
  twenty-two
 `;
 
-/** A pull request of one commit that changes `a.ts` in two places. */
-const PULL: SeriesSources = {
-  local: () => Promise.reject(new Error("not asked")),
-  pull: async (number) => ({
-    series: `pull:o/r#${number}`,
-    version: "h".repeat(40),
+/** A local review of one commit that changes `a.ts` in two places. */
+const LOCAL: SeriesSources = {
+  local: async (name) => ({
+    series: `local:${name}`,
+    version: "2",
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/reviews/${name}`,
     commits: [
       {
         commitId: "aaaa1111",
@@ -2571,7 +2501,7 @@ async function call(
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
   const route = mcpRoute(
-    componentTools(() => PULL),
+    componentTools(() => LOCAL),
     INSTRUCTIONS,
     async () => ({
       repo: { root: "/repo", store, topic: "t" },
@@ -2618,14 +2548,14 @@ describe("the component tools", () => {
     // arrange
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
     });
 
     // assert
     expect(written).toEqual({
       text: [
-        "https://vm:4000/pulls/7",
+        "https://vm:4000/reviews/stack",
         "the components of v2: 1 over 1 of 1 commits",
         "no component claims:",
         "  aaaa1111 a.ts: added 21",
@@ -2633,16 +2563,16 @@ describe("the component tools", () => {
       isError: false,
     });
     const [map] = store.read().document.componentMaps;
-    expect(map?.series).toBe("pull:o/r#7");
+    expect(map?.series).toBe("local:stack");
     expect(map?.components[0]?.commitId).toBe("aaaa1111");
   });
 
   test("read a map back in the shape it was written", async () => {
     // arrange
-    await call("write_components", { pull: 7, components: [LOUDER] });
+    await call("write_components", { review: "stack", components: [LOUDER] });
 
     // act
-    const read = await call("read_components", { pull: 7 });
+    const read = await call("read_components", { review: "stack" });
 
     // assert
     const [component] = JSON.parse(read.text).components;
@@ -2655,7 +2585,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [quoted],
     });
 
@@ -2677,7 +2607,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [sideways],
     });
 
@@ -2695,7 +2625,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [stray],
     });
 
@@ -2716,11 +2646,11 @@ describe("the component tools", () => {
 
     // act
     await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
       groups: [group],
     });
-    const read = await call("read_components", { pull: 7 });
+    const read = await call("read_components", { review: "stack" });
 
     // assert
     const { commit: _, ...stored } = group;
@@ -2736,7 +2666,7 @@ describe("the component tools", () => {
     // arrange
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
       groups: [{ commit: "aaaa", id: "g", name: "G", components: ["quiet"] }],
     });
@@ -2758,7 +2688,7 @@ describe("the component tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [LOUDER],
       groups: [twice("a"), twice("b")],
     });
@@ -2776,7 +2706,7 @@ describe("the vocabulary tools", () => {
 
     // act
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [model],
     });
 
@@ -2798,7 +2728,7 @@ describe("the vocabulary tools", () => {
       colour: "blue",
     });
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [{ ...LOUDER, kind: "model" }],
     });
 
@@ -2898,7 +2828,7 @@ describe("the vocabulary tools", () => {
     // act
     const read = await call("read_component_kinds", {});
     const written = await call("write_components", {
-      pull: 7,
+      review: "stack",
       components: [{ ...LOUDER, kind: "anything" }],
     });
 

@@ -101,9 +101,6 @@ Preconditions:
   Do not report a 500 as the error path working.
 - `structural` reading `difftastic is not installed` means the server was not
   started through `verify.sh`, which runs it inside the pinned `nix` runtime.
-- The `/api/github/*` routes belong to the pull request screens and are out of
-  scope here. They map failures differently: a missing pull request is a 404,
-  a `gh` or `git` failure a 502, and a malformed parameter a 400.
 - The UI's own error rendering (red `Message` text) is not reachable with a
   healthy fixture. Prove the 400 at the API and note the UI path as unproven
   rather than faking a failure with `browser_evaluate`.

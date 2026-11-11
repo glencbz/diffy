@@ -11,10 +11,8 @@ import {
 import type { AsyncState } from "../model/asyncState";
 import {
   applyCommand,
-  type ComparisonReview,
   commentOn,
   EMPTY_REVIEW,
-  keepKey,
   markPlaceSeen,
   markSeen,
   markViewed,
@@ -75,7 +73,7 @@ export function useReview(): ReviewHandle {
     let cancelled = false;
     (async () => {
       let snapshot = await reviewStore.load();
-      const legacy = legacyReview(new Date().toISOString());
+      const legacy = legacyReview();
       if (legacy !== null) {
         snapshot = await reviewStore.send({ kind: "import", document: legacy });
         clearLegacyReview();
@@ -124,15 +122,10 @@ export function useReview(): ReviewHandle {
         },
       );
     };
-    const write = (row: ComparisonReview, command: ReviewCommand) => {
-      for (const kept of keepKey(row)) send(kept);
-      send(command);
-    };
     return {
-      markSeen: (row) => write(row, markSeen(row, now())),
+      markSeen: (row) => send(markSeen(row, now())),
       addComment: (row, anchor, body) =>
-        write(
-          row,
+        send(
           commentOn(row, {
             id: crypto.randomUUID(),
             ...anchor,
@@ -160,11 +153,10 @@ export function useReview(): ReviewHandle {
         send({ kind: "edit-reply", commentId, replyId, body }),
       dropReply: (commentId, replyId) =>
         send({ kind: "delete-reply", commentId, replyId }),
-      toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
-      togglePlaceSeen: (row, place) =>
-        write(row, markPlaceSeen(row, place, now())),
+      toggleViewed: (row, file) => send(markViewed(row, file, now())),
+      togglePlaceSeen: (row, place) => send(markPlaceSeen(row, place, now())),
       compare: (row, newPath, oldPath) =>
-        write(row, {
+        send({
           kind: "set-compared",
           reviewKey: row.reviewKey,
           newPath,

@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/series.md#frontend-model-series-test>>[init]
 import { describe, expect, test } from "bun:test";
 import type { LocalReview } from "./review";
-import { localHistory, rowAsk, versionAsk } from "./series";
+import { localHistory, versionAsk } from "./series";
 
 const review: LocalReview = {
   name: "stack",
@@ -36,7 +36,6 @@ describe("versionAsk", () => {
 
     expect(versionAsk(source, "2")).toEqual({ kind: "local", commits: ["c3"] });
     expect(() => versionAsk(source, "3")).toThrow("stack has no version 3");
-    expect(rowAsk(source, { kind: "base" }, "2")).toEqual({ kind: "local" });
   });
 });
 // ~/~ end

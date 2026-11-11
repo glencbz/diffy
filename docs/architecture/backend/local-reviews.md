@@ -26,9 +26,8 @@ so a version stays readable after its commits are rewritten.
 
 ## Reading a version
 
-`localCommits` answers in a pull request's commit shape, so the series screen
-draws both the same way; the jj change id lines commits up across versions
-with no subject-line guess. `localSize` asks `jj diff` for the whole set
+`localCommits` answers in the `GitCommit` shape the series screen reads; the
+jj change id lines commits up across versions with no subject-line guess. `localSize` asks `jj diff` for the whole set
 rather than diffing from the oldest commit's parent, because a series built on
 a merge has no single parent.
 
@@ -134,7 +133,7 @@ export async function resolveRegistration(
   };
 }
 
-/** The commits `ids` name, in that order, in a pull request's shape. */
+/** The commits `ids` name, in that order. */
 export async function localCommits(
   root: string,
   ids: string[],
@@ -179,8 +178,7 @@ export function localSize(root: string, ids: string[]): Promise<JjFileDiff[]> {
 ## Tests
 
 The tests read diffy's own history around the newest non-empty commit on
-trunk, since trunk itself is an empty merge whenever a pull request lands as
-one.
+trunk, since trunk itself is an empty merge whenever a branch lands as a merge commit.
 
 ```ts
 //| id: backend-local-reviews-test

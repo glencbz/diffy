@@ -200,7 +200,7 @@ export function evidenceTools(
     tool({
       name: "attach_capture",
       description:
-        "Attach a screenshot or a clip of the app to a commit of the newest version of a local review or a pull request: the app at the commit, and at its parent where it can be shown, with where it shows each of the commit's components. Write the version's component map first; a capture names its components by their ids. Attaching an id the commit already has replaces it.",
+        "Attach a screenshot or a clip of the app to a commit of the newest version of a local review: the app at the commit, and at its parent where it can be shown, with where it shows each of the commit's components. Write the version's component map first; a capture names its components by their ids. Attaching an id the commit already has replaces it.",
       input: AttachInput,
       call: (input, context) =>
         attachCapture(input, context, store, sourcesOf(context.repo)),
@@ -208,7 +208,7 @@ export function evidenceTools(
     tool({
       name: "read_captures",
       description:
-        "Read the captures attached to the newest version of a local review or a pull request, as JSON, with what each shows.",
+        "Read the captures attached to the newest version of a local review, as JSON, with what each shows.",
       input: z.object({ ...Target }),
       call: async (input, { repo }) => {
         const target = await targetOf(sourcesOf(repo), input);
@@ -234,7 +234,7 @@ export function evidenceTools(
     tool({
       name: "detach_capture",
       description:
-        "Take a capture off a commit of the newest version of a local review or a pull request.",
+        "Take a capture off a commit of the newest version of a local review.",
       input: z.object({
         ...Target,
         commit: z
