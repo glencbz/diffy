@@ -261,15 +261,23 @@ export async function summarize(
   openedAt: string | null,
   dataDir: string,
 ): Promise<RepoSummary | null> {
-  const log =
-    await $`jj --ignore-working-copy log --no-graph -r @ -T ${"description.first_line()"}`
-      .cwd(root)
-      .quiet()
-      .nothrow();
-  if (log.exitCode !== 0) return null;
+  // nothrow() covers a failing jj, not a folder that is gone: spawning there
+  // throws, and Bun throws it from await, so only try/catch sees it.
+  let workingCopy: string;
+  try {
+    const log =
+      await $`jj --ignore-working-copy log --no-graph -r @ -T ${"description.first_line()"}`
+        .cwd(root)
+        .quiet()
+        .nothrow();
+    if (log.exitCode !== 0) return null;
+    workingCopy = log.stdout.toString().trim();
+  } catch {
+    return null;
+  }
   return {
     root,
-    workingCopy: log.stdout.toString().trim(),
+    workingCopy,
     reviews: await countReviews(root, dataDir),
     openedAt,
   };
@@ -515,6 +523,7 @@ import {
   type Probe,
   RecentRepos,
   startingRepo,
+  summarize,
   withOpened,
   withRestored,
 } from "./repos";
@@ -532,6 +541,12 @@ describe("expandHome", () => {
     expect(expandHome("~", "/home/me")).toBe("/home/me");
     expect(expandHome("~/src/a", "/home/me")).toBe("/home/me/src/a");
     expect(expandHome("/srv/a", "/home/me")).toBe("/srv/a");
+  });
+});
+
+describe("summarize", () => {
+  test("answers null for a folder that no longer exists", async () => {
+    expect(await summarize(join(dir, "gone"), null, dir)).toBeNull();
   });
 });
 

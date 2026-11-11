@@ -9,6 +9,7 @@ import {
   type Probe,
   RecentRepos,
   startingRepo,
+  summarize,
   withOpened,
   withRestored,
 } from "./repos";
@@ -26,6 +27,12 @@ describe("expandHome", () => {
     expect(expandHome("~", "/home/me")).toBe("/home/me");
     expect(expandHome("~/src/a", "/home/me")).toBe("/home/me/src/a");
     expect(expandHome("/srv/a", "/home/me")).toBe("/srv/a");
+  });
+});
+
+describe("summarize", () => {
+  test("answers null for a folder that no longer exists", async () => {
+    expect(await summarize(join(dir, "gone"), null, dir)).toBeNull();
   });
 });
 
