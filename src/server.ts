@@ -18,36 +18,13 @@ import {
   CompareError,
   compareFiles,
 } from "./backend/commit/compare";
-import {
-  BlobId,
-  GitError,
-  GitOid,
-  gitBlob,
-  gitLog,
-  gitMaterialize,
-  gitMergeBase,
-} from "./backend/commit/git";
-import {
-  GitHubError,
-  type GitHubGraphQL,
-  ghCliGraphQL,
-  githubPullRequestHistory,
-  githubPullRequests,
-  originRepo,
-  type PullRequestHistory,
-  type PullRequestState,
-  parsePullNumber,
-  parseRepoRef,
-  pullPins,
-  pullStateAt,
-} from "./backend/commit/github";
+import { BlobId, GitOid, gitBlob } from "./backend/commit/git";
 import {
   JjError,
   type JjFileDiff,
   type JjLogEntry,
   jjCommits,
   jjDiff,
-  jjDiffBetween,
   jjInterdiff,
   jjLog,
   jjOpLog,
@@ -249,222 +226,6 @@ export function handleComparePaths(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[4]
 
-/** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
-async function githubJson(build: () => Promise<unknown>): Promise<Response> {
-  try {
-    return Response.json(await build());
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return Response.json(
-        { error: error.message },
-        { status: error.kind === "not-found" ? 404 : 502 },
-      );
-    }
-    if (error instanceof GitError) {
-      return Response.json({ error: error.message }, { status: 502 });
-    }
-    if (error instanceof z.ZodError) {
-      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
-    }
-    throw error;
-  }
-}
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
-
-export function handleGithubRepo(
-  _req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  return githubJson(async () => {
-    const { owner, name } = await originRepo(root);
-    return { repo: `${owner}/${name}` };
-  });
-}
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
-
-const PullsQuery = z.object({
-  state: z.enum(["open", "closed", "merged", "all"]).optional(),
-  limit: z.coerce.number().int().positive().optional(),
-});
-
-export function handleGithubPulls(req: Request): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-
-  return githubJson(() => {
-    const repo = parseRepoRef(params.get("repo") ?? "");
-    const options = PullsQuery.parse({
-      state: params.get("state") ?? undefined,
-      limit: params.get("limit") ?? undefined,
-    });
-    return githubPullRequests(repo, options);
-  });
-}
-
-export function handleGithubPullHistory(req: Request): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-
-  return githubJson(() =>
-    githubPullRequestHistory(
-      parseRepoRef(params.get("repo") ?? ""),
-      parsePullNumber(params.get("number")),
-    ),
-  );
-}
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
-
-export function handleGithubPullCommits(
-  req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-
-  return githubJson(async () => {
-    const repo = parseRepoRef(params.get("repo") ?? "");
-    const number = parsePullNumber(params.get("number"));
-    const head = GitOid.parse(params.get("head"));
-
-    const history = await githubPullRequestHistory(repo, number);
-    const state = pullStateAt(history, head);
-
-    const [base, tip] = await gitMaterialize(root, pullPins(history, state));
-    // One witness per oid asked; noUncheckedIndexedAccess cannot know.
-    if (base === undefined || tip === undefined) {
-      throw new Error("gitMaterialize returned fewer oids than asked");
-    }
-
-    return {
-      head,
-      version: state.version,
-      base: history.baseRefOid,
-      commits: await gitLog(root, { from: base, to: tip, limit: 200 }),
-    };
-  });
-}
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
-
-export function handleGithubPullDiff(
-  req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  return pullDiffResponse(root, new URL(req.url).searchParams, ghCliGraphQL);
-}
-
-/** `from=base`, or `from=<oid>`. Nothing 40 hex characters long reads as `base`. */
-const PullBaselineParam = z.union([
-  z.literal("base").transform(() => ({ kind: "base" }) as const),
-  GitOid.transform((head) => ({ kind: "version", head }) as const),
-]);
-type PullBaseline = z.infer<typeof PullBaselineParam>;
-
-/** Exported for tests: the pull request diff route, with its transport given. */
-export function pullDiffResponse(
-  root: string,
-  params: URLSearchParams,
-  gh: GitHubGraphQL,
-): Promise<Response> {
-  return githubJson(async () => {
-    const repo = parseRepoRef(params.get("repo") ?? "");
-    const number = parsePullNumber(params.get("number"));
-    const to = GitOid.parse(params.get("to"));
-    const from = PullBaselineParam.parse(params.get("from"));
-    const scope = parseDiffScope(params);
-
-    const history = await githubPullRequestHistory(repo, number, gh);
-    const toState = pullStateAt(history, to);
-
-    return {
-      from,
-      to,
-      files: await pullDiffFiles(root, history, toState, from, scope),
-    };
-  });
-}
-
-/**
- * What to diff inside the head a baseline already resolved. `heads` is the
- * whole head, which is what a reader sees before they pick a commit out of
- * it.
- */
-type DiffScope =
-  | { kind: "heads" }
-  | { kind: "commit"; commit: GitOid }
-  | { kind: "pair"; from: GitOid; to: GitOid };
-
-/** Either commit alone reduces to that commit's own diff, the same rule
- *  `/api/interdiff` uses when one side of a row is empty. */
-function parseDiffScope(params: URLSearchParams): DiffScope {
-  const fromCommit = params.get("fromCommit");
-  const toCommit = params.get("toCommit");
-  if (fromCommit !== null && toCommit !== null) {
-    return {
-      kind: "pair",
-      from: GitOid.parse(fromCommit),
-      to: GitOid.parse(toCommit),
-    };
-  }
-  if (toCommit !== null) {
-    return { kind: "commit", commit: GitOid.parse(toCommit) };
-  }
-  if (fromCommit !== null) {
-    return { kind: "commit", commit: GitOid.parse(fromCommit) };
-  }
-  return { kind: "heads" };
-}
-
-/** The diff a scope asks for, once materialization already ran. */
-function diffForScope(
-  root: string,
-  scope: DiffScope,
-  heads: () => Promise<JjFileDiff[]>,
-): Promise<JjFileDiff[]> {
-  switch (scope.kind) {
-    case "commit":
-      return jjDiff(root, { revision: scope.commit });
-    case "pair":
-      return jjInterdiff(root, { from: scope.from, to: scope.to });
-    case "heads":
-      return heads();
-  }
-}
-
-/** The diff a baseline asks for, fetching what that comparison needs. */
-async function pullDiffFiles(
-  root: string,
-  history: PullRequestHistory,
-  toState: PullRequestState,
-  from: PullBaseline,
-  scope: DiffScope,
-): Promise<JjFileDiff[]> {
-  if (from.kind === "version") {
-    const fromState = pullStateAt(history, from.head);
-    await gitMaterialize(
-      root,
-      [fromState, toState].flatMap((state) => pullPins(history, state)),
-    );
-    return diffForScope(root, scope, () =>
-      jjInterdiff(root, { from: fromState.head, to: toState.head }),
-    );
-  }
-
-  const [base, head] = await gitMaterialize(root, pullPins(history, toState));
-  if (base === undefined || head === undefined) {
-    throw new Error("gitMaterialize returned fewer oids than asked");
-  }
-
-  return diffForScope(root, scope, async () =>
-    jjDiffBetween(root, {
-      from: await gitMergeBase(root, base, head),
-      to: head,
-    }),
-  );
-}
-// ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[9]
-
 export const reviewRoute = (listeners: Pick<AgentListeners, "tell">) => ({
   GET: (_req: Request, { store }: RepoContext) => Response.json(store.read()),
   POST: async (req: Request, { root, store }: RepoContext) => {
@@ -510,7 +271,7 @@ function eventOf(
   return { review: review.name, version };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[10]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[5]
 
 /** Who is at the other end of a socket: a screen, which hears its
  *  repository's store under `topic`, or an agent
@@ -611,7 +372,7 @@ export function sockets(
   };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[11]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[6]
 
 const RegistrationBody = z.object({
   name: z.string().min(1).optional(),
@@ -684,7 +445,7 @@ export function handleLocalSize(
   return localJson(async () => ({ files: await localSize(root, ids) }));
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[12]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[7]
 
 /** The workspace a browser request names in `?workspace=`, or the
  *  default repository's when it names none. A Response is the refusal. */
@@ -740,11 +501,6 @@ export function routes(
     "/api/source": inRepo(handleSource),
     "/api/compare": inRepo(handleCompare),
     "/api/compare/paths": inRepo(handleComparePaths),
-    "/api/github/repo": inRepo(handleGithubRepo),
-    "/api/github/pulls": handleGithubPulls,
-    "/api/github/pull/history": handleGithubPullHistory,
-    "/api/github/pull/commits": inRepo(handleGithubPullCommits),
-    "/api/github/pull/diff": inRepo(handleGithubPullDiff),
     "/api/review": {
       GET: inRepo(reviewRoute(listeners).GET),
       POST: inRepo(reviewRoute(listeners).POST),
@@ -776,7 +532,7 @@ export function routes(
   };
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[13]
+// ~/~ begin <<docs/architecture/backend/server.md#backend-server>>[8]
 
 export async function agentContext(
   host: Pick<Host, "now" | "diffy">,

@@ -40,36 +40,13 @@ import {
   CompareError,
   compareFiles,
 } from "./backend/commit/compare";
-import {
-  BlobId,
-  GitError,
-  GitOid,
-  gitBlob,
-  gitLog,
-  gitMaterialize,
-  gitMergeBase,
-} from "./backend/commit/git";
-import {
-  GitHubError,
-  type GitHubGraphQL,
-  ghCliGraphQL,
-  githubPullRequestHistory,
-  githubPullRequests,
-  originRepo,
-  type PullRequestHistory,
-  type PullRequestState,
-  parsePullNumber,
-  parseRepoRef,
-  pullPins,
-  pullStateAt,
-} from "./backend/commit/github";
+import { BlobId, GitOid, gitBlob } from "./backend/commit/git";
 import {
   JjError,
   type JjFileDiff,
   type JjLogEntry,
   jjCommits,
   jjDiff,
-  jjDiffBetween,
   jjInterdiff,
   jjLog,
   jjOpLog,
@@ -201,8 +178,8 @@ function pairFiles(
 `/api/source` answers one side of one file, whole and
 [highlighted](syntax.md). It takes the blob id off the patch's `index` line,
 because an interdiff's before side has no commit id, and reads it from git's
-store, so it works the same for local and pull request diffs. The path only
-picks the language.
+store, so it needs no commit to read from. The path only picks the
+language.
 
 ```ts
 //| id: backend-server
@@ -296,264 +273,6 @@ export function handleComparePaths(
   return compareJson(async () => ({
     paths: await beforePaths(root, compareSides(params)),
   }));
-}
-```
-
-### Reading a pull request from GitHub
-
-A GitHub failure is not always the caller's fault, so `githubJson` sorts
-them: `not-found` is a 404; `upstream`, or a `GitError` from a remote that
-would not hand over a commit GitHub named, is a 502; a `ZodError` is a 400
-naming the bad field.
-
-```ts
-//| id: backend-server
-
-/** Run a GitHub-backed handler body, mapping each way it can fail to a status. */
-async function githubJson(build: () => Promise<unknown>): Promise<Response> {
-  try {
-    return Response.json(await build());
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return Response.json(
-        { error: error.message },
-        { status: error.kind === "not-found" ? 404 : 502 },
-      );
-    }
-    if (error instanceof GitError) {
-      return Response.json({ error: error.message }, { status: 502 });
-    }
-    if (error instanceof z.ZodError) {
-      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
-    }
-    throw error;
-  }
-}
-```
-
-`/api/github/repo` says which repository to pass, so one build serves any
-checkout.
-
-```ts
-//| id: backend-server
-
-export function handleGithubRepo(
-  _req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  return githubJson(async () => {
-    const { owner, name } = await originRepo(root);
-    return { repo: `${owner}/${name}` };
-  });
-}
-```
-
-```ts
-//| id: backend-server
-
-const PullsQuery = z.object({
-  state: z.enum(["open", "closed", "merged", "all"]).optional(),
-  limit: z.coerce.number().int().positive().optional(),
-});
-
-export function handleGithubPulls(req: Request): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-
-  return githubJson(() => {
-    const repo = parseRepoRef(params.get("repo") ?? "");
-    const options = PullsQuery.parse({
-      state: params.get("state") ?? undefined,
-      limit: params.get("limit") ?? undefined,
-    });
-    return githubPullRequests(repo, options);
-  });
-}
-
-export function handleGithubPullHistory(req: Request): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-
-  return githubJson(() =>
-    githubPullRequestHistory(
-      parseRepoRef(params.get("repo") ?? ""),
-      parsePullNumber(params.get("number")),
-    ),
-  );
-}
-```
-
-`/api/github/pull/commits` is where the backends meet. The order is a
-security property: [`pullStateAt`](github.md#naming-one-state-of-a-pull-request)
-resolves the head against the pull request's own chain before anything is
-fetched.
-
-```ts
-//| id: backend-server
-
-export function handleGithubPullCommits(
-  req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  const params = new URL(req.url).searchParams;
-
-  return githubJson(async () => {
-    const repo = parseRepoRef(params.get("repo") ?? "");
-    const number = parsePullNumber(params.get("number"));
-    const head = GitOid.parse(params.get("head"));
-
-    const history = await githubPullRequestHistory(repo, number);
-    const state = pullStateAt(history, head);
-
-    const [base, tip] = await gitMaterialize(root, pullPins(history, state));
-    // One witness per oid asked; noUncheckedIndexedAccess cannot know.
-    if (base === undefined || tip === undefined) {
-      throw new Error("gitMaterialize returned fewer oids than asked");
-    }
-
-    return {
-      head,
-      version: state.version,
-      base: history.baseRefOid,
-      commits: await gitLog(root, { from: base, to: tip, limit: 200 }),
-    };
-  });
-}
-```
-
-`/api/github/pull/diff` diffs head `to` against `from`, another head or
-`base`. Two heads go through [`jjInterdiff`](jj.md#comparing-two-commits),
-since the later head is usually the earlier one rebased: on #9, first head
-against last, that is three files rather than forty-seven. A head against
-`base` is the three-dot diff, [`gitMergeBase`](git.md) then `jjDiffBetween`,
-never a diff from `baseRefOid`, which would carry every later base commit in
-reverse.
-
-`base` is a tagged parameter rather than an oid the server recognises by
-equality with `baseRefOid`. A commit landing on the base between fetching the
-history and the diff would break that equality into a 404, and a branch
-force-pushed to exactly the base tip would make it switch comparisons under a
-reader who picked a version.
-
-`pullDiffResponse` takes the transport as an argument for the tests; a route
-handler cannot, since `Bun.serve` passes a second argument of its own.
-
-```ts
-//| id: backend-server
-
-export function handleGithubPullDiff(
-  req: Request,
-  { root }: RepoContext,
-): Promise<Response> {
-  return pullDiffResponse(root, new URL(req.url).searchParams, ghCliGraphQL);
-}
-
-/** `from=base`, or `from=<oid>`. Nothing 40 hex characters long reads as `base`. */
-const PullBaselineParam = z.union([
-  z.literal("base").transform(() => ({ kind: "base" }) as const),
-  GitOid.transform((head) => ({ kind: "version", head }) as const),
-]);
-type PullBaseline = z.infer<typeof PullBaselineParam>;
-
-/** Exported for tests: the pull request diff route, with its transport given. */
-export function pullDiffResponse(
-  root: string,
-  params: URLSearchParams,
-  gh: GitHubGraphQL,
-): Promise<Response> {
-  return githubJson(async () => {
-    const repo = parseRepoRef(params.get("repo") ?? "");
-    const number = parsePullNumber(params.get("number"));
-    const to = GitOid.parse(params.get("to"));
-    const from = PullBaselineParam.parse(params.get("from"));
-    const scope = parseDiffScope(params);
-
-    const history = await githubPullRequestHistory(repo, number, gh);
-    const toState = pullStateAt(history, to);
-
-    return {
-      from,
-      to,
-      files: await pullDiffFiles(root, history, toState, from, scope),
-    };
-  });
-}
-
-/**
- * What to diff inside the head a baseline already resolved. `heads` is the
- * whole head, which is what a reader sees before they pick a commit out of
- * it.
- */
-type DiffScope =
-  | { kind: "heads" }
-  | { kind: "commit"; commit: GitOid }
-  | { kind: "pair"; from: GitOid; to: GitOid };
-
-/** Either commit alone reduces to that commit's own diff, the same rule
- *  `/api/interdiff` uses when one side of a row is empty. */
-function parseDiffScope(params: URLSearchParams): DiffScope {
-  const fromCommit = params.get("fromCommit");
-  const toCommit = params.get("toCommit");
-  if (fromCommit !== null && toCommit !== null) {
-    return {
-      kind: "pair",
-      from: GitOid.parse(fromCommit),
-      to: GitOid.parse(toCommit),
-    };
-  }
-  if (toCommit !== null) {
-    return { kind: "commit", commit: GitOid.parse(toCommit) };
-  }
-  if (fromCommit !== null) {
-    return { kind: "commit", commit: GitOid.parse(fromCommit) };
-  }
-  return { kind: "heads" };
-}
-
-/** The diff a scope asks for, once materialization already ran. */
-function diffForScope(
-  root: string,
-  scope: DiffScope,
-  heads: () => Promise<JjFileDiff[]>,
-): Promise<JjFileDiff[]> {
-  switch (scope.kind) {
-    case "commit":
-      return jjDiff(root, { revision: scope.commit });
-    case "pair":
-      return jjInterdiff(root, { from: scope.from, to: scope.to });
-    case "heads":
-      return heads();
-  }
-}
-
-/** The diff a baseline asks for, fetching what that comparison needs. */
-async function pullDiffFiles(
-  root: string,
-  history: PullRequestHistory,
-  toState: PullRequestState,
-  from: PullBaseline,
-  scope: DiffScope,
-): Promise<JjFileDiff[]> {
-  if (from.kind === "version") {
-    const fromState = pullStateAt(history, from.head);
-    await gitMaterialize(
-      root,
-      [fromState, toState].flatMap((state) => pullPins(history, state)),
-    );
-    return diffForScope(root, scope, () =>
-      jjInterdiff(root, { from: fromState.head, to: toState.head }),
-    );
-  }
-
-  const [base, head] = await gitMaterialize(root, pullPins(history, toState));
-  if (base === undefined || head === undefined) {
-    throw new Error("gitMaterialize returned fewer oids than asked");
-  }
-
-  return diffForScope(root, scope, async () =>
-    jjDiffBetween(root, {
-      from: await gitMergeBase(root, base, head),
-      to: head,
-    }),
-  );
 }
 ```
 
@@ -734,8 +453,7 @@ commit graph sends the same request with every field filled in, at the
 operation the graph is drawn at. `/api/log` takes a `revset` so the graph can
 show what a typed one names before it is registered. It is a route rather than a review
 command because the server has to evaluate the revset before there is a
-version to record. The reads mirror the pull request routes, keyed by commit
-ids instead of heads.
+version to record. The reads are keyed by commit id.
 
 ```ts
 //| id: backend-server
@@ -819,9 +537,7 @@ place in [the path](../frontend/address.md). An unknown API path is a 404.
 Each handler takes the [`RepoContext`](repos.md#a-repository-per-request) it
 runs in, and `inRepo` resolves it from the request's `?workspace=`, or the
 [default repository](repos.md#a-repository-per-request) when there is none.
-The name is not `repo` because the GitHub routes already take that for
-`owner/name`. The pull request list and history routes ask GitHub alone, so
-they need no workspace. The review socket names one too, and listens to that
+The review socket names one too, and listens to that
 repository's store alone.
 
 ```ts
@@ -881,11 +597,6 @@ export function routes(
     "/api/source": inRepo(handleSource),
     "/api/compare": inRepo(handleCompare),
     "/api/compare/paths": inRepo(handleComparePaths),
-    "/api/github/repo": inRepo(handleGithubRepo),
-    "/api/github/pulls": handleGithubPulls,
-    "/api/github/pull/history": handleGithubPullHistory,
-    "/api/github/pull/commits": inRepo(handleGithubPullCommits),
-    "/api/github/pull/diff": inRepo(handleGithubPullDiff),
     "/api/review": {
       GET: inRepo(reviewRoute(listeners).GET),
       POST: inRepo(reviewRoute(listeners).POST),
@@ -968,7 +679,7 @@ function shellWord(word: string): string {
 ```ts
 //| id: backend-server-test
 //| file: src/server.test.ts
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -979,35 +690,19 @@ import {
   LISTEN_PATH,
   waitFor,
 } from "./backend/agent/listeners";
-import { ToolError } from "./backend/agent/mcp";
-import type { GitHubGraphQL } from "./backend/commit/github";
-import { jjDiff, jjDiffBetween, jjInterdiff } from "./backend/commit/jj";
-import { hostFrom } from "./backend/host/host";
-import {
-  DefaultRepo,
-  RecentRepos,
-  type RepoContext,
-  Workspaces,
-} from "./backend/repo/repos";
+import type { RepoContext } from "./backend/repo/repos";
 import { openReviewStore, watchReview } from "./backend/review/store";
 import {
-  agentContext,
   agentListen,
   handleCompare,
   handleComparePaths,
-  handleGithubPullCommits,
-  handleGithubPullHistory,
-  handleGithubPulls,
   handleInterdiff,
   handleLog,
   handleOperations,
   handleSource,
   localReviewsRoute,
-  pullDiffResponse,
   reviewChanges,
   reviewRoute,
-  routes,
-  type SocketData,
   sockets,
 } from "./server";
 import { FIXED, scratchRepo } from "./testing/history";
@@ -1019,8 +714,8 @@ const REPO: RepoContext = {
   store: openReviewStore(":memory:"),
   topic: "test",
 };
-const HOST = { now: () => new Date(), diffy: ["diffy"] };
-const ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
+const _HOST = { now: () => new Date(), diffy: ["diffy"] };
+const _ORIGINS = { reader: "http://vm", agent: "http://localhost:4000" };
 
 describe("handleLog", () => {
   test("returns the commit log as an array", async () => {
@@ -1295,55 +990,6 @@ describe("handleInterdiff", () => {
 ```
 
 
-The GitHub routes are tested only for what they refuse, which pins that
-parsing happens before any API call.
-
-```ts
-//| id: backend-server-test
-
-describe("the GitHub routes", () => {
-  test("reports a repo that is not owner/name as 400", async () => {
-    // arrange
-    // act
-    const res = await handleGithubPulls(
-      new Request("http://test/api/github/pulls?repo=diffy"),
-    );
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(body.error).toMatch(/owner\/name/);
-  });
-
-  test("reports a missing pull request number as 400", async () => {
-    // arrange
-    // act
-    const res = await handleGithubPullHistory(
-      new Request("http://test/api/github/pull/history?repo=glencbz/diffy"),
-    );
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(typeof body.error).toBe("string");
-  });
-
-  test("reports a head that is not a 40-hex oid as 400", async () => {
-    // arrange
-    const url =
-      "http://test/api/github/pull/commits?repo=glencbz/diffy&number=9&head=nope";
-
-    // act
-    const res = await handleGithubPullCommits(new Request(url), REPO);
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(body.error).toMatch(/40-character/);
-  });
-});
-```
-
 ```ts
 //| id: backend-server-test
 
@@ -1438,7 +1084,7 @@ describe("the review route", () => {
 
       // act
       await mark("local:t", "1");
-      await mark("pull:o/r#1", "abc");
+      await mark("other:1", "abc");
       await mark("local:t", "2");
       for (const at of [
         "2026-10-22T11:00:00.000Z",
@@ -1669,437 +1315,4 @@ ESLint + Prettier. We used the default `bunx biome init`.
 # Format code in place
 @format:
   bunx biome format --write .
-```
-
-The diff route runs against a stubbed pull request built from commits already
-in this repository, so nothing is fetched. Each answer is checked against the
-jj call it should have made, since a file count would pass with the two
-diffs swapped. The diverged case reads a
-[fixed merge's sides](../../devtools/testing.md), whose base holds a commit
-the merge base lacks, the only shape where diffing from the merge base and
-from the base tip differ. The test tells the two ends apart by the paths
-`jj diff --name-only` lists, which skips difftastic.
-
-```ts
-//| id: backend-server-test
-
-describe("pullDiffResponse", () => {
-  /** A pull request whose base and heads are commits every clone of this repo has. */
-  async function localPull(): Promise<{ base: string; heads: string[] }> {
-    return { base: FIXED.first, heads: [FIXED.second, FIXED.third] };
-  }
-
-  /** A transport that answers the history query for that pull request. */
-  function stubHistory(base: string, heads: string[]): GitHubGraphQL {
-    return () =>
-      Promise.resolve({
-        data: {
-          repository: {
-            pullRequest: {
-              number: 9,
-              headRefOid: heads.at(-1),
-              baseRefName: "main",
-              baseRefOid: base,
-              timelineItems: {
-                pageInfo: { hasNextPage: false },
-                nodes: heads.slice(1).map((after, index) => ({
-                  createdAt: "2026-09-01T10:00:00Z",
-                  beforeCommit: { oid: heads[index] },
-                  afterCommit: { oid: after },
-                })),
-              },
-            },
-          },
-        },
-      });
-  }
-
-  const unreachable: GitHubGraphQL = () =>
-    Promise.reject(new Error("the transport should not have been reached"));
-
-  function query(extra: Record<string, string>): URLSearchParams {
-    return new URLSearchParams({
-      repo: "glencbz/diffy",
-      number: "9",
-      ...extra,
-    });
-  }
-
-  async function body(res: Response) {
-    return (await res.json()) as {
-      from: { kind: string; head?: string };
-      to: string;
-      files: { status: string; path?: string; newPath?: string }[];
-      error?: string;
-    };
-  }
-
-  function paths(files: { path?: string; newPath?: string }[]): string[] {
-    return files.map((file) => file.path ?? file.newPath ?? "");
-  }
-
-  test("interdiffs two heads of the same pull request", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.from).toEqual({ kind: "version", head: earlier });
-    expect(answer.to).toBe(later);
-    expect(answer.files).toEqual(
-      await jjInterdiff(ROOT, { from: earlier, to: later }),
-    );
-    expect(paths(answer.files)).toContain("JJ-COMMIT-DESCRIPTION");
-  });
-
-  test("fromCommit and toCommit together interdiff those two commits", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later, fromCommit: base, toCommit: earlier }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(
-      await jjInterdiff(ROOT, { from: base, to: earlier }),
-    );
-    expect(answer.files).not.toEqual(
-      await jjInterdiff(ROOT, { from: earlier, to: later }),
-    );
-  });
-
-  test("toCommit alone answers that one commit's own diff", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later, toCommit: earlier }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(await jjDiff(ROOT, { revision: earlier }));
-    expect(answer.files).not.toEqual(
-      await jjInterdiff(ROOT, { from: earlier, to: later }),
-    );
-  });
-
-  test("reports a malformed toCommit the same way as a malformed to", async () => {
-    // arrange
-    const { heads } = await localPull();
-    const [earlier, later] = heads as [string, string];
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: earlier, to: later, toCommit: "nope" }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-    expect((await body(res)).error).toMatch(/40-character/);
-  });
-
-  test("reports a head that is not a 40-hex oid as 400, before asking GitHub", async () => {
-    // arrange
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ to: "nope" }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-    expect((await body(res)).error).toMatch(/40-character/);
-  });
-
-  test("reports a malformed from the same way as a malformed to", async () => {
-    // arrange
-    const { heads } = await localPull();
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: "nope", to: heads[1] as string }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-  });
-
-  test("reports a missing from as 400, before asking GitHub", async () => {
-    // arrange
-    const { heads } = await localPull();
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ to: heads[1] as string }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-  });
-
-  test("diffs the base against a head", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const later = heads.at(-1) as string;
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: "base", to: later }),
-      stubHistory(base, heads),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.from).toEqual({ kind: "base" });
-    expect(answer.files).toEqual(
-      await jjDiffBetween(ROOT, { from: base, to: later }),
-    );
-  });
-
-  test("measures a diverged base from the commit the head grew out of", async () => {
-    // arrange
-    // The base carries something the merge base does not, or a diff from
-    // either would be the same diff.
-    const { base, head, mergeBase } = FIXED.diverged;
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: "base", to: head }),
-      stubHistory(base, [head]),
-    );
-    const answer = await body(res);
-
-    // assert
-    expect(res.status).toBe(200);
-    expect(answer.files).toEqual(
-      await jjDiffBetween(ROOT, { from: mergeBase, to: head }),
-    );
-    const fromBase = await $`jj diff --name-only --from ${base} --to ${head}`
-      .quiet()
-      .text();
-    expect(paths(answer.files).sort()).not.toEqual(
-      fromBase.split("\n").filter(Boolean).sort(),
-    );
-  });
-
-  test("refuses the base as the after end", async () => {
-    // arrange
-    const { heads } = await localPull();
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: heads[0] as string, to: "base" }),
-      unreachable,
-    );
-
-    // assert
-    expect(res.status).toBe(400);
-  });
-
-  test("reports a head this pull request never had as 404", async () => {
-    // arrange
-    const { base, heads } = await localPull();
-    const stranger = "f".repeat(40);
-
-    // act
-    const res = await pullDiffResponse(
-      ROOT,
-      query({ from: heads[0] as string, to: stranger }),
-      stubHistory(base, heads),
-    );
-
-    // assert
-    expect(res.status).toBe(404);
-    expect((await body(res)).error).toMatch(/never had head/);
-  });
-});
-
-describe("a repository per tab and per agent", () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "diffy-agents-"));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  /** A fresh jj repository, and a second workspace of it. */
-  async function repoWithWorkspace(name: string) {
-    const root = join(dir, name);
-    await $`jj git init ${root}`.quiet();
-    const second = join(dir, `${name}-ws`);
-    await $`jj workspace add ${second}`.cwd(root).quiet();
-    return { root, second };
-  }
-
-  const SEEN = {
-    kind: "set-seen",
-    comparison: { reviewKey: "change:a", fromCommitId: null, toCommitId: "a" },
-    seen: true,
-    at: "2026-10-19T09:00:00.000Z",
-  } as const;
-
-  test("runs an agent's call in its workspace, and links the reader to it", async () => {
-    // arrange
-    const reader = await repoWithWorkspace("reader");
-    const agent = await repoWithWorkspace("agent");
-    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
-    const workspaces = new Workspaces(host, () => {});
-    const context = (caller: string | null) =>
-      agentContext(HOST, { root: reader.root }, workspaces, ORIGINS, caller);
-
-    // act
-    const named = await context(agent.second);
-    const unnamed = await context(null);
-    named.repo.store.apply(SEEN);
-
-    // assert
-    expect(named.repo.root).toBe(agent.second);
-    expect(named.link("/reviews/x")).toBe(
-      `http://vm/reviews/x?repo=${encodeURIComponent(agent.second)}`,
-    );
-    expect(unnamed.repo.root).toBe(reader.root);
-    expect(named.wait("my t")).toBe(
-      "diffy wait 'my t' --url http://localhost:4000",
-    );
-    expect((await context(agent.root)).repo.store).toBe(named.repo.store);
-    // The agent's write went to its own repository's store.
-    expect(unnamed.repo.store.revision()).toBe(0);
-    expect(named.repo.store.revision()).toBe(1);
-  });
-
-  test("fails a call from a path that is no workspace", async () => {
-    // arrange
-    const workspaces = new Workspaces(hostFrom({}, dir), () => {});
-
-    // act
-    const call = agentContext(HOST, { root: null }, workspaces, ORIGINS, dir);
-
-    // assert
-    await expect(call).rejects.toBeInstanceOf(ToolError);
-  });
-
-  test("reads each tab's repository from its request", async () => {
-    // arrange
-    const reader = await repoWithWorkspace("reader");
-    const other = await repoWithWorkspace("other");
-    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
-    const defaultRepo = new DefaultRepo(host, null);
-    await defaultRepo.open(reader.root);
-    const table = routes(
-      host,
-      defaultRepo,
-      RecentRepos.in(host.dataDir),
-      new Workspaces(host, () => {}),
-      new AgentListeners(),
-    );
-    const review = (workspace: string | null, init?: RequestInit) =>
-      new Request(
-        `http://test/api/review${workspace === null ? "" : `?workspace=${encodeURIComponent(workspace)}`}`,
-        init,
-      );
-    const revision = async (workspace: string | null) =>
-      (
-        (await (await table["/api/review"].GET(review(workspace))).json()) as {
-          revision: number;
-        }
-      ).revision;
-
-    // act
-    await table["/api/review"].POST(
-      review(other.second, { method: "POST", body: JSON.stringify(SEEN) }),
-    );
-    const missing = await table["/api/review"].GET(review(join(dir, "none")));
-
-    // assert
-    expect(await revision(other.root)).toBe(1);
-    expect(await revision(reader.root)).toBe(0);
-    expect(await revision(null)).toBe(0);
-    expect(missing.status).toBe(404);
-  });
-
-  test("tells a socket only about its own repository's writes", async () => {
-    // arrange
-    const reader = await repoWithWorkspace("reader");
-    const other = await repoWithWorkspace("other");
-    const host = hostFrom({ XDG_DATA_HOME: dir }, dir);
-    let server: Bun.Server<SocketData> | null = null;
-    const workspaces = new Workspaces(host, (topic, revision) =>
-      server?.publish(topic, JSON.stringify({ revision })),
-    );
-    const defaultRepo = new DefaultRepo(host, null);
-    const table = routes(
-      host,
-      defaultRepo,
-      RecentRepos.in(host.dataDir),
-      workspaces,
-      new AgentListeners(),
-    );
-    server = Bun.serve({
-      port: 0,
-      routes: { "/api/review/changes": table["/api/review/changes"] },
-      websocket: sockets(new AgentListeners()),
-    });
-    const listen = async (workspace: string) => {
-      const heard: unknown[] = [];
-      const socket = new WebSocket(
-        `ws://localhost:${server?.port}/api/review/changes?workspace=${encodeURIComponent(workspace)}`,
-      );
-      socket.onmessage = (event) => heard.push(JSON.parse(String(event.data)));
-      await new Promise((resolve) => {
-        socket.onopen = resolve;
-      });
-      return { socket, heard };
-    };
-    const readerTab = await listen(reader.root);
-    const otherTab = await listen(other.root);
-
-    try {
-      // act
-      (await workspaces.context(other.root)).store.apply(SEEN);
-      await Bun.sleep(800);
-
-      // assert
-      expect(otherTab.heard).toEqual([{ revision: 1 }]);
-      expect(readerTab.heard).toEqual([]);
-    } finally {
-      readerTab.socket.close();
-      otherTab.socket.close();
-      server.stop(true);
-    }
-  });
-});
 ```
