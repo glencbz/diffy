@@ -80,16 +80,8 @@ branch's merge that yours moved under.
 ## 3. Serve this workspace
 
 ```sh
-export GH_HOST=github.int.exe.xyz
 just serve
 ```
-
-The app shells out to `gh` for the pull request screen without naming a host,
-and this VM's `gh` is only logged in to `github.int.exe.xyz`. A server started
-without that variable serves the local history screen fine and answers the
-pull request screen with `gh auth login`, so the reviewer meets the failure
-rather than you. `just serve` hands the app whatever environment it was called
-with, which is why exporting the host is the whole fix.
 
 It starts the app and the docs site detached on this workspace's own ports,
 and prints both URLs, `https://<vm>.exe.xyz:<port>/`, which the exe.dev proxy
@@ -103,13 +95,6 @@ production mode, and `just run` on its own leaves Bun in dev mode, which
 answers every request arriving through the exe.dev proxy with `Blocked: Host
 header does not match the dev server` and nothing else. A shared URL saying
 that was started the wrong way: stop it and run `just serve`.
-
-Before handing the URL over, open the pull request screen or ask the app for
-it, since that is the one screen an unset host breaks:
-
-```sh
-curl -fsS "http://127.0.0.1:<app port>/api/github/pulls?repo=glencbz/diffy"
-```
 
 ## 4. Open the pull request, or update the one that exists
 

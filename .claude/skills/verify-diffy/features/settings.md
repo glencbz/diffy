@@ -1,14 +1,14 @@
 # Settings
 
-`Settings` is the last tab in the top navigation, after `Local reviews`,
-`Operations` and `Pull requests`. It holds display preferences that live in
+`Settings` is the last tab in the top navigation, after `Local reviews`
+and `Operations`. It holds display preferences that live in
 the browser, not the repo, and apply everywhere at once.
 
 ## Sub-features
 
-- `settings-tabs` is the top `navigation` of four buttons, each with a path
+- `settings-tabs` is the top `navigation` of three buttons, each with a path
   of its own: `Local reviews` at `/reviews`, `Operations` at `/`, the landing
-  screen, `Pull requests` at `/pulls` and `Settings` at `/settings`.
+  screen, and `Settings` at `/settings`.
 - `settings-text-size` is a `Text size` radio group, `Small`, `Standard`,
   `Large` and `Larger`, `Standard` by default. The choice lands on
   `document.documentElement.dataset.textSize` and scales the app's text.

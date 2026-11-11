@@ -6,9 +6,9 @@ agent loop at the end is still a sketch.
 The end state is a review loop between a person and a coding agent. The agent
 presents its work to the reader as a series of jj changes, the reader reviews
 it in diffy and leaves feedback, and the agent reads that feedback, rewrites
-the changes, and hands them back. The loop needs two things diffy lacks, so they
-come first. Local review has to do everything pull request review does, and
-review comments have to live somewhere an agent can read them.
+the changes, and hands them back. The loop rests on two things: a local review
+that reads a series version by version, and review comments that live
+somewhere an agent can read them.
 
 ## What review is for
 
@@ -33,8 +33,8 @@ review with `git range-diff` review a change whose identity survives a
 rewrite, so the same question is built in. Branch review makes the author
 choose between a clean history and a reviewer who can follow it, and habits
 like "address review" fixup commits and "rebased, no changes" comments are
-authors paying for that choice. diffy sits with the change-identity tools
-while reading GitHub's data, and that is its reason to exist.
+authors paying for that choice. diffy sits with the change-identity tools,
+following a change by its jj change id, and that is its reason to exist.
 
 Two ideas from other tools matter most for where diffy goes. Critique and
 Gerrit keep an *attention set* on every change, the people whose turn it is
@@ -43,21 +43,20 @@ change. Reviewable lets each comment say whether it blocks, is being
 discussed, or is only for information, which turns "is this resolved" into
 "was my concern addressed".
 
-## Local review does what pull request review does
+## Local review reads a series
 
-The pull request screen reviews a series that has versions. The local
-history screen compares any commits at any operations. The first is built
-around what a reviewer wants and the second around what jj can answer, and
-local review gets parity by gaining the first screen, not by growing the
-second.
+The series review screen reads a series that has versions. The operations
+screen compares any commits at any operations. The first is built around what
+a reviewer wants and the second around what jj can answer, and a local review
+is read in the first, not the second.
 
-| | Pull requests | Local history |
+| | Local reviews | Operations |
 |---|---|---|
-| A list of things to review | Pull requests | None |
-| Remembers where the reader stopped | Last reviewed head | None |
+| A list of things to review | Registered reviews | None |
+| Remembers where the reader stopped | Last reviewed version | None |
 | Commit stack, message first, added, dropped, amended, reworded | Yes | No, one interdiff row per commit |
-| Pairing the reader can correct | Yes, lost on reload | No, `alignSeries` decides |
-| Marks, comments, viewed files | No | Yes |
+| Pairing the reader can correct | Yes | No, `alignSeries` decides |
+| Marks, comments, viewed files | Yes | Yes |
 | Size of the whole series | Yes | No |
 | A place in the address | Yes | No |
 
@@ -93,9 +92,8 @@ work is ready, which no bookmark records.
 
 ### A version is a registration
 
-A pull request's versions are the heads its branch has had. A local
-review's versions are its registrations, and the series at a version is its
-revset evaluated at its operation. The operation fixes the whole view of
+A local review's versions are its registrations, and the series at a
+version is its revset evaluated at its operation. The operation fixes the whole view of
 the repository, so `trunk()` and the bookmark resolve the way they did when
 the work was declared ready, and jj reads the hidden commits of an old
 operation by id, so a version stays readable after its commits are
@@ -108,34 +106,25 @@ the head's commit id instead of the operation would pin a series with one
 head, but not a revset with several, and would leave `trunk()` to be
 resolved against today's repository.
 
-"Mark reviewed" records a version against its review on both screens, and
-keeps every version marked rather than the last one only. On the pull
-request screen marked heads annotate GitHub's list of heads. On the local
-screen the reader's marks sit on the registrations, and the review opens on
-the interdiff from the last marked version to the newest.
+"Mark reviewed" records a version against its review, and keeps every
+version marked rather than the last one only. The reader's marks sit on the
+registrations, and the review opens on the interdiff from the last marked
+version to the newest.
 
-### One review screen over two sources
+### One review screen
 
-`PullReview` becomes a series review that reads its versions, each
-version's commits, and each row's comparison from a source, with a pull
-request and a registered local review as its two sources. The commit stack, the paired
-graph, the pairing, the last-reviewed strip, and the size summary come with
-it unchanged.
-
-Writing a second screen for local reviews would copy all of that and let the two
-drift. The tech plan keeps the jj and GitHub backends apart until a third
-case shows what they share, and that still holds for the backends. The
-screen is a different case. It already exists, and its two sources answer
-the same questions: which versions there are, which commits a version
+The series review reads a local review's versions, each version's commits,
+and each row's comparison from the review's registrations. The commit stack,
+the paired graph, the pairing, the last-reviewed strip, and the size summary
+all work on those answers: which versions there are, which commits a version
 holds, what one row's comparison is, and how big the whole series is.
 
 The operation screen stays as it is, under a tab named for what it does,
 comparing any commits at any operations. It is the tool for the question no
 series answers, and it keeps its marks and comments.
 
-A local review has an address shaped like a pull request's, the review's
-name where the number is, with the same `from`, `to`, commit, file, and line
-after it.
+A local review has an address of its own, the review's name followed by the
+`from`, `to`, commit, file, and line it reads.
 
 ## The review document is on the server
 
@@ -176,8 +165,6 @@ reader run several agents at once and see which of them needs them.
 - When a local review leaves the list: when the reader closes it, or on
   its own once its revset is empty at the current operation because the
   series landed.
-- How comments written in diffy reach a GitHub pull request, and whether the
-  two kinds of comment are one kind.
 - Whether review should travel with the code under a ref of diffy's own, the
   way git-notes does. jj cannot see such refs today, and concurrent writers to
   a ref need a merge of their own.

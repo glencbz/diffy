@@ -21,7 +21,7 @@ directory into the store on every evaluation, which at the root means
 #| id: nix-flake
 #| file: nix/flake.nix
 {
-  description = "Diffy, a code-review tool for jj and GitHub pull requests";
+  description = "Diffy, a code-review tool for jj";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 

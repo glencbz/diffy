@@ -3,9 +3,8 @@
 A local review is a series of commits declared ready for review, by a reader
 from the Operations graph or by an agent through the API. Each registration is
 a version, `v1`, `v2`, ..., of (operation, revset). The `Local reviews` tab
-lists them and reads one in the same series screen the pull request tab uses:
-version pickers, a commit stack, and per-commit diffs with the usual review
-tracking.
+lists them and reads one in the series screen: version pickers, a commit
+stack, and per-commit diffs with the usual review tracking.
 
 ## Sub-features
 

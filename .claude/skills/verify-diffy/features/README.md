@@ -16,15 +16,14 @@ feature file.
 
 ## The screen
 
-The top navigation holds four tabs: `Local reviews`, `Operations`,
-`Pull requests` and `Settings`. `Operations`, at `/`, is the landing screen: a
+The top navigation holds three tabs: `Local reviews`, `Operations` and
+`Settings`. `Operations`, at `/`, is the landing screen: a
 `commits` graph with an `operation` dropdown, beside a pane that diffs what the
 graph has ticked, one section per commit. The `interdiff` toggle splits the
 graph into `before` and `after`, each with its own operation, and the pane then
 diffs one against the other. Below 1000 pixels wide the panes show one at a
 time. `Local reviews`, at `/reviews`, reads the series registered from the
-graph or by an agent. `Settings` holds display preferences. `Pull requests`
-the harness cannot reach; see the scope note at the end.
+graph or by an agent. `Settings` holds display preferences.
 
 Review state (marks, viewed files, comments, local reviews) lives in the
 server's store, `review.sqlite` in the run directory, not in the browser. It
@@ -82,12 +81,3 @@ outlives a fresh browser and dies with `verify.sh stop`.
   layout.
 - [jj-backed API](./jj-api.md) covers the endpoints behind those screens and
   the error path they share.
-
-## Out of scope: pull requests
-
-The `Pull requests` tab reads a real GitHub repository. Under the harness it
-renders `Error: this repository has no origin remote`, because the fixture has
-no remote, and even with one the harness passes the server no `GH_HOST`.
-Nothing here covers those screens, and clicking the tab proves only that the
-error path renders. To exercise them, start a server by hand with
-`GH_HOST` exported and drive it as a separate run.
