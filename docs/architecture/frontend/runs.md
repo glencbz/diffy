@@ -21,9 +21,9 @@ says so the way it does for a capture with no parent.
 ```ts
 //| id: frontend-model-run-steps
 //| file: src/frontend/model/runSteps.ts
-import type { Capture } from "./evidence";
-import type { Anchor, RowComment } from "./review";
-import type { Logged, Request, Run, RunStep } from "./runs";
+import type { Capture } from "../../model/evidence";
+import type { Anchor, RowComment } from "../../model/review";
+import type { Logged, Request, Run, RunStep } from "../../model/runs";
 
 /** The step `index` of `run` drawn as a picture capture. */
 export function stepAsCapture(run: Run, index: number): Capture {
@@ -189,9 +189,9 @@ still find its line.
 //| id: frontend-view-network
 //| file: src/frontend/views/Runs/Network.tsx
 import { useState } from "react";
-import type { Anchor, RowComment, ThreadReview } from "../../model/review";
+import type { Anchor, RowComment, ThreadReview } from "../../../model/review";
+import type { Request } from "../../../model/runs";
 import { type Compared, isOnRequest } from "../../model/runSteps";
-import type { Request } from "../../model/runs";
 import { CommentComposer, CommentThreads } from "../Comments";
 
 /** The threads on the step's requests or console lines, and the anchor a
@@ -387,8 +387,8 @@ export const CHANGE_MARK = {
 //| id: frontend-view-console
 //| file: src/frontend/views/Runs/Console.tsx
 import { useState } from "react";
+import type { Logged } from "../../../model/runs";
 import { type Compared, isOnLogged } from "../../model/runSteps";
-import type { Logged } from "../../model/runs";
 import {
   CHANGE_MARK,
   CommentButton,
@@ -642,7 +642,7 @@ the step ran, since a bar nobody explained reads as one more highlight.
 ```ts
 //| id: frontend-model-ran-lines
 //| file: src/frontend/model/ranLines.ts
-import type { Ran } from "./runs";
+import type { Ran } from "../../model/runs";
 
 /** The rules that mark, in the row of `commitId`, the lines a step ran:
  *  the commit's on the side after it, the parent's on the side before. */
@@ -717,8 +717,9 @@ function ruleFor(selectors: string[], mark: string): string[] {
 //| id: frontend-model-run-steps-test
 //| file: src/frontend/model/runSteps.test.ts
 import { describe, expect, test } from "bun:test";
+import type { Anchor, RowComment } from "../../model/review";
+import type { Request } from "../../model/runs";
 import { ranRules } from "./ranLines";
-import type { Anchor, RowComment } from "./review";
 import {
   compareLogged,
   compareRequests,
@@ -726,7 +727,6 @@ import {
   partAnchor,
   partNotes,
 } from "./runSteps";
-import type { Request } from "./runs";
 
 const get = (
   url: string,

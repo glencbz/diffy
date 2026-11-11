@@ -12,9 +12,9 @@ promises, and `reviewKey` reads the null as its cue to key by revision.
 //| id: frontend-state-commits
 //| file: src/frontend/state/commits.ts
 import { useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { GitCommit, LogEntry, Source } from "../../model/history";
 import { fetchLocalCommits, fetchLog } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { GitCommit, LogEntry, Source } from "../model/history";
 import { useWorkspace } from "./repo";
 
 function asLogEntry(commit: GitCommit): LogEntry {
@@ -111,7 +111,7 @@ reaching the wrong endpoint might still parse.
 //| id: frontend-state-commits-test
 //| file: src/frontend/state/commits.test.ts
 import { afterEach, describe, expect, test } from "bun:test";
-import { GitOid } from "../model/history";
+import { GitOid } from "../../model/history";
 import { commitsFrom } from "./commits";
 
 const liveFetch = globalThis.fetch;
@@ -204,7 +204,7 @@ describe("commitsFrom", () => {
 ```tsx
 //| id: frontend-controller-commit-log
 //| file: src/frontend/controllers/CommitLog.tsx
-import type { Source } from "../model/history";
+import type { Source } from "../../model/history";
 import { useCommits } from "../state/commits";
 import { CommitGraph } from "../views/CommitGraph";
 import { Message } from "../views/Message";
@@ -258,7 +258,7 @@ algorithm to keep in agreement.
 ```tsx
 //| id: frontend-view-commit-graph
 //| file: src/frontend/views/CommitGraph.tsx
-import type { LogEntry } from "../model/history";
+import type { LogEntry } from "../../model/history";
 import { CommitLabel } from "./CommitLabel";
 
 // A node and a half. One node per row, so a lane only separates parallel
@@ -639,7 +639,7 @@ against the selected row's blue.
 //| id: frontend-view-commit-graph-test
 //| file: src/frontend/views/CommitGraph.test.ts
 import { describe, expect, test } from "bun:test";
-import type { LogEntry } from "../model/history";
+import type { LogEntry } from "../../model/history";
 import { layoutGraph } from "./CommitGraph";
 
 function commit(id: string, parents: string[]): LogEntry {
@@ -698,7 +698,7 @@ promises, and drawing them alike would invite trusting the wrong one.
 ```tsx
 //| id: frontend-view-commit-label
 //| file: src/frontend/views/CommitLabel.tsx
-import type { CommitMarker, CommitRef, LogEntry } from "../model/history";
+import type { CommitMarker, CommitRef, LogEntry } from "../../model/history";
 
 const REFS: Record<CommitRef["kind"], string> = {
   bookmark: "commit-ref--bookmark",

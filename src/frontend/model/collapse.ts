@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-collapse>>[init]
-import type { FileDiff } from "./diff";
-import { readPatch } from "./patch";
+import type { FileDiff } from "../../model/diff";
+import { readPatch } from "../../model/patch";
 
 /** Files a package manager writes and resolves on the author's behalf. */
 const LOCK_FILES = new Set([

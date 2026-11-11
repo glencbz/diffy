@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/local-history.md#frontend-model-local-history>>[init]
-import type { OpLogEntry } from "./history";
+import type { OpLogEntry } from "../../model/history";
 
 /**
  * Which operation a local side reads the repo at. A `latest` side asked for

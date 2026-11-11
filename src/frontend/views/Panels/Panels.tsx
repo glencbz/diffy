@@ -10,7 +10,7 @@ import {
   PanelId,
   setActive,
   type Tile,
-} from "../../model/panels";
+} from "../../../model/panels";
 import { Host } from "./Host";
 import { LeafView } from "./LeafView";
 import { SplitView } from "./SplitView";

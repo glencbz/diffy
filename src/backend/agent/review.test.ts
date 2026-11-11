@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EMPTY_REVIEW, type ReviewDocument } from "../../frontend/model/review";
+import { EMPTY_REVIEW, type ReviewDocument } from "../../model/review";
 import { FIXED } from "../../testing/history";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";

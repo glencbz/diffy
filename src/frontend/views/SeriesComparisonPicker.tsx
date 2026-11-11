@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-view-series-comparison-picker>>[init]
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   type SeriesBaseline,
   type SeriesHistory,

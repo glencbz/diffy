@@ -18,7 +18,7 @@ does for a commit list.
 ```ts
 //| id: frontend-model-series
 //| file: src/frontend/model/series.ts
-import type { LocalReview } from "./review";
+import type { LocalReview } from "../../model/review";
 
 /** One version of a series, named the way a reader tells versions apart. */
 export interface SeriesVersion {
@@ -109,7 +109,7 @@ series around it.
 //| id: frontend-model-series-test
 //| file: src/frontend/model/series.test.ts
 import { describe, expect, test } from "bun:test";
-import type { LocalReview } from "./review";
+import type { LocalReview } from "../../model/review";
 import { localHistory, versionAsk } from "./series";
 
 const review: LocalReview = {
@@ -163,10 +163,10 @@ way its comparisons read them.
 //| id: frontend-state-series
 //| file: src/frontend/state/series.ts
 import { useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
 import { fetchLocalCommits, fetchLocalSize } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
-import type { GitCommit } from "../model/history";
 import {
   type SeriesSource,
   type SeriesVersion,

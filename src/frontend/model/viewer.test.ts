@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { Capture } from "./evidence";
-import type { Anchor, RowComment } from "./review";
-import type { Run } from "./runs";
+import type { Capture } from "../../model/evidence";
+import type { Anchor, RowComment } from "../../model/review";
+import type { Run } from "../../model/runs";
 import {
   anchorOn,
   boxBetween,

@@ -16,18 +16,18 @@ import {
   useRef,
   useState,
 } from "react";
-import type { AsyncState } from "../model/asyncState";
-import { type BeforePaths, compareOffer } from "../model/compared";
-import type { FileDiff } from "../model/diff";
-import type { GitCommit } from "../model/history";
-import type { DiffLinks } from "../model/place";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
 import {
   type ComparisonReview,
   type DiffReview,
   type ReviewActions,
   type ReviewBarVariant,
   threadReview,
-} from "../model/review";
+} from "../../model/review";
+import { type BeforePaths, compareOffer } from "../model/compared";
+import type { DiffLinks } from "../model/place";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommentComposer, CommentThreads } from "./Comments";
@@ -815,7 +815,7 @@ muted alone would read as "unchanged".
 //| id: frontend-view-commit-stack-test
 //| file: src/frontend/views/CommitStack.test.ts
 import { describe, expect, test } from "bun:test";
-import type { FileDiff } from "../model/diff";
+import type { FileDiff } from "../../model/diff";
 import { countLines } from "./CommitStack";
 
 describe("countLines", () => {

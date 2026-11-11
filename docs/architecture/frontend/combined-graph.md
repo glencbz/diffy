@@ -24,7 +24,7 @@ has, which is where its parent usually is.
 ```ts
 //| id: frontend-model-combined-log
 //| file: src/frontend/model/combinedLog.ts
-import type { LogEntry } from "./history";
+import type { LogEntry } from "../../model/history";
 
 /** How a change moved between the before and the after operation. */
 export type CombinedKind = "same" | "rewritten" | "new" | "gone";
@@ -145,8 +145,8 @@ export function tick(
 //| id: frontend-model-combined-log-test
 //| file: src/frontend/model/combinedLog.test.ts
 import { describe, expect, test } from "bun:test";
+import type { LogEntry } from "../../model/history";
 import { combineLogs, layoutEntries, tick } from "./combinedLog";
-import type { LogEntry } from "./history";
 
 function entry(
   commitId: string,
@@ -328,6 +328,8 @@ order, so the diff pane receives exactly what two graphs would have sent it.
 ```tsx
 //| id: frontend-view-combined-graph
 //| file: src/frontend/views/CombinedGraph.tsx
+
+import type { LogEntry } from "../../model/history";
 import {
   type CombinedKind,
   type CombinedRow,
@@ -336,7 +338,6 @@ import {
   rowEntry,
   tick,
 } from "../model/combinedLog";
-import type { LogEntry } from "../model/history";
 import {
   type GraphLayout,
   type GraphRow,

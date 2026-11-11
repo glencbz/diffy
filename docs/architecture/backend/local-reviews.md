@@ -38,7 +38,7 @@ import {
   type LocalVersion,
   localReview,
   type ReviewDocument,
-} from "../../frontend/model/review";
+} from "../../model/review";
 import { type GitCommit, GitOid } from "../commit/git";
 import {
   type JjFileDiff,
@@ -184,7 +184,7 @@ trunk, since trunk itself is an empty merge whenever a branch lands as a merge c
 //| id: backend-local-reviews-test
 //| file: src/backend/review/local.test.ts
 import { describe, expect, test } from "bun:test";
-import { applyCommand, EMPTY_REVIEW } from "../../frontend/model/review";
+import { applyCommand, EMPTY_REVIEW } from "../../model/review";
 import { FIXED } from "../../testing/history";
 import {
   localCommits,

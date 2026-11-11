@@ -13,7 +13,7 @@ lands.
 ```ts
 //| id: frontend-model-local-history
 //| file: src/frontend/model/localHistory.ts
-import type { OpLogEntry } from "./history";
+import type { OpLogEntry } from "../../model/history";
 
 /**
  * Which operation a local side reads the repo at. A `latest` side asked for
@@ -545,7 +545,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { OpLogEntry } from "../model/history";
+import type { OpLogEntry } from "../../model/history";
 
 export function OperationPicker({
   operations,
@@ -882,7 +882,7 @@ sits on the picker row because a banner pushed the after graph down.
 ```tsx
 //| id: frontend-view-newer-operation
 //| file: src/frontend/views/NewerOperation.tsx
-import type { OpLogEntry } from "../model/history";
+import type { OpLogEntry } from "../../model/history";
 import { optionLabel } from "./OperationPicker";
 
 export function NewerOperation({
@@ -1016,7 +1016,7 @@ export function GraphsToggle({
 //| id: frontend-model-local-history-test
 //| file: src/frontend/model/localHistory.test.ts
 import { describe, expect, test } from "bun:test";
-import type { OpLogEntry } from "./history";
+import type { OpLogEntry } from "../../model/history";
 import {
   newerOperation,
   pick,

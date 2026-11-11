@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/combined-graph.md#frontend-model-combined-log-test>>[init]
 import { describe, expect, test } from "bun:test";
+import type { LogEntry } from "../../model/history";
 import { combineLogs, layoutEntries, tick } from "./combinedLog";
-import type { LogEntry } from "./history";
 
 function entry(
   commitId: string,

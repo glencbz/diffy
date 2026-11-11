@@ -10,8 +10,8 @@ import {
   coloursOf,
   componentsTo,
   KindColour,
-} from "../../frontend/model/components";
-import { readPatch } from "../../frontend/model/patch";
+} from "../../model/components";
+import { readPatch } from "../../model/patch";
 import type { JjFileDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
 import { type Tool, ToolError, tool } from "./mcp";

@@ -11,7 +11,7 @@ import {
   type ReviewCommand,
   ReviewDocument,
   type ReviewSnapshot,
-} from "../../frontend/model/review";
+} from "../../model/review";
 import { jjRepoDir } from "../commit/jj";
 
 export interface ReviewStore {

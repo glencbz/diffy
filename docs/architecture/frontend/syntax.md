@@ -37,8 +37,8 @@ export type SourceLookup = (blob: string, path: string) => SourceFile | null;
 //| id: frontend-state-source
 //| file: src/frontend/state/source.ts
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { FileDiff } from "../../model/diff";
 import { fetchSource } from "../api";
-import type { FileDiff } from "../model/diff";
 import type { SourceFile, SourceLookup } from "../model/source";
 import { useWorkspace } from "./repo";
 

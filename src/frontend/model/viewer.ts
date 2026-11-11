@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/viewer.md#frontend-model-viewer>>[init]
-import type { Box, Capture, Shown } from "./evidence";
-import type { Anchor, RowComment, Side } from "./review";
-import type { Run } from "./runs";
+import type { Box, Capture, Shown } from "../../model/evidence";
+import type { Anchor, RowComment, Side } from "../../model/review";
+import type { Run } from "../../model/runs";
 
 export const VIEW_MODES = ["side", "swipe", "fade", "difference"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];

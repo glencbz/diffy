@@ -8,8 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AsyncState } from "../../model/asyncState";
-import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
+import type { AsyncState } from "../../../model/asyncState";
 import {
   type AddedLine,
   type Component,
@@ -38,8 +37,16 @@ import {
   sameFold,
   sameRun,
   wordAdded,
-} from "../../model/components";
-import type { FileDiff } from "../../model/diff";
+} from "../../../model/components";
+import type { FileDiff } from "../../../model/diff";
+import {
+  type Comment,
+  type ComparisonReview,
+  isPlaceSeen,
+  isViewed,
+  type PlaceVersion,
+} from "../../../model/review";
+import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type Arrangement,
   arrange,
@@ -47,13 +54,6 @@ import {
   groupLinks,
 } from "../../model/groups";
 import type { Asked, Location } from "../../model/location";
-import {
-  type Comment,
-  type ComparisonReview,
-  isPlaceSeen,
-  isViewed,
-  type PlaceVersion,
-} from "../../model/review";
 import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";

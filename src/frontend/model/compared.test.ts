@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-model-compared-test>>[init]
 import { describe, expect, test } from "bun:test";
+import type { FileDiff } from "../../model/diff";
+import { EMPTY_REVIEW, reviewComparison } from "../../model/review";
 import { type CompareAsk, compareAsks, withCompared } from "./compared";
-import type { FileDiff } from "./diff";
-import { EMPTY_REVIEW, reviewComparison } from "./review";
 
 const fields = {
   binary: false,

@@ -8,7 +8,7 @@ import {
   layoutOf,
   type Tile,
   treeOf,
-} from "../model/panels";
+} from "../../model/panels";
 import { layoutsStore } from "../persistence/layouts";
 
 export interface PanelLayouts {

@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-state-commits>>[init]
 import { useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { GitCommit, LogEntry, Source } from "../../model/history";
 import { fetchLocalCommits, fetchLog } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { GitCommit, LogEntry, Source } from "../model/history";
 import { useWorkspace } from "./repo";
 
 function asLogEntry(commit: GitCommit): LogEntry {

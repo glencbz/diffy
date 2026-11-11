@@ -36,7 +36,7 @@ kind removed later draws grey rather than leaving the map unreadable.
 
 ```ts
 //| id: frontend-model-components
-//| file: src/frontend/model/components.ts
+//| file: src/model/components.ts
 import * as z from "zod";
 import type { AsyncState } from "./asyncState";
 import type { FileDiff } from "./diff";
@@ -309,7 +309,11 @@ thing to check.
 ```ts
 //| id: frontend-model-groups
 //| file: src/frontend/model/groups.ts
-import type { Component, ComponentGroup, ComponentRole } from "./components";
+import type {
+  Component,
+  ComponentGroup,
+  ComponentRole,
+} from "../../model/components";
 
 /** A way of grouping a commit's components. */
 export type Arrangement = "piece" | "layer" | "role";
@@ -956,15 +960,15 @@ when a peek asks for it.
 //| id: frontend-state-components
 //| file: src/frontend/state/components.ts
 import { useState } from "react";
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   type ComponentMap,
   type Counterparts,
   componentsTo,
   type RowCounterpart,
-} from "../model/components";
-import type { FileDiff } from "../model/diff";
-import type { GitCommit } from "../model/history";
+} from "../../model/components";
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
 import type { Slot } from "../model/pairing";
 import {
   type SeriesSource,
@@ -1148,8 +1152,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AsyncState } from "../../model/asyncState";
-import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
+import type { AsyncState } from "../../../model/asyncState";
 import {
   type AddedLine,
   type Component,
@@ -1178,8 +1181,16 @@ import {
   sameFold,
   sameRun,
   wordAdded,
-} from "../../model/components";
-import type { FileDiff } from "../../model/diff";
+} from "../../../model/components";
+import type { FileDiff } from "../../../model/diff";
+import {
+  type Comment,
+  type ComparisonReview,
+  isPlaceSeen,
+  isViewed,
+  type PlaceVersion,
+} from "../../../model/review";
+import { fileAnchor, fileVersionOf } from "../../model/changedFiles";
 import {
   type Arrangement,
   arrange,
@@ -1187,13 +1198,6 @@ import {
   groupLinks,
 } from "../../model/groups";
 import type { Asked, Location } from "../../model/location";
-import {
-  type Comment,
-  type ComparisonReview,
-  isPlaceSeen,
-  isViewed,
-  type PlaceVersion,
-} from "../../model/review";
 import type { SourceLookup } from "../../model/source";
 import type { StackLayer, StackRow } from "../CommitStack";
 import type { LineDecor } from "../DiffView/FileRow/FileRow";
@@ -2864,7 +2868,7 @@ so one heading never repeats the other.
 //| id: frontend-view-components-heading
 //| file: src/frontend/views/Components/Heading.tsx
 import type { MouseEvent, ReactNode } from "react";
-import type { Fate, PlaceRef } from "../../model/components";
+import type { Fate, PlaceRef } from "../../../model/components";
 import { CommentIcon, MessageIcon, SwapIcon } from "./icons";
 
 /** A way to the same place in another comparison, peeked at on hover. */
@@ -3299,7 +3303,7 @@ than a part of it.
 //| id: frontend-view-components-rail
 //| file: src/frontend/views/Components/Rail.tsx
 import type { ComponentProps } from "react";
-import type { Component, Fate, FileShare } from "../../model/components";
+import type { Component, Fate, FileShare } from "../../../model/components";
 import { Groups } from "./Groups";
 import { CommentIcon, MessageIcon } from "./icons";
 
@@ -3759,16 +3763,16 @@ export function Groups({
 //| id: frontend-view-components-peek
 //| file: src/frontend/views/Components/Peek.tsx
 import type { ReactNode } from "react";
-import type { AsyncState } from "../../model/asyncState";
+import type { AsyncState } from "../../../model/asyncState";
 import {
   type Component,
   placeAt,
   type Reference,
   type RowTrees,
-} from "../../model/components";
-import type { FileDiff } from "../../model/diff";
-import { type HunkLine, readPatch } from "../../model/patch";
-import type { Comment } from "../../model/review";
+} from "../../../model/components";
+import type { FileDiff } from "../../../model/diff";
+import { type HunkLine, readPatch } from "../../../model/patch";
+import type { Comment } from "../../../model/review";
 import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
 import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
@@ -5215,7 +5219,7 @@ never reads as a kind and either theme can read them.
 
 ```ts
 //| id: frontend-model-components-test
-//| file: src/frontend/model/components.test.ts
+//| file: src/model/components.test.ts
 import { describe, expect, test } from "bun:test";
 import {
   type Component,
@@ -5739,7 +5743,7 @@ describe("finding what uses a component", () => {
 //| id: frontend-model-groups-test
 //| file: src/frontend/model/groups.test.ts
 import { describe, expect, test } from "bun:test";
-import type { Component, ComponentGroup } from "./components";
+import type { Component, ComponentGroup } from "../../model/components";
 import { arrange, arrangementsOf, groupLinks } from "./groups";
 
 function component(

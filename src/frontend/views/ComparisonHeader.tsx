@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-comparison-header>>[init]
-import type { LogEntry } from "../model/history";
-import type { ReviewBarVariant, ReviewedRow } from "../model/review";
+import type { LogEntry } from "../../model/history";
+import type { ReviewBarVariant, ReviewedRow } from "../../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { ReviewBar } from "./ReviewBar";
 

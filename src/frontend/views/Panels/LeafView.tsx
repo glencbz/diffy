@@ -7,7 +7,7 @@ import {
   PANEL_NAMES,
   type PanelId,
   type Tile,
-} from "../../model/panels";
+} from "../../../model/panels";
 import { Host } from "./Host";
 
 export function LeafView({

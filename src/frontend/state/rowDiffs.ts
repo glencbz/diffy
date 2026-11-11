@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-state-row-diffs>>[init]
 import { useEffect, useRef, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
 import { fetchLocalDiff } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
 import type { Slot } from "../model/pairing";
 import { useWorkspace } from "./repo";
 

@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff-compare-with>>[init]
 import { useState } from "react";
-import type { AsyncState } from "../../../model/asyncState";
+import type { AsyncState } from "../../../../model/asyncState";
 import type { FileCompare } from "../../../model/compared";
 
 /** Rows of the before tree drawn at once. */

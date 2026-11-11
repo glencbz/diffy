@@ -16,7 +16,7 @@ card can always step once.
 ```ts
 //| id: frontend-model-pairing
 //| file: src/frontend/model/pairing.ts
-import { alignSeries, type SeriesCommit } from "../../backend/commit/series";
+import { alignSeries, type SeriesCommit } from "../../model/alignment";
 
 export type Side = "left" | "right";
 
@@ -175,7 +175,7 @@ correction also moves the marks and comments of the commits it pairs.
 //| id: frontend-state-pairing
 //| file: src/frontend/state/pairing.ts
 import { useState } from "react";
-import type { SeriesCommit } from "../../backend/commit/series";
+import type { SeriesCommit } from "../../model/alignment";
 import {
   fits,
   heuristicSlots,
@@ -250,7 +250,7 @@ uses a seeded LCG, so a failure repeats.
 //| id: frontend-model-pairing-test
 //| file: src/frontend/model/pairing.test.ts
 import { describe, expect, test } from "bun:test";
-import type { SeriesCommit } from "../../backend/commit/series";
+import type { SeriesCommit } from "../../model/alignment";
 import {
   fits,
   heuristicSlots,

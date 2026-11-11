@@ -180,6 +180,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import type { AsyncState } from "../../model/asyncState";
 import {
   fetchFoundRepos,
   fetchRecentRepos,
@@ -189,7 +190,6 @@ import {
   probeRepoPath,
   restoreRecentRepo,
 } from "../api";
-import type { AsyncState } from "../model/asyncState";
 import { readRepo, withRepo } from "../model/place";
 import {
   type FoundRepo,
@@ -392,7 +392,7 @@ keys move through every row that can be opened, the typed path first.
 //| id: frontend-view-repo-list
 //| file: src/frontend/views/RepoList.tsx
 import { useEffect, useRef, useState } from "react";
-import type { AsyncState } from "../model/asyncState";
+import type { AsyncState } from "../../model/asyncState";
 import {
   type FoundRepo,
   matchesQuery,

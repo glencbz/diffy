@@ -1,13 +1,13 @@
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[init]
 import * as z from "zod";
-import type { CompareAsk } from "./model/compared";
-import type { FileDiff, InterdiffResponse } from "./model/diff";
+import type { FileDiff, InterdiffResponse } from "../model/diff";
 import {
   type GitCommit,
   GitOid,
   type LogEntry,
   type OpLogEntry,
-} from "./model/history";
+} from "../model/history";
+import type { CompareAsk } from "./model/compared";
 import {
   type FoundRepo,
   inWorkspace,

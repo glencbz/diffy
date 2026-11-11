@@ -15,9 +15,9 @@ on screen stays, so adding a commit never blanks the panel. Like
 //| id: frontend-state-comparison
 //| file: src/frontend/state/comparison.ts
 import { useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { InterdiffRow } from "../../model/diff";
 import { fetchInterdiff } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { InterdiffRow } from "../model/diff";
 import { useWorkspace } from "./repo";
 
 /** What the diff panel is being asked for. */
@@ -75,9 +75,9 @@ this series". With more than one file it renders a
 //| id: frontend-controller-diff-pane
 //| file: src/frontend/controllers/DiffPane.tsx
 
+import { type ReviewedRow, reviewRows } from "../../model/review";
 import { changedFilesOf } from "../model/changedFiles";
 import { compareAsks, withCompared } from "../model/compared";
-import { type ReviewedRow, reviewRows } from "../model/review";
 import { useBeforePaths, useCompared } from "../state/compared";
 import { type Comparison, useComparison } from "../state/comparison";
 import type { ReviewHandle } from "../state/review";
@@ -163,6 +163,14 @@ file by its new path, and mark the addressed file or line with a bar.
 //| id: frontend-view-diff
 //| file: src/frontend/views/DiffView/DiffView.tsx
 import { useMemo, useState } from "react";
+import type { FileDiff } from "../../../model/diff";
+import {
+  type Anchor,
+  type CompareOffer,
+  type DiffReview,
+  isViewed,
+  onFile,
+} from "../../../model/review";
 import {
   afterPathOf,
   changedFile,
@@ -171,15 +179,7 @@ import {
   shownPathOf,
 } from "../../model/changedFiles";
 import { beforePathsOf, type FileCompare } from "../../model/compared";
-import type { FileDiff } from "../../model/diff";
 import type { DiffLinks } from "../../model/place";
-import {
-  type Anchor,
-  type CompareOffer,
-  type DiffReview,
-  isViewed,
-  onFile,
-} from "../../model/review";
 import type { Display } from "../../model/settings";
 import type { SourceLookup } from "../../model/source";
 import { FileRow, type LineDecor } from "./FileRow/FileRow";
@@ -402,17 +402,17 @@ context. Gaps opened in one view are kept apart from the other's.
 //| id: frontend-view-diff-file-row
 //| file: src/frontend/views/DiffView/FileRow/FileRow.tsx
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { shownPathOf } from "../../../model/changedFiles";
-import { collapseReason } from "../../../model/collapse";
-import type { FileCompare } from "../../../model/compared";
-import type { FileDiff } from "../../../model/diff";
-import type { DiffLinks } from "../../../model/place";
+import type { FileDiff } from "../../../../model/diff";
 import {
   type Anchor,
   drawnAt,
   type LineAnchor,
   type RowComment,
-} from "../../../model/review";
+} from "../../../../model/review";
+import { shownPathOf } from "../../../model/changedFiles";
+import { collapseReason } from "../../../model/collapse";
+import type { FileCompare } from "../../../model/compared";
+import type { DiffLinks } from "../../../model/place";
 import type { DiffMode, Display } from "../../../model/settings";
 import type { SourceLookup } from "../../../model/source";
 import { splitRows } from "../../../model/split";
@@ -1007,8 +1007,8 @@ file.
 //| id: frontend-view-diff-file-links
 //| file: src/frontend/views/DiffView/FileRow/links.ts
 import type { MouseEvent } from "react";
+import type { FileDiff } from "../../../../model/diff";
 import { afterPathOf } from "../../../model/changedFiles";
-import type { FileDiff } from "../../../model/diff";
 import type { DiffLinks, FileSpot } from "../../../model/place";
 
 /** `DiffLinks` narrowed to one file. */
@@ -1114,7 +1114,7 @@ name, not by scrolling.
 //| id: frontend-view-diff-compare-with
 //| file: src/frontend/views/DiffView/FileRow/CompareWith.tsx
 import { useState } from "react";
-import type { AsyncState } from "../../../model/asyncState";
+import type { AsyncState } from "../../../../model/asyncState";
 import type { FileCompare } from "../../../model/compared";
 
 /** Rows of the before tree drawn at once. */
@@ -1307,14 +1307,14 @@ ranges come from differs. A hunk header with no jump left goes away.
 ```ts
 //| id: frontend-view-diff-drawn-lines
 //| file: src/frontend/views/DiffView/FileRow/drawnLines.ts
-import type { FileDiff, StructuralDiff } from "../../../model/diff";
+import type { FileDiff, StructuralDiff } from "../../../../model/diff";
 import {
   gapsOf,
   type HunkLine,
   type Patch,
   readPatch,
-} from "../../../model/patch";
-import type { LineAnchor } from "../../../model/review";
+} from "../../../../model/patch";
+import type { LineAnchor } from "../../../../model/review";
 import type {
   SourceFile,
   SourceLookup,
@@ -1540,7 +1540,7 @@ marks it in reviewed diffs too.
 //| file: src/frontend/views/DiffView/FileRow/PatchLine.tsx
 
 import type { ReactNode } from "react";
-import type { LineAnchor } from "../../../model/review";
+import type { LineAnchor } from "../../../../model/review";
 import type { PaintedToken } from "../../../model/words";
 import {
   anchorKey,
@@ -1734,7 +1734,7 @@ import {
   type LineAnchor,
   type Reply,
   type RowComment,
-} from "../model/review";
+} from "../../model/review";
 
 /** How a comment names its line: the after side's number alone, since that
  *  is the version being approved, and the before side's marked as such. */
@@ -2677,8 +2677,8 @@ counts changed lines, not the file's length.
 ```ts
 //| id: frontend-model-collapse
 //| file: src/frontend/model/collapse.ts
-import type { FileDiff } from "./diff";
-import { readPatch } from "./patch";
+import type { FileDiff } from "../../model/diff";
+import { readPatch } from "../../model/patch";
 
 /** Files a package manager writes and resolves on the author's behalf. */
 const LOCK_FILES = new Set([
@@ -2753,8 +2753,8 @@ export function collapseReason(file: FileDiff): string | null {
 //| id: frontend-model-collapse-test
 //| file: src/frontend/model/collapse.test.ts
 import { describe, expect, test } from "bun:test";
+import type { FileDiff } from "../../model/diff";
 import { collapseReason, LARGE_DIFF } from "./collapse";
-import type { FileDiff } from "./diff";
 
 function modified(path: string, patch: string): FileDiff {
   return {
@@ -2875,10 +2875,14 @@ after a rewrite), shows its own diff in the meantime.
 ```ts
 //| id: frontend-model-compared
 //| file: src/frontend/model/compared.ts
-import type { AsyncState } from "./asyncState";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
+import type {
+  CompareOffer,
+  ComparisonReview,
+  ReviewActions,
+} from "../../model/review";
 import { afterPathOf } from "./changedFiles";
-import type { FileDiff } from "./diff";
-import type { CompareOffer, ComparisonReview, ReviewActions } from "./review";
 
 /** One file of a row read against another, as the server is asked for it:
  *  `oldPath` on the before side, `newPath` on the after side. */
@@ -2986,9 +2990,9 @@ export function beforePathsOf(files: FileDiff[]): string[] {
 //| id: frontend-model-compared-test
 //| file: src/frontend/model/compared.test.ts
 import { describe, expect, test } from "bun:test";
+import type { FileDiff } from "../../model/diff";
+import { EMPTY_REVIEW, reviewComparison } from "../../model/review";
 import { type CompareAsk, compareAsks, withCompared } from "./compared";
-import type { FileDiff } from "./diff";
-import { EMPTY_REVIEW, reviewComparison } from "./review";
 
 const fields = {
   binary: false,
@@ -3107,15 +3111,15 @@ usually never looked at.
 //| id: frontend-state-compared
 //| file: src/frontend/state/compared.ts
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
 import { fetchBeforePaths, fetchCompared } from "../api";
-import type { AsyncState } from "../model/asyncState";
 import {
   type BeforePaths,
   type CompareAsk,
   type ComparedLookup,
   compareKey,
 } from "../model/compared";
-import type { FileDiff } from "../model/diff";
 import { useWorkspace } from "./repo";
 
 function messageOf(error: unknown): string {
@@ -3198,7 +3202,7 @@ newline is dropped so it does not read as an empty last line.
 
 ```ts
 //| id: frontend-model-patch
-//| file: src/frontend/model/patch.ts
+//| file: src/model/patch.ts
 /** A file's patch read into the hunks it is made of. */
 export interface Patch {
   /** Everything above the first hunk: `diff --git`, `index`, `---`, `+++`,
@@ -3314,7 +3318,7 @@ export function followLine(
 
 ```ts
 //| id: frontend-model-patch-test
-//| file: src/frontend/model/patch.test.ts
+//| file: src/model/patch.test.ts
 import { describe, expect, test } from "bun:test";
 import { followLine, gapsOf, readPatch } from "./patch";
 
@@ -3569,7 +3573,7 @@ being re-paired. `paintWords` cuts syntax tokens at the ranges.
 //| id: frontend-model-words
 //| file: src/frontend/model/words.ts
 
-import type { HunkLine } from "./patch";
+import type { HunkLine } from "../../model/patch";
 import type { SyntaxKind, SyntaxToken } from "./source";
 
 /** Characters `start` up to, not including, `end` of a line. */
@@ -3749,7 +3753,7 @@ export function markable(
 //| id: frontend-model-words-test
 //| file: src/frontend/model/words.test.ts
 import { describe, expect, test } from "bun:test";
-import type { HunkLine } from "./patch";
+import type { HunkLine } from "../../model/patch";
 import { changedLines, changedWords, markable, paintWords } from "./words";
 
 describe("changedWords", () => {
@@ -4049,13 +4053,13 @@ once. Under the header is the after (else before) commit's
 //| id: frontend-view-interdiff-rows
 //| file: src/frontend/views/InterdiffRows.tsx
 import { type ReactNode, useState } from "react";
-import { type BeforePaths, compareOffer } from "../model/compared";
 import type {
   DiffReview,
   ReviewActions,
   ReviewBarVariant,
   ReviewedRow,
-} from "../model/review";
+} from "../../model/review";
+import { type BeforePaths, compareOffer } from "../model/compared";
 import type { Display } from "../model/settings";
 import type { SourceLookup } from "../model/source";
 import { CommentComposer, CommentThreads } from "./Comments";
@@ -4261,8 +4265,8 @@ Below sits the [review bar](review.md#the-review-bar).
 ```tsx
 //| id: frontend-view-comparison-header
 //| file: src/frontend/views/ComparisonHeader.tsx
-import type { LogEntry } from "../model/history";
-import type { ReviewBarVariant, ReviewedRow } from "../model/review";
+import type { LogEntry } from "../../model/history";
+import type { ReviewBarVariant, ReviewedRow } from "../../model/review";
 import { CommitLabel } from "./CommitLabel";
 import { ReviewBar } from "./ReviewBar";
 

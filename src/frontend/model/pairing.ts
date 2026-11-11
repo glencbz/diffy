@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/pairing.md#frontend-model-pairing>>[init]
-import { alignSeries, type SeriesCommit } from "../../backend/commit/series";
+import { alignSeries, type SeriesCommit } from "../../model/alignment";
 
 export type Side = "left" | "right";
 

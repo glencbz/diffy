@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/components.md#frontend-model-groups-test>>[init]
 import { describe, expect, test } from "bun:test";
-import type { Component, ComponentGroup } from "./components";
+import type { Component, ComponentGroup } from "../../model/components";
 import { arrange, arrangementsOf, groupLinks } from "./groups";
 
 function component(

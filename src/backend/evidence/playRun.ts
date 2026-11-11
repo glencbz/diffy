@@ -6,7 +6,7 @@ import {
   lineRuns,
   type Ran,
   type Request,
-} from "../../frontend/model/runs";
+} from "../../model/runs";
 import type { Step } from "./recipe";
 import {
   mappedLinesRun,

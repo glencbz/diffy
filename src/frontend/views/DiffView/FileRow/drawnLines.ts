@@ -1,12 +1,12 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff-drawn-lines>>[init]
-import type { FileDiff, StructuralDiff } from "../../../model/diff";
+import type { FileDiff, StructuralDiff } from "../../../../model/diff";
 import {
   gapsOf,
   type HunkLine,
   type Patch,
   readPatch,
-} from "../../../model/patch";
-import type { LineAnchor } from "../../../model/review";
+} from "../../../../model/patch";
+import type { LineAnchor } from "../../../../model/review";
 import type {
   SourceFile,
   SourceLookup,

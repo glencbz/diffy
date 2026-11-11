@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capturesOf } from "../../frontend/model/evidence";
+import { capturesOf } from "../../model/evidence";
 import type { Recipe, Taken } from "../evidence/recipe";
 import type { Recorder } from "../evidence/recorder";
 import { EvidenceStore } from "../evidence/store";

@@ -1,5 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/file-tree.md#frontend-model-changed-files-test>>[init]
 import { describe, expect, test } from "bun:test";
+import type { FileDiff } from "../../model/diff";
+import type { RowComment } from "../../model/review";
 import {
   type ChangedFile,
   changedFile,
@@ -8,8 +10,6 @@ import {
   fileTree,
   shownPathOf,
 } from "./changedFiles";
-import type { FileDiff } from "./diff";
-import type { RowComment } from "./review";
 
 const PATCH = ["@@ -1,2 +1,3 @@", " keep", "-old", "+new", "+another"].join(
   "\n",

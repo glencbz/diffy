@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-view-diff-patch-line>>[init]
 
 import type { ReactNode } from "react";
-import type { LineAnchor } from "../../../model/review";
+import type { LineAnchor } from "../../../../model/review";
 import type { PaintedToken } from "../../../model/words";
 import {
   anchorKey,

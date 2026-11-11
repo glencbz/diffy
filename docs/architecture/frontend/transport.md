@@ -18,7 +18,7 @@ strings each backend picks to match its own tool.
 
 ```ts
 //| id: frontend-model-history
-//| file: src/frontend/model/history.ts
+//| file: src/model/history.ts
 import * as z from "zod";
 
 /** A full 40-hex git object id. Branded: only a parse mints one. */
@@ -64,7 +64,7 @@ export type OpLogEntry = {
 
 ```ts
 //| id: frontend-model-diff
-//| file: src/frontend/model/diff.ts
+//| file: src/model/diff.ts
 import type { LogEntry } from "./history";
 
 /** A token difftastic says changed, in UTF-16 code units of its line. */
@@ -123,14 +123,14 @@ export type InterdiffResponse = { rows: InterdiffRow[] };
 //| id: frontend-api
 //| file: src/frontend/api.ts
 import * as z from "zod";
-import type { CompareAsk } from "./model/compared";
-import type { FileDiff, InterdiffResponse } from "./model/diff";
+import type { FileDiff, InterdiffResponse } from "../model/diff";
 import {
   type GitCommit,
   GitOid,
   type LogEntry,
   type OpLogEntry,
-} from "./model/history";
+} from "../model/history";
+import type { CompareAsk } from "./model/compared";
 import {
   type FoundRepo,
   inWorkspace,

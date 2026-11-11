@@ -15,7 +15,7 @@ it fail first.
 
 ```ts
 //| id: series-module
-//| file: src/backend/commit/series.ts
+//| file: src/model/alignment.ts
 
 /** The identity a commit needs to be lined up against another. A backend
  * with no change ids sends null, never a stand-in. */
@@ -108,9 +108,9 @@ function indexOfChange(
 
 ```ts
 //| id: series-module-test
-//| file: src/backend/commit/series.test.ts
+//| file: src/model/alignment.test.ts
 import { describe, expect, test } from "bun:test";
-import { alignSeries, type SeriesCommit } from "./series";
+import { alignSeries, type SeriesCommit } from "./alignment";
 
 /** `"a b c"` -> that series, newest first, each commit its own version. */
 function series(changes: string, version = "1"): SeriesCommit[] {

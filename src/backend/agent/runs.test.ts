@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runsOf } from "../../frontend/model/runs";
+import { runsOf } from "../../model/runs";
 import type { PlayedStep } from "../evidence/playRun";
 import type { Recorder } from "../evidence/recorder";
 import type { Played } from "../evidence/recordRun";

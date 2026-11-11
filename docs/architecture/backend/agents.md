@@ -505,7 +505,7 @@ link uses the address the agent called.
 //| id: backend-agent-review
 //| file: src/backend/agent/review.ts
 import * as z from "zod";
-import { Box } from "../../frontend/model/evidence";
+import { Box } from "../../model/evidence";
 import {
   type Anchor,
   evidenceLabel,
@@ -516,8 +516,8 @@ import {
   localSeries,
   type ReviewDocument,
   reviewedIn,
-} from "../../frontend/model/review";
-import { Logged } from "../../frontend/model/runs";
+} from "../../model/review";
+import { Logged } from "../../model/runs";
 import { JjError, type JjLogEntry, jjCommits } from "../commit/jj";
 import { RegistrationError, resolveRegistration } from "../review/local";
 import { type Tool, ToolError, tool } from "./mcp";
@@ -1205,7 +1205,7 @@ version, the one the reader opens. The tools read their series through
 //| id: backend-agent-series
 //| file: src/backend/agent/series.ts
 import * as z from "zod";
-import { localReview, localSeries } from "../../frontend/model/review";
+import { localReview, localSeries } from "../../model/review";
 import { gitFiles } from "../commit/git";
 import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
@@ -1378,8 +1378,8 @@ import {
   coloursOf,
   componentsTo,
   KindColour,
-} from "../../frontend/model/components";
-import { readPatch } from "../../frontend/model/patch";
+} from "../../model/components";
+import { readPatch } from "../../model/patch";
 import type { JjFileDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
 import { type Tool, ToolError, tool } from "./mcp";
@@ -1824,7 +1824,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EMPTY_REVIEW, type ReviewDocument } from "../../frontend/model/review";
+import { EMPTY_REVIEW, type ReviewDocument } from "../../model/review";
 import { FIXED } from "../../testing/history";
 import { openReviewStore, type ReviewStore } from "../review/store";
 import { mcpRoute } from "./mcp";

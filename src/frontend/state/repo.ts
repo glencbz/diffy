@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import type { AsyncState } from "../../model/asyncState";
 import {
   fetchFoundRepos,
   fetchRecentRepos,
@@ -16,7 +17,6 @@ import {
   probeRepoPath,
   restoreRecentRepo,
 } from "../api";
-import type { AsyncState } from "../model/asyncState";
 import { readRepo, withRepo } from "../model/place";
 import {
   type FoundRepo,

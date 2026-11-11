@@ -1,4 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/combined-graph.md#frontend-view-combined-graph>>[init]
+
+import type { LogEntry } from "../../model/history";
 import {
   type CombinedKind,
   type CombinedRow,
@@ -7,7 +9,6 @@ import {
   rowEntry,
   tick,
 } from "../model/combinedLog";
-import type { LogEntry } from "../model/history";
 import {
   type GraphLayout,
   type GraphRow,

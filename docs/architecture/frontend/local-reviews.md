@@ -90,7 +90,6 @@ waits under the list to be restored until the server purges it.
 //| id: frontend-controller-local-reviews
 //| file: src/frontend/controllers/LocalReviews.tsx
 import { useState } from "react";
-import { type LocalPlace, localHref, openLocal } from "../model/place";
 import {
   type ForgottenReviewOrder,
   type LocalReview,
@@ -100,7 +99,8 @@ import {
   localSeries,
   sortForgottenReviews,
   sortLocalReviews,
-} from "../model/review";
+} from "../../model/review";
+import { type LocalPlace, localHref, openLocal } from "../model/place";
 import { localHistory } from "../model/series";
 import type { Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";
@@ -275,8 +275,11 @@ import type {
   LocalReviewListVariant,
   LocalReviewOrder,
   LocalVersion,
-} from "../model/review";
-import { FORGOTTEN_REVIEW_ORDERS, LOCAL_REVIEW_ORDERS } from "../model/review";
+} from "../../model/review";
+import {
+  FORGOTTEN_REVIEW_ORDERS,
+  LOCAL_REVIEW_ORDERS,
+} from "../../model/review";
 
 const ORDER_LABELS: Record<LocalReviewOrder, string> = {
   "modified-newest": "Modified, newest first",
@@ -684,7 +687,7 @@ guessed.
 ```ts
 //| id: frontend-model-revset
 //| file: src/frontend/model/revset.ts
-import type { LogEntry } from "./history";
+import type { LogEntry } from "../../model/history";
 
 function localBookmark(commit: LogEntry): string | undefined {
   return commit.refs.find(
@@ -784,7 +787,7 @@ export function reviewNameFor(log: LogEntry[], ticked: string[]): string {
 //| id: frontend-model-revset-test
 //| file: src/frontend/model/revset.test.ts
 import { describe, expect, test } from "bun:test";
-import type { CommitRef, LogEntry } from "./history";
+import type { CommitRef, LogEntry } from "../../model/history";
 import { reviewNameFor, revsetFor } from "./revset";
 
 function commit(
@@ -941,8 +944,8 @@ transport call, here so the controller does not reach past `state/`.
 //| id: frontend-state-registration
 //| file: src/frontend/state/registration.ts
 import { useCallback, useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
 import { fetchLog, registerLocalReview } from "../api";
-import type { AsyncState } from "../model/asyncState";
 import { useWorkspace } from "./repo";
 
 const SETTLE_MS = 300;
@@ -1032,7 +1035,7 @@ there.
 //| id: frontend-controller-register-review
 //| file: src/frontend/controllers/RegisterReview.tsx
 import { useEffect, useRef, useState } from "react";
-import { localReview } from "../model/review";
+import { localReview } from "../../model/review";
 import { reviewNameFor, revsetFor } from "../model/revset";
 import { useCommits } from "../state/commits";
 import { useRegister, useRevsetMatch, useTrunk } from "../state/registration";

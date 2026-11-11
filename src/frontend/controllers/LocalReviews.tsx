@@ -1,6 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-controller-local-reviews>>[init]
 import { useState } from "react";
-import { type LocalPlace, localHref, openLocal } from "../model/place";
 import {
   type ForgottenReviewOrder,
   type LocalReview,
@@ -10,7 +9,8 @@ import {
   localSeries,
   sortForgottenReviews,
   sortLocalReviews,
-} from "../model/review";
+} from "../../model/review";
+import { type LocalPlace, localHref, openLocal } from "../model/place";
 import { localHistory } from "../model/series";
 import type { Visit } from "../state/place";
 import type { ReviewHandle } from "../state/review";

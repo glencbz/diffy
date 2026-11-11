@@ -2,7 +2,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import * as z from "zod";
-import { DEFAULT_LAYOUTS, LayoutsDocument } from "../../frontend/model/panels";
+import { DEFAULT_LAYOUTS, LayoutsDocument } from "../../model/panels";
 
 export class LayoutStore {
   constructor(private readonly path: string) {}

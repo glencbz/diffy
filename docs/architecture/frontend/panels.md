@@ -48,7 +48,7 @@ panel that cannot find it says the thing is gone rather than going blank.
 ```ts
 //| id: frontend-model-location
 //| file: src/frontend/model/location.ts
-import type { Component } from "./components";
+import type { Component } from "../../model/components";
 
 /** A spot in a review that a panel can show or point at. */
 export type Location = CodeLocation | ComponentLocation;
@@ -238,7 +238,7 @@ panel twice, is no layout, and the one it was made from stands in for it.
 
 ```ts
 //| id: frontend-model-panels
-//| file: src/frontend/model/panels.ts
+//| file: src/model/panels.ts
 import * as z from "zod";
 
 export const PanelId = z.enum([
@@ -527,7 +527,7 @@ something.
 ```ts
 //| id: frontend-persistence-layouts
 //| file: src/frontend/persistence/layouts.ts
-import { LayoutsDocument } from "../model/panels";
+import { LayoutsDocument } from "../../model/panels";
 
 export const layoutsStore = {
   async load(): Promise<LayoutsDocument> {
@@ -564,7 +564,7 @@ import {
   layoutOf,
   type Tile,
   treeOf,
-} from "../model/panels";
+} from "../../model/panels";
 import { layoutsStore } from "../persistence/layouts";
 
 export interface PanelLayouts {
@@ -699,7 +699,7 @@ import {
   PanelId,
   setActive,
   type Tile,
-} from "../../model/panels";
+} from "../../../model/panels";
 import { Host } from "./Host";
 import { LeafView } from "./LeafView";
 import { SplitView } from "./SplitView";
@@ -1073,7 +1073,7 @@ that, so a child at its natural size takes the share it had on screen.
 //| id: frontend-view-panels-split
 //| file: src/frontend/views/Panels/SplitView.tsx
 import { type ReactNode, useRef, useState } from "react";
-import type { Split } from "../../model/panels";
+import type { Split } from "../../../model/panels";
 
 /** What a drag always leaves either side of a divider, in pixels. */
 const LEAST = 80;
@@ -1184,7 +1184,7 @@ import {
   PANEL_NAMES,
   type PanelId,
   type Tile,
-} from "../../model/panels";
+} from "../../../model/panels";
 import { Host } from "./Host";
 
 export function LeafView({
@@ -1677,7 +1677,7 @@ export function LeafView({
 //| id: frontend-model-location-test
 //| file: src/frontend/model/location.test.ts
 import { describe, expect, test } from "bun:test";
-import type { Component, ComponentPlace } from "./components";
+import type { Component, ComponentPlace } from "../../model/components";
 import { codeAt, componentsAt, type Location, sameLocation } from "./location";
 
 function component(
@@ -1780,7 +1780,7 @@ describe("locations", () => {
 
 ```ts
 //| id: frontend-model-panels-test
-//| file: src/frontend/model/panels.test.ts
+//| file: src/model/panels.test.ts
 import { describe, expect, test } from "bun:test";
 import {
   closePanel,

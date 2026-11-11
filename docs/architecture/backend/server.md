@@ -51,7 +51,6 @@ import {
   jjLog,
   jjOpLog,
 } from "./backend/commit/jj";
-import { type AlignedPair, alignSeries } from "./backend/commit/series";
 import { playwrightRecorder } from "./backend/evidence/recorder";
 import { EvidenceStore, evidenceRoutes } from "./backend/evidence/store";
 import type { Host } from "./backend/host/host";
@@ -72,12 +71,13 @@ import {
 } from "./backend/review/local";
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
+import { type AlignedPair, alignSeries } from "./model/alignment";
 import {
   localReview,
   localSeries,
   ReviewCommand,
   type ReviewDocument,
-} from "./frontend/model/review";
+} from "./model/review";
 
 /** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
 async function jjJson(build: () => Promise<unknown>): Promise<Response> {

@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-series>>[init]
 import * as z from "zod";
-import { localReview, localSeries } from "../../frontend/model/review";
+import { localReview, localSeries } from "../../model/review";
 import { gitFiles } from "../commit/git";
 import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";

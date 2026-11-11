@@ -3,7 +3,7 @@ import {
   type LocalVersion,
   localReview,
   type ReviewDocument,
-} from "../../frontend/model/review";
+} from "../../model/review";
 import { type GitCommit, GitOid } from "../commit/git";
 import {
   type JjFileDiff,

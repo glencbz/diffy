@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/syntax.md#frontend-state-source>>[init]
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { FileDiff } from "../../model/diff";
 import { fetchSource } from "../api";
-import type { FileDiff } from "../model/diff";
 import type { SourceFile, SourceLookup } from "../model/source";
 import { useWorkspace } from "./repo";
 

@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-view-commit-graph>>[init]
-import type { LogEntry } from "../model/history";
+import type { LogEntry } from "../../model/history";
 import { CommitLabel } from "./CommitLabel";
 
 // A node and a half. One node per row, so a lane only separates parallel

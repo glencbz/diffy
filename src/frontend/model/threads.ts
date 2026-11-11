@@ -1,9 +1,15 @@
 // ~/~ begin <<docs/architecture/frontend/threads.md#frontend-model-threads>>[init]
+
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
+import {
+  type Comment,
+  drawnAt,
+  onFile,
+  type RowComment,
+} from "../../model/review";
 import { shownPathOf } from "./changedFiles";
-import type { FileDiff } from "./diff";
-import type { GitCommit } from "./history";
 import type { FileSpot, SeriesPlace } from "./place";
-import { type Comment, drawnAt, onFile, type RowComment } from "./review";
 import type { SeriesVersion } from "./series";
 
 /** One version of a series and its commits, oldest first. */

@@ -28,6 +28,8 @@ index.html + main.tsx   mount point
  api.ts        \   |     api.ts: transport, fetch plus Zod, no React
        \        \  |
         `------ model/   model/: the app's own shapes and defaults
+                  |
+             src/model/  what the browser and the server both read
 ```
 
 Documents are cut by feature, not by layer: each holds that feature's state,
@@ -82,9 +84,18 @@ that names it, with the prose for that part directly above the block.
 ### model
 
 `model/` holds the app's types, document schemas and defaults, and the pure
-functions that read and change them, including the backend's shapes. It
-touches no state, storage, or browser API. Any rule worth a test lives here
-rather than in a hook.
+functions that read and change them. It touches no state, storage, or browser
+API. Any rule worth a test lives here rather than in a hook.
+
+A shape the server reads too lives one level up, in `src/model/`: the
+[review document](review.md) and its commands, [components](components.md),
+evidence and runs, the panel layout, diffs and commits as they cross the
+wire, and [`alignSeries`](../backend/series.md). Browser and server then
+apply a command with the same function and read a document through the same
+schema. `src/model/` imports Zod and itself, and nothing from `frontend/` or
+`backend/`; every other layer on either side may import it. Keeping these
+modules in `frontend/model/` would have the server reach into the browser's
+tree for its own store's schema.
 
 ### persistence
 
@@ -123,12 +134,7 @@ Allowed import edges:
 
 - `api.ts` imports Zod and `model/`. `model/` imports Zod and other `model/`
   modules, never `api.ts`.
-- The server's [review store](../backend/review-store.md) imports
-  `model/review.ts`, so browser and server apply a command with the same
-  function, and its [layout store](../backend/layouts.md) imports
-  `model/panels.ts` for the document it keeps.
-- `model/pairing.ts` imports the pure `alignSeries` from
-  `../../backend/commit/series`.
+- Every layer may import `src/model/`, which imports nothing of theirs.
 - `persistence/` imports `model/` and other `persistence/` modules. It is the
   only layer that touches `localStorage`, and the only one besides `api.ts`
   that talks to the server.
@@ -271,7 +277,7 @@ with its markup. The references below are an inventory, not an order.
 
 ```ts
 //| id: frontend-model-async-state
-//| file: src/frontend/model/asyncState.ts
+//| file: src/model/asyncState.ts
 export type AsyncState<T> =
   | { status: "loading" }
   | { status: "error"; message: string }

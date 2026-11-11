@@ -1,9 +1,9 @@
 // ~/~ begin <<docs/architecture/frontend/series.md#frontend-state-series>>[init]
 import { useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
+import type { GitCommit } from "../../model/history";
 import { fetchLocalCommits, fetchLocalSize } from "../api";
-import type { AsyncState } from "../model/asyncState";
-import type { FileDiff } from "../model/diff";
-import type { GitCommit } from "../model/history";
 import {
   type SeriesSource,
   type SeriesVersion,

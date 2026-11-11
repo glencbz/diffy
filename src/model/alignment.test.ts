@@ -1,6 +1,6 @@
 // ~/~ begin <<docs/architecture/backend/series.md#series-module-test>>[init]
 import { describe, expect, test } from "bun:test";
-import { alignSeries, type SeriesCommit } from "./series";
+import { alignSeries, type SeriesCommit } from "./alignment";
 
 /** `"a b c"` -> that series, newest first, each commit its own version. */
 function series(changes: string, version = "1"): SeriesCommit[] {

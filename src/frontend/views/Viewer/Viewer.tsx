@@ -6,9 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Component } from "../../model/components";
-import { type BlobName, blobUrl, type Capture } from "../../model/evidence";
-import type { Side, ThreadReview } from "../../model/review";
+import type { Component } from "../../../model/components";
+import { type BlobName, blobUrl, type Capture } from "../../../model/evidence";
+import type { Side, ThreadReview } from "../../../model/review";
 import {
   anchorOn,
   boxBetween,

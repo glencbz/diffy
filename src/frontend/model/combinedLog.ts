@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/combined-graph.md#frontend-model-combined-log>>[init]
-import type { LogEntry } from "./history";
+import type { LogEntry } from "../../model/history";
 
 /** How a change moved between the before and the after operation. */
 export type CombinedKind = "same" | "rewritten" | "new" | "gone";

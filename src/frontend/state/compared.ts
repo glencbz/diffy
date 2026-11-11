@@ -1,14 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/diff.md#frontend-state-compared>>[init]
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
+import type { FileDiff } from "../../model/diff";
 import { fetchBeforePaths, fetchCompared } from "../api";
-import type { AsyncState } from "../model/asyncState";
 import {
   type BeforePaths,
   type CompareAsk,
   type ComparedLookup,
   compareKey,
 } from "../model/compared";
-import type { FileDiff } from "../model/diff";
 import { useWorkspace } from "./repo";
 
 function messageOf(error: unknown): string {

@@ -1,7 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-state-registration>>[init]
 import { useCallback, useEffect, useState } from "react";
+import type { AsyncState } from "../../model/asyncState";
 import { fetchLog, registerLocalReview } from "../api";
-import type { AsyncState } from "../model/asyncState";
 import { useWorkspace } from "./repo";
 
 const SETTLE_MS = 300;

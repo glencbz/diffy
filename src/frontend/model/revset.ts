@@ -1,5 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/local-reviews.md#frontend-model-revset>>[init]
-import type { LogEntry } from "./history";
+import type { LogEntry } from "../../model/history";
 
 function localBookmark(commit: LogEntry): string | undefined {
   return commit.refs.find(

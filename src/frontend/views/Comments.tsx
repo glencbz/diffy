@@ -7,7 +7,7 @@ import {
   type LineAnchor,
   type Reply,
   type RowComment,
-} from "../model/review";
+} from "../../model/review";
 
 /** How a comment names its line: the after side's number alone, since that
  *  is the version being approved, and the before side's marked as such. */

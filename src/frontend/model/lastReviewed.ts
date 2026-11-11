@@ -1,6 +1,7 @@
 // ~/~ begin <<docs/architecture/frontend/series-review.md#frontend-model-last-reviewed>>[init]
+
+import type { ReviewedVersion } from "../../model/review";
 import type { SeriesPlace } from "./place";
-import type { ReviewedVersion } from "./review";
 import type { SeriesVersion } from "./series";
 
 /** The version the reader last reviewed, out of every version they marked

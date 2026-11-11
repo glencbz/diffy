@@ -1,8 +1,8 @@
 // ~/~ begin <<docs/architecture/frontend/runs.md#frontend-view-network>>[init]
 import { useState } from "react";
-import type { Anchor, RowComment, ThreadReview } from "../../model/review";
+import type { Anchor, RowComment, ThreadReview } from "../../../model/review";
+import type { Request } from "../../../model/runs";
 import { type Compared, isOnRequest } from "../../model/runSteps";
-import type { Request } from "../../model/runs";
 import { CommentComposer, CommentThreads } from "../Comments";
 
 /** The threads on the step's requests or console lines, and the anchor a
