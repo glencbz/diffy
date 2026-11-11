@@ -1,11 +1,6 @@
 // ~/~ begin <<docs/architecture/frontend/series.md#frontend-state-series>>[init]
 import { useEffect, useState } from "react";
-import {
-  fetchLocalCommits,
-  fetchLocalSize,
-  fetchPullCommits,
-  fetchPullDiff,
-} from "../api";
+import { fetchLocalCommits, fetchLocalSize } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
@@ -19,28 +14,17 @@ import type { VersionCommits } from "../model/threads";
 import { useWorkspace } from "./repo";
 
 /** One version's commits, oldest first, the order the pairing and the stack
- *  read in. The backend lists them newest first, as `git log` does. */
+ *  read in. */
 function versionCommits(
   workspace: string,
   ask: VersionAsk,
 ): Promise<GitCommit[]> {
-  if (ask.kind === "local") return fetchLocalCommits(workspace, ask.commits);
-  return fetchPullCommits(workspace, ask.repo, ask.number, ask.head).then(
-    (answer) => [...answer.commits].reverse(),
-  );
+  return fetchLocalCommits(workspace, ask.commits);
 }
 
 /** Every file one version changes against its base. */
 function versionSize(workspace: string, ask: VersionAsk): Promise<FileDiff[]> {
-  if (ask.kind === "local") return fetchLocalSize(workspace, ask.commits);
-  return fetchPullDiff(
-    workspace,
-    ask.repo,
-    ask.number,
-    ask.head,
-    { kind: "base" },
-    { kind: "heads" },
-  ).then((answer) => answer.files);
+  return fetchLocalSize(workspace, ask.commits);
 }
 
 /** What `load` answers for `ask`, kept loaded while `ask` stays the same.

@@ -11,7 +11,6 @@ import type { FileDiff } from "../model/diff";
 import type { GitCommit } from "../model/history";
 import type { Slot } from "../model/pairing";
 import {
-  rowAsk,
   type SeriesSource,
   type SeriesVersion,
   versionAsk,
@@ -68,16 +67,7 @@ export function useCounterpart({
     since ? commits : theirs,
     null,
   );
-  const diffs = useRowDiffs(
-    other === null
-      ? rowAsk(source, { kind: "base" }, to)
-      : rowAsk(
-          source,
-          { kind: "version", id: since ? other.id : to },
-          since ? to : other.id,
-        ),
-    other === null ? [] : pairing.slots,
-  );
+  const diffs = useRowDiffs(other === null ? [] : pairing.slots);
   const map = other === null ? undefined : componentsTo(maps, series, other.id);
 
   const of = (commitId: string): RowCounterpart | null => {
@@ -112,15 +102,9 @@ export function useCounterpart({
 /** Each asked-for commit's own diff, from either version on screen. A peek
  *  asks for one when the reader points at it, so nothing loads unasked. */
 export function useOwnDiffs({
-  source,
-  from,
-  to,
   fromCommits,
   toCommits,
 }: {
-  source: SeriesSource;
-  from: string | null;
-  to: string;
   fromCommits: GitCommit[];
   toCommits: GitCommit[];
 }): [ReadonlyMap<string, AsyncState<FileDiff[]>>, (commitId: string) => void] {
@@ -129,14 +113,8 @@ export function useOwnDiffs({
     commits
       .filter((commit) => wanted.has(commit.commitId))
       .map((commit) => ({ left: null, right: commit.commitId }));
-  const fromDiffs = useRowDiffs(
-    rowAsk(source, { kind: "base" }, from ?? to),
-    from === null ? [] : slotsIn(fromCommits),
-  );
-  const toDiffs = useRowDiffs(
-    rowAsk(source, { kind: "base" }, to),
-    slotsIn(toCommits),
-  );
+  const fromDiffs = useRowDiffs(slotsIn(fromCommits));
+  const toDiffs = useRowDiffs(slotsIn(toCommits));
   const out = new Map<string, AsyncState<FileDiff[]>>();
   for (const id of wanted) {
     const key = slotKey({ left: null, right: id });

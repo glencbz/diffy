@@ -36,7 +36,7 @@ export function DiffView({
   sources?: SourceLookup;
   review?: DiffReview;
   /** Scopes this diff's file ids apart from any other diff on the page: a
-   *  comparison row's key, or a pull request stack row's commit id. */
+   *  comparison row's key, or a stack row's commit id. */
   scope: string;
   links?: DiffLinks;
   /** Changes each time the selected file or line should be brought into

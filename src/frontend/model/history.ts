@@ -46,19 +46,11 @@ export type OpLogEntry = {
 /** A view of the local repo: the jj operation to read its log at. */
 export type JjSource = { kind: "jj"; operation: string | null };
 
-/** One head a pull request has had, named by oid because versions shift. */
-export type PullSource = {
-  kind: "pull";
-  repo: string;
-  number: number;
-  head: GitOid;
-};
-
 /** One version of a local review, named by the commits it registered. */
 export type LocalSource = { kind: "local"; commits: string[] };
 
 /** Where one side's commits come from. */
-export type Source = JjSource | PullSource | LocalSource;
+export type Source = JjSource | LocalSource;
 
 export type GitCommit = {
   commitId: GitOid;
@@ -66,9 +58,8 @@ export type GitCommit = {
   description: string;
   author: string;
   authoredAt: string;
-  /** What lines this commit up against another across a force push. The
-   *  backend derives it from the subject line, since git records nothing
-   *  durable of its own. */
+  /** What lines this commit up against another across a rewrite: its jj
+   *  change id, or null when it has none. */
   changeId: string | null;
 };
 // ~/~ end

@@ -1,12 +1,10 @@
 // ~/~ begin <<docs/architecture/frontend/address.md#frontend-model-place>>[init]
 import { GitOid } from "./history";
-import type { PullSummary } from "./pull";
 import type { SeriesBaseline } from "./series";
 
 export type Place =
   | { tab: "local" }
   | { tab: "settings" }
-  | { tab: "pulls"; pull: PullPlace | null }
   | { tab: "reviews"; review: LocalPlace | null };
 
 /** Where the reader is in one series: the two versions compared, and what
@@ -20,10 +18,6 @@ export interface SeriesPlace {
   spot: CommitSpot | null;
 }
 
-export interface PullPlace extends SeriesPlace {
-  number: number;
-}
-
 export interface LocalPlace extends SeriesPlace {
   name: string;
 }
@@ -33,13 +27,6 @@ export interface CommitSpot {
   commit: string;
   file: FileSpot | null;
 }
-
-/** What the pull request screen shows for a place: the list alone, a pull
- *  request under review, or the list held over one as a sheet. */
-export type PullChoice =
-  | { phase: "browsing" }
-  | { phase: "reviewing"; pull: PullSummary }
-  | { phase: "picking"; pull: PullSummary };
 
 /** A file in a diff, by its after-side path, and one of its lines. */
 export interface FileSpot {
@@ -60,17 +47,12 @@ export interface DiffLinks {
 
 const OPENED: SeriesPlace = { from: { kind: "base" }, to: null, spot: null };
 
-export function openPull(number: number): PullPlace {
-  return { number, ...OPENED };
-}
-
 export function openLocal(name: string): LocalPlace {
   return { name, ...OPENED };
 }
 
 /** A screen as it opens from its tab, with nothing picked on it yet. */
 export function tabPlace(tab: Place["tab"]): Place {
-  if (tab === "pulls") return { tab: "pulls", pull: null };
   if (tab === "reviews") return { tab: "reviews", review: null };
   return { tab };
 }
@@ -95,13 +77,6 @@ export function withRepo(address: string, repo: string | null): string {
 export function readPlace(address: Address): Place {
   const [tab, ...rest] = address.pathname.split("/").filter((s) => s !== "");
   if (tab === "settings") return { tab: "settings" };
-  if (tab === "pulls") {
-    const [numberSegment, ...after] = rest;
-    const number = positive(numberSegment);
-    if (number === null) return { tab: "pulls", pull: null };
-    const place = readSeries(after, address, oid);
-    return { tab: "pulls", pull: { number, ...place } };
-  }
   if (tab === "reviews") {
     const [nameSegment, ...after] = rest;
     const name = nameSegment === undefined ? null : decoded(nameSegment);
@@ -116,7 +91,7 @@ export function readPlace(address: Address): Place {
 }
 
 /** A place in one series, from what follows the series in the address.
- *  `version` reads a version id, and a pull request's is a head oid. */
+ *  `version` reads a version id. */
 function readSeries(
   [commits, commitSegment, files, ...pathSegments]: string[],
   { search, hash }: Address,
@@ -173,10 +148,6 @@ function decoded(value: string): string | null {
 export function writePlace(place: Place): string {
   if (place.tab === "local") return "/";
   if (place.tab === "settings") return "/settings";
-  if (place.tab === "pulls") {
-    if (place.pull === null) return "/pulls";
-    return writeSeries(["pulls", String(place.pull.number)], place.pull);
-  }
   if (place.review === null) return "/reviews";
   return writeSeries(["reviews", place.review.name], place.review);
 }
@@ -201,11 +172,6 @@ function writeSeries(
 
   const path = segments.map(encodeURIComponent).join("/");
   return `/${path}${search === "" ? "" : `?${search}`}${hash}`;
-}
-
-/** The href a link to a place on the pull request screen carries. */
-export function pullHref(pull: PullPlace): string {
-  return writePlace({ tab: "pulls", pull });
 }
 
 /** The href a link to a place in a local review carries. */

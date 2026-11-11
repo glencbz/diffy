@@ -76,15 +76,18 @@ become, never which way to flip, so a retry after a failure is harmless.
 the [server](../backend/review-store.md) alike. The screen's toggles decide
 the direction where the reader clicked.
 
-**Pull request keys.** A pull request commit has no id that survives a force
-push, so `pullRowKey` gives a row the key its before commit was last written
-under, else `rev:` of its own commit. Writing on a row first sends `set-key`
-(`keepKey`) for its own commit, so the next version's row inherits it, and a
-hand-corrected pairing moves marks and comments with it. Keys are stored
-rather than read off marks and comments, since viewed marks name no commit
-and deleting the last comment would lose the key. `set-key` is its own
-command so one command records one fact. Corrected pairings are kept too,
-under the series and the two heads ([pairing](pairing.md#keeping-a-correction)).
+**Row keys.** A local review's row is filed by `localRowKey` under its change
+id, which survives the rewrites between one registration and the next, so
+there is nothing to record for the next version's row to inherit. Corrected
+pairings are kept under the series and the two versions
+([pairing](pairing.md#keeping-a-correction)).
+
+**Older documents.** A document written when pull requests could be reviewed
+holds a `keys` list and entries filed under `pull:<repo>#<number>` series.
+Nothing reads them: `keys` is a field the schema does not know, which the
+store keeps as it keeps any field a newer diffy wrote, and the series entries
+sit among the others, since every lookup names its series and a local review's
+is `local:<name>`.
 
 **Local reviews** live here too, each a name and the
 [versions](../backend/local-reviews.md) registered under it. `register` adds a
@@ -298,8 +301,7 @@ export const SeenPlace = PlaceVersion.extend({
 });
 export type SeenPlace = z.infer<typeof SeenPlace>;
 
-/** One version of a series the reader said they reviewed: a head of a pull
- *  request, named by its oid. */
+/** One version of a series the reader said they reviewed. */
 export const ReviewedVersion = z.object({
   series: z.string(),
   version: z.string(),
@@ -307,15 +309,7 @@ export const ReviewedVersion = z.object({
 });
 export type ReviewedVersion = z.infer<typeof ReviewedVersion>;
 
-/** The key a commit was last written on under, for a commit whose own id
- *  does not survive a rewrite. */
-export const KeptKey = z.object({
-  commitId: z.string(),
-  reviewKey: z.string(),
-});
-export type KeptKey = z.infer<typeof KeptKey>;
-
-/** A pairing the reader corrected by hand, for the two heads it pairs. */
+/** A pairing the reader corrected by hand, for the two versions it pairs. */
 export const KeptPairing = z.object({
   series: z.string(),
   before: z.string(),
@@ -367,7 +361,6 @@ export const ReviewDocument = z.looseObject({
   viewed: z.array(ViewedFile).default([]),
   seenPlaces: z.array(SeenPlace).default([]),
   reviewed: z.array(ReviewedVersion).default([]),
-  keys: z.array(KeptKey).default([]),
   pairings: z.array(KeptPairing).default([]),
   compared: z.array(ComparedFile).default([]),
   localReviews: z.array(LocalReview).default([]),
@@ -388,7 +381,6 @@ export const EMPTY_REVIEW: ReviewDocument = {
   viewed: [],
   seenPlaces: [],
   reviewed: [],
-  keys: [],
   pairings: [],
   compared: [],
   localReviews: [],
@@ -405,7 +397,6 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.viewed.length === 0 &&
     document.seenPlaces.length === 0 &&
     document.reviewed.length === 0 &&
-    document.keys.length === 0 &&
     document.pairings.length === 0 &&
     document.compared.length === 0 &&
     document.localReviews.length === 0 &&
@@ -413,11 +404,6 @@ export function isEmptyReview(document: ReviewDocument): boolean {
     document.captures.length === 0 &&
     document.runs.length === 0
   );
-}
-
-/** The series a pull request's versions are marked reviewed under. */
-export function pullSeries(repo: string, number: number): string {
-  return `pull:${repo}#${number}`;
 }
 
 /** The series a local review's versions are marked reviewed under. */
@@ -599,10 +585,6 @@ export interface ComparisonReview {
   reviewKey: string;
   fromCommitId: string | null;
   toCommitId: string | null;
-  /** The commit to record under `reviewKey` when the reader writes anything
-   *  here, so that the row it becomes in a later version inherits the key.
-   *  Null for a key that survives a rewrite on its own, as a change id does. */
-  keeps: string | null;
   review: RowReview;
   comments: RowComment[];
   viewed: ViewedFile[];
@@ -682,7 +664,6 @@ export function reviewComparison(
   key: string,
   fromCommitId: string | null,
   toCommitId: string | null,
-  keeps: string | null,
 ): ComparisonReview {
   const comments = document.comments
     .filter((comment) => comment.reviewKey === key)
@@ -697,7 +678,6 @@ export function reviewComparison(
     reviewKey: key,
     fromCommitId,
     toCommitId,
-    keeps,
     review: reviewFor(
       document.marks.filter((mark) => mark.reviewKey === key),
       fromCommitId,
@@ -721,44 +701,21 @@ export function reviewRows(
       reviewKey(row),
       row.from?.commitId ?? null,
       row.to?.commitId ?? null,
-      null,
     ),
   }));
 }
 
-/** The key a pull request row is filed under. A commit has no id of its own
- *  that survives a force push, so a row takes the key its before commit was
- *  given when the reader last wrote on it, and a row whose before commit was
- *  never written on, or that has none, starts a key from its own commit.
- *  Writing on the row records that key for the row's own commit, which is
- *  what the row it becomes in the next version inherits. */
-export function pullRowKey(
-  document: ReviewDocument,
-  before: string | null,
-  after: string | null,
-): { reviewKey: string; keeps: string } {
-  const own = after ?? before;
-  if (own === null) throw new Error("a pull request row has no commit");
-  const kept = (commitId: string | null) =>
-    commitId === null
-      ? undefined
-      : document.keys.find((key) => key.commitId === commitId)?.reviewKey;
-  const inherited = before !== null ? kept(before) : kept(after);
-  return { reviewKey: inherited ?? `rev:${own}`, keeps: own };
-}
-
 /** The key a local review's row is filed under: its change id, which
- *  survives the rewrites between one registration and the next, so there is
- *  nothing to record for the next version to inherit. */
+ *  survives the rewrites between one registration and the next. */
 export function localRowKey(
   before: { commitId: string; changeId: string | null } | null,
   after: { commitId: string; changeId: string | null } | null,
-): { reviewKey: string; keeps: null } {
+): { reviewKey: string } {
   const own = after ?? before;
   if (own === null) throw new Error("a local review row has no commit");
   const reviewKey =
     own.changeId === null ? `rev:${own.commitId}` : `change:${own.changeId}`;
-  return { reviewKey, keeps: null };
+  return { reviewKey };
 }
 
 /** Whether two marks (or a mark and a comparison) name the same row: the
@@ -850,11 +807,6 @@ export const ReviewCommand = z.discriminatedUnion("kind", [
     series: z.string(),
     version: z.string(),
     at: z.string(),
-  }),
-  z.object({
-    kind: z.literal("set-key"),
-    commitId: z.string(),
-    reviewKey: z.string(),
   }),
   z.object({
     kind: z.literal("set-compared"),
@@ -1048,14 +1000,6 @@ export function applyCommand(
           sameReviewedVersion,
         ),
       };
-    case "set-key":
-      return {
-        ...document,
-        keys: [
-          ...document.keys.filter((key) => key.commitId !== command.commitId),
-          { commitId: command.commitId, reviewKey: command.reviewKey },
-        ],
-      };
     case "set-pairing": {
       const pairings = document.pairings.filter(
         (kept) => !samePairing(kept, command),
@@ -1199,11 +1143,6 @@ export function applyCommand(
           command.document.reviewed,
           sameReviewedVersion,
         ),
-        keys: added(
-          document.keys,
-          command.document.keys,
-          (a, b) => a.commitId === b.commitId,
-        ),
         pairings: added(
           document.pairings,
           command.document.pairings,
@@ -1290,7 +1229,7 @@ function samePairing(a: PairingHeads, b: PairingHeads): boolean {
   return a.series === b.series && a.before === b.before && a.after === b.after;
 }
 
-/** The pairing the reader kept for two heads of a series, if they kept one. */
+/** The pairing the reader kept for two versions of a series, if they kept one. */
 export function keptPairing(
   document: ReviewDocument,
   heads: PairingHeads,
@@ -1443,13 +1382,6 @@ export function commentOn(
     },
   };
 }
-
-/** What writing on a row records first, so its key outlives the row. */
-export function keepKey(row: ComparisonReview): ReviewCommand[] {
-  return row.keeps === null
-    ? []
-    : [{ kind: "set-key", commitId: row.keeps, reviewKey: row.reviewKey }];
-}
 ```
 
 The reorder case runs `alignSeries` for real, since a hand-written fixture
@@ -1472,7 +1404,6 @@ import {
   type FileVersion,
   isPlaceSeen,
   isViewed,
-  keepKey,
   keptPairing,
   localReview,
   localRowKey,
@@ -1481,11 +1412,9 @@ import {
   markSeen,
   markViewed,
   type PlaceVersion,
-  pullRowKey,
   type ReviewCommand,
   ReviewDocument,
   type ReviewedRow,
-  reviewComparison,
   reviewKey,
   reviewRows,
   sortForgottenReviews,
@@ -2646,7 +2575,7 @@ describe("reviewed versions", () => {
     // arrange
     const mark = (version: string, at: string): ReviewCommand => ({
       kind: "mark-reviewed",
-      series: "pull:o/r#7",
+      series: "local:stack",
       version,
       at,
     });
@@ -2661,11 +2590,111 @@ describe("reviewed versions", () => {
 
     // assert
     expect(document.reviewed).toEqual([
-      { series: "pull:o/r#7", version: "v1", reviewedAt: "t1" },
-      { series: "pull:o/r#7", version: "v2", reviewedAt: "t2" },
+      { series: "local:stack", version: "v1", reviewedAt: "t1" },
+      { series: "local:stack", version: "v2", reviewedAt: "t2" },
     ]);
   });
 });
+
+describe("a document written when pull requests were reviewed", () => {
+  const head = "h".repeat(40);
+  const stored = {
+    marks: [],
+    comments: [],
+    keys: [{ commitId: "a1", reviewKey: "rev:a0" }],
+    reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "t0" }],
+    pairings: [
+      {
+        series: "pull:o/r#7",
+        before: "h1",
+        after: head,
+        slots: [{ left: "a1", right: "a2" }],
+      },
+    ],
+    componentMaps: [
+      {
+        series: "pull:o/r#7",
+        version: head,
+        author: "claude",
+        writtenAt: "t0",
+        components: [],
+      },
+    ],
+    captures: [
+      {
+        series: "pull:o/r#7",
+        version: head,
+        commitId: "a2",
+        id: "shot",
+        name: "shot",
+        media: "image",
+        before: null,
+        after: null,
+        attachedAt: "t0",
+      },
+    ],
+  };
+
+  test("opens, and a command on a local review leaves the pull entries as they were", () => {
+    // arrange
+    const document = ReviewDocument.parse(stored);
+
+    // act
+    const next = applied(
+      document,
+      { kind: "mark-reviewed", series: "local:stack", version: "1", at: "t1" },
+      { kind: "set-pairing", ...kept("local:stack"), slots: [] },
+    );
+
+    // assert
+    expect(next.reviewed.map((mark) => mark.series)).toEqual([
+      "pull:o/r#7",
+      "local:stack",
+    ]);
+    expect(next.pairings.map((pairing) => pairing.series)).toEqual([
+      "pull:o/r#7",
+      "local:stack",
+    ]);
+    expect(next.componentMaps).toEqual(document.componentMaps);
+    expect(next.captures).toEqual(document.captures);
+    expect(keptPairing(next, kept("local:stack"))).toEqual([]);
+    expect(keptPairing(next, { ...kept("pull:o/r#7"), after: head })).toEqual([
+      { left: "a1", right: "a2" },
+    ]);
+  });
+
+  test("keeps the field no command reads any more when it is written back", () => {
+    // arrange
+    const document = ReviewDocument.parse(stored);
+
+    // act
+    const next = applied(document, {
+      kind: "mark-reviewed",
+      series: "local:stack",
+      version: "1",
+      at: "t1",
+    });
+
+    // assert
+    expect((next as Record<string, unknown>).keys).toEqual(stored.keys);
+  });
+
+  test("imports into a document and back out without losing a pull entry", () => {
+    // arrange
+    const document = ReviewDocument.parse(stored);
+
+    // act
+    const next = applied(empty, { kind: "import", document });
+
+    // assert
+    expect(next.reviewed).toEqual(document.reviewed);
+    expect(next.pairings).toEqual(document.pairings);
+  });
+});
+
+function kept(series: string) {
+  return { series, before: "h1", after: "h2" };
+}
 
 describe("import", () => {
   const row = pairRow("a", "a1", "a2");
@@ -2700,7 +2729,7 @@ describe("import", () => {
       empty,
       markSeen(reviewedRow(row, empty), "t"),
       commentOn(reviewedRow(row, empty), comment),
-      { kind: "mark-reviewed", series: "pull:o/r#7", version: "v1", at: "t" },
+      { kind: "mark-reviewed", series: "local:stack", version: "v1", at: "t" },
     );
     const command: ReviewCommand = { kind: "import", document: incoming };
 
@@ -2713,88 +2742,8 @@ describe("import", () => {
     expect(once).toEqual(incoming);
   });
 });
-describe("pullRowKey", () => {
-  const kept = (commitId: string, reviewKey: string): ReviewCommand => ({
-    kind: "set-key",
-    commitId,
-    reviewKey,
-  });
-
-  test("starts a key from the row's own commit when nothing was kept", () => {
-    // arrange
-    // act
-    // assert
-    expect(pullRowKey(empty, "b1", "a1")).toEqual({
-      reviewKey: "rev:a1",
-      keeps: "a1",
-    });
-    expect(pullRowKey(empty, "b1", null)).toEqual({
-      reviewKey: "rev:b1",
-      keeps: "b1",
-    });
-  });
-
-  test("takes the key its before commit was written on under", () => {
-    // arrange
-    const document = applied(empty, kept("a1", "rev:a0"));
-
-    // act
-    // assert
-    expect(pullRowKey(document, "a1", "a2").reviewKey).toBe("rev:a0");
-  });
-
-  test("moves with the pairing, not with the commit", () => {
-    // arrange
-    const document = applied(
-      empty,
-      kept("a1", "rev:a1"),
-      kept("b1", "rev:b1"),
-      kept("a2", "rev:a1"),
-    );
-
-    // act
-    const repaired = pullRowKey(document, "b1", "a2");
-
-    // assert
-    expect(repaired.reviewKey).toBe("rev:b1");
-  });
-
-  test("keeps a row with nothing before it on its own commit's key", () => {
-    // arrange
-    const document = applied(empty, kept("a2", "rev:a1"));
-
-    // act
-    // assert
-    expect(pullRowKey(document, null, "a2").reviewKey).toBe("rev:a1");
-  });
-
-  test("carries a comment through a force push once the row is written on", () => {
-    // arrange
-    const v1 = pullRowKey(empty, null, "a1");
-    const row = reviewComparison(empty, v1.reviewKey, null, "a1", v1.keeps);
-    const document = applied(
-      empty,
-      ...keepKey(row),
-      commentOn(row, {
-        id: "c1",
-        kind: "comparison",
-        body: "hm",
-        createdAt: "t",
-        author: "reader",
-      }),
-    );
-
-    // act
-    const v2 = pullRowKey(document, "a1", "a2");
-    const next = reviewComparison(document, v2.reviewKey, "a1", "a2", v2.keeps);
-
-    // assert
-    expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
-    expect(next.comments[0]?.stale).toBe(true);
-  });
-});
 describe("kept pairings", () => {
-  const heads = { series: "pull:o/r#7", before: "h1", after: "h2" };
+  const heads = { series: "local:stack", before: "h1", after: "h2" };
   const slots = [{ left: "a1", right: "a2" }];
 
   test("keeps one pairing per pair of heads, and forgets it on null", () => {
@@ -2989,7 +2938,6 @@ describe("localRowKey", () => {
   test("falls back to the commit when it has no change id", () => {
     expect(localRowKey(null, { commitId: "a1", changeId: null })).toEqual({
       reviewKey: "rev:a1",
-      keeps: null,
     });
   });
 });
@@ -3449,10 +3397,8 @@ import {
 import type { AsyncState } from "../model/asyncState";
 import {
   applyCommand,
-  type ComparisonReview,
   commentOn,
   EMPTY_REVIEW,
-  keepKey,
   markPlaceSeen,
   markSeen,
   markViewed,
@@ -3513,7 +3459,7 @@ export function useReview(): ReviewHandle {
     let cancelled = false;
     (async () => {
       let snapshot = await reviewStore.load();
-      const legacy = legacyReview(new Date().toISOString());
+      const legacy = legacyReview();
       if (legacy !== null) {
         snapshot = await reviewStore.send({ kind: "import", document: legacy });
         clearLegacyReview();
@@ -3562,15 +3508,10 @@ export function useReview(): ReviewHandle {
         },
       );
     };
-    const write = (row: ComparisonReview, command: ReviewCommand) => {
-      for (const kept of keepKey(row)) send(kept);
-      send(command);
-    };
     return {
-      markSeen: (row) => write(row, markSeen(row, now())),
+      markSeen: (row) => send(markSeen(row, now())),
       addComment: (row, anchor, body) =>
-        write(
-          row,
+        send(
           commentOn(row, {
             id: crypto.randomUUID(),
             ...anchor,
@@ -3598,11 +3539,10 @@ export function useReview(): ReviewHandle {
         send({ kind: "edit-reply", commentId, replyId, body }),
       dropReply: (commentId, replyId) =>
         send({ kind: "delete-reply", commentId, replyId }),
-      toggleViewed: (row, file) => write(row, markViewed(row, file, now())),
-      togglePlaceSeen: (row, place) =>
-        write(row, markPlaceSeen(row, place, now())),
+      toggleViewed: (row, file) => send(markViewed(row, file, now())),
+      togglePlaceSeen: (row, place) => send(markPlaceSeen(row, place, now())),
       compare: (row, newPath, oldPath) =>
-        write(row, {
+        send({
           kind: "set-compared",
           reviewKey: row.reviewKey,
           newPath,
@@ -3728,65 +3668,37 @@ export function ReviewStrip({
 ### Moving what the browser kept
 
 `legacyReview` reads what older versions kept in `localStorage`
-(`diffy.session.v1` and `diffy.last-reviewed.v1:` keys) into one document,
-and `useReview` sends it as an `import` whenever the keys hold anything, then
-clears them. An import adds only what the server lacks, so a repeat or a
-second browser's import is harmless; importing only into an empty document
-would drop every browser but the first. A last reviewed head is dated at the
-import.
+(the `diffy.session.v1` key) into one document, and `useReview` sends it as an
+`import` whenever the key holds anything, then clears it. An import adds only
+what the server lacks, so a repeat or a second browser's import is harmless;
+importing only into an empty document would drop every browser but the
+first.
 
 ```ts
 //| id: frontend-persistence-legacy-review
 //| file: src/frontend/persistence/legacyReview.ts
-import { LastReviewed } from "../model/lastReviewed";
-import {
-  EMPTY_REVIEW,
-  isEmptyReview,
-  ReviewDocument,
-  type ReviewedVersion,
-} from "../model/review";
+import { EMPTY_REVIEW, isEmptyReview, ReviewDocument } from "../model/review";
 import { localRepository } from "./local";
 
 const SESSION_KEY = "diffy.session.v1";
-const LAST_REVIEWED_PREFIX = "diffy.last-reviewed.v1:";
-
-function lastReviewedKeys(): string[] {
-  const keys: string[] = [];
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (key?.startsWith(LAST_REVIEWED_PREFIX)) keys.push(key);
-  }
-  return keys;
-}
 
 /** What this browser kept of the review before the server did, as one
- *  document, or null when it kept nothing. A pull request's last reviewed
- *  head becomes a version marked reviewed at `now`, since the browser never
- *  kept when it was marked. */
-export function legacyReview(now: string): ReviewDocument | null {
+ *  document, or null when it kept nothing. */
+export function legacyReview(): ReviewDocument | null {
   const session = localRepository(
     SESSION_KEY,
     ReviewDocument,
     EMPTY_REVIEW,
   ).load();
-  const reviewed = lastReviewedKeys().flatMap((key): ReviewedVersion[] => {
-    const mark = localRepository(key, LastReviewed, null).load();
-    if (mark === null) return [];
-    const series = `pull:${key.slice(LAST_REVIEWED_PREFIX.length)}`;
-    return [{ series, version: mark.head, reviewedAt: now }];
-  });
-  const document = { ...session, reviewed };
-  return isEmptyReview(document) ? null : document;
+  return isEmptyReview(session) ? null : session;
 }
 
 /** Forgets what `legacyReview` read, once the server holds it. */
 export function clearLegacyReview(): void {
-  for (const key of [SESSION_KEY, ...lastReviewedKeys()]) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Left behind, it is imported again next time, which changes nothing.
-    }
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Left behind, it is imported again next time, which changes nothing.
   }
 }
 ```
@@ -3809,36 +3721,27 @@ const mark = {
   toCommitId: "a2",
   seenAt: "2026-09-14T09:00:00.000Z",
 };
-const head = "b".repeat(40);
 
 describe("legacyReview", () => {
   test("reads nothing when the browser kept nothing", () => {
     // arrange
     // act
     // assert
-    expect(legacyReview("now")).toBeNull();
+    expect(legacyReview()).toBeNull();
   });
 
-  test("reads the session and each pull request's head into one document", () => {
+  test("reads the session into one document", () => {
     // arrange
     localStorage.setItem(
       "diffy.session.v1",
       JSON.stringify({ marks: [mark], comments: [] }),
     );
-    localStorage.setItem(
-      "diffy.last-reviewed.v1:o/r#7",
-      JSON.stringify({ head }),
-    );
 
     // act
-    const document = legacyReview("now");
+    const document = legacyReview();
 
     // assert
-    expect(document).toEqual({
-      ...EMPTY_REVIEW,
-      marks: [mark],
-      reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "now" }],
-    });
+    expect(document).toEqual({ ...EMPTY_REVIEW, marks: [mark] });
   });
 
   test("keeps the comments of a session saved before comments had kinds", () => {
@@ -3860,7 +3763,7 @@ describe("legacyReview", () => {
 
     // act
     // assert
-    expect(legacyReview("now")?.comments).toEqual([
+    expect(legacyReview()?.comments).toEqual([
       {
         ...comment,
         kind: "line",
@@ -3870,22 +3773,12 @@ describe("legacyReview", () => {
       },
     ]);
   });
-
-  test("skips a pull request's head that does not parse", () => {
-    // arrange
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#9", '{"head":"abc"}');
-
-    // act
-    // assert
-    expect(legacyReview("now")).toBeNull();
-  });
 });
 
 describe("clearLegacyReview", () => {
-  test("forgets the review keys and leaves the settings", () => {
+  test("forgets the session and leaves the settings", () => {
     // arrange
     localStorage.setItem("diffy.session.v1", "{}");
-    localStorage.setItem("diffy.last-reviewed.v1:o/r#7", "{}");
     localStorage.setItem("diffy.settings.v1", "{}");
 
     // act

@@ -3,7 +3,6 @@ import type { Place } from "./model/place";
 import { LocalHistoryScreen } from "./screens/LocalHistoryScreen";
 import { LocalReviewsScreen } from "./screens/LocalReviewsScreen";
 import { OpenRepoScreen } from "./screens/OpenRepoScreen";
-import { PullRequestsScreen } from "./screens/PullRequestsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { LocalHistoryContext, useLocalHistory } from "./state/localHistory";
 import { usePlace } from "./state/place";
@@ -59,8 +58,6 @@ function screenAt(place: Place, go: (place: Place) => void) {
       return <LocalReviewsScreen place={place.review} onGo={go} />;
     case "local":
       return <LocalHistoryScreen onGo={go} />;
-    case "pulls":
-      return <PullRequestsScreen place={place.pull} onGo={go} />;
     case "settings":
       return <SettingsScreen onGo={go} />;
   }

@@ -74,14 +74,13 @@ server announces the change. Each entry draws its newest version's commits
 as a graph, since a name and a revset do not say which commits they are.
 
 A picked review reads in the
-[series review screen](pull-requests.md#series-review-controller), and
+[series review screen](series-review.md#series-review-controller), and
 `LocalReviewScreen` fills in what differs. A row is filed by
 [`localRowKey`](review.md#review-state) under its change id, which survives
 the rewrites between one registration and the next.
 
-The panes are the pull request screen's. The rail returns to the list rather
-than opening it over the review as the pull request screen's sheet does,
-since a phone has no room for both.
+The rail returns to the list rather than opening it over the review, since a
+phone has no room for both.
 
 Forgetting a review returns to the list when the review was the open one,
 which would otherwise read as not found. It asks nothing first: the review
@@ -455,11 +454,10 @@ the one most likely to be restored.
 
 The entry keeps the list's item styling; the button inside it fills the row
 like the item it replaces, and the graph sits flush beneath it. The entry is
-a `div` where the pull request list's item is a `button`, so it sets the
-border-box sizing a button has by default, or its padding pushes `delete` past
-the pane's edge. `delete` and `restore` are quiet until hovered, styled like
-the picker row's buttons, and a forgotten entry is drawn faint and opens
-nothing.
+a `div` rather than a `button`, so it sets the border-box sizing a button has
+by default, or its padding pushes `delete` past the pane's edge. `delete` and
+`restore` are quiet until hovered, styled like the picker row's buttons, and a
+forgotten entry is drawn faint and opens nothing.
 
 ```css
 /*| id: design-local-review-list
@@ -538,6 +536,111 @@ nothing.
   .local-review__commits {
     margin-top: var(--space-3);
     cursor: pointer;
+  }
+}
+```
+
+## The list and header styles
+
+The list's rows and the review's header keep the class names `pull-list` and
+`pull-header`. The title wraps onto its own row on a phone.
+
+```css
+/*| id: design-pull-list
+@layer components {
+  .pull-list__item {
+    display: block;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+  }
+
+  .pull-list__item--selected {
+    background: var(--surface-selected);
+  }
+
+  .pull-list__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .pull-list__number {
+    color: var(--text-faint);
+  }
+
+  .pull-list__title {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .pull-list__base {
+    color: var(--text-faint);
+  }
+}
+```
+
+```css
+/*| id: design-pull-list
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-list__title {
+      white-space: normal;
+      overflow: visible;
+    }
+  }
+}
+```
+
+```css
+/*| id: design-pull-header
+@layer components {
+  .pull-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .pull-header__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pull-header__meta {
+    color: var(--text-faint);
+  }
+}
+```
+
+```css
+/*| id: design-pull-header
+@layer components-narrow {
+  @media (max-width: 1000px) {
+    .pull-header {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .pull-header__title {
+      flex-basis: 100%;
+      overflow: visible;
+    }
   }
 }
 ```

@@ -12,15 +12,15 @@ promises, and `reviewKey` reads the null as its cue to key by revision.
 //| id: frontend-state-commits
 //| file: src/frontend/state/commits.ts
 import { useEffect, useState } from "react";
-import { fetchLocalCommits, fetchLog, fetchPullCommits } from "../api";
+import { fetchLocalCommits, fetchLog } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { GitCommit, LogEntry, Source } from "../model/history";
 import { useWorkspace } from "./repo";
 
-function asLogEntry(commit: GitCommit, changeId: string | null): LogEntry {
+function asLogEntry(commit: GitCommit): LogEntry {
   return {
     commitId: commit.commitId,
-    changeId,
+    changeId: commit.changeId,
     description: commit.description,
     parents: commit.parents,
     author: commit.author,
@@ -39,30 +39,15 @@ export async function commitsFrom(
     return fetchLog(workspace, source.operation ?? undefined);
   }
 
-  if (source.kind === "local") {
-    const commits = await fetchLocalCommits(workspace, source.commits);
-    return commits
-      .map((commit) => asLogEntry(commit, commit.changeId))
-      .reverse();
-  }
-
-  // A pull request commit's identity is a subject line, and `changeId` on a
-  // LogEntry is what the graph prints as the commit's id, so it stays empty.
-  // The pairing reads the identity off the GitCommit instead.
-  const { commits } = await fetchPullCommits(
-    workspace,
-    source.repo,
-    source.number,
-    source.head,
-  );
-  return commits.map((commit) => asLogEntry(commit, null));
+  const commits = await fetchLocalCommits(workspace, source.commits);
+  return commits.map((commit) => asLogEntry(commit)).reverse();
 }
 
 /** Logs already read, by workspace and source JSON, oldest read first. */
 const kept = new Map<string, LogEntry[]>();
 const KEPT_LOGS = 32;
 
-/** A source pinned to an operation, a head, or a commit list names a log
+/** A source pinned to an operation or a commit list names a log
  *  that cannot change; only the live jj log can. */
 function keepable(source: Source): boolean {
   return source.kind !== "jj" || source.operation !== null;
@@ -184,47 +169,32 @@ describe("commitsFrom", () => {
     expect(asked).toEqual(["/api/log?op=0a1b2c&workspace=%2Fw"]);
   });
 
-  test("reads a pull source out of that head's commits", async () => {
+  test("reads a local source out of its commits, newest first", async () => {
     // arrange
-    const asked = serve({
-      head: HEAD,
-      version: 7,
-      base: BASE,
-      commits: [
-        {
-          commitId: HEAD,
-          parents: [BASE],
-          description: "frontend: give the graph side-by-side branch lanes",
-          author: "glencbz",
-          authoredAt: "2026-09-10T09:00:00Z",
-          changeId: "frontend: give the graph side-by-side branch lanes",
-        },
-      ],
+    const commit = (id: GitOid, parent: GitOid, changeId: string) => ({
+      commitId: id,
+      parents: [parent],
+      description: "frontend: give the graph side-by-side branch lanes",
+      author: "glencbz",
+      authoredAt: "2026-09-10T09:00:00Z",
+      changeId,
     });
+    const asked = serve([commit(BASE, HEAD, "kx"), commit(HEAD, BASE, "ky")]);
 
     // act
     const commits = await commitsFrom("/w", {
-      kind: "pull",
-      repo: "glencbz/diffy",
-      number: 9,
-      head: HEAD,
+      kind: "local",
+      commits: [BASE, HEAD],
     });
 
     // assert
-    expect(commits).toEqual([
-      {
-        commitId: HEAD,
-        changeId: null,
-        description: "frontend: give the graph side-by-side branch lanes",
-        parents: [BASE],
-        author: "glencbz",
-        timestamp: "2026-09-10T09:00:00Z",
-        refs: [],
-        markers: [],
-      },
+    expect(commits.map((entry) => [entry.commitId, entry.changeId])).toEqual([
+      [HEAD, "ky"],
+      [BASE, "kx"],
     ]);
+    expect(commits[0]?.timestamp).toBe("2026-09-10T09:00:00Z");
     expect(asked[0]).toBe(
-      `/api/github/pull/commits?repo=glencbz%2Fdiffy&number=9&head=${HEAD}&workspace=%2Fw`,
+      `/api/local/commits?id=${BASE}&id=${HEAD}&workspace=%2Fw`,
     );
   });
 });
@@ -280,7 +250,7 @@ Rows select by commit id, never change id, which names a different version
 in each operation's log. The selection comes back in log order, not click
 order, or a series would line up in whatever order the reader clicked.
 
-The pull request screen draws oldest first. `oldestFirst` reverses the rows
+The review screen draws oldest first. `oldestFirst` reverses the rows
 and mirrors each gutter, which is exact because every edge runs from a row's
 top or bottom to its middle; a second layout pass would be a second
 algorithm to keep in agreement.

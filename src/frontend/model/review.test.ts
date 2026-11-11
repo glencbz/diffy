@@ -13,7 +13,6 @@ import {
   type FileVersion,
   isPlaceSeen,
   isViewed,
-  keepKey,
   keptPairing,
   localReview,
   localRowKey,
@@ -22,11 +21,9 @@ import {
   markSeen,
   markViewed,
   type PlaceVersion,
-  pullRowKey,
   type ReviewCommand,
   ReviewDocument,
   type ReviewedRow,
-  reviewComparison,
   reviewKey,
   reviewRows,
   sortForgottenReviews,
@@ -1187,7 +1184,7 @@ describe("reviewed versions", () => {
     // arrange
     const mark = (version: string, at: string): ReviewCommand => ({
       kind: "mark-reviewed",
-      series: "pull:o/r#7",
+      series: "local:stack",
       version,
       at,
     });
@@ -1202,11 +1199,111 @@ describe("reviewed versions", () => {
 
     // assert
     expect(document.reviewed).toEqual([
-      { series: "pull:o/r#7", version: "v1", reviewedAt: "t1" },
-      { series: "pull:o/r#7", version: "v2", reviewedAt: "t2" },
+      { series: "local:stack", version: "v1", reviewedAt: "t1" },
+      { series: "local:stack", version: "v2", reviewedAt: "t2" },
     ]);
   });
 });
+
+describe("a document written when pull requests were reviewed", () => {
+  const head = "h".repeat(40);
+  const stored = {
+    marks: [],
+    comments: [],
+    keys: [{ commitId: "a1", reviewKey: "rev:a0" }],
+    reviewed: [{ series: "pull:o/r#7", version: head, reviewedAt: "t0" }],
+    pairings: [
+      {
+        series: "pull:o/r#7",
+        before: "h1",
+        after: head,
+        slots: [{ left: "a1", right: "a2" }],
+      },
+    ],
+    componentMaps: [
+      {
+        series: "pull:o/r#7",
+        version: head,
+        author: "claude",
+        writtenAt: "t0",
+        components: [],
+      },
+    ],
+    captures: [
+      {
+        series: "pull:o/r#7",
+        version: head,
+        commitId: "a2",
+        id: "shot",
+        name: "shot",
+        media: "image",
+        before: null,
+        after: null,
+        attachedAt: "t0",
+      },
+    ],
+  };
+
+  test("opens, and a command on a local review leaves the pull entries as they were", () => {
+    // arrange
+    const document = ReviewDocument.parse(stored);
+
+    // act
+    const next = applied(
+      document,
+      { kind: "mark-reviewed", series: "local:stack", version: "1", at: "t1" },
+      { kind: "set-pairing", ...kept("local:stack"), slots: [] },
+    );
+
+    // assert
+    expect(next.reviewed.map((mark) => mark.series)).toEqual([
+      "pull:o/r#7",
+      "local:stack",
+    ]);
+    expect(next.pairings.map((pairing) => pairing.series)).toEqual([
+      "pull:o/r#7",
+      "local:stack",
+    ]);
+    expect(next.componentMaps).toEqual(document.componentMaps);
+    expect(next.captures).toEqual(document.captures);
+    expect(keptPairing(next, kept("local:stack"))).toEqual([]);
+    expect(keptPairing(next, { ...kept("pull:o/r#7"), after: head })).toEqual([
+      { left: "a1", right: "a2" },
+    ]);
+  });
+
+  test("keeps the field no command reads any more when it is written back", () => {
+    // arrange
+    const document = ReviewDocument.parse(stored);
+
+    // act
+    const next = applied(document, {
+      kind: "mark-reviewed",
+      series: "local:stack",
+      version: "1",
+      at: "t1",
+    });
+
+    // assert
+    expect((next as Record<string, unknown>).keys).toEqual(stored.keys);
+  });
+
+  test("imports into a document and back out without losing a pull entry", () => {
+    // arrange
+    const document = ReviewDocument.parse(stored);
+
+    // act
+    const next = applied(empty, { kind: "import", document });
+
+    // assert
+    expect(next.reviewed).toEqual(document.reviewed);
+    expect(next.pairings).toEqual(document.pairings);
+  });
+});
+
+function kept(series: string) {
+  return { series, before: "h1", after: "h2" };
+}
 
 describe("import", () => {
   const row = pairRow("a", "a1", "a2");
@@ -1241,7 +1338,7 @@ describe("import", () => {
       empty,
       markSeen(reviewedRow(row, empty), "t"),
       commentOn(reviewedRow(row, empty), comment),
-      { kind: "mark-reviewed", series: "pull:o/r#7", version: "v1", at: "t" },
+      { kind: "mark-reviewed", series: "local:stack", version: "v1", at: "t" },
     );
     const command: ReviewCommand = { kind: "import", document: incoming };
 
@@ -1254,88 +1351,8 @@ describe("import", () => {
     expect(once).toEqual(incoming);
   });
 });
-describe("pullRowKey", () => {
-  const kept = (commitId: string, reviewKey: string): ReviewCommand => ({
-    kind: "set-key",
-    commitId,
-    reviewKey,
-  });
-
-  test("starts a key from the row's own commit when nothing was kept", () => {
-    // arrange
-    // act
-    // assert
-    expect(pullRowKey(empty, "b1", "a1")).toEqual({
-      reviewKey: "rev:a1",
-      keeps: "a1",
-    });
-    expect(pullRowKey(empty, "b1", null)).toEqual({
-      reviewKey: "rev:b1",
-      keeps: "b1",
-    });
-  });
-
-  test("takes the key its before commit was written on under", () => {
-    // arrange
-    const document = applied(empty, kept("a1", "rev:a0"));
-
-    // act
-    // assert
-    expect(pullRowKey(document, "a1", "a2").reviewKey).toBe("rev:a0");
-  });
-
-  test("moves with the pairing, not with the commit", () => {
-    // arrange
-    const document = applied(
-      empty,
-      kept("a1", "rev:a1"),
-      kept("b1", "rev:b1"),
-      kept("a2", "rev:a1"),
-    );
-
-    // act
-    const repaired = pullRowKey(document, "b1", "a2");
-
-    // assert
-    expect(repaired.reviewKey).toBe("rev:b1");
-  });
-
-  test("keeps a row with nothing before it on its own commit's key", () => {
-    // arrange
-    const document = applied(empty, kept("a2", "rev:a1"));
-
-    // act
-    // assert
-    expect(pullRowKey(document, null, "a2").reviewKey).toBe("rev:a1");
-  });
-
-  test("carries a comment through a force push once the row is written on", () => {
-    // arrange
-    const v1 = pullRowKey(empty, null, "a1");
-    const row = reviewComparison(empty, v1.reviewKey, null, "a1", v1.keeps);
-    const document = applied(
-      empty,
-      ...keepKey(row),
-      commentOn(row, {
-        id: "c1",
-        kind: "comparison",
-        body: "hm",
-        createdAt: "t",
-        author: "reader",
-      }),
-    );
-
-    // act
-    const v2 = pullRowKey(document, "a1", "a2");
-    const next = reviewComparison(document, v2.reviewKey, "a1", "a2", v2.keeps);
-
-    // assert
-    expect(next.comments.map((comment) => comment.id)).toEqual(["c1"]);
-    expect(next.comments[0]?.stale).toBe(true);
-  });
-});
 describe("kept pairings", () => {
-  const heads = { series: "pull:o/r#7", before: "h1", after: "h2" };
+  const heads = { series: "local:stack", before: "h1", after: "h2" };
   const slots = [{ left: "a1", right: "a2" }];
 
   test("keeps one pairing per pair of heads, and forgets it on null", () => {
@@ -1530,7 +1547,6 @@ describe("localRowKey", () => {
   test("falls back to the commit when it has no change id", () => {
     expect(localRowKey(null, { commitId: "a1", changeId: null })).toEqual({
       reviewKey: "rev:a1",
-      keeps: null,
     });
   });
 });

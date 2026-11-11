@@ -1,9 +1,9 @@
 # Pairing
 
-A pull request commit's `changeId` is guessed from its subject, so
+A commit's `changeId` stops matching across a split or a squash, so
 [`alignSeries`](../backend/series.md) can pair the wrong commits. The pairing
 is therefore a `Slot[]` the reader edits, not a value derived on every
-render, and a correction is kept for the next visit to the same two heads.
+render, and a correction is kept for the next visit to the same two versions.
 
 ## Moving a card
 
@@ -166,8 +166,8 @@ export interface Pairing {
 ## Keeping a correction
 
 A correction is kept in the [review document](review.md#review-state) under
-the series and the two heads it pairs, and applies only to those heads. Every
-move sends the whole pairing; `reset` sends null, forgetting it. The rows'
+the series and the two versions it pairs, and applies only to those
+versions. Every move sends the whole pairing; `reset` sends null, forgetting it. The rows'
 [review keys](review.md#review-state) are read through the pairing, so a
 correction also moves the marks and comments of the commits it pairs.
 

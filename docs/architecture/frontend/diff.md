@@ -5,8 +5,8 @@ interdiff.
 
 ## Choosing what to compare
 
-`useComparison` asks for local comparisons only; a pull request asks row by
-row on [its own screen](pull-requests.md#row-comparisons). Both sides empty
+`useComparison` asks for the operations screen's comparisons only; a review
+asks row by row on [its own screen](series-review.md#row-comparisons). Both sides empty
 answers `null` with no request. While a new question loads, the diff already
 on screen stays, so adding a commit never blanks the panel. Like
 `useCommits`, the effect depends on the question's JSON.
@@ -199,7 +199,7 @@ export function DiffView({
   sources?: SourceLookup;
   review?: DiffReview;
   /** Scopes this diff's file ids apart from any other diff on the page: a
-   *  comparison row's key, or a pull request stack row's commit id. */
+   *  comparison row's key, or a stack row's commit id. */
   scope: string;
   links?: DiffLinks;
   /** Changes each time the selected file or line should be brought into
@@ -389,7 +389,7 @@ header.
 
 A plain diff and a reviewed one differ only where `startsOpen` and
 `partsOf` switch on the variant. Links to the address are not part of it,
-because a pull request's stack links plain and reviewed diffs alike. One
+because a review's stack links plain and reviewed diffs alike. One
 component per variant around a shared frame would put the fold state in the
 frame and the Viewed box that sets it outside, passing the setter between
 them as props.
@@ -1532,7 +1532,7 @@ too, unless it ended a text selection. A line either links or opens the
 composer, never both. `LineAction` names the three things a line
 can do, so a reviewed diff's lines comment and a linked one's gutters link
 without a pair of optional props whose fourth combination draws nothing new.
-Marking the addressed line is apart from the action: a pull request's stack
+Marking the addressed line is apart from the action: a review's stack
 marks it in reviewed diffs too.
 
 ```tsx
@@ -3070,7 +3070,7 @@ describe("compareAsks", () => {
     };
 
     // act
-    const asks = compareAsks(reviewComparison(document, "k", "x", null, null));
+    const asks = compareAsks(reviewComparison(document, "k", "x", null));
 
     // assert
     expect(asks).toEqual([]);
@@ -3087,7 +3087,7 @@ describe("compareAsks", () => {
     };
 
     // act
-    const asks = compareAsks(reviewComparison(document, "k", "x", "y", null));
+    const asks = compareAsks(reviewComparison(document, "k", "x", "y"));
 
     // assert
     expect(asks).toEqual([

@@ -126,10 +126,6 @@
     --review-open-surface: var(--red-100);
     --review-open-border: var(--red-200);
 
-    --state-open: var(--green-600);
-    --state-merged: var(--purple-600);
-    --state-closed: var(--red-600);
-
     --commit-header-surface: var(--purple-100);
     --commit-header-edge: var(--purple-600);
 
@@ -206,10 +202,6 @@
       --review-open-surface: var(--red-900);
       --review-open-border: var(--red-600);
       --review-unseen-surface: var(--blue-900);
-
-      --state-open: var(--green-300);
-      --state-merged: var(--purple-400);
-      --state-closed: var(--red-400);
 
       --commit-header-surface: var(--purple-900);
       --commit-header-edge: var(--purple-400);
@@ -2775,31 +2767,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-state-chip>>[init] */
-@layer components {
-  .chip {
-    flex: none;
-    padding: 0 var(--space-3);
-    border-radius: var(--radius);
-    color: var(--text-inverse);
-    font-size: var(--text-size-small);
-  }
-
-  .chip--open {
-    background: var(--state-open);
-  }
-
-  .chip--merged {
-    background: var(--state-merged);
-  }
-
-  .chip--closed {
-    background: var(--state-closed);
-  }
-}
-/* ~/~ end */
-
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-list>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-pull-list>>[init] */
 @layer components {
   .pull-list__item {
     display: block;
@@ -2840,7 +2808,7 @@
   }
 }
 /* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-list>>[1] */
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-pull-list>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
     .pull-list__title {
@@ -3054,7 +3022,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-pull-header>>[init] */
 @layer components {
   .pull-header {
     display: flex;
@@ -3076,13 +3044,9 @@
   .pull-header__meta {
     color: var(--text-faint);
   }
-
-  .pull-header__link {
-    color: var(--accent);
-  }
 }
 /* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-header>>[1] */
+/* ~/~ begin <<docs/architecture/frontend/local-reviews.md#design-pull-header>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
     .pull-header {
@@ -3100,7 +3064,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-pull-comparison-picker>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/series-review.md#design-pull-comparison-picker>>[init] */
 @layer components {
   .pull-compare {
     display: flex;
@@ -3136,13 +3100,6 @@
     margin: 0;
     color: var(--text-faint);
   }
-
-  .pull-compare__truncated {
-    flex: 1 0 100%;
-    margin: 0;
-    color: var(--text-faint);
-    font-size: var(--text-size-small);
-  }
 }
 
 @layer components-narrow {
@@ -3154,7 +3111,7 @@
 }
 /* ~/~ end */
 
-/* ~/~ begin <<docs/architecture/frontend/pull-requests.md#design-last-reviewed>>[init] */
+/* ~/~ begin <<docs/architecture/frontend/series-review.md#design-last-reviewed>>[init] */
 @layer components {
   .last-reviewed {
     display: flex;
@@ -3196,80 +3153,8 @@
 /* ~/~ end */
 
 /* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[init] */
-@layer components {
-  .pull-bar {
-    display: none;
-    flex: none;
-    align-items: center;
-    gap: var(--space-3);
-    width: 100%;
-    padding: var(--space-3) var(--space-5);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    background: var(--surface-raised);
-    border: none;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .pull-bar__number {
-    color: var(--text-faint);
-  }
-
-  .pull-bar__title {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .pull-sheet__header {
-    display: flex;
-    position: sticky;
-    top: 0;
-    flex: none;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-5);
-    background: var(--surface-raised);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .pull-sheet__caption {
-    font-weight: bold;
-  }
-
-  .pull-sheet__close {
-    padding: var(--space-3) var(--space-4);
-    font: inherit;
-    color: var(--accent);
-    cursor: pointer;
-    background: transparent;
-    border: none;
-  }
-
-  .pull-scrim {
-    display: none;
-    position: fixed;
-    z-index: 1;
-    inset: 0;
-    padding: 0;
-    border: none;
-    background: color-mix(in srgb, var(--text) 35%, transparent);
-  }
-}
-/* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[1] */
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .pull-bar {
-      display: flex;
-    }
-
-    .pull-scrim {
-      display: block;
-    }
-
     .pull-rail {
       display: none;
     }
@@ -3282,8 +3167,7 @@
       flex: 1;
     }
 
-    .panes--reviewing .pane--list,
-    .panes--picking .pane--list {
+    .panes--reviewing .pane--list {
       display: flex;
       position: fixed;
       z-index: 2;
@@ -3297,23 +3181,17 @@
       border-radius: var(--radius-large) var(--radius-large) 0 0;
       /* Slides rather than display: none, so there is something to animate.
          visibility leaves the tab order and holds the sheet visible until
-         the slide out ends. 85dvh leaves a strip of the review showing, which
-         says the list is over it, not instead of it. */
+         the slide out ends. */
       visibility: hidden;
       transform: translateY(100%);
       transition:
         transform 0.2s ease,
         visibility 0.2s;
     }
-
-    .panes--picking .pane--list {
-      visibility: visible;
-      transform: translateY(0);
-    }
   }
 }
 /* ~/~ end */
-/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[2] */
+/* ~/~ begin <<docs/architecture/frontend/layout.md#design-pull-sheet>>[1] */
 @layer components {
   .pull-rail {
     display: flex;

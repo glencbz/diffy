@@ -308,6 +308,38 @@ describe("openReviewStore", () => {
     });
   });
 
+  test("opens a document written when pull requests were reviewed and applies a command to it", () => {
+    // arrange
+    const path = join(dir, "r.sqlite");
+    openReviewStore(path).apply(seen);
+    const pullEra = {
+      keys: [{ commitId: "a1", reviewKey: "rev:a0" }],
+      reviewed: [{ series: "pull:o/r#7", version: "h1", reviewedAt: "t0" }],
+    };
+    new Database(path).run(
+      `UPDATE review SET document = json_patch(document, json(?))`,
+      [JSON.stringify(pullEra)],
+    );
+    const store = openReviewStore(path);
+
+    // act
+    store.apply({
+      kind: "mark-reviewed",
+      series: "local:t",
+      version: "1",
+      at: "2026-10-22T10:00:00.000Z",
+    });
+
+    // assert
+    const { document } = store.read();
+    expect(document.marks).toHaveLength(1);
+    expect(document.reviewed.map((mark) => mark.series)).toEqual([
+      "pull:o/r#7",
+      "local:t",
+    ]);
+    expect(document).toMatchObject({ keys: pullEra.keys });
+  });
+
   test("refuses a stored document it cannot read rather than replacing it", () => {
     // arrange
     const path = join(dir, "r.sqlite");

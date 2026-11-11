@@ -134,10 +134,6 @@ Added and removed lines are tinted behind the text, since the text carries
     --review-open-surface: var(--red-100);
     --review-open-border: var(--red-200);
 
-    --state-open: var(--green-600);
-    --state-merged: var(--purple-600);
-    --state-closed: var(--red-600);
-
     --commit-header-surface: var(--purple-100);
     --commit-header-edge: var(--purple-600);
 
@@ -164,7 +160,7 @@ Added and removed lines are tinted behind the text, since the text carries
 
 ## Metrics
 
-Spacing is a step scale. `--text-size` defaults to 12px, GitHub's diff size,
+Spacing is a step scale. `--text-size` defaults to 12px, a common size for diff text,
 and is a reader [setting](settings.md#display).
 
 ```css
@@ -289,10 +285,6 @@ rather than swap.
       --review-open-surface: var(--red-900);
       --review-open-border: var(--red-600);
       --review-unseen-surface: var(--blue-900);
-
-      --state-open: var(--green-300);
-      --state-merged: var(--purple-400);
-      --state-closed: var(--red-400);
 
       --commit-header-surface: var(--purple-900);
       --commit-header-edge: var(--purple-400);

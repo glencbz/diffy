@@ -131,14 +131,6 @@ import {
   type LogEntry,
   type OpLogEntry,
 } from "./model/history";
-import type {
-  PullBaseline,
-  PullCommitsResponse,
-  PullDiffResponse,
-  PullDiffScope,
-  PullHistory,
-  PullSummary,
-} from "./model/pull";
 import {
   type FoundRepo,
   inWorkspace,
@@ -330,10 +322,8 @@ export async function fetchInterdiff(
 
 ## Where a side's commits come from
 
-`Source` is where a side's commits come from: a jj operation, one head of a
-pull request, named by oid because versions shift (see
-[`pullStateAt`](../backend/github.md#naming-one-state-of-a-pull-request)), or
-a version of a [local review](local-reviews.md), as the commits it registered.
+`Source` is where a side's commits come from: a jj operation, or a version of a
+[local review](local-reviews.md), as the commits it registered.
 
 ```ts
 //| id: frontend-model-history
@@ -341,19 +331,11 @@ a version of a [local review](local-reviews.md), as the commits it registered.
 /** A view of the local repo: the jj operation to read its log at. */
 export type JjSource = { kind: "jj"; operation: string | null };
 
-/** One head a pull request has had, named by oid because versions shift. */
-export type PullSource = {
-  kind: "pull";
-  repo: string;
-  number: number;
-  head: GitOid;
-};
-
 /** One version of a local review, named by the commits it registered. */
 export type LocalSource = { kind: "local"; commits: string[] };
 
 /** Where one side's commits come from. */
-export type Source = JjSource | PullSource | LocalSource;
+export type Source = JjSource | LocalSource;
 
 export type GitCommit = {
   commitId: GitOid;
@@ -361,24 +343,9 @@ export type GitCommit = {
   description: string;
   author: string;
   authoredAt: string;
-  /** What lines this commit up against another across a force push. The
-   *  backend derives it from the subject line, since git records nothing
-   *  durable of its own. */
+  /** What lines this commit up against another across a rewrite: its jj
+   *  change id, or null when it has none. */
   changeId: string | null;
-};
-```
-
-```ts
-//| id: frontend-model-pull
-//| file: src/frontend/model/pull.ts
-import type { FileDiff } from "./diff";
-import type { GitCommit, GitOid } from "./history";
-
-export type PullCommitsResponse = {
-  head: GitOid;
-  version: number;
-  base: GitOid;
-  commits: GitCommit[];
 };
 ```
 
@@ -393,199 +360,6 @@ const gitCommit = z.object({
   authoredAt: z.string(),
   changeId: z.string().nullable(),
 });
-
-const pullCommitsResponse = z.object({
-  head: GitOid,
-  version: z.number(),
-  base: GitOid,
-  commits: z.array(gitCommit),
-});
-
-export async function fetchPullCommits(
-  workspace: string,
-  repo: string,
-  number: number,
-  head: GitOid,
-): Promise<PullCommitsResponse> {
-  const params = new URLSearchParams({ repo, number: String(number), head });
-  return pullCommitsResponse.parse(
-    await getJson(
-      inWorkspace(`/api/github/pull/commits?${params}`, workspace),
-      "GET /api/github/pull/commits",
-    ),
-  );
-}
-```
-
-## Reading a pull request
-
-`fetchPullDiff` takes a head `to` and a `PullBaseline` `from`, another head or
-`base`; [the route](../backend/server.md) explains the two comparisons. The
-baseline travels as one parameter, which cannot collide since no oid reads
-as `base`.
-
-```ts
-//| id: frontend-model-pull
-
-export type PullState = "OPEN" | "CLOSED" | "MERGED";
-
-export type PullSummary = {
-  number: number;
-  title: string;
-  state: PullState;
-  author: string;
-  updatedAt: string;
-  headRefOid: GitOid;
-  baseRefName: string;
-  url: string;
-};
-
-/** How a head became the head. Only a force push has a time to show. */
-export type PullHeadOrigin =
-  | { kind: "opened" }
-  | { kind: "force-pushed"; at: string }
-  | { kind: "current" };
-
-export type PullVersion = {
-  /** Position in the chain. A label to show, never a way to ask for a state. */
-  version: number;
-  head: GitOid;
-  origin: PullHeadOrigin;
-};
-
-export type PullHistory = {
-  number: number;
-  baseRefName: string;
-  baseRefOid: GitOid;
-  /** Oldest first. The last one is the head the branch has now. */
-  states: PullVersion[];
-  truncated: boolean;
-};
-
-/** What the after side is measured against. */
-export type PullBaseline = { kind: "base" } | { kind: "version"; head: GitOid };
-
-/** What to diff inside the heads `from`/`to` resolve: both whole heads, one
- *  commit, or the pair across two versions. */
-export type PullDiffScope =
-  | { kind: "heads" }
-  | { kind: "commit"; commit: GitOid }
-  | { kind: "pair"; from: GitOid; to: GitOid };
-
-export type PullDiffResponse = {
-  from: PullBaseline;
-  to: GitOid;
-  files: FileDiff[];
-};
-```
-
-```ts
-//| id: frontend-api
-
-const pullSummary = z.object({
-  number: z.number(),
-  title: z.string(),
-  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
-  author: z.string(),
-  updatedAt: z.string(),
-  headRefOid: GitOid,
-  baseRefName: z.string(),
-  url: z.string(),
-});
-
-const pullVersion = z.object({
-  version: z.number(),
-  head: GitOid,
-  origin: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("opened") }),
-    z.object({ kind: z.literal("force-pushed"), at: z.string() }),
-    z.object({ kind: z.literal("current") }),
-  ]),
-});
-
-const pullHistory = z.object({
-  number: z.number(),
-  baseRefName: z.string(),
-  baseRefOid: GitOid,
-  states: z.array(pullVersion),
-  truncated: z.boolean(),
-});
-
-const pullBaseline = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("base") }),
-  z.object({ kind: z.literal("version"), head: GitOid }),
-]);
-
-const pullDiffResponse = z.object({
-  from: pullBaseline,
-  to: GitOid,
-  files: z.array(fileDiff),
-});
-
-/** The GitHub repository behind the one served, as `owner/name`. */
-export async function fetchRepo(workspace: string): Promise<string> {
-  const body = z
-    .object({ repo: z.string() })
-    .parse(
-      await getJson(
-        inWorkspace("/api/github/repo", workspace),
-        "GET /api/github/repo",
-      ),
-    );
-  return body.repo;
-}
-
-export async function fetchPulls(
-  repo: string,
-  state: "open" | "closed" | "merged" | "all",
-): Promise<PullSummary[]> {
-  const params = new URLSearchParams({ repo, state });
-  return z
-    .array(pullSummary)
-    .parse(
-      await getJson(`/api/github/pulls?${params}`, "GET /api/github/pulls"),
-    );
-}
-
-export async function fetchPullHistory(
-  repo: string,
-  number: number,
-): Promise<PullHistory> {
-  const params = new URLSearchParams({ repo, number: String(number) });
-  return pullHistory.parse(
-    await getJson(
-      `/api/github/pull/history?${params}`,
-      "GET /api/github/pull/history",
-    ),
-  );
-}
-export async function fetchPullDiff(
-  workspace: string,
-  repo: string,
-  number: number,
-  to: GitOid,
-  from: PullBaseline,
-  scope: PullDiffScope,
-): Promise<PullDiffResponse> {
-  const params = new URLSearchParams({
-    repo,
-    number: String(number),
-    to,
-    from: from.kind === "base" ? "base" : from.head,
-  });
-  if (scope.kind === "pair") {
-    params.set("fromCommit", scope.from);
-    params.set("toCommit", scope.to);
-  } else if (scope.kind === "commit") {
-    params.set("toCommit", scope.commit);
-  }
-  return pullDiffResponse.parse(
-    await getJson(
-      inWorkspace(`/api/github/pull/diff?${params}`, workspace),
-      "GET /api/github/pull/diff",
-    ),
-  );
-}
 ```
 
 ## Reading a file's source
@@ -690,8 +464,8 @@ export async function fetchBeforePaths(
 A local review's version is a list of commit ids, so its routes take ids and
 never a revset. The revset was evaluated once, when the version was
 registered, and evaluating it again would read today's repository instead of
-the one the author declared ready. Each route has the pull request route's
-job: one version's commits, one row's comparison, and the size of the whole.
+the one the author declared ready. Each route does one job: one
+version's commits, one row's comparison, or the size of the whole.
 
 ```ts
 //| id: frontend-api

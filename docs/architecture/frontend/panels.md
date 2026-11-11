@@ -227,7 +227,7 @@ child's natural size: the commits as tall as their rows, the components as
 wide as their names. A natural size stops at `--panel-natural-height` in a
 column and `--panel-natural-width` in a row, so a long list never pushes
 the code off the screen; a fixed share instead would leave an empty band
-under a short stack, which is most pull requests. The default layouts lean on that so they lie the
+under a short stack, which is most reviews. The default layouts lean on that so they lie the
 way the screen always has, and a drag turns every share in the split into a
 measured one.
 

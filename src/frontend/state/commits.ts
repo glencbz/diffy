@@ -1,14 +1,14 @@
 // ~/~ begin <<docs/architecture/frontend/commit-history.md#frontend-state-commits>>[init]
 import { useEffect, useState } from "react";
-import { fetchLocalCommits, fetchLog, fetchPullCommits } from "../api";
+import { fetchLocalCommits, fetchLog } from "../api";
 import type { AsyncState } from "../model/asyncState";
 import type { GitCommit, LogEntry, Source } from "../model/history";
 import { useWorkspace } from "./repo";
 
-function asLogEntry(commit: GitCommit, changeId: string | null): LogEntry {
+function asLogEntry(commit: GitCommit): LogEntry {
   return {
     commitId: commit.commitId,
-    changeId,
+    changeId: commit.changeId,
     description: commit.description,
     parents: commit.parents,
     author: commit.author,
@@ -27,30 +27,15 @@ export async function commitsFrom(
     return fetchLog(workspace, source.operation ?? undefined);
   }
 
-  if (source.kind === "local") {
-    const commits = await fetchLocalCommits(workspace, source.commits);
-    return commits
-      .map((commit) => asLogEntry(commit, commit.changeId))
-      .reverse();
-  }
-
-  // A pull request commit's identity is a subject line, and `changeId` on a
-  // LogEntry is what the graph prints as the commit's id, so it stays empty.
-  // The pairing reads the identity off the GitCommit instead.
-  const { commits } = await fetchPullCommits(
-    workspace,
-    source.repo,
-    source.number,
-    source.head,
-  );
-  return commits.map((commit) => asLogEntry(commit, null));
+  const commits = await fetchLocalCommits(workspace, source.commits);
+  return commits.map((commit) => asLogEntry(commit)).reverse();
 }
 
 /** Logs already read, by workspace and source JSON, oldest read first. */
 const kept = new Map<string, LogEntry[]>();
 const KEPT_LOGS = 32;
 
-/** A source pinned to an operation, a head, or a commit list names a log
+/** A source pinned to an operation or a commit list names a log
  *  that cannot change; only the live jj log can. */
 function keepable(source: Source): boolean {
   return source.kind !== "jj" || source.operation !== null;

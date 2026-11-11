@@ -1,6 +1,6 @@
 # Layout
 
-How both screens arrange a picker beside a wide diff, and what they do in a
+How the screens arrange a picker beside a wide diff, and what they do in a
 window with no room for columns.
 
 ## Review panes
@@ -271,94 +271,11 @@ narrow rule; its rows run down the window, marked current on the left edge.
 }
 ```
 
-## Pull request panes
+## Series review panes
 
-The pull request screen nests: the list against everything else, and inside
-that the header and picker over the [panels](panels.md) that hold the
-commits and the code.
-
-```tsx
-//| id: frontend-view-pull-panes
-//| file: src/frontend/views/PullPanes/PullPanes.tsx
-import type { ReactNode } from "react";
-import type { PullChoice } from "../../model/place";
-import type { PullSummary } from "../../model/pull";
-import { PullStateChip } from "../PullStateChip";
-import { PullList } from "./PullList";
-
-export function PullPanes({
-  choice,
-  onOpen,
-  onDismiss,
-  pulls,
-  onSelect,
-  review,
-}: {
-  choice: PullChoice;
-  onOpen: () => void;
-  onDismiss: () => void;
-  pulls: PullSummary[];
-  onSelect: (number: number) => void;
-  review: ReactNode;
-}) {
-  return (
-    <>
-      {choice.phase !== "browsing" && (
-        <button type="button" onClick={onOpen} className="pull-bar">
-          <span className="pull-bar__number">#{choice.pull.number}</span>
-          <PullStateChip state={choice.pull.state} />
-          <span className="pull-bar__title">{choice.pull.title}</span>
-        </button>
-      )}
-      <div className={`panes panes--${choice.phase}`}>
-        {choice.phase === "reviewing" && (
-          <button
-            type="button"
-            aria-label="show the pull request list"
-            onClick={onOpen}
-            className="pull-rail"
-          >
-            pull requests
-          </button>
-        )}
-        <div className="pane pane--list">
-          {choice.phase === "picking" && (
-            <header className="pull-sheet__header">
-              <span className="pull-sheet__caption">pull requests</span>
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="pull-sheet__close"
-              >
-                close
-              </button>
-            </header>
-          )}
-          <PullList
-            pulls={pulls}
-            selected={choice.phase === "browsing" ? null : choice.pull.number}
-            onSelect={onSelect}
-          />
-        </div>
-        <div className="pane pane--main">{review}</div>
-      </div>
-      {choice.phase === "picking" && (
-        <button
-          type="button"
-          aria-label="dismiss the pull request list"
-          onClick={onDismiss}
-          className="pull-scrim"
-        />
-      )}
-    </>
-  );
-}
-```
-
-### Reviewing a pull request
-
-The header and the comparison picker sit over the
-[panels](panels.md#the-panels-view), whose bar starts with the stack's
+The local review screen nests: the list against everything else, and inside
+that the header and picker over the [panels](panels.md#the-panels-view) that
+hold the commits and the code. The panels' bar starts with the stack's
 stepper.
 
 ```tsx
@@ -383,8 +300,7 @@ export function PullReviewPanes({
   onStep,
   ...panels
 }: {
-  /** The series screen's header, which a pull request and a local review
-   *  each fill in for themselves. */
+  /** The series screen's header. */
   header: ReactNode;
   picker: ReactNode;
   position: StackPosition;
@@ -607,94 +523,19 @@ rather than cutting it off.
 }
 ```
 
-## The list as a sheet
+## The list beside a review
 
-On a phone the list is modal: with nothing chosen it is the window, choosing
-collapses it to a bar naming the choice, and pressing the bar brings it back
-as a sheet over the review. The local screen's tab list does not fit here:
-choosing a pull request happens once, so a standing control for it spends
-width on an answered question. `PullChoice` is one value with three phases,
-since a flag beside a summary could say "sheet open over nothing". The scrim
-is a `<button>` so a keyboard can reach it.
-
-```css
-/*| id: design-pull-sheet
-@layer components {
-  .pull-bar {
-    display: none;
-    flex: none;
-    align-items: center;
-    gap: var(--space-3);
-    width: 100%;
-    padding: var(--space-3) var(--space-5);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    background: var(--surface-raised);
-    border: none;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .pull-bar__number {
-    color: var(--text-faint);
-  }
-
-  .pull-bar__title {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .pull-sheet__header {
-    display: flex;
-    position: sticky;
-    top: 0;
-    flex: none;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-5);
-    background: var(--surface-raised);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .pull-sheet__caption {
-    font-weight: bold;
-  }
-
-  .pull-sheet__close {
-    padding: var(--space-3) var(--space-4);
-    font: inherit;
-    color: var(--accent);
-    cursor: pointer;
-    background: transparent;
-    border: none;
-  }
-
-  .pull-scrim {
-    display: none;
-    position: fixed;
-    z-index: 1;
-    inset: 0;
-    padding: 0;
-    border: none;
-    background: color-mix(in srgb, var(--text) 35%, transparent);
-  }
-}
-```
+The local reviews screen divides by two phases. With no review open the list
+is the window, a column. Opening one folds the list to a rail on the left
+edge, and pressing the rail brings the list back. A rail rather than a bar,
+since the review's header already names the review. On a phone the list stays
+off the screen while a review is open, slid below it so the slide can animate,
+and the rail is hidden.
 
 ```css
 /*| id: design-pull-sheet
 @layer components-narrow {
   @media (max-width: 1000px) {
-    .pull-bar {
-      display: flex;
-    }
-
-    .pull-scrim {
-      display: block;
-    }
-
     .pull-rail {
       display: none;
     }
@@ -707,8 +548,7 @@ is a `<button>` so a keyboard can reach it.
       flex: 1;
     }
 
-    .panes--reviewing .pane--list,
-    .panes--picking .pane--list {
+    .panes--reviewing .pane--list {
       display: flex;
       position: fixed;
       z-index: 2;
@@ -722,29 +562,16 @@ is a `<button>` so a keyboard can reach it.
       border-radius: var(--radius-large) var(--radius-large) 0 0;
       /* Slides rather than display: none, so there is something to animate.
          visibility leaves the tab order and holds the sheet visible until
-         the slide out ends. 85dvh leaves a strip of the review showing, which
-         says the list is over it, not instead of it. */
+         the slide out ends. */
       visibility: hidden;
       transform: translateY(100%);
       transition:
         transform 0.2s ease,
         visibility 0.2s;
     }
-
-    .panes--picking .pane--list {
-      visibility: visible;
-      transform: translateY(0);
-    }
   }
 }
 ```
-
-## The list as a column
-
-A wide window divides by the same three phases: browsing shows the list as a
-column, choosing folds it to a rail on the left edge, and pressing the rail
-reopens the column beside the review. A rail rather than a bar, since the
-review's header already names the pull request.
 
 ```css
 /*| id: design-pull-sheet
@@ -846,8 +673,8 @@ reader dragged arrives as `--pane-size`.
 Three columns need roughly 1040px, so below 1000px (still above an iPad's
 834 in portrait) rows of panes stop being columns. The review screen shows
 only the current pane, without its caption, which the tab already reads. The
-pull request screen keeps stacking, so every rule names `.panes--review` or
-its complement; unscoped, the tab rules would hide the pull request screen,
+local reviews screen keeps stacking, so every rule names `.panes--review` or
+its complement; unscoped, the tab rules would hide the local reviews screen,
 whose panes never carry `pane--showing`.
 
 ```css
