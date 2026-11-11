@@ -192,15 +192,23 @@ export async function summarize(
   openedAt: string | null,
   dataDir: string,
 ): Promise<RepoSummary | null> {
-  const log =
-    await $`jj --ignore-working-copy log --no-graph -r @ -T ${"description.first_line()"}`
-      .cwd(root)
-      .quiet()
-      .nothrow();
-  if (log.exitCode !== 0) return null;
+  // nothrow() covers a failing jj, not a folder that is gone: spawning there
+  // throws, and Bun throws it from await, so only try/catch sees it.
+  let workingCopy: string;
+  try {
+    const log =
+      await $`jj --ignore-working-copy log --no-graph -r @ -T ${"description.first_line()"}`
+        .cwd(root)
+        .quiet()
+        .nothrow();
+    if (log.exitCode !== 0) return null;
+    workingCopy = log.stdout.toString().trim();
+  } catch {
+    return null;
+  }
   return {
     root,
-    workingCopy: log.stdout.toString().trim(),
+    workingCopy,
     reviews: await countReviews(root, dataDir),
     openedAt,
   };
