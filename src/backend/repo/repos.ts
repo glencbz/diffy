@@ -1,8 +1,15 @@
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[init]
+
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
 import * as z from "zod";
+import {
+  type FoundRepo,
+  type Probe,
+  RecentEntry,
+  type RepoSummary,
+} from "../../model/repo";
 import type { Host } from "../host/host";
 import {
   openReviewStore,
@@ -45,12 +52,6 @@ export class DefaultRepo {
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[1]
-
-/** What a path turned out to be, by the root of the repository holding it. */
-export type Probe =
-  | { kind: "jj"; root: string }
-  | { kind: "git"; root: string }
-  | { kind: "none" };
 
 export function expandHome(path: string, home: string): string {
   if (path === "~") return home;
@@ -113,12 +114,6 @@ export async function startingRepo(
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[3]
 
-export const RecentEntry = z.object({
-  root: z.string(),
-  openedAt: z.string(),
-});
-export type RecentEntry = z.infer<typeof RecentEntry>;
-
 const RECENT_LIMIT = 20;
 
 export function withOpened(
@@ -179,14 +174,6 @@ export class RecentRepos {
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[4]
 
-export interface RepoSummary {
-  root: string;
-  /** The first line of the working copy's description, empty if it has none. */
-  workingCopy: string;
-  reviews: number;
-  openedAt: string | null;
-}
-
 export async function summarize(
   root: string,
   openedAt: string | null,
@@ -222,11 +209,6 @@ async function countReviews(root: string, dataDir: string): Promise<number> {
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/backend/repos.md#backend-repos>>[5]
-
-export interface FoundRepo {
-  root: string;
-  kind: "jj" | "git";
-}
 
 const SKIPPED = new Set(["node_modules", "vendor", "target", "dist", "build"]);
 

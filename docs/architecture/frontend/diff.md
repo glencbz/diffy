@@ -1307,6 +1307,7 @@ ranges come from differs. A hunk header with no jump left goes away.
 ```ts
 //| id: frontend-view-diff-drawn-lines
 //| file: src/frontend/views/DiffView/FileRow/drawnLines.ts
+
 import type { FileDiff, StructuralDiff } from "../../../../model/diff";
 import {
   gapsOf,
@@ -1315,11 +1316,8 @@ import {
   readPatch,
 } from "../../../../model/patch";
 import type { LineAnchor } from "../../../../model/review";
-import type {
-  SourceFile,
-  SourceLookup,
-  SyntaxToken,
-} from "../../../model/source";
+import type { SourceFile, SyntaxToken } from "../../../../model/source";
+import type { SourceLookup } from "../../../model/source";
 import {
   changedLines,
   markable,
@@ -3574,7 +3572,7 @@ being re-paired. `paintWords` cuts syntax tokens at the ranges.
 //| file: src/frontend/model/words.ts
 
 import type { HunkLine } from "../../model/patch";
-import type { SyntaxKind, SyntaxToken } from "./source";
+import type { SyntaxKind, SyntaxToken } from "../../model/source";
 
 /** Characters `start` up to, not including, `end` of a line. */
 export interface Range {

@@ -39,9 +39,10 @@ are changing.
 
 ### transport
 
-`api.ts` holds one Zod schema and one wrapper per endpoint and parses every
-response, so a backend shape drifting fails at the fetch with a named error
-rather than reaching a view as `undefined`. Wrappers return `model/` types.
+`api.ts` holds one wrapper per endpoint and parses every response with the
+schema the server answered from, so a backend shape drifting fails at the
+fetch with a named error rather than reaching a view as `undefined`.
+Wrappers return `model/` types.
 Commits are named by id, never a revset or change id, because an id means the
 same commit at every operation; an optional `atOperation` reads history at
 that operation. See [transport](transport.md).

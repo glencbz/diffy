@@ -14,33 +14,11 @@ first character, so `~/src` opens a folder while `src` narrows the list.
 ```ts
 //| id: frontend-model-repo
 //| file: src/frontend/model/repo.ts
-export interface ServedRepo {
-  home: string;
-  /** The workspace this tab reads, or null before the reader picks one. */
-  current: string | null;
-}
+import type { Probe } from "../../model/repo";
 
-export interface RepoSummary {
-  root: string;
-  workingCopy: string;
-  reviews: number;
-  openedAt: string | null;
-}
-
-export interface FoundRepo {
-  root: string;
-  kind: "jj" | "git";
-}
-
-export interface RecentEntry {
-  root: string;
-  openedAt: string;
-}
-
-export type RepoProbe =
-  | { kind: "jj" | "git"; root: string }
-  | { kind: "none" }
-  | { kind: "checking" };
+/** What the path in the picker turned out to be, or that the server is
+ *  still looking. */
+export type RepoProbe = Probe | { kind: "checking" };
 
 export function tildePath(path: string, home: string): string {
   if (path === home) return "~";
@@ -172,6 +150,7 @@ place would need every hook to know about the switch.
 ```tsx
 //| id: frontend-state-repo
 //| file: src/frontend/state/repo.ts
+
 import {
   createContext,
   useCallback,
@@ -181,6 +160,12 @@ import {
   useState,
 } from "react";
 import type { AsyncState } from "../../model/asyncState";
+import type {
+  FoundRepo,
+  RecentEntry,
+  RepoSummary,
+  ServedRepo,
+} from "../../model/repo";
 import {
   fetchFoundRepos,
   fetchRecentRepos,
@@ -191,14 +176,7 @@ import {
   restoreRecentRepo,
 } from "../api";
 import { readRepo, withRepo } from "../model/place";
-import {
-  type FoundRepo,
-  isPathQuery,
-  type RecentEntry,
-  type RepoProbe,
-  type RepoSummary,
-  type ServedRepo,
-} from "../model/repo";
+import { isPathQuery, type RepoProbe } from "../model/repo";
 
 export interface RepoHandle {
   served: AsyncState<ServedRepo>;
@@ -391,15 +369,14 @@ keys move through every row that can be opened, the typed path first.
 ```tsx
 //| id: frontend-view-repo-list
 //| file: src/frontend/views/RepoList.tsx
+
 import { useEffect, useRef, useState } from "react";
 import type { AsyncState } from "../../model/asyncState";
+import type { FoundRepo, RecentEntry, RepoSummary } from "../../model/repo";
 import {
-  type FoundRepo,
   matchesQuery,
   pathParts,
-  type RecentEntry,
   type RepoProbe,
-  type RepoSummary,
   since,
   tildePath,
 } from "../model/repo";

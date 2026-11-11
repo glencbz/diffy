@@ -1,9 +1,10 @@
 // ~/~ begin <<docs/architecture/backend/compare.md#compare-module-test>>[init]
+
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
+import { GitOid } from "../../model/history";
 import { FIXED } from "../../testing/history";
 import { beforePaths, CompareError, compareFiles } from "./compare";
-import { GitOid } from "./git";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();

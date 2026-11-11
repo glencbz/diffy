@@ -1,8 +1,10 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-series>>[init]
+
 import * as z from "zod";
+import type { ServedFileDiff } from "../../model/diff";
 import { localReview, localSeries } from "../../model/review";
 import { gitFiles } from "../commit/git";
-import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
+import { JjError, jjCommits, jjDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
 import { ToolError } from "./mcp";
 
@@ -32,7 +34,7 @@ export interface SeriesTarget {
 /** Where a tool reads a series and its commits from. */
 export interface SeriesSources {
   local: (name: string) => Promise<SeriesTarget>;
-  diff: (commitId: string) => Promise<JjFileDiff[]>;
+  diff: (commitId: string) => Promise<ServedFileDiff[]>;
   /** Every file of a revision git names, such as `<commit id>^`. */
   files: (revision: string) => Promise<string[]>;
 }
@@ -96,7 +98,7 @@ export function short(commit: SeriesCommit): string {
   return (commit.changeId ?? commit.commitId).slice(0, 8);
 }
 
-export function pathsOf(file: JjFileDiff): string[] {
+export function pathsOf(file: ServedFileDiff): string[] {
   return "path" in file ? [file.path] : [file.oldPath, file.newPath];
 }
 

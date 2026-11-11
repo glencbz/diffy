@@ -15,30 +15,16 @@ Highlighting is synchronous and holds the event loop, so a file past
 `MAX_HIGHLIGHT_BYTES` comes back plain rather than stalling every other
 request.
 
+The browser reads the same shapes, so they are declared once in the shared
+model and the `/api/source` response is parsed against them.
+
 ```ts
-//| id: backend-syntax
-//| file: src/backend/syntax/highlight.ts
-import {
-  type BundledLanguage,
-  bundledLanguages,
-  createCssVariablesTheme,
-  createHighlighter,
-  type Highlighter,
-} from "shiki";
+//| id: model-source
+//| file: src/model/source.ts
+import * as z from "zod";
 
 /** What a token is, as Shiki's CSS variables theme sorts tokens. */
-export type SyntaxKind =
-  | "keyword"
-  | "string"
-  | "string-expression"
-  | "comment"
-  | "constant"
-  | "function"
-  | "parameter"
-  | "punctuation"
-  | "link";
-
-const KINDS: ReadonlySet<string> = new Set<SyntaxKind>([
+export const SyntaxKind = z.enum([
   "keyword",
   "string",
   "string-expression",
@@ -49,20 +35,43 @@ const KINDS: ReadonlySet<string> = new Set<SyntaxKind>([
   "punctuation",
   "link",
 ]);
+export type SyntaxKind = z.infer<typeof SyntaxKind>;
 
 /** A run of one line. `kind` is null for text in the default foreground. */
-export interface SyntaxToken {
-  text: string;
-  kind: SyntaxKind | null;
-}
+export const SyntaxToken = z.object({
+  text: z.string(),
+  kind: SyntaxKind.nullable(),
+});
+export type SyntaxToken = z.infer<typeof SyntaxToken>;
 
 /** One side of a file, a line at a time. Concatenating a line's tokens gives
  *  back that line exactly. */
-export interface SourceFile {
+export const SourceFile = z.object({
   /** The Shiki language it was highlighted as, or null for plain text. */
-  language: string | null;
-  lines: SyntaxToken[][];
-}
+  language: z.string().nullable(),
+  lines: z.array(z.array(SyntaxToken)),
+});
+export type SourceFile = z.infer<typeof SourceFile>;
+```
+
+```ts
+//| id: backend-syntax
+//| file: src/backend/syntax/highlight.ts
+
+import {
+  type BundledLanguage,
+  bundledLanguages,
+  createCssVariablesTheme,
+  createHighlighter,
+  type Highlighter,
+} from "shiki";
+import {
+  type SourceFile,
+  SyntaxKind,
+  type SyntaxToken,
+} from "../../model/source";
+
+const KINDS: ReadonlySet<string> = new Set(SyntaxKind.options);
 
 /** Extensions Shiki's language ids and aliases do not already cover. */
 const EXTENSIONS: Record<string, BundledLanguage> = {

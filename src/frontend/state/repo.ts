@@ -1,4 +1,5 @@
 // ~/~ begin <<docs/architecture/frontend/repos.md#frontend-state-repo>>[init]
+
 import {
   createContext,
   useCallback,
@@ -8,6 +9,12 @@ import {
   useState,
 } from "react";
 import type { AsyncState } from "../../model/asyncState";
+import type {
+  FoundRepo,
+  RecentEntry,
+  RepoSummary,
+  ServedRepo,
+} from "../../model/repo";
 import {
   fetchFoundRepos,
   fetchRecentRepos,
@@ -18,14 +25,7 @@ import {
   restoreRecentRepo,
 } from "../api";
 import { readRepo, withRepo } from "../model/place";
-import {
-  type FoundRepo,
-  isPathQuery,
-  type RecentEntry,
-  type RepoProbe,
-  type RepoSummary,
-  type ServedRepo,
-} from "../model/repo";
+import { isPathQuery, type RepoProbe } from "../model/repo";
 
 export interface RepoHandle {
   served: AsyncState<ServedRepo>;

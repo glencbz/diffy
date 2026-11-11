@@ -3762,6 +3762,7 @@ export function Groups({
 ```tsx
 //| id: frontend-view-components-peek
 //| file: src/frontend/views/Components/Peek.tsx
+
 import type { ReactNode } from "react";
 import type { AsyncState } from "../../../model/asyncState";
 import {
@@ -3773,7 +3774,8 @@ import {
 import type { FileDiff } from "../../../model/diff";
 import { type HunkLine, readPatch } from "../../../model/patch";
 import type { Comment } from "../../../model/review";
-import type { SourceFile, SourceLookup, SyntaxToken } from "../../model/source";
+import type { SourceFile, SyntaxToken } from "../../../model/source";
+import type { SourceLookup } from "../../model/source";
 import { sidesOf } from "../DiffView/FileRow/drawnLines";
 
 /** What a peek shows: a component's lines in some diff, its threads, or

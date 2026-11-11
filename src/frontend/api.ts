@@ -1,136 +1,22 @@
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[init]
+
 import * as z from "zod";
-import type { FileDiff, InterdiffResponse } from "../model/diff";
 import {
-  type GitCommit,
-  GitOid,
-  type LogEntry,
-  type OpLogEntry,
-} from "../model/history";
+  type FileDiff,
+  InterdiffResponse,
+  ServedFileDiff,
+} from "../model/diff";
+import { GitCommit, LogEntry, OpLogEntry } from "../model/history";
+import {
+  FoundRepo,
+  Probe,
+  RecentEntry,
+  RepoSummary,
+  ServedRepo,
+} from "../model/repo";
+import { SourceFile } from "../model/source";
 import type { CompareAsk } from "./model/compared";
-import {
-  type FoundRepo,
-  inWorkspace,
-  type RecentEntry,
-  type RepoProbe,
-  type RepoSummary,
-  type ServedRepo,
-} from "./model/repo";
-import type { SourceFile } from "./model/source";
-
-const commitRef = z.object({
-  kind: z.enum(["bookmark", "tag", "working-copy"]),
-  name: z.string(),
-});
-
-const commitMarker = z.enum([
-  "working-copy",
-  "empty",
-  "conflict",
-  "divergent",
-  "hidden",
-]);
-
-const logEntry = z.object({
-  commitId: z.string(),
-  changeId: z.string().nullable(),
-  description: z.string(),
-  parents: z.array(z.string()),
-  author: z.string(),
-  timestamp: z.string(),
-  refs: z.array(commitRef),
-  markers: z.array(commitMarker),
-});
-
-const opLogEntry = z.object({
-  id: z.string(),
-  description: z.string(),
-  time: z.string(),
-  args: z.string(),
-});
-
-const changedRange = z.object({ start: z.number(), end: z.number() });
-
-const structuralDiff = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("structural"),
-    language: z.string(),
-    hunks: z.array(
-      z.object({
-        header: z.string(),
-        newStart: z.number(),
-        oldStart: z.number(),
-        lines: z.array(
-          z.discriminatedUnion("kind", [
-            z.object({
-              kind: z.literal("context"),
-              code: z.string(),
-              newLine: z.number(),
-              oldLine: z.number().optional(),
-            }),
-            z.object({
-              kind: z.literal("removed"),
-              code: z.string(),
-              oldLine: z.number(),
-              changes: z.array(changedRange),
-            }),
-            z.object({
-              kind: z.literal("added"),
-              code: z.string(),
-              newLine: z.number(),
-              changes: z.array(changedRange),
-            }),
-          ]),
-        ),
-      }),
-    ),
-  }),
-  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
-]);
-
-const fileDiffFields = {
-  binary: z.boolean(),
-  oldBlob: z.string().nullable(),
-  newBlob: z.string().nullable(),
-  patch: z.string(),
-  structural: structuralDiff,
-};
-
-const fileDiff = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("added"), path: z.string(), ...fileDiffFields }),
-  z.object({
-    status: z.literal("deleted"),
-    path: z.string(),
-    ...fileDiffFields,
-  }),
-  z.object({
-    status: z.literal("modified"),
-    path: z.string(),
-    ...fileDiffFields,
-  }),
-  z.object({
-    status: z.literal("renamed"),
-    oldPath: z.string(),
-    newPath: z.string(),
-    ...fileDiffFields,
-  }),
-  z.object({
-    status: z.literal("copied"),
-    oldPath: z.string(),
-    newPath: z.string(),
-    ...fileDiffFields,
-  }),
-]);
-
-const interdiffResponse = z.object({
-  rows: z.array(
-    z.object({
-      from: logEntry.nullable(),
-      to: logEntry.nullable(),
-      files: z.array(fileDiff),
-    }),
-  ),
-});
+import { inWorkspace, type RepoProbe } from "./model/repo";
 
 const errorResponse = z.object({ error: z.string() });
 
@@ -153,7 +39,7 @@ export async function fetchOperations(
   workspace: string,
 ): Promise<OpLogEntry[]> {
   return z
-    .array(opLogEntry)
+    .array(OpLogEntry)
     .parse(
       await getJson(
         inWorkspace("/api/operations", workspace),
@@ -174,7 +60,7 @@ export async function fetchLog(
   if (revset !== undefined) params.set("revset", revset);
   const query = params.size > 0 ? `?${params}` : "";
   return z
-    .array(logEntry)
+    .array(LogEntry)
     .parse(
       await getJson(inWorkspace(`/api/log${query}`, workspace), "GET /api/log"),
     );
@@ -188,7 +74,7 @@ export async function fetchInterdiff(
   const params = new URLSearchParams();
   for (const commitId of from) params.append("from", commitId);
   for (const commitId of to) params.append("to", commitId);
-  return interdiffResponse.parse(
+  return InterdiffResponse.parse(
     await getJson(
       inWorkspace(`/api/interdiff?${params}`, workspace),
       "GET /api/interdiff",
@@ -198,46 +84,13 @@ export async function fetchInterdiff(
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[1]
 
-const gitCommit = z.object({
-  commitId: GitOid,
-  parents: z.array(GitOid),
-  description: z.string(),
-  author: z.string(),
-  authoredAt: z.string(),
-  changeId: z.string().nullable(),
-});
-// ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[2]
-
-const syntaxToken = z.object({
-  text: z.string(),
-  kind: z
-    .enum([
-      "keyword",
-      "string",
-      "string-expression",
-      "comment",
-      "constant",
-      "function",
-      "parameter",
-      "punctuation",
-      "link",
-    ])
-    .nullable(),
-});
-
-const sourceFile = z.object({
-  language: z.string().nullable(),
-  lines: z.array(z.array(syntaxToken)),
-});
-
 export async function fetchSource(
   workspace: string,
   blob: string,
   path: string,
 ): Promise<SourceFile> {
   const params = new URLSearchParams({ blob, path });
-  return sourceFile.parse(
+  return SourceFile.parse(
     await getJson(
       inWorkspace(`/api/source?${params}`, workspace),
       "GET /api/source",
@@ -245,7 +98,7 @@ export async function fetchSource(
   );
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[3]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[2]
 
 /** `ask.newPath` on the row's after side, read against `ask.oldPath` on its
  *  before side. */
@@ -260,7 +113,7 @@ export async function fetchCompared(
   });
   if (ask.fromCommit !== null) params.set("fromCommit", ask.fromCommit);
   const { file } = z
-    .object({ file: fileDiff })
+    .object({ file: ServedFileDiff })
     .parse(
       await getJson(
         inWorkspace(`/api/compare?${params}`, workspace),
@@ -291,7 +144,7 @@ export async function fetchBeforePaths(
     ).paths;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[3]
 
 /** The commits `ids` name, in that order. */
 export async function fetchLocalCommits(
@@ -300,7 +153,7 @@ export async function fetchLocalCommits(
 ): Promise<GitCommit[]> {
   const params = new URLSearchParams(ids.map((id) => ["id", id]));
   return z
-    .array(gitCommit)
+    .array(GitCommit)
     .parse(
       await getJson(
         inWorkspace(`/api/local/commits?${params}`, workspace),
@@ -309,7 +162,7 @@ export async function fetchLocalCommits(
     );
 }
 
-const filesResponse = z.object({ files: z.array(fileDiff) });
+const filesResponse = z.object({ files: z.array(ServedFileDiff) });
 
 /** One row of a local review: two commits' interdiff, or one's own diff. */
 export async function fetchLocalDiff(
@@ -340,7 +193,7 @@ export async function fetchLocalSize(
   return filesResponse.parse(body).files;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
 
 /** Register a version of a local review at `operation`, and answer the name
  *  it went under. The review document announces the change to every open
@@ -368,27 +221,7 @@ export async function registerLocalReview(
   return z.object({ name: z.string() }).parse(body).name;
 }
 // ~/~ end
-// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[6]
-
-const servedRepo = z.object({
-  home: z.string(),
-  current: z.string().nullable(),
-});
-const repoSummary = z.object({
-  root: z.string(),
-  workingCopy: z.string(),
-  reviews: z.number(),
-  openedAt: z.string().nullable(),
-});
-const foundRepo = z.object({
-  root: z.string(),
-  kind: z.enum(["jj", "git"]),
-});
-const recentEntry = z.object({ root: z.string(), openedAt: z.string() });
-const repoProbe = z.discriminatedUnion("kind", [
-  z.object({ kind: z.enum(["jj", "git"]), root: z.string() }),
-  z.object({ kind: z.literal("none") }),
-]);
+// ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[5]
 
 /** Send `body` as JSON, turning a refusal into its `error` message. */
 async function sendJson(
@@ -414,24 +247,24 @@ async function sendJson(
 }
 
 export async function fetchServedRepo(): Promise<ServedRepo> {
-  return servedRepo.parse(await getJson("/api/repo", "GET /api/repo"));
+  return ServedRepo.parse(await getJson("/api/repo", "GET /api/repo"));
 }
 
 export async function fetchRecentRepos(): Promise<RepoSummary[]> {
   return z
-    .array(repoSummary)
+    .array(RepoSummary)
     .parse(await getJson("/api/repo/recent", "GET /api/repo/recent"));
 }
 
 export async function fetchFoundRepos(): Promise<FoundRepo[]> {
   return z
-    .array(foundRepo)
+    .array(FoundRepo)
     .parse(await getJson("/api/repo/found", "GET /api/repo/found"));
 }
 
 export async function probeRepoPath(path: string): Promise<RepoProbe> {
   const params = new URLSearchParams({ path });
-  return repoProbe.parse(
+  return Probe.parse(
     await getJson(`/api/repo/probe?${params}`, "GET /api/repo/probe"),
   );
 }
@@ -446,7 +279,7 @@ export async function forgetRecentRepo(
   root: string,
 ): Promise<RecentEntry | null> {
   const answer = await sendJson("DELETE", "/api/repo/recent", { root });
-  return z.object({ removed: recentEntry.nullable() }).parse(answer).removed;
+  return z.object({ removed: RecentEntry.nullable() }).parse(answer).removed;
 }
 
 export async function restoreRecentRepo(entry: RecentEntry): Promise<void> {

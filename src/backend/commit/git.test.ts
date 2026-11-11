@@ -1,8 +1,10 @@
 // ~/~ begin <<docs/architecture/backend/git.md#git-module-test>>[init]
+
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";
+import { BlobId, GitOid } from "../../model/history";
 import { FIXED } from "../../testing/history";
-import { BlobId, GitOid, gitBlob, gitFiles } from "./git";
+import { gitBlob, gitFiles } from "./git";
 
 /** The repository these tests read. */
 const ROOT = process.cwd();

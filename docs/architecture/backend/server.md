@@ -40,10 +40,9 @@ import {
   CompareError,
   compareFiles,
 } from "./backend/commit/compare";
-import { BlobId, GitOid, gitBlob } from "./backend/commit/git";
+import { gitBlob } from "./backend/commit/git";
 import {
   JjError,
-  type JjFileDiff,
   type JjLogEntry,
   jjCommits,
   jjDiff,
@@ -72,6 +71,8 @@ import {
 import { highlightSource } from "./backend/syntax/highlight";
 import index from "./frontend/index.html";
 import { type AlignedPair, alignSeries } from "./model/alignment";
+import type { ServedFileDiff } from "./model/diff";
+import { BlobId, GitOid } from "./model/history";
 import {
   localReview,
   localSeries,
@@ -158,7 +159,7 @@ export async function handleInterdiff(
 function pairFiles(
   root: string,
   pair: AlignedPair<JjLogEntry>,
-): Promise<JjFileDiff[]> {
+): Promise<ServedFileDiff[]> {
   if (pair.from !== null && pair.to !== null) {
     return jjInterdiff(root, {
       from: pair.from.commitId,
