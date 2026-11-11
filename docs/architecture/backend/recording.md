@@ -347,7 +347,7 @@ export function recordingTools(
     tool({
       name: "record_captures",
       description:
-        "Record screenshots or clips of the app for a commit of the newest version of a local review or a pull request, and attach them. Serve the app at the commit and at its parent yourself, each on its own port, and give their addresses. diffy plays each recipe on both sides in a browser, measures each component's element by its selector, and attaches the result as attach_capture would. Write the version's component map first.",
+        "Record screenshots or clips of the app for a commit of the newest version of a local review, and attach them. Serve the app at the commit and at its parent yourself, each on its own port, and give their addresses. diffy plays each recipe on both sides in a browser, measures each component's element by its selector, and attaches the result as attach_capture would. Write the version's component map first.",
       input: z.object({
         ...Target,
         commit: z
@@ -457,8 +457,8 @@ beforeEach(async () => {
   store.apply({
     kind: "write-components",
     map: {
-      series: "pull:o/r#7",
-      version: "h".repeat(40),
+      series: "local:stack",
+      version: "2",
       author: "claude",
       writtenAt: "t",
       components: [
@@ -483,13 +483,12 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const PULL: SeriesSources = {
-  local: () => Promise.reject(new Error("not asked")),
-  pull: async (number) => ({
-    series: `pull:o/r#${number}`,
-    version: "h".repeat(40),
+const LOCAL: SeriesSources = {
+  local: async (name) => ({
+    series: `local:${name}`,
+    version: "2",
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/reviews/${name}`,
     commits: [
       {
         commitId: "aaaa1111",
@@ -524,7 +523,7 @@ const FAKE: Recorder = {
 
 async function record(args: Record<string, unknown>) {
   const route = mcpRoute(
-    recordingTools(EvidenceStore.in(join(dir, "data")), FAKE, () => PULL),
+    recordingTools(EvidenceStore.in(join(dir, "data")), FAKE, () => LOCAL),
     INSTRUCTIONS,
     async () => ({
       repo: { root: "/repo", store, topic: "t" },
@@ -554,13 +553,13 @@ async function record(args: Record<string, unknown>) {
 }
 
 const captures = () =>
-  capturesOf(store.read().document.captures, "pull:o/r#7", "h".repeat(40));
+  capturesOf(store.read().document.captures, "local:stack", "2");
 
 describe("recording", () => {
   test("a clip shows a component from the end of its step", async () => {
     // act
     const answer = await record({
-      pull: 7,
+      review: "stack",
       commit: "aaaa",
       after: "http://localhost:5001",
       before: "http://parent:5002",
@@ -590,7 +589,7 @@ describe("recording", () => {
   test("refuses a selector the commit's page lacks", async () => {
     // act
     const answer = await record({
-      pull: 7,
+      review: "stack",
       commit: "aaaa",
       after: "http://localhost:5001",
       captures: [

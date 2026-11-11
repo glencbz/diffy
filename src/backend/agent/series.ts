@@ -1,24 +1,12 @@
 // ~/~ begin <<docs/architecture/backend/agents.md#backend-agent-series>>[init]
 import * as z from "zod";
-import {
-  localReview,
-  localSeries,
-  pullSeries,
-} from "../../frontend/model/review";
-import { GitError, gitFiles, gitLog, gitMaterialize } from "../commit/git";
-import {
-  GitHubError,
-  githubPullRequestHistory,
-  originRepo,
-  PullNumber,
-  pullPins,
-} from "../commit/github";
+import { localReview, localSeries } from "../../frontend/model/review";
+import { gitFiles } from "../commit/git";
 import { JjError, type JjFileDiff, jjCommits, jjDiff } from "../commit/jj";
 import type { RepoContext } from "../repo/repos";
 import { ToolError } from "./mcp";
 
-/** A commit as a tool names it to the agent. A pull request's commits
- *  have no change ids, so they are named by commit id alone. */
+/** A commit as a tool names it to the agent. */
 export interface SeriesCommit {
   commitId: string;
   changeId: string | null;
@@ -44,7 +32,6 @@ export interface SeriesTarget {
 /** Where a tool reads a series and its commits from. */
 export interface SeriesSources {
   local: (name: string) => Promise<SeriesTarget>;
-  pull: (number: number) => Promise<SeriesTarget>;
   diff: (commitId: string) => Promise<JjFileDiff[]>;
   /** Every file of a revision git names, such as `<commit id>^`. */
   files: (revision: string) => Promise<string[]>;
@@ -83,33 +70,6 @@ export function liveSources({ root, store }: RepoContext): SeriesSources {
         }),
       };
     },
-    pull: async (number) => {
-      const { owner, name } = await originRepo(root);
-      const repo = `${owner}/${name}`;
-      const history = await githubPullRequestHistory(
-        { owner, name },
-        PullNumber.parse(number),
-      );
-      const state = history.states.at(-1);
-      if (state === undefined) throw new ToolError(`#${number} has no head`);
-      const [base, tip] = await gitMaterialize(root, pullPins(history, state));
-      if (base === undefined || tip === undefined) {
-        throw new Error("gitMaterialize returned fewer oids than asked");
-      }
-      const commits = await gitLog(root, { from: base, to: tip, limit: 200 });
-      return {
-        series: pullSeries(repo, number),
-        version: state.head,
-        label: `v${state.version}`,
-        path: `/pulls/${number}`,
-        commits: commits.reverse().map((commit) => ({
-          commitId: commit.commitId,
-          changeId: null,
-          subject: subject(commit.description),
-          description: commit.description,
-        })),
-      };
-    },
     diff: (commitId) => jjDiff(root, { revision: commitId }),
     files: (revision) => gitFiles(root, revision),
   };
@@ -143,34 +103,15 @@ export function pathsOf(file: JjFileDiff): string[] {
 /** The lines a hunk spans on each side, as `[first, last]`. */
 
 export const Target = {
-  review: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("the local review's name, for a local review"),
-  pull: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe("the pull request's number, for a pull request"),
+  review: z.string().min(1).describe("the local review's name"),
 };
 
 export function targetOf(
   sources: SeriesSources,
-  { review, pull }: { review?: string | undefined; pull?: number | undefined },
+  { review }: { review: string },
 ): Promise<SeriesTarget> {
-  if ((review === undefined) === (pull === undefined)) {
-    throw new ToolError("name one of review or pull");
-  }
-  const target =
-    review !== undefined ? sources.local(review) : sources.pull(pull as number);
-  return target.catch((error: unknown) => {
-    if (
-      error instanceof JjError ||
-      error instanceof GitError ||
-      error instanceof GitHubError
-    ) {
+  return sources.local(review).catch((error: unknown) => {
+    if (error instanceof JjError) {
       throw new ToolError(error.message);
     }
     throw error;

@@ -672,7 +672,7 @@ replaces any of its commit's with the same id.
 ### Which file ran
 
 A name a step ran under is matched to a file of the commit the side played,
-read from git so a pull request's commits work too. A name from the app's
+read from git. A name from the app's
 address is the file of the same path. A path on disk, which a bundler's map
 gives, is under whatever folder the app was served from, which the tool is
 never told; it is taken to be the folder most of the paths sit in when read
@@ -1073,13 +1073,12 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const PULL: SeriesSources = {
-  local: () => Promise.reject(new Error("not asked")),
-  pull: async (number) => ({
-    series: `pull:o/r#${number}`,
-    version: "h".repeat(40),
+const LOCAL: SeriesSources = {
+  local: async (name) => ({
+    series: `local:${name}`,
+    version: "2",
     label: "v2",
-    path: `/pulls/${number}`,
+    path: `/reviews/${name}`,
     commits: [
       {
         commitId: "aaaa1111",
@@ -1133,7 +1132,7 @@ const FAKE: Recorder = {
 
 async function call(args: Record<string, unknown>) {
   const route = mcpRoute(
-    runTools(EvidenceStore.in(join(dir, "data")), FAKE, () => PULL),
+    runTools(EvidenceStore.in(join(dir, "data")), FAKE, () => LOCAL),
     INSTRUCTIONS,
     async () => ({
       repo: { root: "/repo", store, topic: "t" },
@@ -1166,7 +1165,7 @@ describe("recording runs", () => {
   test("keeps the steps the parent played, and why it stopped", async () => {
     // act
     const answer = await call({
-      pull: 7,
+      review: "stack",
       commit: "aaaa",
       after: "http://localhost:5001",
       before: "http://parent:5002",
@@ -1183,11 +1182,7 @@ describe("recording runs", () => {
     // assert
     expect(answer.isError).toBe(false);
     expect(answer.text).toContain("ran lines in theme.js");
-    const [run] = runsOf(
-      store.read().document.runs,
-      "pull:o/r#7",
-      "h".repeat(40),
-    );
+    const [run] = runsOf(store.read().document.runs, "local:stack", "2");
     expect(run?.after.steps.map((step) => step.label)).toEqual([
       "open /settings.html",
       "click #dark",
