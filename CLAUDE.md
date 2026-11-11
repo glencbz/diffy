@@ -28,7 +28,8 @@ Default to using Bun instead of Node.js.
 
 Run tests with `just test`. It runs `bun test` inside the pinned `nix`
 runtime, which puts difftastic on the `PATH`; a bare `bun test` fails the
-difftastic tests. Write tests with `bun:test`.
+difftastic tests. Write tests with `bun:test`. Run `just check` before
+submitting: it fails unless the tangle, types, lint and tests all pass.
 
 ## Code
 

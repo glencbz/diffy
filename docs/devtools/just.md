@@ -30,4 +30,6 @@ _default:
 <<just-bun-typecheck>>
 
 <<just-biome>>
+
+<<just-check>>
 ```

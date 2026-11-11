@@ -38,6 +38,46 @@ direction most of the time.
   uv run entangled tangle {{args}}
 ```
 
+### Check
+
+`check` is the one command that proves the tree is healthy. The tangle check
+comes first, because a type error in a stale `src/` is noise. It tangles a
+copy of the docs in a temporary directory and compares the result with the
+committed outputs, so it never touches the working tree. Comparing the whole
+`src/` directory, not only the files the docs name, also reports a file left
+in `src/` that no doc produces any more. `nix/flake.nix` is the one file
+compared from `nix/`, since the directory also holds a hand-written lock file.
+
+```just
+#| id: just-check
+# Prove the tree is healthy: tangle, types, lint and tests all agree
+check: check-tangle typecheck lint test
+
+# Fail unless src/, the justfile and nix/flake.nix match a fresh tangle
+check-tangle:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  cp -r docs entangled.toml "$tmp"
+  # entangled exits 0 after logging an ERROR, so the log decides, not the status.
+  log="$(cd "$tmp" && uv run --project "{{justfile_directory()}}" entangled tangle 2>&1)" || true
+  if grep -q ERROR <<<"$log"; then
+    echo "$log" >&2
+    echo "entangled failed to tangle the docs (not drift in the tree)" >&2
+    exit 1
+  fi
+  drift=0
+  diff -rq "$tmp/src" src || drift=1
+  for file in justfile nix/flake.nix; do
+    diff -q "$tmp/$file" "$file" || drift=1
+  done
+  if [ "$drift" = 1 ]; then
+    echo "tangled output differs from the tree; edit docs/ and run just en-tangle" >&2
+    exit 1
+  fi
+```
+
 ## Docs site
 
 `docs/` doubles as a website, rendered with MkDocs and the Material theme
