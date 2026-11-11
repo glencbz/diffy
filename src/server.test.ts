@@ -26,7 +26,6 @@ import {
   agentListen,
   handleCompare,
   handleComparePaths,
-  handleDiff,
   handleGithubPullCommits,
   handleGithubPullHistory,
   handleGithubPulls,
@@ -115,57 +114,6 @@ describe("handleOperations", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBeGreaterThan(0);
-  });
-});
-
-describe("handleDiff", () => {
-  test("returns the revision and its file diffs", async () => {
-    // arrange
-    // act
-    const res = await handleDiff(
-      new Request(`http://test/api/diff?rev=${FIXED.first}`),
-      REPO,
-    );
-
-    // assert
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { revision: string; files: unknown[] };
-    expect(body.revision).toBe(FIXED.first);
-    expect(body.files.length).toBeGreaterThan(0);
-  });
-
-  test("defaults the revision to @", async () => {
-    // arrange
-    const scratch = await scratchRepo();
-
-    try {
-      // act
-      const res = await handleDiff(new Request("http://test/api/diff"), {
-        ...REPO,
-        root: scratch.root,
-      });
-      const body = (await res.json()) as { revision: string };
-
-      // assert
-      expect(res.status).toBe(200);
-      expect(body.revision).toBe("@");
-    } finally {
-      await scratch.remove();
-    }
-  });
-
-  test("reports an unresolvable revision as 400 with jj's message", async () => {
-    // arrange
-    // act
-    const res = await handleDiff(
-      new Request("http://test/api/diff?rev=no-such-xyz"),
-      REPO,
-    );
-    const body = (await res.json()) as { error: string };
-
-    // assert
-    expect(res.status).toBe(400);
-    expect(body.error).toMatch(/doesn't exist/);
   });
 });
 
