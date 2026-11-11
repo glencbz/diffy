@@ -1,26 +1,22 @@
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[init]
 
 import * as z from "zod";
+import type { FileDiff, InterdiffResponse } from "../model/diff";
+import type { GitCommit, LogEntry, OpLogEntry } from "../model/history";
 import {
-  type FileDiff,
-  InterdiffResponse,
-  ServedFileDiff,
-} from "../model/diff";
-import { GitCommit, LogEntry, OpLogEntry } from "../model/history";
-import {
-  FoundRepo,
-  Probe,
+  type FoundRepo,
   RecentEntry,
-  RepoSummary,
-  ServedRepo,
+  type RepoSummary,
+  type ServedRepo,
 } from "../model/repo";
-import { SourceFile } from "../model/source";
+import { READS, type Read } from "../model/routes";
+import type { SourceFile } from "../model/source";
 import type { CompareAsk } from "./model/compared";
 import { inWorkspace, type RepoProbe } from "./model/repo";
 
 const errorResponse = z.object({ error: z.string() });
 
-/** GET a jj-backed endpoint, turning a 400 into its `error` message. */
+/** GET `url`, turning a refusal into its `error` message. */
 async function getJson(url: string, label: string): Promise<unknown> {
   const res = await fetch(url);
   const body: unknown = await res.json();
@@ -35,22 +31,26 @@ async function getJson(url: string, label: string): Promise<unknown> {
   return body;
 }
 
-export async function fetchOperations(
-  workspace: string,
-): Promise<OpLogEntry[]> {
-  return z
-    .array(OpLogEntry)
-    .parse(
-      await getJson(
-        inWorkspace("/api/operations", workspace),
-        "GET /api/operations",
-      ),
-    );
+/** Ask the server for `route`, of `workspace` when the route reads a
+ *  repository, and parse what it answers. */
+async function read<Answer extends z.ZodType>(
+  route: Read<Answer>,
+  workspace: string | null,
+  params: ConstructorParameters<typeof URLSearchParams>[0] = {},
+): Promise<z.output<Answer>> {
+  const query = new URLSearchParams(params);
+  if (workspace !== null) query.set("workspace", workspace);
+  const url = query.size > 0 ? `${route.path}?${query}` : route.path;
+  return route.answer.parse(await getJson(url, `GET ${route.path}`));
+}
+
+export function fetchOperations(workspace: string): Promise<OpLogEntry[]> {
+  return read(READS.operations, workspace);
 }
 
 /** The log at `atOperation`, or, given a `revset`, only what it names
  *  there. */
-export async function fetchLog(
+export function fetchLog(
   workspace: string,
   atOperation?: string,
   revset?: string,
@@ -58,15 +58,10 @@ export async function fetchLog(
   const params = new URLSearchParams();
   if (atOperation) params.set("op", atOperation);
   if (revset !== undefined) params.set("revset", revset);
-  const query = params.size > 0 ? `?${params}` : "";
-  return z
-    .array(LogEntry)
-    .parse(
-      await getJson(inWorkspace(`/api/log${query}`, workspace), "GET /api/log"),
-    );
+  return read(READS.log, workspace, params);
 }
 
-export async function fetchInterdiff(
+export function fetchInterdiff(
   workspace: string,
   from: string[],
   to: string[],
@@ -74,28 +69,17 @@ export async function fetchInterdiff(
   const params = new URLSearchParams();
   for (const commitId of from) params.append("from", commitId);
   for (const commitId of to) params.append("to", commitId);
-  return InterdiffResponse.parse(
-    await getJson(
-      inWorkspace(`/api/interdiff?${params}`, workspace),
-      "GET /api/interdiff",
-    ),
-  );
+  return read(READS.interdiff, workspace, params);
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[1]
 
-export async function fetchSource(
+export function fetchSource(
   workspace: string,
   blob: string,
   path: string,
 ): Promise<SourceFile> {
-  const params = new URLSearchParams({ blob, path });
-  return SourceFile.parse(
-    await getJson(
-      inWorkspace(`/api/source?${params}`, workspace),
-      "GET /api/source",
-    ),
-  );
+  return read(READS.source, workspace, { blob, path });
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[2]
@@ -112,14 +96,7 @@ export async function fetchCompared(
     newPath: ask.newPath,
   });
   if (ask.fromCommit !== null) params.set("fromCommit", ask.fromCommit);
-  const { file } = z
-    .object({ file: ServedFileDiff })
-    .parse(
-      await getJson(
-        inWorkspace(`/api/compare?${params}`, workspace),
-        "GET /api/compare",
-      ),
-    );
+  const { file } = await read(READS.compare, workspace, params);
   if ("path" in file) {
     throw new Error(`GET /api/compare answered a ${file.status} file`);
   }
@@ -134,35 +111,22 @@ export async function fetchBeforePaths(
 ): Promise<string[]> {
   const params = new URLSearchParams({ toCommit });
   if (fromCommit !== null) params.set("fromCommit", fromCommit);
-  return z
-    .object({ paths: z.array(z.string()) })
-    .parse(
-      await getJson(
-        inWorkspace(`/api/compare/paths?${params}`, workspace),
-        "GET /api/compare/paths",
-      ),
-    ).paths;
+  return (await read(READS.comparePaths, workspace, params)).paths;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[3]
 
 /** The commits `ids` name, in that order. */
-export async function fetchLocalCommits(
+export function fetchLocalCommits(
   workspace: string,
   ids: string[],
 ): Promise<GitCommit[]> {
-  const params = new URLSearchParams(ids.map((id) => ["id", id]));
-  return z
-    .array(GitCommit)
-    .parse(
-      await getJson(
-        inWorkspace(`/api/local/commits?${params}`, workspace),
-        "GET /api/local/commits",
-      ),
-    );
+  return read(
+    READS.localCommits,
+    workspace,
+    ids.map((id) => ["id", id]),
+  );
 }
-
-const filesResponse = z.object({ files: z.array(ServedFileDiff) });
 
 /** One row of a local review: two commits' interdiff, or one's own diff. */
 export async function fetchLocalDiff(
@@ -173,11 +137,7 @@ export async function fetchLocalDiff(
   const params = new URLSearchParams();
   if (fromCommit !== null) params.set("fromCommit", fromCommit);
   if (toCommit !== null) params.set("toCommit", toCommit);
-  const body = await getJson(
-    inWorkspace(`/api/local/diff?${params}`, workspace),
-    "GET /api/local/diff",
-  );
-  return filesResponse.parse(body).files;
+  return (await read(READS.localDiff, workspace, params)).files;
 }
 
 /** Everything the commits `ids` change together. */
@@ -185,12 +145,12 @@ export async function fetchLocalSize(
   workspace: string,
   ids: string[],
 ): Promise<FileDiff[]> {
-  const params = new URLSearchParams(ids.map((id) => ["id", id]));
-  const body = await getJson(
-    inWorkspace(`/api/local/size?${params}`, workspace),
-    "GET /api/local/size",
+  const files = await read(
+    READS.localSize,
+    workspace,
+    ids.map((id) => ["id", id]),
   );
-  return filesResponse.parse(body).files;
+  return files.files;
 }
 // ~/~ end
 // ~/~ begin <<docs/architecture/frontend/transport.md#frontend-api>>[4]
@@ -247,26 +207,19 @@ async function sendJson(
 }
 
 export async function fetchServedRepo(): Promise<ServedRepo> {
-  return ServedRepo.parse(await getJson("/api/repo", "GET /api/repo"));
+  return read(READS.repo, null);
 }
 
 export async function fetchRecentRepos(): Promise<RepoSummary[]> {
-  return z
-    .array(RepoSummary)
-    .parse(await getJson("/api/repo/recent", "GET /api/repo/recent"));
+  return read(READS.recentRepos, null);
 }
 
 export async function fetchFoundRepos(): Promise<FoundRepo[]> {
-  return z
-    .array(FoundRepo)
-    .parse(await getJson("/api/repo/found", "GET /api/repo/found"));
+  return read(READS.foundRepos, null);
 }
 
 export async function probeRepoPath(path: string): Promise<RepoProbe> {
-  const params = new URLSearchParams({ path });
-  return Probe.parse(
-    await getJson(`/api/repo/probe?${params}`, "GET /api/repo/probe"),
-  );
+  return read(READS.repoProbe, null, { path });
 }
 
 /** Serve the repository holding `path`, and answer its root. */

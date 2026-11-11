@@ -15,8 +15,68 @@ A just rule runs the backend:
 Handlers and the route table are exported so tests call them without a
 port; only [the command line](cli.md) binds one. `just run` keeps dev mode
 and hot reload; a server shared through the proxy needs production mode (see
-[serving](../../devtools/serving.md)). `jjJson` turns a `JjError` into a 400
-for every jj-backed route.
+[serving](../../devtools/serving.md)). A handler body that throws what the
+caller or the repository got wrong, such as a `JjError` or a failed parse,
+answers 400 with the reason; anything else is diffy's own fault and a 500.
+
+### What each read answers
+
+`READS` names every read the browser asks for: its path, and the schema of
+what comes back. Both ends work from it. A handler answers through `answer`,
+which takes the route and so type-checks what the handler built against the
+schema, and [`api.ts`](../frontend/transport.md) parses the response with the
+same one. A path or a shape written on each side separately can drift, and
+only the browser finds out, at run time.
+
+Writes are not in the table. Each takes a body and answers in its own way,
+and there are few enough to read one at a time.
+
+```ts
+//| id: model-routes
+//| file: src/model/routes.ts
+import * as z from "zod";
+import { InterdiffResponse, ServedFileDiff } from "./diff";
+import { GitCommit, LogEntry, OpLogEntry } from "./history";
+import { FoundRepo, Probe, RepoSummary, ServedRepo } from "./repo";
+import { SourceFile } from "./source";
+
+/** One read the browser asks of the server: where, and what comes back. */
+export interface Read<Answer extends z.ZodType> {
+  path: `/api/${string}`;
+  answer: Answer;
+}
+
+/** What a handler has to build to answer `Route`. */
+export type Answer<Route extends Read<z.ZodType>> = z.input<Route["answer"]>;
+
+function read<Answer extends z.ZodType>(
+  path: `/api/${string}`,
+  answer: Answer,
+): Read<Answer> {
+  return { path, answer };
+}
+
+const Files = z.object({ files: z.array(ServedFileDiff) });
+
+export const READS = {
+  log: read("/api/log", z.array(LogEntry)),
+  operations: read("/api/operations", z.array(OpLogEntry)),
+  interdiff: read("/api/interdiff", InterdiffResponse),
+  source: read("/api/source", SourceFile),
+  compare: read("/api/compare", z.object({ file: ServedFileDiff })),
+  comparePaths: read(
+    "/api/compare/paths",
+    z.object({ paths: z.array(z.string()) }),
+  ),
+  localCommits: read("/api/local/commits", z.array(GitCommit)),
+  localDiff: read("/api/local/diff", Files),
+  localSize: read("/api/local/size", Files),
+  repo: read("/api/repo", ServedRepo),
+  repoProbe: read("/api/repo/probe", Probe),
+  recentRepos: read("/api/repo/recent", z.array(RepoSummary)),
+  foundRepos: read("/api/repo/found", z.array(FoundRepo)),
+};
+```
 
 ```ts
 //| id: backend-server
@@ -79,17 +139,39 @@ import {
   ReviewCommand,
   type ReviewDocument,
 } from "./model/review";
+import { type Answer, READS, type Read } from "./model/routes";
 
-/** Run a jj-backed handler body; a rejected revset/operation becomes a 400. */
-async function jjJson(build: () => Promise<unknown>): Promise<Response> {
-  try {
-    return Response.json(await build());
-  } catch (error) {
-    if (error instanceof JjError) {
-      return Response.json({ error: error.message }, { status: 400 });
-    }
-    throw error;
+/** What the caller or the repository got wrong, or null for a fault of
+ *  diffy's own. */
+function refusalOf(error: unknown): string | null {
+  if (error instanceof z.ZodError) return z.prettifyError(error);
+  if (
+    error instanceof JjError ||
+    error instanceof CompareError ||
+    error instanceof RegistrationError
+  ) {
+    return error.message;
   }
+  return null;
+}
+
+/** Run a handler body; a refusal becomes a 400 that says why. */
+async function orRefuse(build: () => Promise<Response>): Promise<Response> {
+  try {
+    return await build();
+  } catch (error) {
+    const refusal = refusalOf(error);
+    if (refusal === null) throw error;
+    return Response.json({ error: refusal }, { status: 400 });
+  }
+}
+
+/** Answer `route` with what `build` makes, which has to fit its schema. */
+function answer<Route extends Read<z.ZodType>>(
+  _route: Route,
+  build: () => Promise<Answer<Route>>,
+): Promise<Response> {
+  return orRefuse(async () => Response.json(await build()));
 }
 
 export function handleLog(
@@ -99,7 +181,7 @@ export function handleLog(
   const params = new URL(req.url).searchParams;
   const atOperation = params.get("op") ?? undefined;
   const revset = params.get("revset") ?? undefined;
-  return jjJson(() => jjLog(root, { revset, atOperation }));
+  return answer(READS.log, () => jjLog(root, { revset, atOperation }));
 }
 
 export function handleOperations(
@@ -107,7 +189,9 @@ export function handleOperations(
   { root }: RepoContext,
 ): Promise<Response> {
   // The one read that snapshots: live refresh sees an edit as an operation.
-  return jjJson(() => jjOpLog(root, { limit: 200, snapshot: true }));
+  return answer(READS.operations, () =>
+    jjOpLog(root, { limit: 200, snapshot: true }),
+  );
 }
 ```
 
@@ -136,7 +220,7 @@ export async function handleInterdiff(
   }
 
   // Rows run concurrently, one jj process each.
-  return jjJson(async () => {
+  return answer(READS.interdiff, async () => {
     const commits = await jjCommits(root, [...from, ...to]);
     const series = (ids: string[]): JjLogEntry[] =>
       ids.flatMap((id) => {
@@ -208,7 +292,7 @@ export async function handleSource(
     );
   }
 
-  return Response.json(await highlightSource(text, path));
+  return answer(READS.source, () => highlightSource(text, path));
 }
 ```
 
@@ -237,27 +321,12 @@ function compareSides(params: URLSearchParams) {
   return { from: fromCommit, to: toCommit };
 }
 
-/** Run a compare handler body; a bad commit or path is the caller's to fix. */
-async function compareJson(build: () => Promise<unknown>): Promise<Response> {
-  try {
-    return Response.json(await build());
-  } catch (error) {
-    if (error instanceof CompareError) {
-      return Response.json({ error: error.message }, { status: 400 });
-    }
-    if (error instanceof z.ZodError) {
-      return Response.json({ error: z.prettifyError(error) }, { status: 400 });
-    }
-    throw error;
-  }
-}
-
 export function handleCompare(
   req: Request,
   { root }: RepoContext,
 ): Promise<Response> {
   const params = new URL(req.url).searchParams;
-  return compareJson(async () => {
+  return answer(READS.compare, async () => {
     const oldPath = z.string().min(1).parse(params.get("oldPath"));
     const newPath = z.string().min(1).parse(params.get("newPath"));
     return {
@@ -271,7 +340,7 @@ export function handleComparePaths(
   { root }: RepoContext,
 ): Promise<Response> {
   const params = new URL(req.url).searchParams;
-  return compareJson(async () => ({
+  return answer(READS.comparePaths, async () => ({
     paths: await beforePaths(root, compareSides(params)),
   }));
 }
@@ -465,27 +534,9 @@ const RegistrationBody = z.object({
   operation: z.string().min(1).optional(),
 });
 
-/** A local-review body; what the repository refuses becomes a 400. */
-async function localJson(build: () => Promise<unknown>): Promise<Response> {
-  try {
-    return Response.json(await build());
-  } catch (error) {
-    if (
-      error instanceof RegistrationError ||
-      error instanceof JjError ||
-      error instanceof z.ZodError
-    ) {
-      const message =
-        error instanceof z.ZodError ? z.prettifyError(error) : error.message;
-      return Response.json({ error: message }, { status: 400 });
-    }
-    throw error;
-  }
-}
-
 export const localReviewsRoute = (now: () => Date) => ({
   POST: (req: Request, { root, store }: RepoContext) =>
-    localJson(async () => {
+    orRefuse(async () => {
       const asked = RegistrationBody.parse(await req.json().catch(() => ({})));
       const { name, version } = await resolveRegistration(
         root,
@@ -493,10 +544,10 @@ export const localReviewsRoute = (now: () => Date) => ({
         asked,
         now().toISOString(),
       );
-      return {
+      return Response.json({
         name,
         snapshot: store.apply({ kind: "register", name, version }),
-      };
+      });
     }),
 });
 
@@ -505,7 +556,7 @@ export function handleLocalCommits(
   { root }: RepoContext,
 ): Promise<Response> {
   const ids = new URL(req.url).searchParams.getAll("id");
-  return localJson(() => localCommits(root, ids));
+  return answer(READS.localCommits, () => localCommits(root, ids));
 }
 
 export function handleLocalDiff(
@@ -513,7 +564,7 @@ export function handleLocalDiff(
   { root }: RepoContext,
 ): Promise<Response> {
   const params = new URL(req.url).searchParams;
-  return localJson(async () => ({
+  return answer(READS.localDiff, async () => ({
     files: await localDiff(
       root,
       params.get("fromCommit"),
@@ -527,7 +578,9 @@ export function handleLocalSize(
   { root }: RepoContext,
 ): Promise<Response> {
   const ids = new URL(req.url).searchParams.getAll("id");
-  return localJson(async () => ({ files: await localSize(root, ids) }));
+  return answer(READS.localSize, async () => ({
+    files: await localSize(root, ids),
+  }));
 }
 ```
 
@@ -592,12 +645,12 @@ export function routes(
     ...layoutRoutes(LayoutStore.in(host.dataDir)),
     ...evidenceRoutes(evidence),
     "/api/*": () => new Response("Not found", { status: 404 }),
-    "/api/log": inRepo(handleLog),
-    "/api/operations": inRepo(handleOperations),
-    "/api/interdiff": inRepo(handleInterdiff),
-    "/api/source": inRepo(handleSource),
-    "/api/compare": inRepo(handleCompare),
-    "/api/compare/paths": inRepo(handleComparePaths),
+    [READS.log.path]: inRepo(handleLog),
+    [READS.operations.path]: inRepo(handleOperations),
+    [READS.interdiff.path]: inRepo(handleInterdiff),
+    [READS.source.path]: inRepo(handleSource),
+    [READS.compare.path]: inRepo(handleCompare),
+    [READS.comparePaths.path]: inRepo(handleComparePaths),
     "/api/review": {
       GET: inRepo(reviewRoute(listeners).GET),
       POST: inRepo(reviewRoute(listeners).POST),
@@ -610,9 +663,9 @@ export function routes(
       return repo instanceof Response ? repo : reviewChanges(req, server, repo);
     },
     "/api/local/reviews": { POST: inRepo(localReviewsRoute(host.now).POST) },
-    "/api/local/commits": inRepo(handleLocalCommits),
-    "/api/local/diff": inRepo(handleLocalDiff),
-    "/api/local/size": inRepo(handleLocalSize),
+    [READS.localCommits.path]: inRepo(handleLocalCommits),
+    [READS.localDiff.path]: inRepo(handleLocalDiff),
+    [READS.localSize.path]: inRepo(handleLocalSize),
     "/mcp": mcpRoute(
       [
         ...reviewTools(),

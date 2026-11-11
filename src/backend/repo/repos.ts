@@ -9,7 +9,9 @@ import {
   type Probe,
   RecentEntry,
   type RepoSummary,
+  type ServedRepo,
 } from "../../model/repo";
+import { READS } from "../../model/routes";
 import type { Host } from "../host/host";
 import {
   openReviewStore,
@@ -325,14 +327,15 @@ export function repoRoutes(
 ) {
   const foundUnderHome = cachedFind(host);
   return {
-    "/api/repo": {
-      GET: () =>
-        Response.json({
-          // How the per-user server's probe tells diffy from another program.
-          diffy: 1,
+    [READS.repo.path]: {
+      GET: () => {
+        const served: ServedRepo = {
           home: host.home,
           current: defaultRepo.root,
-        }),
+        };
+        // How the per-user server's probe tells diffy from another program.
+        return Response.json({ diffy: 1, ...served });
+      },
       POST: async (req: Request) => {
         const body = OpenBody.safeParse(await req.json().catch(() => null));
         if (!body.success) return refuse("expected { path }");
@@ -344,13 +347,13 @@ export function repoRoutes(
         return Response.json({ root: found.root });
       },
     },
-    "/api/repo/probe": async (req: Request) => {
+    [READS.repoProbe.path]: async (req: Request) => {
       const path = new URL(req.url).searchParams.get("path") ?? "";
-      return Response.json(
-        path === "" ? { kind: "none" } : await probeRepo(path, host.home),
-      );
+      const probe: Probe =
+        path === "" ? { kind: "none" } : await probeRepo(path, host.home);
+      return Response.json(probe);
     },
-    "/api/repo/recent": {
+    [READS.recentRepos.path]: {
       GET: async () =>
         Response.json(await recentSummaries(recent, host.dataDir)),
       DELETE: async (req: Request) => {
@@ -365,11 +368,12 @@ export function repoRoutes(
         return Response.json({ restored: body.data });
       },
     },
-    "/api/repo/found": async () => {
+    [READS.foundRepos.path]: async () => {
       const known = new Set((await recent.read()).map((entry) => entry.root));
-      return Response.json(
-        (await foundUnderHome()).filter((repo) => !known.has(repo.root)),
+      const found: FoundRepo[] = (await foundUnderHome()).filter(
+        (repo) => !known.has(repo.root),
       );
+      return Response.json(found);
     },
   };
 }
