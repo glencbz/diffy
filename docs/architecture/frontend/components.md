@@ -4420,10 +4420,6 @@ export function ComponentsSwitch({
     padding: 0;
     list-style: none;
   }
-  .components-toc__group {
-    padding: var(--space-2) var(--space-2) 0;
-    color: var(--text-faint);
-  }
   .components-toc__entry {
     display: flex;
     gap: var(--space-2);
@@ -4471,7 +4467,7 @@ export function ComponentsSwitch({
     color: var(--text-faint);
     white-space: nowrap;
   }
-  .components-toc > li:not(.components-toc__group) {
+  .components-toc > li {
     display: flex;
     align-items: baseline;
   }
